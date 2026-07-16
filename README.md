@@ -76,3 +76,107 @@ The energy cascading mechanism rigidly couples higher-energy bins to lower-energ
 └── output/
     ├── data/                  # Exported absolute flux data (.txt)
     └── plots/                 # Generated matplotlib figures (.png)
+```
+
+---
+
+## 4. Installation & Dependencies
+
+The code is written in Python 3 and strictly utilizes fast, standard numerical libraries.
+
+**Dependencies:**
+* `numpy`
+* `numba` (Crucial for JIT-compiling the nested momentum/angular cross-section integrals for massive speed-ups).
+* `matplotlib` (For automated 2-panel plotting).
+* `tqdm` (For progress bar rendering).
+
+```bash
+pip install numpy numba matplotlib tqdm
+```
+
+---
+
+## 5. Usage
+
+The script is entirely self-contained. Running it directly will automatically execute the solver using the parameters defined in the JSON configuration file. If the config file does not exist, the script will generate a baseline template automatically.
+
+```bash
+python dark_portal_solver.py
+```
+
+### Example Console Output
+```text
+Created default configuration file: ../config/config_dark_portal.json
+Initializing solver across 1000 coupled energy bins...
+Deploying 12 multiprocessing workers.
+Integrating Spectrum: 100%|██████████████████| 1/1 [00:03<00:00,  3.12s/it]
+
+Flux data saved to: /path/to/output/data/output_flux.txt
+
+Integration Complete. Sample Output (Mid-grid Energy):
+Energy: 3.16e+05 GeV
+Flavor Ratios at Earth [e, mu, tau]: [0.298, 0.351, 0.351]
+
+Plot successfully saved to: /path/to/output/plots/flux_plot.png
+```
+
+---
+
+## 6. Configuration Guide (`config_dark_portal.json`)
+
+The solver is entirely controlled via the JSON configuration file. Below is an exhaustive dictionary of all configurable flags.
+
+### `[cosmology]`
+* `H0_km_s_Mpc` (float): Present-day Hubble constant in km/s/Mpc.
+* `Omega_m` (float): Cosmological matter density parameter.
+* `Omega_L` (float): Cosmological dark energy density parameter.
+* `T_nu0_eV` (float): Present-day temperature of the C$\nu$B in eV.
+* `n_n0_cm3` (float): Present-day cosmological background neutron density in cm$^{-3}$.
+* `n_n_local_cm3` (float): Local environmental neutron density (e.g., Milky Way) in cm$^{-3}$.
+* `m_lightest_eV` (float): Absolute mass of the lightest neutrino eigenstate in eV.
+* `mass_ordering` (str): `"normal"` or `"inverted"`. Dictates how absolute masses are derived from $\Delta m^2$.
+* `eta_e`, `eta_mu`, `eta_tau` (float): Dimensionless flavor asymmetry multipliers for the C$\nu$B. Default is `1.0` (symmetric).
+
+### `[standard_mixing]`
+* `dm21_sq` (float): Solar mass squared difference $\Delta m_{21}^2$ in eV$^2$.
+* `dm31_sq` (float): Atmospheric mass squared difference $\Delta m_{31}^2$ in eV$^2$. *(Code automatically handles the negative sign for inverted ordering).*
+* `th12_deg`, `th13_deg`, `th23_deg` (float): Standard PMNS mixing angles $\theta_{ij}$ in degrees.
+* `d_cp_deg` (float): CP-violating Dirac phase $\delta_{CP}$ in degrees.
+* `use_SM_potential` (bool): If `true`, applies standard MSW coherent scattering $V_{SM}$ near/inside the Earth.
+* `n_e_earth_cm3` (float): Standard matter electron density in cm$^{-3}$ used for $V_{SM}$.
+
+### `[dark_portal]`
+* `u_e`, `u_mu`, `u_tau` (float): Sterile flavor mixing parameters $\vert{}U_{\alpha 4}\vert{}$. Represent the dimensionless magnitude of dark charges.
+* `m_Zd_eV` (float): Mass of the dark vector mediator $Z_D$ in eV.
+* `g_D` (float): Dark gauge coupling constant $g_D$.
+* `epsilon_prime` (float): Effective kinetic mixing parameter $\epsilon'$.
+* `use_debye_screening` (bool): If `true`, applies the C$\nu$B thermal Debye mass $m_D^2$ to the denominator of the LRI potential.
+
+### `[source]`
+* `p_index` (float): Power-law spectral index ($\gamma$) of the injected neutrino spectrum.
+* `Phi_0` (float): Baseline source flux normalization multiplier.
+* `z_max` (float): Maximum redshift to integrate back to (start of injection).
+* `rho_evol` (float): Cosmological source evolution index (modifies the base SFR).
+* `f_e_S`, `f_mu_S`, `f_tau_S` (float): Injection flavor ratios at the source (e.g., `0.333, 0.666, 0.0` for pion decay).
+* `is_antineutrino` (str): 
+  * `"sum"` or `"both"`: Computes $\nu$ and $\bar{\nu}$ separately and sums them (Default for IceCube).
+  * `"true"` or `"antineutrino"`: Computes $\bar{\nu}$ flux only.
+  * `"false"`: Computes $\nu$ flux only.
+
+### `[grid]`
+* `E_min_eV` (float): Minimum observed energy at Earth in eV.
+* `E_max_eV` (float): Maximum observed energy at Earth in eV.
+* `n_E_bins` (int): Number of logarithmically spaced energy bins.
+* `n_z_bins` (int): Number of linearly spaced redshift bins.
+
+### `[output]` & `[execution]`
+* `flux_filename` (str): Target filepath for the output `.txt` data file.
+* `plot_filename` (str): Target filepath for the output `.png` plot.
+* `n_cores` (int): Number of CPU cores to utilize for multiprocessing.
+
+---
+
+## 7. Authors & Citation
+
+**Author:** Mauricio Bustamante  
+If you use this code in academic research, please cite the associated theoretical manuscripts detailing this statistical procedure and propagation framework.
