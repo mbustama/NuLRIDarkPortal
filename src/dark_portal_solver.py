@@ -300,8 +300,8 @@ def step_cosmological_propagation(z: float, dt: float, R_z: float, E_bins: np.nd
                                   p_index: float, Phi_0: float, eta_bg: np.ndarray,
                                   BR: np.ndarray, dE: np.ndarray, 
                                   F_flavor: np.ndarray, Gamma_flavor: np.ndarray, 
-                                  dF_casc_flavor: np.ndarray, U_z_all: np.ndarray, rate_F_sum_arr: np.ndarray,
-                                  precomputed_Gamma_flavor: np.ndarray):
+                                  dF_casc_flavor: np.ndarray, U_z_all: np.ndarray, 
+                                  rate_F_sum_arr: np.ndarray, precomputed_Gamma_flavor: np.ndarray):
     """Executes a single cosmological integration step using pre-allocated buffers and pre-computed rates."""
     N_E = len(E_bins)
     
@@ -311,6 +311,7 @@ def step_cosmological_propagation(z: float, dt: float, R_z: float, E_bins: np.nd
     dF_casc_flavor[:] = 0.0
     rate_F_sum_arr[:] = 0.0
 
+    # First loop: Calculate flavor composition and assign pre-computed interaction rates
     for i in range(N_E):
         U_z = get_adiabatic_mixing_cosmo(E_bins[i], z, U_pmns, M_sq, u_arr, m_Zd, g_D, eps_prime, 
                                          n_n0, T_nu0, use_debye_screening, is_antineutrino, eta_bg)
@@ -318,27 +319,15 @@ def step_cosmological_propagation(z: float, dt: float, R_z: float, E_bins: np.nd
         for a in range(3):
             F_flavor[i, a] = np.sum(np.abs(U_z[a, :])**2 * F_mass[i, :])
         
-        # Assign the exact pre-computed interaction rate for this specific energy bin
+        # Use the pre-computed grid values instead of the thermal kernel
         Gamma_flavor[i, :] = precomputed_Gamma_flavor[i, :]
         
-    # Pre-calculate the redundant interaction rate sum per energy bin to eliminate O(N^2) redundancy
+    # Second loop: Pre-calculate the redundant interaction rate sum per energy bin
     for j in range(N_E):
         for b in range(3):
             rate_F_sum_arr[j] += Gamma_flavor[j, b] * F_flavor[j, b]
         
-    for i in range(N_E):
-        U_z = get_adiabatic_mixing_cosmo(E_bins[i], z, U_pmns, M_sq, u_arr, m_Zd, g_D, eps_prime, 
-                                         n_n0, T_nu0, use_debye_screening, is_antineutrino, eta_bg)
-        U_z_all[i] = U_z
-        for a in range(3):
-            F_flavor[i, a] = np.sum(np.abs(U_z[a, :])**2 * F_mass[i, :])
-        Gamma_flavor[i, :] = thermal_averaged_rates_flavor(E_bins[i], z, sum_G, sum_G_alpha, m_Zd, m_nu_bg_arr, T_nu0, eta_mass)
-        
-    # Pre-calculate the redundant interaction rate sum per energy bin to eliminate O(N^2) redundancy
-    for j in range(N_E):
-        for b in range(3):
-            rate_F_sum_arr[j] += Gamma_flavor[j, b] * F_flavor[j, b]
-        
+    # Third loop: Energy cascading integral
     for i in range(N_E):
         integral = 0.0
         for j in range(i, N_E):
@@ -347,6 +336,7 @@ def step_cosmological_propagation(z: float, dt: float, R_z: float, E_bins: np.nd
         for a in range(3):
             dF_casc_flavor[i, a] = BR[a] * integral
             
+    # Fourth loop: Update mass eigenstate flux with decay and injection
     for i in range(N_E):
         U_z = U_z_all[i]
         E_z = E_bins[i] * (1.0 + z)
