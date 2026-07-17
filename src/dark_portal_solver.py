@@ -53,6 +53,14 @@ Mpc_to_eV_inv = 3.08567758e22 * m_to_eV_inv
 G_F = 1.1663787e-23 / (eV**2)
 km_per_s = 1.0 / 299792.458
 
+# Local Celestial Constants for Spatial Handover
+d_sun_eV_inv = 1.496e11 * m_to_eV_inv
+N_n_sun = 2.5e56
+d_moon_eV_inv = 3.84e8 * m_to_eV_inv
+N_n_moon = 5.0e49
+R_earth_eV_inv = 6371e3 * m_to_eV_inv
+R_core_eV_inv = 3480e3 * m_to_eV_inv
+
 # =============================================================================
 # NUMBA-ACCELERATED PHYSICS KERNELS
 # =============================================================================
@@ -173,22 +181,11 @@ def calc_debye_mass_sq(g_D: float, u_arr: np.ndarray, T_nu: float, eta_bg: np.nd
     return (g_D**2 / 6.0) * np.sum(u_mag_4 * T_nu_alpha_sq)
 
 @njit
-def calc_V_LRI(z: float, u_arr: np.ndarray, m_Zd: float, g_D: float, eps_prime: float,
-               n_n0: float, T_nu0: float, use_debye_screening: bool, n_n_local: float, 
-               eta_bg: np.ndarray) -> np.ndarray:
+def calc_V_LRI_cosmo(z: float, u_arr: np.ndarray, m_Zd: float, g_D: float, eps_prime: float,
+                     n_n0: float, T_nu0: float, use_debye_screening: bool, eta_bg: np.ndarray) -> np.ndarray:
     """
-    Computes the macroscopic effective potential V_{LRI} sourced by cosmological and local neutrons
-    through kinetic mixing with the dark sector.
-    
-    Math:
-        A_{LRI} = \\left[ \\frac{g_D \\epsilon'}{m_{Z_D}^2 + m_D^2} \\right] 
-                  \\left( \\frac{4 c_W m_Z^2}{g_w} \\right) 
-                  \\left( \\frac{\\sqrt{2}}{2} G_F n_n(z) \\right)
-                  
-        V_{LRI, ij} = A_{LRI} \\cdot u_i u_j^*
-        
-        This potential acts identically to an MSW matter potential but scales with the neutron 
-        number density n_n(z) and incorporates thermal screening (m_D^2) from the hot Big Bang plasma.
+    Computes the macroscopic effective potential V_{LRI} sourced ONLY by cosmological neutrons.
+    This replaces the static Earth-centered calculation for dynamic cosmological integration.
         
     Args:
         z (float): Cosmological redshift [dimensionless].
@@ -199,15 +196,12 @@ def calc_V_LRI(z: float, u_arr: np.ndarray, m_Zd: float, g_D: float, eps_prime: 
         n_n0 (float): Present-day cosmological neutron number density [eV^3].
         T_nu0 (float): Present-day CnuB temperature [eV].
         use_debye_screening (bool): Flag to apply thermal Debye screening.
-        n_n_local (float): Local neutron density near Earth/Milky Way [eV^3].
         eta_bg (np.ndarray): CnuB flavor asymmetry array [dimensionless].
         
     Returns:
         np.ndarray: 3x3 complex LRI potential matrix [eV].
     """
     n_n_z = n_n0 * (1.0 + z)**3
-    if z <= 1e-10:
-        n_n_z += n_n_local
 
     m_D_sq = 0.0
     if use_debye_screening:
@@ -319,53 +313,127 @@ def thermal_averaged_rates_flavor(E0: float, z: float, sum_G: float, sum_G_alpha
     return rates
 
 @njit
-def get_adiabatic_mixing(E0: float, z: float, U_pmns: np.ndarray, M_sq: np.ndarray,
-                         u_arr: np.ndarray, m_Zd: float, g_D: float, eps_prime: float,
-                         n_n0: float, T_nu0: float, use_debye_screening: bool, n_n_local: float,
-                         use_SM_potential: bool, n_e_earth: float, is_antineutrino: bool,
-                         eta_bg: np.ndarray) -> np.ndarray:
+def get_adiabatic_mixing_cosmo(E0: float, z: float, U_pmns: np.ndarray, M_sq: np.ndarray,
+                               u_arr: np.ndarray, m_Zd: float, g_D: float, eps_prime: float,
+                               n_n0: float, T_nu0: float, use_debye_screening: bool,
+                               is_antineutrino: bool, eta_bg: np.ndarray) -> np.ndarray:
     """
     Computes the instantaneous mass eigenstates (eigenvectors) of the total effective Hamiltonian,
-    accounting for vacuum mixing, standard matter effects, and new dark portal interactions.
-    
-    Math:
-        H_{vac} = \\frac{1}{2 E_z} U \\cdot M_{sq} \\cdot U^\\dagger
-        H_{tot} = H_{vac} + V_{LRI} + V_{SM}
-        
-        Note on CP Violation: If calculating for antineutrinos, the Hamiltonian is evaluated 
-        by conjugating the vacuum mixing matrices (both U_{PMNS} and U_{sterile}) and 
-        reversing the sign of all coherent matter potentials (V_{LRI} -> -V_{LRI}).
-        
-    Args:
-        E0 (float): Neutrino energy at Earth [eV].
-        z (float): Cosmological redshift [dimensionless].
-        U_pmns (np.ndarray): 3x3 PMNS mixing matrix [dimensionless].
-        M_sq (np.ndarray): 3x3 Diagonal mass squared matrix [eV^2].
-        u_arr, m_Zd, g_D, eps_prime, n_n0, T_nu0, use_debye_screening, n_n_local: Parameters for V_{LRI}.
-        use_SM_potential (bool): Flag to apply standard MSW matter potential at Earth.
-        n_e_earth (float): Standard matter electron density near/at Earth [eV^3].
-        is_antineutrino (bool): True if evaluating the antineutrino Hamiltonian.
-        eta_bg (np.ndarray): CnuB asymmetry parameters.
-        
-    Returns:
-        np.ndarray: 3x3 matrix where the columns represent the instantaneous eigenvectors of H_{tot} [dimensionless].
+    accounting ONLY for vacuum mixing and cosmological dark portal interactions.
+    Standard Matter and discrete local sources are deferred to the spatial handover ODE.
     """
     E_z = E0 * (1.0 + z)
     H_vac = (1.0 / (2.0 * E_z)) * (U_pmns @ M_sq @ np.conjugate(U_pmns).T)
     
-    V_LRI = calc_V_LRI(z, u_arr, m_Zd, g_D, eps_prime, n_n0, T_nu0, use_debye_screening, n_n_local, eta_bg)
-    
-    V_SM = np.zeros((3, 3), dtype=np.complex128)
-    if use_SM_potential and z <= 1e-10: 
-        V_SM[0, 0] = np.sqrt(2.0) * G_F * n_e_earth
+    V_LRI = calc_V_LRI_cosmo(z, u_arr, m_Zd, g_D, eps_prime, n_n0, T_nu0, use_debye_screening, eta_bg)
         
     if is_antineutrino:
         V_LRI = -np.conjugate(V_LRI)
-        V_SM = -np.conjugate(V_SM)
             
-    H_tot = H_vac + V_LRI + V_SM
+    H_tot = H_vac + V_LRI
     evals, evecs = np.linalg.eigh(H_tot)
     return evecs
+
+@njit
+def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray, 
+                            U_pmns: np.ndarray, M_sq: np.ndarray,
+                            u_arr: np.ndarray, m_Zd: float, g_D: float, eps_prime: float,
+                            T_nu0: float, use_debye_screening: bool, eta_bg: np.ndarray, 
+                            n_n_MW_eV3: float, use_SM_potential: bool, 
+                            is_antineutrino: bool) -> np.ndarray:
+    """
+    Executes a pure spatial ODE tracking the density matrix through the Milky Way, Solar System, 
+    and Earth interior. Dynamically evaluates potentials from neutrons in the MW (extended), 
+    Sun/Moon (points), and Earth PREM (extended).
+    """
+    N_E = len(E_bins)
+    F_earth = np.zeros((N_E, 3), dtype=np.float64)
+    
+    m_D_sq = 0.0
+    if use_debye_screening:
+        m_D_sq = calc_debye_mass_sq(g_D, u_arr, T_nu0, eta_bg)
+    m_eff = np.sqrt(m_Zd**2 + m_D_sq)
+    
+    # Point source effective densities mapping Yukawa range limits
+    n_sun = 0.0
+    n_moon = 0.0
+    if m_eff > 0:
+        n_sun = N_n_sun * m_eff**2 * np.exp(-m_eff * d_sun_eV_inv) / (4.0 * np.pi * d_sun_eV_inv)
+        n_moon = N_n_moon * m_eff**2 * np.exp(-m_eff * d_moon_eV_inv) / (4.0 * np.pi * d_moon_eV_inv)
+    
+    n_n_amb = n_n_MW_eV3 + n_sun + n_moon
+    
+    c_W = 0.88
+    m_Z = 91.18 * GeV
+    g_weak = 0.65
+    Coef = (g_D * eps_prime) / (m_Zd**2 + m_D_sq) * (4.0 * c_W * m_Z**2 / g_weak) * (np.sqrt(2.0)/2.0 * G_F)
+    
+    U_LRI_struct = np.zeros((3, 3), dtype=np.complex128)
+    for i in range(3):
+        for j in range(3):
+            U_LRI_struct[i, j] = u_arr[i] * np.conjugate(u_arr[j])
+            
+    if is_antineutrino:
+        Coef = -Coef
+        
+    N_steps = 1000
+    dr = R_earth_eV_inv / N_steps
+    
+    for i in range(N_E):
+        E0 = E_bins[i]
+        H_vac = (1.0 / (2.0 * E0)) * (U_pmns @ M_sq @ np.conjugate(U_pmns).T)
+        
+        # Arrival Hamiltonian driven by MW, Sun, Moon ambient fields
+        H_arr = H_vac + (Coef * n_n_amb) * U_LRI_struct
+        evals_a, evecs_a = np.linalg.eigh(H_arr)
+        
+        # Transform incoherent mass fluxes into full density matrix in the flavor basis
+        rho_f = np.zeros((3,3), dtype=np.complex128)
+        for a in range(3):
+            for b in range(3):
+                for k in range(3):
+                    rho_f[a, b] += evecs_a[a, k] * F_mass_arrival[i, k] * np.conjugate(evecs_a[b, k])
+        
+        # Propagate through Earth via matrix exponential ODE stepper
+        for step in range(N_steps):
+            r_current = R_earth_eV_inv - step * dr
+            # PREM internal density approximation
+            if r_current < R_core_eV_inv:
+                rho_g_cm3 = 11.0
+            else:
+                rho_g_cm3 = 4.5
+                
+            n_n_earth = rho_g_cm3 * 3.011e23 * cm_inv3_to_eV3
+            n_e_earth = n_n_earth # Electrically neutral isoscalar matter
+            
+            n_n_tot = n_n_amb + n_n_earth
+            V_LRI = (Coef * n_n_tot) * U_LRI_struct
+            
+            V_SM = np.zeros((3,3), dtype=np.complex128)
+            if use_SM_potential:
+                V_SM_val = np.sqrt(2.0) * G_F * n_e_earth
+                if is_antineutrino:
+                    V_SM_val = -V_SM_val
+                V_SM[0,0] = V_SM_val
+                
+            H_local = H_vac + V_LRI + V_SM
+            evals, evecs = np.linalg.eigh(H_local)
+            
+            # Evolution operator U = evecs * exp(-i * evals * dr) * evecs^dagger
+            U_step = np.zeros((3,3), dtype=np.complex128)
+            for a in range(3):
+                for b in range(3):
+                    for k in range(3):
+                        U_step[a,b] += evecs[a,k] * np.exp(-1j * evals[k] * dr) * np.conjugate(evecs[b,k])
+            
+            U_step_dagger = np.conjugate(U_step).T
+            rho_f = U_step @ rho_f @ U_step_dagger
+            
+        # Final projection to observable flavors
+        for a in range(3):
+            F_earth[i, a] = np.real(rho_f[a, a])
+            
+    return F_earth
 
 @njit
 def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarray, 
@@ -460,9 +528,8 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         
         # Determine instantaneous rates and mixings across the spectrum
         for i in range(N_E):
-            U_z = get_adiabatic_mixing(E_bins[i], z, U_pmns, M_sq, u_arr, m_Zd, g_D, eps_prime, 
-                                       n_n0, T_nu0, use_debye_screening, n_n_local, 
-                                       use_SM_potential, n_e_earth, is_antineutrino, eta_bg)
+            U_z = get_adiabatic_mixing_cosmo(E_bins[i], z, U_pmns, M_sq, u_arr, m_Zd, g_D, eps_prime, 
+                                             n_n0, T_nu0, use_debye_screening, is_antineutrino, eta_bg)
             U_z_all[i] = U_z
             for a in range(3):
                 F_flavor[i, a] = np.sum(np.abs(U_z[a, :])**2 * F_mass[i, :])
@@ -506,14 +573,10 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                 else:
                     F_mass[i, a] += total_rate * dt
                 
-    # 3. Final projection to flavor basis at Earth (z=0)
-    F_earth = np.zeros((N_E, 3), dtype=np.float64)
-    for i in range(N_E):
-        U_earth = get_adiabatic_mixing(E_bins[i], 0.0, U_pmns, M_sq, u_arr, m_Zd, g_D, eps_prime, 
-                                       n_n0, T_nu0, use_debye_screening, n_n_local, 
-                                       use_SM_potential, n_e_earth, is_antineutrino, eta_bg)
-        for a in range(3):
-            F_earth[i, a] = np.sum(np.abs(U_earth[a, :])**2 * F_mass[i, :])
+    # 3. Spatial Handover: Propagate through Local Universe (MW, Sun, Moon, Earth)
+    F_earth = propagate_earth_spatial(E_bins, F_mass, U_pmns, M_sq, u_arr, m_Zd, g_D, eps_prime, 
+                                      T_nu0, use_debye_screening, eta_bg, n_n_local, 
+                                      use_SM_potential, is_antineutrino)
             
     return F_earth
 
