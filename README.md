@@ -134,55 +134,57 @@ Upon completion, the solver generates two primary files (dictated by the `[outpu
 Below is an exhaustive dictionary of all configurable parameters, their respective JSON block locations, and their corresponding CLI flags.
 
 ### `[cosmology]`
-* `--H0_km_s_Mpc` (float): Present-day Hubble constant in km/s/Mpc.
-* `--Omega_m` (float): Cosmological matter density parameter.
-* `--Omega_L` (float): Cosmological dark energy density parameter.
-* `--T_nu0_eV` (float): Present-day temperature of the C$\nu$B in eV.
-* `--n_n0_cm3` (float): Present-day cosmological background neutron density in cm$^{-3}$.
-* `--m_lightest_eV` (float): Absolute mass of the lightest neutrino eigenstate in eV.
-* `--mass_ordering` (str): `"normal"` or `"inverted"`. Dictates how absolute masses are derived from $\Delta m^2$.
-* `--eta_e`, `--eta_mu`, `--eta_tau` (float): Dimensionless flavor asymmetry multipliers for the C$\nu$B. Default is `1.0`.
+* `--H0_km_s_Mpc` (float): Present-day Hubble constant in km/s/Mpc (Default: `67.4`).
+* `--Omega_m` (float): Cosmological matter density parameter (Default: `0.315`).
+* `--Omega_L` (float): Cosmological dark energy density parameter (Default: `0.685`).
+* `--T_nu0_eV` (float): Present-day temperature of the C$\nu$B in eV (Default: `1.95e-4`).
+* `--n_n0_cm3` (float): Present-day cosmological background neutron density in cm$^{-3}$ (Default: `0.25e-6`).
+* `--m_lightest_eV` (float): Absolute mass of the lightest neutrino eigenstate in eV (Default: `0.01`).
+* `--mass_ordering` (str): `"normal"` or `"inverted"`. Dictates how absolute masses are derived from $\Delta m^2$ (Default: `"normal"`).
+* `--eta_e`, `--eta_mu`, `--eta_tau` (float): Dimensionless flavor asymmetry multipliers for the C$\nu$B (Default: `1.0`).
 
 ### `[standard_mixing]`
-* `--dm21_sq` (float): Solar mass squared difference $\Delta m_{21}^2$ in eV$^2$.
-* `--dm31_sq` (float): Atmospheric mass squared difference $\Delta m_{31}^2$ in eV$^2$. *(Code automatically handles negative signs for inverted ordering).*
-* `--th12_deg`, `--th13_deg`, `--th23_deg` (float): PMNS mixing angles $\theta_{ij}$ in degrees.
-* `--d_cp_deg` (float): CP-violating Dirac phase $\delta_{CP}$ in degrees.
-* `--use_SM_potential` (str/bool): `"true"` or `"false"`. Applies standard MSW coherent scattering $V_{SM}$ near/inside the Earth.
-* `--n_e_earth_cm3` (float): Standard matter electron density in cm$^{-3}$ used for $V_{SM}$.
-* `--detector_depth_km` (float): Subterranean depth of the simulated observatory in km (e.g., 1.5 for IceCube).
+* `--dm21_sq` (float): Solar mass squared difference $\Delta m_{21}^2$ in eV$^2$ (Default: `7.41e-5`).
+* `--dm31_sq` (float): Atmospheric mass squared difference $\Delta m_{31}^2$ in eV$^2$. *(Code automatically handles negative signs for inverted ordering)* (Default: `2.511e-3`).
+* `--th12_deg`, `--th13_deg`, `--th23_deg` (float): PMNS mixing angles $\theta_{ij}$ in degrees (Defaults: `33.41`, `8.58`, `49.1`).
+* `--d_cp_deg` (float): CP-violating Dirac phase $\delta_{CP}$ in degrees (Default: `132.0`).
+* `--use_SM_potential` (str/bool): `"true"` or `"false"`. Applies standard MSW coherent scattering $V_{SM}$ near/inside the Earth (Default: `"false"`).
+* `--n_e_earth_cm3` (float): Standard matter electron density in cm$^{-3}$ used for $V_{SM}$ (Default: `1.5e24`).
+* `--detector_depth_km` (float): Subterranean depth of the simulated observatory in km (e.g., 1.5 for IceCube) (Default: `1.5`).
 
 ### `[dark_portal]`
-* `--u_e`, `--u_mu`, `--u_tau` (float): Sterile flavor mixing parameters $|U_{\alpha 4}|$. 
-* `--m_Zd_eV` (float): Mass of the dark vector mediator $Z_D$ in eV.
-* `--g_D` (float): Dark gauge coupling constant $g_D$.
-* `--epsilon_prime` (float): Effective kinetic mixing parameter $\epsilon'$.
-* `--use_debye_screening` (str/bool): `"true"` or `"false"`. Applies the thermal Debye mass $m_D^2$ to the LRI potential denominator.
+* `--u_e`, `--u_mu`, `--u_tau` (float): Sterile flavor mixing parameters $|U_{\alpha 4}|$ (Defaults: `0.5`, `0.5`, `0.0`). 
+* `--m_Zd_eV` (float): Mass of the dark vector mediator $Z_D$ in eV (Default: `2.0e6`).
+* `--g_D` (float): Dark gauge coupling constant $g_D$ (Default: `1e-4`).
+* `--epsilon_prime` (float): Effective kinetic mixing parameter $\epsilon'$ (Default: `1e-1`).
+* `--use_debye_screening` (str/bool): `"true"` or `"false"`. Applies the thermal Debye mass $m_D^2$ to the LRI potential denominator (Default: `"true"`).
 
 ### `[source]`
-* `--p_index` (float): Power-law spectral index ($\gamma$) of the injected neutrino spectrum.
-* `--Phi_0` (float): Baseline source flux normalization multiplier.
-* `--z_max` (float): Maximum redshift to integrate back to.
-* `--rho_evol` (float): Cosmological source evolution index (modifies the base SFR).
-* `--f_e_S`, `--f_mu_S`, `--f_tau_S` (float): Injection flavor ratios at the source (e.g., `0.333, 0.666, 0.0` for pion decay).
-* `--is_antineutrino` (str): 
+* `--p_index` (float): Power-law spectral index ($\gamma$) of the injected neutrino spectrum (Default: `2.5`).
+* `--Phi_0` (float): Baseline source flux normalization multiplier (Default: `1.0`).
+* `--z_max` (float): Maximum redshift to integrate back to (Default: `4.0`).
+* `--rho_evol` (float): Cosmological source evolution index (modifies the base SFR) (Default: `0.0`).
+* `--f_e_S`, `--f_mu_S`, `--f_tau_S` (float): Injection flavor ratios at the source (e.g., `0.333, 0.666, 0.0` for pion decay) (Defaults: `0.333333`, `0.666667`, `0.0`).
+* `--is_antineutrino` (str): (Default: `"sum"`)
   * `"sum"` or `"both"`: Computes $\nu$ and $\bar{\nu}$ independently and sums the flux.
   * `"true"` or `"antineutrino"`: Computes $\bar{\nu}$ flux only.
   * `"false"`: Computes $\nu$ flux only.
 
 ### `[grid]`
-* `--E_min_eV` (float): Minimum observed energy at Earth in eV.
-* `--E_max_eV` (float): Maximum observed energy at Earth in eV.
-* `--n_E_bins` (int): Number of exact logarithmically spaced energy bins.
-* `--n_z_bins` (int): Number of linearly spaced redshift bins.
-* `--n_mw_paths` (int): Total Milky Way spatial integration trajectories evaluated for the solid-angle sky average.
-* `--n_earth_chords` (int): Total PREM-layer transits averaged across the Earth's radius.
+* `--E_min_eV` (float): Minimum observed energy at Earth in eV (Default: `1e13`).
+* `--E_max_eV` (float): Maximum observed energy at Earth in eV (Default: `3e16`).
+* `--n_E_bins` (int): Number of exact logarithmically spaced energy bins (Default: `1000`).
+* `--n_z_bins` (int): Number of linearly spaced redshift bins (Default: `1000`).
+* `--n_mw_paths` (int): Total Milky Way spatial integration trajectories evaluated for the solid-angle sky average (Default: `6`).
+* `--n_earth_chords` (int): Total PREM-layer transits averaged across the Earth's radius (Default: `3`).
+* `--N_steps_MW` (int): Number of spatial integration steps evaluated during the Milky Way transit (Default: `100`).
+* `--r_start_kpc` (float): Starting distance from Earth for the Milky Way spatial integration in kpc (Default: `100.0`).
 
 ### `[output]` & `[execution]`
-* `--flux_filename` (str): Target filepath for the output `.txt` data file.
-* `--plot_filename` (str): Target filepath for the output `.png` plot.
-* `--n_cores` (int): Number of CPU cores to utilize for parameter-scan multiprocessing. (Note: The solver dynamically sets this to `1` and reveals detailed progress bars if only a single configuration is evaluated).
-* `--verbose` (int): Sets the logging detail level (`1` for standard, `2` for detailed granular milestone reporting).
+* `--flux_filename` (str): Target filepath for the output `.txt` data file (Default: `"../output/data/output_flux.txt"`).
+* `--plot_filename` (str): Target filepath for the output `.png` plot (Default: `"../output/plots/flux_plot.png"`).
+* `--n_cores` (int): Number of CPU cores to utilize for parameter-scan multiprocessing (Default: Total available system cores minus 1). (Note: The solver dynamically sets this to `1` and reveals detailed progress bars if only a single configuration is evaluated).
+* `--verbose` (int): Sets the logging detail level (`1` for standard, `2` for detailed granular milestone reporting) (Default: `1`).
 
 ---
 
