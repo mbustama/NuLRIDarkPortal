@@ -1,5 +1,6 @@
 import os
 import json
+import argparse
 import multiprocessing
 import numpy as np
 from typing import Dict, Tuple
@@ -21,9 +22,10 @@ except ImportError:
     HAS_NUMBA = False
     print("Warning: 'numba' not found. Falling back to pure Python (will be significantly slower).")
     def njit(*args, **kwargs):
-        """Dummy decorator if numba is unavailable."""
+        """Dummy decorator if numba is unavailable or string signatures are passed."""
         def decorator(func): return func
         if len(args) == 1 and callable(args[0]): return args[0]
+        if len(args) == 1 and isinstance(args[0], str): return decorator
         return decorator
 
 try:
@@ -33,6 +35,13 @@ except ImportError:
     HAS_TQDM = False
     print("Warning: 'tqdm' not found. Progress bars will be disabled.")
     def tqdm(iterable, *args, **kwargs): return iterable
+
+def safe_print(msg: str):
+    """Prints output safely without breaking the tqdm progress bar alignment."""
+    if HAS_TQDM and hasattr(tqdm, 'write'):
+        tqdm.write(msg)
+    else:
+        print(msg)
 
 # =============================================================================
 # PHYSICAL CONSTANTS (Natural Units: eV = 1)
@@ -55,55 +64,27 @@ km_per_s = 1.0 / 299792.458
 
 # Local Celestial Constants for Spatial Handover
 d_sun_eV_inv = 1.496e11 * m_to_eV_inv
-N_n_sun = 2.5e56
 d_moon_eV_inv = 3.84e8 * m_to_eV_inv
-N_n_moon = 5.0e49
 R_earth_eV_inv = 6371e3 * m_to_eV_inv
 R_core_eV_inv = 3480e3 * m_to_eV_inv
+
+# Total number of neutrons per celestial body (assuming Y_n = Y_p = 0.5 where applicable)
+N_n_sun = 2.972e56    
+N_n_earth = 1.785e51  
+N_n_moon = 1.098e49   
 
 # =============================================================================
 # NUMBA-ACCELERATED PHYSICS KERNELS
 # =============================================================================
 
-@njit(fastmath=True)
+@njit(fastmath=True, cache=True)
 def calc_H_Hubble(z: float, H0: float, Omega_m: float, Omega_L: float) -> float:
-    """
-    Calculates the Hubble expansion rate H(z) at redshift z in a flat LCDM universe.
-    
-    Math:
-        H(z) = H_0 * sqrt(\\Omega_m * (1 + z)^3 + \\Omega_\\Lambda)
-        where \\Omega_\\Lambda (dark energy density) is typically 1 - \\Omega_m.
-        This governs the cosmological time step dt = dz / [H(z) * (1+z)].
-        
-    Args:
-        z (float): Cosmological redshift [dimensionless].
-        H0 (float): Present-day Hubble constant [eV].
-        Omega_m (float): Matter density parameter [dimensionless].
-        Omega_L (float): Dark energy density parameter [dimensionless].
-        
-    Returns:
-        float: Hubble expansion rate H(z) [eV].
-    """
+    """Calculates the Hubble expansion rate H(z) at redshift z in a flat LCDM universe."""
     return H0 * np.sqrt(Omega_m * (1.0 + z)**3 + Omega_L)
 
-@njit(fastmath=True)
+@njit(fastmath=True, cache=True)
 def calc_R_source(z: float, rho_evol: float) -> float:
-    """
-    Calculates the cosmological source distribution R(z) relative to z=0.
-    
-    Math: 
-        R(z) = SFR(z) * (1 + z)^{\\rho_{evol}}
-        SFR(z) follows a broken power-law parameterizing the Star Formation Rate 
-        (e.g., Yuksel et al. 2008). The exponents govern the rise, plateau, and 
-        decay of source density across cosmic epochs.
-        
-    Args:
-        z (float): Cosmological redshift [dimensionless].
-        rho_evol (float): Additional source evolution index modifier [dimensionless].
-        
-    Returns:
-        float: Normalized source density R(z) at redshift z [dimensionless].
-    """
+    """Calculates the cosmological source distribution R(z) relative to z=0."""
     if z < 1.0:
         sfr = (1.0 + z)**3.4
     elif z < 4.0:
@@ -113,25 +94,9 @@ def calc_R_source(z: float, rho_evol: float) -> float:
         
     return sfr * (1.0 + z)**rho_evol
 
-@njit
+@njit(cache=True)
 def construct_PMNS(th12: float, th13: float, th23: float, d_cp: float) -> np.ndarray:
-    """
-    Constructs the standard 3x3 unitary PMNS neutrino mixing matrix.
-    
-    Math:
-        U = R_{23}(\\theta_{23}) * R_{13}(\\theta_{13}, \\delta_{CP}) * R_{12}(\\theta_{12})
-        where R_{ij} are rotation matrices. The CP-violating phase \\delta_{CP} 
-        is embedded natively inside R_{13}.
-        
-    Args:
-        th12 (float): Mixing angle \\theta_{12} [radians].
-        th13 (float): Mixing angle \\theta_{13} [radians].
-        th23 (float): Mixing angle \\theta_{23} [radians].
-        d_cp (float): CP-violating Dirac phase \\delta_{CP} [radians].
-        
-    Returns:
-        np.ndarray: 3x3 complex PMNS matrix [dimensionless].
-    """
+    """Constructs the standard 3x3 unitary PMNS neutrino mixing matrix."""
     c12, s12 = np.cos(th12), np.sin(th12)
     c13, s13 = np.cos(th13), np.sin(th13)
     c23, s23 = np.cos(th23), np.sin(th23)
@@ -156,51 +121,17 @@ def construct_PMNS(th12: float, th13: float, th23: float, d_cp: float) -> np.nda
     
     return R23 @ R13 @ R12
 
-@njit(fastmath=True)
+@njit(fastmath=True, cache=True)
 def calc_debye_mass_sq(g_D: float, u_arr: np.ndarray, T_nu: float, eta_bg: np.ndarray) -> float:
-    """
-    Calculates the Debye screening mass squared generated by the thermal CnuB plasma.
-    
-    Math:
-        m_D^2 = (g_D^2 / 6) * \\sum_i ( |u_i|^4 * T_{\\nu, i}^2 )
-        The background flavor asymmetry \\eta_{bg} shifts the effective thermal distributions 
-        of the C\\nu B mass eigenstates, orthogonalizing the Debye screening.
-        
-    Args:
-        g_D (float): Dark gauge coupling constant [dimensionless].
-        u_arr (np.ndarray): 1D array of flavor-specific dark charges [dimensionless].
-        T_nu (float): Baseline temperature of the CnuB [eV].
-        eta_bg (np.ndarray): Dimensionless flavor asymmetry multipliers for the CnuB [dimensionless].
-        
-    Returns:
-        float: Debye mass squared m_D^2 [eV^2].
-    """
+    """Calculates the Debye screening mass squared generated by the thermal CnuB plasma."""
     u_mag_4 = np.abs(u_arr)**4
-    # Applying the dimensionless asymmetry multiplier to the effective background temperature
     T_nu_alpha_sq = (T_nu**2) * (eta_bg**(2.0/3.0))
     return (g_D**2 / 6.0) * np.sum(u_mag_4 * T_nu_alpha_sq)
 
-@njit
+@njit(cache=True)
 def calc_V_LRI_cosmo(z: float, u_arr: np.ndarray, m_Zd: float, g_D: float, eps_prime: float,
                      n_n0: float, T_nu0: float, use_debye_screening: bool, eta_bg: np.ndarray) -> np.ndarray:
-    """
-    Computes the macroscopic effective potential V_{LRI} sourced ONLY by cosmological neutrons.
-    This replaces the static Earth-centered calculation for dynamic cosmological integration.
-        
-    Args:
-        z (float): Cosmological redshift [dimensionless].
-        u_arr (np.ndarray): 1D array of dark flavor charges [dimensionless].
-        m_Zd (float): Mass of the dark Z' vector boson [eV].
-        g_D (float): Dark gauge coupling [dimensionless].
-        eps_prime (float): Effective kinetic mixing parameter [dimensionless].
-        n_n0 (float): Present-day cosmological neutron number density [eV^3].
-        T_nu0 (float): Present-day CnuB temperature [eV].
-        use_debye_screening (bool): Flag to apply thermal Debye screening.
-        eta_bg (np.ndarray): CnuB flavor asymmetry array [dimensionless].
-        
-    Returns:
-        np.ndarray: 3x3 complex LRI potential matrix [eV].
-    """
+    """Computes the macroscopic effective potential V_{LRI} sourced ONLY by cosmological neutrons."""
     n_n_z = n_n0 * (1.0 + z)**3
 
     m_D_sq = 0.0
@@ -221,38 +152,11 @@ def calc_V_LRI_cosmo(z: float, u_arr: np.ndarray, m_Zd: float, g_D: float, eps_p
             
     return V_LRI
 
-@njit(fastmath=True)
+@njit(fastmath=True, cache=True)
 def thermal_averaged_rates_flavor(E0: float, z: float, sum_G: float, sum_G_alpha: np.ndarray, 
                                   m_Zd: float, m_nu_bg_arr: np.ndarray, T_nu0: float, 
                                   eta_mass: np.ndarray) -> np.ndarray:
-    """
-    Calculates the exact, flavor-dependent flux attenuation rate \\Gamma(E, z)_\\alpha caused 
-    by Breit-Wigner s-channel scattering against the thermal C\\nu B via the dark Z' mediator.
-    
-    Math:
-        The total interaction rate integrates over the Fermi-Dirac momentum distribution of the C\\nu B:
-        \\Gamma_\\alpha(E) = \\sum_i \\frac{1}{2\\pi} \\int p^2 f_{FD}(p) \\left[ \\int_{-1}^1 \\sigma_{B.W.}(s) d\\cos\\theta \\right] dp
-        
-        The Mandelstam variable s is defined dynamically by the background kinematics:
-        s(p, \\theta) = m_i^2 + 2 E_{inc} E_{bg} - 2 E_{inc} p \\cos(\\theta)
-        
-        To avoid numerical undersampling of incredibly narrow resonance poles (e.g., small g_D), 
-        the inner angular integral over d\\cos(\\theta) is evaluated EXACTLY analytically via u-substitution 
-        where u = s - M_{Z_D}^2. This guarantees unconditional mathematical stability.
-        
-    Args:
-        E0 (float): Present-day observed neutrino energy [eV].
-        z (float): Cosmological redshift [dimensionless].
-        sum_G (float): Total coupling magnitude for the Breit-Wigner width calculation.
-        sum_G_alpha (np.ndarray): Flavor-partitioned coupling magnitudes.
-        m_Zd (float): Dark mediator mass [eV].
-        m_nu_bg_arr (np.ndarray): Background neutrino mass eigenvalues [eV].
-        T_nu0 (float): Present-day CnuB temperature [eV].
-        eta_mass (np.ndarray): CnuB asymmetry projected into the mass basis [dimensionless].
-        
-    Returns:
-        np.ndarray: 1D array (size 3) of interaction rates for each flavor [eV].
-    """
+    """Calculates the exact, flavor-dependent flux attenuation rate \\Gamma(E, z)_\\alpha with vectorized momentum sequencing."""
     T_nu = T_nu0 * (1.0 + z)
     n_nu_base = 56.0 * (1.0 + z)**3 * cm_inv3_to_eV3 
     
@@ -280,50 +184,41 @@ def thermal_averaged_rates_flavor(E0: float, z: float, sum_G: float, sum_G_alpha
         p_max = 20.0 * T_i
         dp = p_max / n_p
         
-        for j in range(n_p):
-            p = (j + 0.5) * dp
-            E_bg = np.sqrt(m_i_sq + p**2)
-            if p / T_i > 50.0: continue 
-                
-            f_FD = 1.0 / (np.exp(p / T_i) + 1.0)
-            if f_FD < 1e-16: continue
-                
-            p2_f_FD = p**2 * f_FD
-            
-            # Kinematic constants for the analytical angular integration
-            A = m_i_sq + 2.0 * E_inc * E_bg
-            B = 2.0 * E_inc * p
-            
-            if B < 1e-12: 
-                I_ang = 2.0 * A / ((A - M2)**2 + MG_sq)
-            else:
-                u_plus = A - M2 + B
-                u_minus = A - M2 - B
-                C = 1.0 - (A - M2) / B
-                D = 1.0 - (A - 2.0 * M2) / B
-                F = C * M2 - MG_sq / B
-                # The exact analytical solution for the angular integration to avoid pole-skipping
-                I_ang = (2.0 / B) + (D / (2.0 * B)) * np.log((u_plus**2 + MG_sq) / (u_minus**2 + MG_sq)) + (F / (B * MG)) * (np.arctan(u_plus / MG) - np.arctan(u_minus / MG))
-                
-            if I_ang > 0:
-                integral_val = prefactor * p2_f_FD * I_ang * dp
-                for alpha in range(3):
-                    rates[alpha] += integral_val * sum_G_alpha[alpha] * (n_nu_i / n_nu_base)
+        # Vectorized generation of momentum sequences and Fermi-Dirac distribution weights
+        p = (np.arange(n_p) + 0.5) * dp
+        E_bg = np.sqrt(m_i_sq + p**2)
+        
+        f_FD = 1.0 / (np.exp(p / T_i) + 1.0)
+        p2_f_FD = (p**2) * f_FD
+        
+        A = m_i_sq + 2.0 * E_inc * E_bg
+        B = 2.0 * E_inc * p
+        
+        u_plus = A - M2 + B
+        u_minus = A - M2 - B
+        C = 1.0 - (A - M2) / B
+        D = 1.0 - (A - 2.0 * M2) / B
+        F = C * M2 - MG_sq / B
+        
+        # Parallel element-wise calculation of Breit-Wigner s-channel poles
+        I_ang = (2.0 / B) + (D / (2.0 * B)) * np.log((u_plus**2 + MG_sq) / (u_minus**2 + MG_sq)) + (F / (B * MG)) * (np.arctan(u_plus / MG) - np.arctan(u_minus / MG))
+        
+        term = prefactor * p2_f_FD * np.maximum(I_ang, 0.0) * dp
+        integral_sum = np.sum(term)
+        
+        for alpha in range(3):
+            rates[alpha] += integral_sum * sum_G_alpha[alpha] * (n_nu_i / n_nu_base)
                     
     return rates
 
-@njit
+@njit(cache=True)
 def get_adiabatic_mixing_cosmo(E0: float, z: float, U_pmns: np.ndarray, M_sq: np.ndarray,
                                u_arr: np.ndarray, m_Zd: float, g_D: float, eps_prime: float,
                                n_n0: float, T_nu0: float, use_debye_screening: bool,
                                is_antineutrino: bool, eta_bg: np.ndarray) -> np.ndarray:
-    """
-    Computes the instantaneous mass eigenstates (eigenvectors) of the total effective Hamiltonian,
-    accounting ONLY for vacuum mixing and cosmological dark portal interactions.
-    Standard Matter and discrete local sources are deferred to the spatial handover ODE.
-    """
+    """Computes the instantaneous mass eigenstates (eigenvectors) of the total effective Hamiltonian."""
     E_z = E0 * (1.0 + z)
-    H_vac = (1.0 / (2.0 * E_z)) * (U_pmns @ M_sq @ np.conjugate(U_pmns).T)
+    H_vac = (1.0 / (2.0 * E_z)) * (U_pmns @ M_sq @ np.ascontiguousarray(np.conjugate(U_pmns).T))
     
     V_LRI = calc_V_LRI_cosmo(z, u_arr, m_Zd, g_D, eps_prime, n_n0, T_nu0, use_debye_screening, eta_bg)
         
@@ -334,167 +229,376 @@ def get_adiabatic_mixing_cosmo(E0: float, z: float, U_pmns: np.ndarray, M_sq: np
     evals, evecs = np.linalg.eigh(H_tot)
     return evecs
 
-@njit
+# =============================================================================
+# SPATIAL HANDOVER HELPER FUNCTIONS
+# =============================================================================
+
+@njit("float64(float64, float64, float64)", fastmath=True, cache=True)
+def calc_MW_neutron_density(r_kpc: float, theta: float, phi: float) -> float:
+    """Calculates the Milky Way neutron number density at a given location."""
+    R_0 = 8.33 
+    sth = np.sin(theta)
+    R_gal = np.sqrt((r_kpc * sth)**2 + R_0**2 - 2.0 * r_kpc * R_0 * sth * np.cos(phi))
+    z_gal = r_kpc * np.cos(theta)
+    r_gal = np.sqrt(R_gal**2 + z_gal**2)
+    
+    rp = np.sqrt(R_gal**2 + (z_gal / 0.5)**2)
+    rho_bulge = (94.1 / (1.0 + rp / 0.075)**1.8) * np.exp(-(rp / 2.1)**2)
+    rho_thin = (753.0 / 600.0) * np.exp(-np.abs(z_gal) / 0.3 - np.abs(R_gal) / 3.0)
+    rho_thick = (182.0 / 1800.0) * np.exp(-np.abs(z_gal) / 0.9 - np.abs(R_gal) / 3.5)
+    n_gas = 0.5 * 0.46 * (1.0 + (r_gal / 0.35)**2)**(-1.065) 
+    
+    n_n_MW = (rho_bulge + rho_thin + rho_thick) * 20.235 + n_gas
+    return n_n_MW
+
+@njit("float64(float64)", fastmath=True, cache=True)
+def calc_earth_density(r_km: float) -> float:
+    """Returns the Earth's density at a distance r_km from the center using PREM layers."""
+    x = r_km / 6371.0
+    if r_km <= 1221.5: return 13.0885 - 8.8381*x*x
+    elif r_km <= 3480.0: return 12.5815 - 1.2638*x - 3.6426*x*x - 5.5281*x*x*x
+    elif r_km <= 5701.0: return 7.9565 - 6.4761*x + 5.5283*x*x - 3.0807*x*x*x
+    elif r_km <= 5771.0: return 5.3197 - 1.4836*x
+    elif r_km <= 5971.0: return 11.2494 - 8.0298*x
+    elif r_km <= 6151.0: return 7.1089 - 3.8045*x
+    elif r_km <= 6346.6: return 2.691 + 0.6924*x
+    elif r_km <= 6356.0: return 2.9
+    elif r_km <= 6368.0: return 2.6
+    elif r_km <= 6371.0: return 1.02
+    else: return 0.0
+
+@njit("float64(float64, float64)", fastmath=True, cache=True)
+def get_baseline_earth(d_km: float, costh: float) -> float:
+    """Calculates the exact baseline distance traversed inside the Earth."""
+    R_E = 6371.0
+    return np.sqrt((R_E**2 - 2.0*R_E*d_km) * costh**2 + 2.0*R_E*d_km) - (R_E - d_km) * costh
+
+# =============================================================================
+# EXTRACTED NUMBA KERNELS FOR PROGRESS TRACKING
+# =============================================================================
+
+@njit(fastmath=True, cache=True)
+def step_cosmological_propagation(z: float, dt: float, R_z: float, E_bins: np.ndarray, 
+                                  F_mass: np.ndarray, rho_src: np.ndarray, 
+                                  U_pmns: np.ndarray, M_sq: np.ndarray,
+                                  u_arr: np.ndarray, m_Zd: float, g_D: float, eps_prime: float,
+                                  m_nu_bg_arr: np.ndarray, n_n0: float, T_nu0: float,
+                                  use_debye_screening: bool, is_antineutrino: bool,
+                                  p_index: float, Phi_0: float, eta_bg: np.ndarray,
+                                  eta_mass: np.ndarray, sum_G: float, sum_G_alpha: np.ndarray, 
+                                  BR: np.ndarray, dE: np.ndarray, 
+                                  F_flavor: np.ndarray, Gamma_flavor: np.ndarray, 
+                                  dF_casc_flavor: np.ndarray, U_z_all: np.ndarray, rate_F_sum_arr: np.ndarray):
+    """Executes a single cosmological integration step using pre-allocated buffers for speed."""
+    N_E = len(E_bins)
+    
+    # Zero out buffers at start of step
+    F_flavor[:] = 0.0
+    Gamma_flavor[:] = 0.0
+    dF_casc_flavor[:] = 0.0
+    rate_F_sum_arr[:] = 0.0
+
+    for i in range(N_E):
+        U_z = get_adiabatic_mixing_cosmo(E_bins[i], z, U_pmns, M_sq, u_arr, m_Zd, g_D, eps_prime, 
+                                         n_n0, T_nu0, use_debye_screening, is_antineutrino, eta_bg)
+        U_z_all[i] = U_z
+        for a in range(3):
+            F_flavor[i, a] = np.sum(np.abs(U_z[a, :])**2 * F_mass[i, :])
+        Gamma_flavor[i, :] = thermal_averaged_rates_flavor(E_bins[i], z, sum_G, sum_G_alpha, m_Zd, m_nu_bg_arr, T_nu0, eta_mass)
+        
+    # Pre-calculate the redundant interaction rate sum per energy bin to eliminate O(N^2) redundancy
+    for j in range(N_E):
+        for b in range(3):
+            rate_F_sum_arr[j] += Gamma_flavor[j, b] * F_flavor[j, b]
+        
+    for i in range(N_E):
+        integral = 0.0
+        for j in range(i, N_E):
+            E_prime = E_bins[j]
+            integral += 1.0 * (rate_F_sum_arr[j] * 3.0 * (E_bins[i]**2) / (E_prime**3)) * dE[j]
+        for a in range(3):
+            dF_casc_flavor[i, a] = BR[a] * integral
+            
+    for i in range(N_E):
+        U_z = U_z_all[i]
+        E_z = E_bins[i] * (1.0 + z)
+        inj_spectrum = Phi_0 * (E_z**(-p_index))
+        for a in range(3):
+            Gamma_mass_a = np.sum(np.abs(U_z[:, a])**2 * Gamma_flavor[i, :])
+            dF_casc_mass_a = np.sum(np.abs(U_z[:, a])**2 * dF_casc_flavor[i, :])
+            inj_rate_mass_a = np.sum(np.abs(U_z[:, a])**2 * rho_src) * inj_spectrum * R_z
+            total_rate = dF_casc_mass_a + inj_rate_mass_a
+            
+            if Gamma_mass_a > 1e-30:
+                decay = np.exp(-Gamma_mass_a * dt)
+                F_mass[i, a] = F_mass[i, a] * decay + (total_rate / Gamma_mass_a) * (1.0 - decay)
+            else:
+                F_mass[i, a] += total_rate * dt
+
+@njit(fastmath=True, cache=True)
+def init_mw_density_matrix(r_start_kpc: float, theta: float, phi: float, E_bins: np.ndarray, F_mass_arrival: np.ndarray,
+                           U_pmns: np.ndarray, M_sq: np.ndarray, m_eff: float, Coef: float, U_LRI_struct: np.ndarray) -> np.ndarray:
+    """Calculates the initial density matrix mapping at the 30 kpc galactic edge."""
+    N_E = len(E_bins)
+    rho_f = np.zeros((N_E, 3, 3), dtype=np.complex128)
+    for i in range(N_E):
+        H_vac = (1.0 / (2.0 * E_bins[i])) * (U_pmns @ M_sq @ np.ascontiguousarray(np.conjugate(U_pmns).T))
+        n_n_MW_edge = calc_MW_neutron_density(r_start_kpc, theta, phi) * cm_inv3_to_eV3
+        r_eV = r_start_kpc * 3.08567758e16 * 1e3 * m_to_eV_inv
+        
+        r_sun_eV = np.sqrt(r_eV**2 + d_sun_eV_inv**2)
+        r_moon_eV = np.sqrt(r_eV**2 + d_moon_eV_inv**2)
+        
+        n_sun_eV3, n_moon_eV3, n_earth_eV3 = 0.0, 0.0, 0.0
+        if m_eff > 0:
+            n_sun_eV3 = N_n_sun * (m_eff**2) / (4.0 * np.pi * r_sun_eV) * np.exp(-m_eff * r_sun_eV)
+            n_moon_eV3 = N_n_moon * (m_eff**2) / (4.0 * np.pi * r_moon_eV) * np.exp(-m_eff * r_moon_eV)
+            n_earth_eV3 = N_n_earth * (m_eff**2) / (4.0 * np.pi * r_eV) * np.exp(-m_eff * r_eV)
+            
+        n_tot_edge = n_n_MW_edge + n_sun_eV3 + n_moon_eV3 + n_earth_eV3
+        H_arr = H_vac + (Coef * n_tot_edge) * U_LRI_struct
+        evals_a, evecs_a = np.linalg.eigh(H_arr)
+        
+        for a in range(3):
+            for b in range(3):
+                for k in range(3):
+                    rho_f[i, a, b] += evecs_a[a, k] * F_mass_arrival[i, k] * np.conjugate(evecs_a[b, k])
+    return rho_f
+
+@njit(fastmath=True, cache=True)
+def step_mw_approach(r_current_kpc: float, theta: float, phi: float, dr_MW_eV_inv: float,
+                     E_bins: np.ndarray, rho_f: np.ndarray, U_pmns: np.ndarray, M_sq: np.ndarray,
+                     m_eff: float, Coef: float, U_LRI_struct: np.ndarray, U_step_buffer: np.ndarray):
+    """Executes a single path-length step through the Milky Way using pre-allocated contiguous matrix buffers."""
+    N_E = len(E_bins)
+    r_eV = r_current_kpc * 3.08567758e16 * 1e3 * m_to_eV_inv
+    n_n_MW = calc_MW_neutron_density(r_current_kpc, theta, phi) * cm_inv3_to_eV3
+    
+    r_sun_eV = np.sqrt(r_eV**2 + d_sun_eV_inv**2)
+    r_moon_eV = np.sqrt(r_eV**2 + d_moon_eV_inv**2)
+    
+    n_sun_eV3, n_moon_eV3, n_earth_eV3 = 0.0, 0.0, 0.0
+    if m_eff > 0:
+        n_sun_eV3 = N_n_sun * (m_eff**2) / (4.0 * np.pi * r_sun_eV) * np.exp(-m_eff * r_sun_eV)
+        n_moon_eV3 = N_n_moon * (m_eff**2) / (4.0 * np.pi * r_moon_eV) * np.exp(-m_eff * r_moon_eV)
+        n_earth_eV3 = N_n_earth * (m_eff**2) / (4.0 * np.pi * r_eV) * np.exp(-m_eff * r_eV)
+        
+    n_tot = n_n_MW + n_sun_eV3 + n_moon_eV3 + n_earth_eV3
+    V_LRI = (Coef * n_tot) * U_LRI_struct
+    
+    for i in range(N_E):
+        H_vac = (1.0 / (2.0 * E_bins[i])) * (U_pmns @ M_sq @ np.ascontiguousarray(np.conjugate(U_pmns).T))
+        H_local = H_vac + V_LRI
+        evals, evecs = np.linalg.eigh(H_local)
+        
+        U_step_buffer[:] = 0.0
+        for a in range(3):
+            for b in range(3):
+                for k in range(3):
+                    U_step_buffer[a,b] += evecs[a,k] * np.exp(-1j * evals[k] * dr_MW_eV_inv) * np.conjugate(evecs[b,k])
+        
+        rho_f[i] = U_step_buffer @ rho_f[i] @ np.ascontiguousarray(np.conjugate(U_step_buffer).T)
+
+@njit(fastmath=True, cache=True)
+def step_earth_transit(l_km: float, baseline_km: float, costh: float, dr_earth_eV_inv: float,
+                       E_bins: np.ndarray, rho_earth: np.ndarray, U_pmns: np.ndarray, M_sq: np.ndarray,
+                       n_n_amb_eV3: float, Coef: float, U_LRI_struct: np.ndarray,
+                       use_SM_potential: bool, is_antineutrino: bool, detector_depth_km: float, U_step_buffer: np.ndarray):
+    """Executes a single path-length step through the Earth interior using pre-allocated contiguous matrix buffers."""
+    N_E = len(E_bins)
+    f1 = baseline_km - l_km
+    f2 = 6371.0 - detector_depth_km
+    r_center_km = np.sqrt(f1**2 + f2**2 + 2.0 * f1 * f2 * costh)
+    
+    rho_earth_g = calc_earth_density(r_center_km)
+    n_n_earth_cm3 = rho_earth_g * 3.011e23
+    n_e_earth_cm3 = n_n_earth_cm3
+    
+    n_tot_eV3 = n_n_amb_eV3 + n_n_earth_cm3 * cm_inv3_to_eV3
+    V_LRI = (Coef * n_tot_eV3) * U_LRI_struct
+    
+    V_SM = np.zeros((3,3), dtype=np.complex128)
+    if use_SM_potential:
+        V_SM_val = np.sqrt(2.0) * G_F * (n_e_earth_cm3 * cm_inv3_to_eV3)
+        if is_antineutrino:
+            V_SM_val = -V_SM_val
+        V_SM[0,0] = V_SM_val
+        
+    for i in range(N_E):
+        H_vac = (1.0 / (2.0 * E_bins[i])) * (U_pmns @ M_sq @ np.ascontiguousarray(np.conjugate(U_pmns).T))
+        H_local = H_vac + V_LRI + V_SM
+        evals, evecs = np.linalg.eigh(H_local)
+        
+        U_step_buffer[:] = 0.0
+        for a in range(3):
+            for b in range(3):
+                for k in range(3):
+                    U_step_buffer[a,b] += evecs[a,k] * np.exp(-1j * evals[k] * dr_earth_eV_inv) * np.conjugate(evecs[b,k])
+        
+        rho_earth[i] = U_step_buffer @ rho_earth[i] @ np.ascontiguousarray(np.conjugate(U_step_buffer).T)
+
+# =============================================================================
+# REVISED SOLVERS WITH VERBOSE PROGRESS TRACKING
+# =============================================================================
+
 def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray, 
                             U_pmns: np.ndarray, M_sq: np.ndarray,
                             u_arr: np.ndarray, m_Zd: float, g_D: float, eps_prime: float,
                             T_nu0: float, use_debye_screening: bool, eta_bg: np.ndarray, 
-                            n_n_MW_eV3: float, use_SM_potential: bool, 
-                            is_antineutrino: bool) -> np.ndarray:
+                            detector_depth_km: float, use_SM_potential: bool, 
+                            is_antineutrino: bool, n_mw_paths: int, n_earth_chords: int, 
+                            show_progress: bool = True, verbose: int = 1) -> np.ndarray:
     """
-    Executes a pure spatial ODE tracking the density matrix through the Milky Way, Solar System, 
-    and Earth interior. Dynamically evaluates potentials from neutrons in the MW (extended), 
-    Sun/Moon (points), and Earth PREM (extended).
+    Executes pure spatial ODE through Milky Way and Earth with active tracking.
+    Added dynamic array generation for arbitrary spatial integration paths.
     """
     N_E = len(E_bins)
-    F_earth = np.zeros((N_E, 3), dtype=np.float64)
+    lbl = "Anti-Nu" if is_antineutrino else "Nu"
     
-    m_D_sq = 0.0
-    if use_debye_screening:
-        m_D_sq = calc_debye_mass_sq(g_D, u_arr, T_nu0, eta_bg)
+    # --- Dynamic Earth Chords ---
+    if n_earth_chords <= 1:
+        earth_costh = np.array([-1.0])
+    else:
+        # Evenly spaced chords from exact core transit (-1.0) to grazing (0.0)
+        earth_costh = np.linspace(-1.0, 0.0, int(n_earth_chords))
+
+    # --- Dynamic Milky Way Paths ---
+    if n_mw_paths <= 1:
+        mw_theta = np.array([np.pi/2])
+        mw_phi = np.array([0.0])
+    elif n_mw_paths == 6:
+        # Preserve original standard baseline exact cardinal axis mapping
+        mw_theta = np.array([np.pi/2, np.pi/2, np.pi/2, np.pi/2, 0.0, np.pi])
+        mw_phi = np.array([0.0, np.pi, np.pi/2, 3.0*np.pi/2, 0.0, 0.0])
+    else:
+        # Fibonacci Spherical Lattice for perfectly isotropic uniform solid-angle averaging
+        indices = np.arange(0, n_mw_paths, dtype=np.float64)
+        mw_phi = (np.pi * (1.0 + np.sqrt(5.0)) * indices) % (2 * np.pi)
+        mw_theta = np.arccos(1.0 - 2.0 * (indices + 0.5) / n_mw_paths)
+        
+    m_D_sq = calc_debye_mass_sq(g_D, u_arr, T_nu0, eta_bg) if use_debye_screening else 0.0
     m_eff = np.sqrt(m_Zd**2 + m_D_sq)
-    
-    # Point source effective densities mapping Yukawa range limits
-    n_sun = 0.0
-    n_moon = 0.0
-    if m_eff > 0:
-        n_sun = N_n_sun * m_eff**2 * np.exp(-m_eff * d_sun_eV_inv) / (4.0 * np.pi * d_sun_eV_inv)
-        n_moon = N_n_moon * m_eff**2 * np.exp(-m_eff * d_moon_eV_inv) / (4.0 * np.pi * d_moon_eV_inv)
-    
-    n_n_amb = n_n_MW_eV3 + n_sun + n_moon
     
     c_W = 0.88
     m_Z = 91.18 * GeV
     g_weak = 0.65
     Coef = (g_D * eps_prime) / (m_Zd**2 + m_D_sq) * (4.0 * c_W * m_Z**2 / g_weak) * (np.sqrt(2.0)/2.0 * G_F)
-    
+    if is_antineutrino:
+        Coef = -Coef
+        
     U_LRI_struct = np.zeros((3, 3), dtype=np.complex128)
     for i in range(3):
         for j in range(3):
             U_LRI_struct[i, j] = u_arr[i] * np.conjugate(u_arr[j])
-            
-    if is_antineutrino:
-        Coef = -Coef
-        
-    N_steps = 1000
-    dr = R_earth_eV_inv / N_steps
+
+    # Shared pre-allocated buffer for stepping operators to avoid N_E allocations per distance step
+    U_step_buffer = np.zeros((3, 3), dtype=np.complex128)
+
+    # PHASE 1: Milky Way & Solar System Approach
+    rho_surf_avg = np.zeros((N_E, 3, 3), dtype=np.complex128)
+    N_steps_MW = 1000
+    r_start_kpc = 30.0
+    r_end_kpc = 6371.0 / 3.08567758e16 
+    dr_kpc = (r_start_kpc - r_end_kpc) / N_steps_MW
+    dr_MW_eV_inv = dr_kpc * 3.08567758e16 * 1e3 * m_to_eV_inv
+    mw_print_mod = max(1, N_steps_MW // 10)
     
-    for i in range(N_E):
-        E0 = E_bins[i]
-        H_vac = (1.0 / (2.0 * E0)) * (U_pmns @ M_sq @ np.conjugate(U_pmns).T)
+    if verbose == 2:
+        safe_print(f"\n--- Spatial Handover Commencing ({lbl}) ---")
+        safe_print(f"Entering Milky Way geometry at r = {r_start_kpc:.1f} kpc from Earth...")
+    
+    for dir_idx in range(len(mw_theta)):
+        theta = mw_theta[dir_idx]
+        phi = mw_phi[dir_idx]
         
-        # Arrival Hamiltonian driven by MW, Sun, Moon ambient fields
-        H_arr = H_vac + (Coef * n_n_amb) * U_LRI_struct
-        evals_a, evecs_a = np.linalg.eigh(H_arr)
+        rho_f = init_mw_density_matrix(r_start_kpc, theta, phi, E_bins, F_mass_arrival, U_pmns, M_sq, m_eff, Coef, U_LRI_struct)
         
-        # Transform incoherent mass fluxes into full density matrix in the flavor basis
-        rho_f = np.zeros((3,3), dtype=np.complex128)
-        for a in range(3):
-            for b in range(3):
-                for k in range(3):
-                    rho_f[a, b] += evecs_a[a, k] * F_mass_arrival[i, k] * np.conjugate(evecs_a[b, k])
+        desc_mw = f"MW ({lbl}) Path {dir_idx+1}/{len(mw_theta)}"
+        mw_iter = tqdm(range(N_steps_MW), desc=desc_mw, leave=False) if (HAS_TQDM and show_progress) else range(N_steps_MW)
         
-        # Propagate through Earth via matrix exponential ODE stepper
-        for step in range(N_steps):
-            r_current = R_earth_eV_inv - step * dr
-            # PREM internal density approximation
-            if r_current < R_core_eV_inv:
-                rho_g_cm3 = 11.0
-            else:
-                rho_g_cm3 = 4.5
+        for step in mw_iter:
+            r_current_kpc = r_start_kpc - step * dr_kpc
+            
+            if verbose == 2 and dir_idx == 0 and step % mw_print_mod == 0:
+                safe_print(f"   MW Transit [Path 1]: Instantaneous distance to Earth r = {r_current_kpc:.3f} kpc")
                 
-            n_n_earth = rho_g_cm3 * 3.011e23 * cm_inv3_to_eV3
-            n_e_earth = n_n_earth # Electrically neutral isoscalar matter
+            step_mw_approach(r_current_kpc, theta, phi, dr_MW_eV_inv, E_bins, rho_f, U_pmns, M_sq, m_eff, Coef, U_LRI_struct, U_step_buffer)
             
-            n_n_tot = n_n_amb + n_n_earth
-            V_LRI = (Coef * n_n_tot) * U_LRI_struct
-            
-            V_SM = np.zeros((3,3), dtype=np.complex128)
-            if use_SM_potential:
-                V_SM_val = np.sqrt(2.0) * G_F * n_e_earth
-                if is_antineutrino:
-                    V_SM_val = -V_SM_val
-                V_SM[0,0] = V_SM_val
-                
-            H_local = H_vac + V_LRI + V_SM
-            evals, evecs = np.linalg.eigh(H_local)
-            
-            # Evolution operator U = evecs * exp(-i * evals * dr) * evecs^dagger
-            U_step = np.zeros((3,3), dtype=np.complex128)
+        for i in range(N_E):
             for a in range(3):
                 for b in range(3):
-                    for k in range(3):
-                        U_step[a,b] += evecs[a,k] * np.exp(-1j * evals[k] * dr) * np.conjugate(evecs[b,k])
+                    rho_surf_avg[i, a, b] += rho_f[i, a, b] / len(mw_theta)
+
+    # PHASE 2: Earth Transit (PREM Layers)
+    if verbose == 2:
+        safe_print(f"Milky Way transit complete. Initiating Solar System point-source locks and Earth PREM transit...")
+        
+    F_earth = np.zeros((N_E, 3), dtype=np.float64)
+    n_sun_eV3, n_moon_eV3 = 0.0, 0.0
+    if m_eff > 0:
+        n_sun_eV3 = N_n_sun * (m_eff**2) / (4.0 * np.pi * d_sun_eV_inv) * np.exp(-m_eff * d_sun_eV_inv) 
+        n_moon_eV3 = N_n_moon * (m_eff**2) / (4.0 * np.pi * d_moon_eV_inv) * np.exp(-m_eff * d_moon_eV_inv) 
+    n_n_amb_eV3 = calc_MW_neutron_density(0.0, 0.0, 0.0) * cm_inv3_to_eV3 + n_sun_eV3 + n_moon_eV3
+    
+    N_steps_earth = 500
+    earth_print_mod = max(1, N_steps_earth // 10)
+    
+    for costh_idx, costh in enumerate(earth_costh):
+        baseline_km = get_baseline_earth(detector_depth_km, costh)
+        dr_earth_km = baseline_km / N_steps_earth
+        dr_earth_eV_inv = dr_earth_km * 1e3 * m_to_eV_inv
+        
+        rho_earth = np.zeros((N_E, 3, 3), dtype=np.complex128)
+        for i in range(N_E):
+            for a in range(3):
+                for b in range(3):
+                    rho_earth[i, a, b] = rho_surf_avg[i, a, b]
+                    
+        desc_earth = f"Earth ({lbl}) Chord {costh_idx+1}/{len(earth_costh)}"
+        earth_iter = tqdm(range(N_steps_earth), desc=desc_earth, leave=False) if (HAS_TQDM and show_progress) else range(N_steps_earth)
+        
+        for step in earth_iter:
+            l_km = step * dr_earth_km
             
-            U_step_dagger = np.conjugate(U_step).T
-            rho_f = U_step @ rho_f @ U_step_dagger
+            if verbose == 2 and costh_idx == 0 and step % earth_print_mod == 0:
+                safe_print(f"   Earth Transit [Chord 1]: Subterranean depth traversed = {l_km:.2f} km")
+                
+            step_earth_transit(l_km, baseline_km, costh, dr_earth_eV_inv, E_bins, rho_earth, U_pmns, M_sq, n_n_amb_eV3, Coef, U_LRI_struct, use_SM_potential, is_antineutrino, detector_depth_km, U_step_buffer)
             
-        # Final projection to observable flavors
-        for a in range(3):
-            F_earth[i, a] = np.real(rho_f[a, a])
-            
+        for i in range(N_E):
+            for a in range(3):
+                F_earth[i, a] += np.real(rho_earth[i, a, a]) / len(earth_costh)
+                
+    if verbose == 2:
+        safe_print(f"Spatial propagation finished ({lbl}). Flux density matrix mapped to detector depth.")
+                
     return F_earth
 
-@njit
+
 def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarray, 
                        H0: float, Omega_m: float, Omega_L: float,
                        U_pmns: np.ndarray, M_sq: np.ndarray,
                        u_arr: np.ndarray, m_Zd: float, g_D: float, eps_prime: float,
                        m_nu_bg_arr: np.ndarray, n_n0: float, T_nu0: float,
-                       use_debye_screening: bool, n_n_local: float,
+                       use_debye_screening: bool, detector_depth_km: float,
                        use_SM_potential: bool, n_e_earth: float,
                        is_antineutrino: bool, p_index: float, rho_evol: float,
-                       Phi_0: float, eta_bg: np.ndarray) -> np.ndarray:
+                       Phi_0: float, eta_bg: np.ndarray, n_mw_paths: int, n_earth_chords: int, 
+                       show_progress: bool = True, verbose: int = 1) -> np.ndarray:
     """
-    Executes the vectorized adiabatic transport integration across the entire energy spectrum.
-    
-    Math:
-        The fundamental integro-differential equation dictating the flux F(E, z) is:
-        dF(E) / dt = -\\Gamma(E) F(E) + \\int_E^{E_{max}} dE' W(E, E') F(E') + Q(E)
-        
-        Where:
-        - \\Gamma(E) is the attenuation rate due to dark scattering.
-        - W(E, E') = \\Gamma(E') \\times (3 E^2 / E'^3) is the exact lab-frame cascade redistribution 
-          kernel for an s-channel vector mediator coupling to chiral fermions.
-        - Q(E) is the continuous cosmological source injection spectrum.
-        
-        To solve this robustly despite the extreme "stiffness" introduced by narrow resonances 
-        (where \\Gamma \\cdot dt \\gg 1), the routine utilizes an unconditionally stable, semi-analytic 
-        exponential time step:
-        
-        F_{n+1} = F_n e^{-\\Gamma \\Delta t} + \\frac{Source}{\\Gamma} (1 - e^{-\\Gamma \\Delta t})
-        
-        Integration occurs backwards in redshift (z_max -> 0), dynamically transforming the 
-        flux between the flavor and mass basis to account for adiabatic oscillations and MSW effects.
-        
-    Args:
-        E_bins (np.ndarray): 1D array of observed energy bins [eV].
-        z_bins (np.ndarray): 1D array of redshift bins (descending order).
-        rho_src (np.ndarray): Source flavor ratios [f_e, f_mu, f_tau] [dimensionless].
-        H0, Omega_m, Omega_L: Cosmological parameters.
-        U_pmns, M_sq: Standard mixing parameter matrices.
-        u_arr, m_Zd, g_D, eps_prime, use_debye_screening: LRI parameters.
-        m_nu_bg_arr, n_n0, T_nu0, n_n_local, eta_bg: Environmental background properties.
-        use_SM_potential, n_e_earth: Standard Matter parameters.
-        is_antineutrino (bool): Antineutrino switch for Hamiltonian symmetry.
-        p_index (float): Spectral index of the primary injection spectrum.
-        rho_evol (float): Source evolution index.
-        Phi_0 (float): Baseline source flux normalization.
-        
-    Returns:
-        np.ndarray: Final absolute flux mapped into flavor space at Earth (size N_E x 3) [eV^-1 cm^-2 s^-1 sr^-1].
+    Executes the complete spectrum integration, driving the underlying JIT kernels.
+    Includes verbose level 2 for periodic redshift status updates.
     """
     N_E = len(E_bins)
     dz = z_bins[0] - z_bins[1] 
+    lbl = "Anti-Nu" if is_antineutrino else "Nu"
     
-    # Project CnuB flavor asymmetry onto the background mass eigenstates using the PMNS matrix
     eta_mass = np.zeros(3, dtype=np.float64)
     for i in range(3):
         eta_mass[i] = np.sum(np.abs(U_pmns[:, i])**2 * eta_bg)
     
     F_mass = np.zeros((N_E, 3), dtype=np.float64)
             
-    # Calculate NSSI coupling structures (constant over E and z) to speed up integration
     u_mag = np.abs(u_arr)
     sum_G = 0.0
     sum_G_alpha = np.zeros(3, dtype=np.float64)
@@ -510,73 +614,50 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         BR = sum_G_alpha / sum_G
 
     dE = np.zeros(N_E, dtype=np.float64)
-    for i in range(N_E - 1):
-        dE[i] = E_bins[i+1] - E_bins[i]
     if N_E > 1:
-        dE[N_E-1] = dE[N_E-2] 
-
+        bin_ratio = E_bins[1] / E_bins[0]
+        half_ratio = np.sqrt(bin_ratio)
+        for i in range(N_E):
+            E_lower = E_bins[i] / half_ratio
+            E_upper = E_bins[i] * half_ratio
+            dE[i] = E_upper - E_lower
+    elif N_E == 1:
+        dE[0] = 0.0
+        
+    # Pre-allocated buffers for the compiled Numba stepper to prevent garbage-collection throttling
     F_flavor = np.zeros((N_E, 3), dtype=np.float64)
     Gamma_flavor = np.zeros((N_E, 3), dtype=np.float64)
     dF_casc_flavor = np.zeros((N_E, 3), dtype=np.float64)
     U_z_all = np.zeros((N_E, 3, 3), dtype=np.complex128)
+    rate_F_sum_arr = np.zeros(N_E, dtype=np.float64)
 
-    # 2. Adiabatic transport with coupled cascading and continuous continuous injection
-    for k in range(1, len(z_bins)):
+    iterator = tqdm(range(1, len(z_bins)), desc=f"Cosmo Phase ({lbl})", leave=False) if (HAS_TQDM and show_progress) else range(1, len(z_bins))
+    z_print_mod = max(1, len(z_bins) // 10)
+
+    if verbose == 2:
+        safe_print(f"\n--- Cosmological Integration Started (z_max = {z_bins[0]:.2f}) ({lbl}) ---")
+
+    for k in iterator:
         z = z_bins[k]
         dt = dz / (calc_H_Hubble(z, H0, Omega_m, Omega_L) * (1.0 + z))
         R_z = calc_R_source(z, rho_evol)
         
-        # Determine instantaneous rates and mixings across the spectrum
-        for i in range(N_E):
-            U_z = get_adiabatic_mixing_cosmo(E_bins[i], z, U_pmns, M_sq, u_arr, m_Zd, g_D, eps_prime, 
-                                             n_n0, T_nu0, use_debye_screening, is_antineutrino, eta_bg)
-            U_z_all[i] = U_z
-            for a in range(3):
-                F_flavor[i, a] = np.sum(np.abs(U_z[a, :])**2 * F_mass[i, :])
-            Gamma_flavor[i, :] = thermal_averaged_rates_flavor(E_bins[i], z, sum_G, sum_G_alpha, m_Zd, m_nu_bg_arr, T_nu0, eta_mass)
-            
-        # Compute cascading integral (top-down scattering)
-        for i in range(N_E):
-            integral = 0.0
-            # Integrate from local energy bin up to max energy
-            for j in range(i, N_E):
-                E_prime = E_bins[j]
-                rate_F_sum = 0.0
-                for b in range(3):
-                    rate_F_sum += Gamma_flavor[j, b] * F_flavor[j, b]
+        if verbose == 2 and k % z_print_mod == 0:
+            safe_print(f"Cosmological propagation: currently integrating at redshift z = {z:.4f}")
+        
+        step_cosmological_propagation(z, dt, R_z, E_bins, F_mass, rho_src, U_pmns, M_sq, u_arr, 
+                                      m_Zd, g_D, eps_prime, m_nu_bg_arr, n_n0, T_nu0, 
+                                      use_debye_screening, is_antineutrino, p_index, Phi_0, 
+                                      eta_bg, eta_mass, sum_G, sum_G_alpha, BR, dE,
+                                      F_flavor, Gamma_flavor, dF_casc_flavor, U_z_all, rate_F_sum_arr)
                 
-                # Applying the correct inelasticity distribution polynomial for vector decay: 3 * E^2 / E'^3
-                integral += 1.0 * (rate_F_sum * 3.0 * (E_bins[i]**2) / (E_prime**3)) * dE[j]
-                
-            for a in range(3):
-                dF_casc_flavor[i, a] = BR[a] * integral
-                
-        # Apply injection, attenuation, and cascading using a stable semi-analytic step
-        for i in range(N_E):
-            U_z = U_z_all[i]
-            E_z = E_bins[i] * (1.0 + z)
-            
-            # Injection spectrum evaluated at physical emission energy E_z, scaled by Phi_0
-            # Kinematic Jacobian fixed to rely purely on cosmological expansion terms
-            inj_spectrum = Phi_0 * (E_z**(-p_index))
-            
-            for a in range(3):
-                Gamma_mass_a = np.sum(np.abs(U_z[:, a])**2 * Gamma_flavor[i, :])
-                dF_casc_mass_a = np.sum(np.abs(U_z[:, a])**2 * dF_casc_flavor[i, :])
-                inj_rate_mass_a = np.sum(np.abs(U_z[:, a])**2 * rho_src) * inj_spectrum * R_z
-                
-                total_rate = dF_casc_mass_a + inj_rate_mass_a
-                
-                if Gamma_mass_a > 1e-30:
-                    decay = np.exp(-Gamma_mass_a * dt)
-                    F_mass[i, a] = F_mass[i, a] * decay + (total_rate / Gamma_mass_a) * (1.0 - decay)
-                else:
-                    F_mass[i, a] += total_rate * dt
-                
-    # 3. Spatial Handover: Propagate through Local Universe (MW, Sun, Moon, Earth)
+    if verbose == 2:
+        safe_print(f"Cosmological baseline finished at z = {z_bins[-1]:.4f}.")
+
     F_earth = propagate_earth_spatial(E_bins, F_mass, U_pmns, M_sq, u_arr, m_Zd, g_D, eps_prime, 
-                                      T_nu0, use_debye_screening, eta_bg, n_n_local, 
-                                      use_SM_potential, is_antineutrino)
+                                      T_nu0, use_debye_screening, eta_bg, detector_depth_km, 
+                                      use_SM_potential, is_antineutrino, n_mw_paths, n_earth_chords, 
+                                      show_progress=show_progress, verbose=verbose)
             
     return F_earth
 
@@ -585,43 +666,18 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
 # =============================================================================
 
 def save_flux_to_file(E_array: np.ndarray, Flux_array: np.ndarray, filename: str = "../output/data/output_flux.txt"):
-    """
-    Saves the generated flux components (Energy, nue, numu, nutau) to an external text file.
-    
-    Args:
-        E_array (np.ndarray): 1D Array of Energy values [eV].
-        Flux_array (np.ndarray): 2D array (size N_E x 3) of unscaled absolute flux values.
-        filename (str): The destination file path.
-        
-    Returns:
-        None
-    """
+    """Saves the generated flux components (Energy, nue, numu, nutau) to an external text file."""
     header = "Energy[eV]    Flux_nue[eV^-1 cm^-2 s^-1 sr^-1]    Flux_numu[eV^-1 cm^-2 s^-1 sr^-1]    Flux_nutau[eV^-1 cm^-2 s^-1 sr^-1]"
     data = np.column_stack((E_array, Flux_array))
     np.savetxt(filename, data, header=header, fmt="%.6e")
-    print(f"\nFlux data saved to: {os.path.abspath(filename)}")
+    safe_print(f"\nFlux data saved to: {os.path.abspath(filename)}")
 
 # =============================================================================
 # MULTIPROCESSING WRAPPER & CONFIGURATION MANAGER
 # =============================================================================
 
 def get_mass_eigenvalues(m_lightest: float, dm21_sq: float, dm31_sq: float, ordering: str) -> np.ndarray:
-    """
-    Calculates the three absolute mass eigenvalues based on the lightest mass and mass ordering hierarchy.
-    
-    Math:
-        Normal Hierarchy (NH): m_1 = m_{lightest}, m_2 = \\sqrt{m_1^2 + \\Delta m_{21}^2}, m_3 = \\sqrt{m_1^2 + \\Delta m_{31}^2}.
-        Inverted Hierarchy (IH): m_3 = m_{lightest}, m_2 = \\sqrt{m_3^2 + |\\Delta m_{31}^2|}, m_1 = \\sqrt{m_2^2 - \\Delta m_{21}^2}.
-        
-    Args:
-        m_lightest (float): Mass of the lightest neutrino eigenstate [eV].
-        dm21_sq (float): Solar mass squared difference [eV^2].
-        dm31_sq (float): Atmospheric mass squared difference [eV^2].
-        ordering (str): Hierarchy label ("normal" or "inverted").
-        
-    Returns:
-        np.ndarray: 1D array (size 3) of mass eigenvalues [eV].
-    """
+    """Calculates the three absolute mass eigenvalues based on the lightest mass and ordering hierarchy."""
     masses = np.zeros(3, dtype=np.float64)
     if ordering.lower().strip() == "inverted":
         masses[2] = m_lightest
@@ -634,46 +690,42 @@ def get_mass_eigenvalues(m_lightest: float, dm21_sq: float, dm31_sq: float, orde
     return masses
 
 def propagation_worker(args) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Helper function to unpack arguments and execute `propagate_spectrum` 
-    within the multiprocessing pool loop. Identifies and routes neutrino vs. 
-    antineutrino computation branches.
-    
-    Args:
-        args (tuple): Contains (E_bins array, params dictionary).
-        
-    Returns:
-        Tuple[np.ndarray, np.ndarray]: The evaluated energy array and corresponding flux array.
-    """
+    """Unpacks arguments and executes the physics simulation."""
     E_bins, params = args
+    show_progress = params.get('show_progress', True)
+    verbose = params.get('verbose', 1)
     
     z_bins = np.linspace(params['z_max'], 0.0, int(params['n_z_bins']))
     rho_src = np.array([params['f_e_S'], params['f_mu_S'], params['f_tau_S']], dtype=np.float64)
     
     ordering = str(params.get('mass_ordering', 'normal')).strip().lower()
     dm31_sq_signed = -params['dm31_sq'] if ordering == "inverted" else params['dm31_sq']
-    M_sq = np.diag([0.0, params['dm21_sq'], dm31_sq_signed]).astype(np.complex128)
     
-    u_arr_base = np.array([params['u_e'], params['u_mu'], params['u_tau']], dtype=np.complex128)
+    # Enforce C-contiguous alignment for the initial matrix state
+    M_sq = np.ascontiguousarray(np.diag([0.0, params['dm21_sq'], dm31_sq_signed]).astype(np.complex128))
+    
+    u_arr_base = np.ascontiguousarray(np.array([params['u_e'], params['u_mu'], params['u_tau']], dtype=np.complex128))
     eta_bg = params['eta_bg']
     
     def compute_flux(is_anti: bool) -> np.ndarray:
-        U_pmns = construct_PMNS(params['th12'], params['th13'], params['th23'], params['d_cp'])
-        u_arr = u_arr_base.copy()
+        # Enforce C-contiguous alignment when passing matrices to Numba kernels
+        U_pmns = np.ascontiguousarray(construct_PMNS(params['th12'], params['th13'], params['th23'], params['d_cp']))
+        u_arr = np.ascontiguousarray(u_arr_base.copy())
         
         if is_anti:
-            # Complex CP-violation conjugate transformations for the antineutrino solver branch
-            U_pmns = np.conjugate(U_pmns)
-            u_arr = np.conjugate(u_arr) 
+            U_pmns = np.ascontiguousarray(np.conjugate(U_pmns))
+            u_arr = np.ascontiguousarray(np.conjugate(u_arr)) 
             
         return propagate_spectrum(
             E_bins, z_bins, rho_src,
             params['H0_eV'], params['Omega_m'], params['Omega_L'],
             U_pmns, M_sq, u_arr, params['m_Zd_eV'], params['g_D'], params['epsilon_prime'],
             params['m_nu_bg_arr'], params['n_n0_eV3'], params['T_nu0_eV'],
-            params['use_debye_screening'], params['n_n_local_eV3'],
+            params['use_debye_screening'], params['detector_depth_km'],
             params['use_SM_potential'], params['n_e_earth_eV3'],
-            is_anti, params['p_index'], params['rho_evol'], params['Phi_0'], eta_bg
+            is_anti, params['p_index'], params['rho_evol'], params['Phi_0'], eta_bg, 
+            params['n_mw_paths'], params['n_earth_chords'],
+            show_progress=show_progress, verbose=verbose
         )
     
     flag_val = str(params.get('is_antineutrino', 'sum')).strip().lower()
@@ -688,23 +740,13 @@ def propagation_worker(args) -> Tuple[np.ndarray, np.ndarray]:
     return E_bins, flux_at_earth
 
 def run_solver(config: Dict) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Main orchestrator function. Sets up the computational grid, parses the JSON config, 
-    evaluates physics parameters, and executes the vectorized parallel map.
-    
-    Args:
-        config (Dict): The parsed dictionary from the config JSON file.
-        
-    Returns:
-        Tuple[np.ndarray, np.ndarray]: Evaluated energy bins [eV] and evaluated absolute flux [eV^-1 cm^-2 s^-1 sr^-1].
-    """
+    """Orchestrates configuration and parallelization."""
     params = {}
     params['H0_eV'] = (config['cosmology']['H0_km_s_Mpc'] * km_per_s) / Mpc_to_eV_inv
     params['Omega_m'] = config['cosmology']['Omega_m']
     params['Omega_L'] = config['cosmology']['Omega_L']
     params['T_nu0_eV'] = config['cosmology']['T_nu0_eV']
     params['n_n0_eV3'] = config['cosmology']['n_n0_cm3'] * cm_inv3_to_eV3
-    params['n_n_local_eV3'] = config['cosmology'].get('n_n_local_cm3', 1.0) * cm_inv3_to_eV3
     params['mass_ordering'] = config['cosmology'].get('mass_ordering', 'normal')
     
     params['eta_bg'] = np.array([
@@ -721,6 +763,7 @@ def run_solver(config: Dict) -> Tuple[np.ndarray, np.ndarray]:
     params['d_cp'] = np.radians(config['standard_mixing']['d_cp_deg'])
     params['use_SM_potential'] = config['standard_mixing'].get('use_SM_potential', False)
     params['n_e_earth_eV3'] = config['standard_mixing'].get('n_e_earth_cm3', 1.5e24) * cm_inv3_to_eV3
+    params['detector_depth_km'] = config['standard_mixing'].get('detector_depth_km', 1.5)
     
     params['m_nu_bg_arr'] = get_mass_eigenvalues(
         config['cosmology']['m_lightest_eV'],
@@ -747,6 +790,8 @@ def run_solver(config: Dict) -> Tuple[np.ndarray, np.ndarray]:
     params['is_antineutrino'] = config['source'].get('is_antineutrino', 'sum')
     
     params['n_z_bins'] = config['grid']['n_z_bins']
+    params['n_mw_paths'] = int(config['grid'].get('n_mw_paths', 6))
+    params['n_earth_chords'] = int(config['grid'].get('n_earth_chords', 3))
     
     E_bins = np.logspace(np.log10(config['grid']['E_min_eV']), 
                          np.log10(config['grid']['E_max_eV']), 
@@ -756,21 +801,26 @@ def run_solver(config: Dict) -> Tuple[np.ndarray, np.ndarray]:
     
     tasks = [(E_bins, params)]
     
-    print(f"Initializing solver across {len(E_bins)} coupled energy bins...")
+    if len(tasks) == 1:
+        n_cores = 1
+    
+    params['show_progress'] = (n_cores == 1)
+    params['verbose'] = int(config['execution'].get('verbose', 1))
+    
+    safe_print(f"Initializing solver across {len(E_bins)} coupled energy bins...")
     results = []
     
     if n_cores > 1:
-        print(f"Deploying {n_cores} multiprocessing workers.")
+        safe_print(f"Deploying {n_cores} multiprocessing workers.")
         with multiprocessing.Pool(processes=n_cores) as pool:
             if HAS_TQDM:
-                for res in tqdm(pool.imap(propagation_worker, tasks), total=len(tasks), desc="Integrating Spectrum"):
+                for res in tqdm(pool.imap(propagation_worker, tasks), total=len(tasks), desc="Evaluating Configurations"):
                     results.append(res)
             else:
                 results = pool.map(propagation_worker, tasks)
     else:
-        print("Deploying single-core worker.")
-        iterator = tqdm(tasks, desc="Integrating Spectrum") if HAS_TQDM else tasks
-        for task in iterator:
+        safe_print("Deploying single-core worker.")
+        for task in tasks:
             results.append(propagation_worker(task))
             
     E_out = results[0][0]
@@ -778,21 +828,8 @@ def run_solver(config: Dict) -> Tuple[np.ndarray, np.ndarray]:
     
     return E_out, Flux_out
 
-def plot_flavor_fluxes(E_array: np.ndarray, Flux_array: np.ndarray, p_index: float, output_filename: str = "../output/plots/flux_plot.png"):
-    """
-    Generates, saves, and displays a 2-panel plot of the final neutrino flux at Earth.
-    - Top panel: Absolute diffuse flux scaled by E_0^2.
-    - Bottom panel: Relative flavor ratios (f_e, f_mu, f_tau) as a function of energy.
-    
-    Args:
-        E_array (np.ndarray): 1D Array of Energy values [eV].
-        Flux_array (np.ndarray): 2D array (size N_E x 3) of unscaled flux values [eV^-1 cm^-2 s^-1 sr^-1].
-        p_index (float): Original source spectral index (used for reference/titles).
-        output_filename (str): The destination file path to save the generated plot.
-        
-    Returns:
-        None
-    """
+def plot_flavor_fluxes(E_array: np.ndarray, Flux_array: np.ndarray, p_index: float, is_antineutrino_flag: str, output_filename: str = "../output/plots/flux_plot.png"):
+    """Plots and maps the total astrophysical neutrino spectrum ratios at Earth layers."""
     E_GeV = E_array / 1e9
     scaling_factor = E_GeV**2.0
     
@@ -801,36 +838,39 @@ def plot_flavor_fluxes(E_array: np.ndarray, Flux_array: np.ndarray, p_index: flo
     flux_tau = Flux_array[:, 2]
     flux_total = np.sum(Flux_array, axis=1)
     
-    # Calculate scaled fluxes for the upper panel
     s_flux_e = flux_e * scaling_factor
     s_flux_mu = flux_mu * scaling_factor
     s_flux_tau = flux_tau * scaling_factor
     s_flux_total = flux_total * scaling_factor
     
-    # Calculate the normalized flavor ratios for the lower panel
-    # We use np.maximum to ensure we never divide by exactly zero if the flux completely attenuates
     safe_total = np.maximum(flux_total, 1e-100)
     ratio_e = flux_e / safe_total
     ratio_mu = flux_mu / safe_total
     ratio_tau = flux_tau / safe_total
     
-    # Set up the 2-panel figure structure
+    # Evaluate flag for dynamic LaTeX labels
+    flag_val = str(is_antineutrino_flag).strip().lower()
+    if flag_val in ['sum', 'both']:
+        lbl_tot, lbl_e, lbl_mu, lbl_tau = r'Total Flux ($\nu + \bar{\nu}$)', r'$\nu_e + \bar{\nu}_e$', r'$\nu_\mu + \bar{\nu}_\mu$', r'$\nu_\tau + \bar{\nu}_\tau$'
+    elif flag_val in ['true', 'antineutrino', 'antinu', 'nubar']:
+        lbl_tot, lbl_e, lbl_mu, lbl_tau = r'Total Flux ($\bar{\nu}$)', r'$\bar{\nu}_e$', r'$\bar{\nu}_\mu$', r'$\bar{\nu}_\tau$'
+    else:
+        lbl_tot, lbl_e, lbl_mu, lbl_tau = r'Total Flux ($\nu$)', r'$\nu_e$', r'$\nu_\mu$', r'$\nu_\tau$'
+    
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8), sharex=True, gridspec_kw={'height_ratios': [2.5, 1]})
     
-    # --- Top Panel: Scaled Absolute Flux ---
-    ax1.plot(E_GeV, s_flux_total, color='black', lw=2.5, label='Total Flux')
-    ax1.plot(E_GeV, s_flux_e, color='crimson', linestyle='--', lw=2.0, label=r'$\nu_e$ Component')
-    ax1.plot(E_GeV, s_flux_mu, color='royalblue', linestyle='-.', lw=2.0, label=r'$\nu_\mu$ Component')
-    ax1.plot(E_GeV, s_flux_tau, color='forestgreen', linestyle=':', lw=2.0, label=r'$\nu_\tau$ Component')
+    ax1.plot(E_GeV, s_flux_total, color='black', lw=2.5, label=lbl_tot)
+    ax1.plot(E_GeV, s_flux_e, color='crimson', linestyle='--', lw=2.0, label=lbl_e)
+    ax1.plot(E_GeV, s_flux_mu, color='royalblue', linestyle='-.', lw=2.0, label=lbl_mu)
+    ax1.plot(E_GeV, s_flux_tau, color='forestgreen', linestyle=':', lw=2.0, label=lbl_tau)
     
     ax1.set_xscale('log')
     ax1.set_yscale('log')
-    ax1.set_ylabel(f'Scaled Flux $E_0^2 \\Phi$ [Arb. Units]', fontsize=14)
+    ax1.set_ylabel(f'Scaled Flux $E_0^2 \Phi$ [Arb. Units]', fontsize=14)
     ax1.set_title('Astrophysical Neutrino Diffuse Flux at Earth', fontsize=15, pad=15)
     ax1.grid(True, which="both", ls="--", alpha=0.4)
     ax1.legend(fontsize=12, loc='lower right')
     
-    # --- Bottom Panel: Relative Flavor Ratios ---
     ax2.plot(E_GeV, ratio_e, color='crimson', linestyle='--', lw=2.0)
     ax2.plot(E_GeV, ratio_mu, color='royalblue', linestyle='-.', lw=2.0)
     ax2.plot(E_GeV, ratio_tau, color='forestgreen', linestyle=':', lw=2.0)
@@ -841,9 +881,8 @@ def plot_flavor_fluxes(E_array: np.ndarray, Flux_array: np.ndarray, p_index: flo
     ax2.grid(True, which="both", ls="--", alpha=0.4)
     
     plt.tight_layout()
-    
     plt.savefig(output_filename, dpi=300)
-    print(f"\nPlot successfully saved to: {os.path.abspath(output_filename)}")
+    safe_print(f"\nPlot successfully saved to: {os.path.abspath(output_filename)}")
     plt.show()
 
 # =============================================================================
@@ -851,16 +890,7 @@ def plot_flavor_fluxes(E_array: np.ndarray, Flux_array: np.ndarray, p_index: flo
 # =============================================================================
 
 def create_default_config(filename: str = "../config/config_dark_portal.json") -> Dict:
-    """
-    Generates a strictly formatted JSON file if one does not exist, establishing 
-    the baseline cosmological and particle physics parameters.
-    
-    Args:
-        filename (str): Path where the default JSON configuration will be written.
-        
-    Returns:
-        Dict: A dictionary containing the newly created default configuration parameters.
-    """
+    """Generates a strictly formatted default JSON configuration block structure."""
     default_config = {
         "cosmology": {
             "H0_km_s_Mpc": 67.4,
@@ -868,7 +898,6 @@ def create_default_config(filename: str = "../config/config_dark_portal.json") -
             "Omega_L": 0.685,
             "T_nu0_eV": 1.95e-4,
             "n_n0_cm3": 0.25e-6,
-            "n_n_local_cm3": 1.0, 
             "m_lightest_eV": 0.01,
             "mass_ordering": "normal",
             "eta_e": 1.0,
@@ -883,7 +912,8 @@ def create_default_config(filename: str = "../config/config_dark_portal.json") -
             "th23_deg": 49.1,
             "d_cp_deg": 132.0,
             "use_SM_potential": False,
-            "n_e_earth_cm3": 1.5e24
+            "n_e_earth_cm3": 1.5e24,
+            "detector_depth_km": 1.5
         },
         "dark_portal": {
             "u_e": 0.5,
@@ -908,42 +938,174 @@ def create_default_config(filename: str = "../config/config_dark_portal.json") -
             "E_min_eV": 1e13,
             "E_max_eV": 3e16,
             "n_E_bins": 1000,
-            "n_z_bins": 1000
+            "n_z_bins": 1000,
+            "n_mw_paths": 6,
+            "n_earth_chords": 3
         },
         "output": {
             "flux_filename": "../output/data/output_flux.txt",
             "plot_filename": "../output/plots/flux_plot.png"
         },
         "execution": {
-            "n_cores": multiprocessing.cpu_count() - 1 if multiprocessing.cpu_count() > 1 else 1
+            "n_cores": multiprocessing.cpu_count() - 1 if multiprocessing.cpu_count() > 1 else 1,
+            "verbose": 1
         }
     }
-    
-    # Ensure directory exists before writing
     os.makedirs(os.path.dirname(os.path.abspath(filename)), exist_ok=True)
     with open(filename, 'w') as f:
         json.dump(default_config, f, indent=4)
-    print(f"Created default configuration file: {filename}")
+    safe_print(f"Created default configuration file: {filename}")
     return default_config
 
 if __name__ == "__main__":
-    config_file = "../config/config_dark_portal.json"
+    # Initialize argument flags for terminal overrides mapping to the JSON variables
+    parser = argparse.ArgumentParser(description="Dark Portal Neutrino Propagation Solver command-line flag orchestrator.")
+    parser.add_argument("--config", type=str, default="../config/config_dark_portal.json", help="Path to JSON parameter file.")
     
-    if not os.path.exists(config_file):
-        config = create_default_config(config_file)
+    # Cosmology Overrides
+    parser.add_argument("--H0_km_s_Mpc", type=float, default=None)
+    parser.add_argument("--Omega_m", type=float, default=None)
+    parser.add_argument("--Omega_L", type=float, default=None)
+    parser.add_argument("--T_nu0_eV", type=float, default=None)
+    parser.add_argument("--n_n0_cm3", type=float, default=None)
+    parser.add_argument("--m_lightest_eV", type=float, default=None)
+    parser.add_argument("--mass_ordering", type=str, default=None)
+    parser.add_argument("--eta_e", type=float, default=None)
+    parser.add_argument("--eta_mu", type=float, default=None)
+    parser.add_argument("--eta_tau", type=float, default=None)
+    
+    # Standard Oscillation Mixing Overrides
+    parser.add_argument("--dm21_sq", type=float, default=None)
+    parser.add_argument("--dm31_sq", type=float, default=None)
+    parser.add_argument("--th12_deg", type=float, default=None)
+    parser.add_argument("--th13_deg", type=float, default=None)
+    parser.add_argument("--th23_deg", type=float, default=None)
+    parser.add_argument("--d_cp_deg", type=float, default=None)
+    parser.add_argument("--use_SM_potential", type=str, default=None, help="Set to 'true' or 'false'")
+    parser.add_argument("--n_e_earth_cm3", type=float, default=None)
+    parser.add_argument("--detector_depth_km", type=float, default=None)
+    
+    # Dark Portal Vector Interactions Overrides
+    parser.add_argument("--u_e", type=float, default=None)
+    parser.add_argument("--u_mu", type=float, default=None)
+    parser.add_argument("--u_tau", type=float, default=None)
+    parser.add_argument("--m_Zd_eV", type=float, default=None)
+    parser.add_argument("--g_D", type=float, default=None)
+    parser.add_argument("--epsilon_prime", type=float, default=None)
+    parser.add_argument("--use_debye_screening", type=str, default=None, help="Set to 'true' or 'false'")
+    
+    # Primary Flux Injectors Overrides
+    parser.add_argument("--p_index", type=float, default=None)
+    parser.add_argument("--Phi_0", type=float, default=None)
+    parser.add_argument("--z_max", type=float, default=None)
+    parser.add_argument("--rho_evol", type=float, default=None)
+    parser.add_argument("--f_e_S", type=float, default=None)
+    parser.add_argument("--f_mu_S", type=float, default=None)
+    parser.add_argument("--f_tau_S", type=float, default=None)
+    parser.add_argument("--is_antineutrino", type=str, default=None)
+    
+    # Grid Configurations Overrides
+    parser.add_argument("--E_min_eV", type=float, default=None)
+    parser.add_argument("--E_max_eV", type=float, default=None)
+    parser.add_argument("--n_E_bins", type=int, default=None)
+    parser.add_argument("--n_z_bins", type=int, default=None)
+    parser.add_argument("--n_mw_paths", type=int, default=None, help="Number of Milky Way trajectories for solid-angle average")
+    parser.add_argument("--n_earth_chords", type=int, default=None, help="Number of Earth chords for PREM evaluation")
+    
+    # Export Slated Locations Overrides
+    parser.add_argument("--flux_filename", type=str, default=None)
+    parser.add_argument("--plot_filename", type=str, default=None)
+    
+    # Execution Architecture Overrides
+    parser.add_argument("--n_cores", type=int, default=None)
+    parser.add_argument("--verbose", type=int, default=None)
+    
+    args = parser.parse_args()
+
+    # Establish immutable master dictionary structure baseline defaults
+    config = {
+        "cosmology": {"H0_km_s_Mpc": 67.4, "Omega_m": 0.315, "Omega_L": 0.685, "T_nu0_eV": 1.95e-4, "n_n0_cm3": 0.25e-6, "m_lightest_eV": 0.01, "mass_ordering": "normal", "eta_e": 1.0, "eta_mu": 1.0, "eta_tau": 1.0},
+        "standard_mixing": {"dm21_sq": 7.41e-5, "dm31_sq": 2.511e-3, "th12_deg": 33.41, "th13_deg": 8.58, "th23_deg": 49.1, "d_cp_deg": 132.0, "use_SM_potential": False, "n_e_earth_cm3": 1.5e24, "detector_depth_km": 1.5},
+        "dark_portal": {"u_e": 0.5, "u_mu": 0.5, "u_tau": 0.0, "m_Zd_eV": 2.0e6, "g_D": 1.e-4, "epsilon_prime": 1e-1, "use_debye_screening": True},
+        "source": {"p_index": 2.5, "Phi_0": 1.0, "z_max": 4.0, "rho_evol": 0.0, "f_e_S": 0.333333, "f_mu_S": 0.666667, "f_tau_S": 0.0, "is_antineutrino": "sum"},
+        "grid": {"E_min_eV": 1e13, "E_max_eV": 3e16, "n_E_bins": 1000, "n_z_bins": 1000, "n_mw_paths": 6, "n_earth_chords": 3},
+        "output": {"flux_filename": "../output/data/output_flux.txt", "plot_filename": "../output/plots/flux_plot.png"},
+        "execution": {"n_cores": multiprocessing.cpu_count() - 1 if multiprocessing.cpu_count() > 1 else 1, "verbose": 1}
+    }
+    
+    # Precedence Step 2: Overlay values from JSON file if one exists
+    if os.path.exists(args.config):
+        print(f"Loading configuration from {args.config}")
+        with open(args.config, 'r') as f:
+            file_config = json.load(f)
+            for section in config:
+                if section in file_config:
+                    config[section].update(file_config[section])
     else:
-        print(f"Loading configuration from {config_file}")
-        with open(config_file, 'r') as f:
-            config = json.load(f)
+        print(f"Config file {args.config} not found. Running under strict system defaults.")
+
+    def str_to_bool(val):
+        if val is None: return None
+        return str(val).lower().strip() in ['true', '1', 'yes', 'y']
+
+    # Precedence Step 3: Overwrite entries dynamically via shell CLI arguments
+    if args.H0_km_s_Mpc is not None: config["cosmology"]["H0_km_s_Mpc"] = args.H0_km_s_Mpc
+    if args.Omega_m is not None: config["cosmology"]["Omega_m"] = args.Omega_m
+    if args.Omega_L is not None: config["cosmology"]["Omega_L"] = args.Omega_L
+    if args.T_nu0_eV is not None: config["cosmology"]["T_nu0_eV"] = args.T_nu0_eV
+    if args.n_n0_cm3 is not None: config["cosmology"]["n_n0_cm3"] = args.n_n0_cm3
+    if args.m_lightest_eV is not None: config["cosmology"]["m_lightest_eV"] = args.m_lightest_eV
+    if args.mass_ordering is not None: config["cosmology"]["mass_ordering"] = args.mass_ordering
+    if args.eta_e is not None: config["cosmology"]["eta_e"] = args.eta_e
+    if args.eta_mu is not None: config["cosmology"]["eta_mu"] = args.eta_mu
+    if args.eta_tau is not None: config["cosmology"]["eta_tau"] = args.eta_tau
+
+    if args.dm21_sq is not None: config["standard_mixing"]["dm21_sq"] = args.dm21_sq
+    if args.dm31_sq is not None: config["standard_mixing"]["dm31_sq"] = args.dm31_sq
+    if args.th12_deg is not None: config["standard_mixing"]["th12_deg"] = args.th12_deg
+    if args.th13_deg is not None: config["standard_mixing"]["th13_deg"] = args.th13_deg
+    if args.th23_deg is not None: config["standard_mixing"]["th23_deg"] = args.th23_deg
+    if args.d_cp_deg is not None: config["standard_mixing"]["d_cp_deg"] = args.d_cp_deg
+    if args.use_SM_potential is not None: config["standard_mixing"]["use_SM_potential"] = str_to_bool(args.use_SM_potential)
+    if args.n_e_earth_cm3 is not None: config["standard_mixing"]["n_e_earth_cm3"] = args.n_e_earth_cm3
+    if args.detector_depth_km is not None: config["standard_mixing"]["detector_depth_km"] = args.detector_depth_km
+
+    if args.u_e is not None: config["dark_portal"]["u_e"] = args.u_e
+    if args.u_mu is not None: config["dark_portal"]["u_mu"] = args.u_mu
+    if args.u_tau is not None: config["dark_portal"]["u_tau"] = args.u_tau
+    if args.m_Zd_eV is not None: config["dark_portal"]["m_Zd_eV"] = args.m_Zd_eV
+    if args.g_D is not None: config["dark_portal"]["g_D"] = args.g_D
+    if args.epsilon_prime is not None: config["dark_portal"]["epsilon_prime"] = args.epsilon_prime
+    if args.use_debye_screening is not None: config["dark_portal"]["use_debye_screening"] = str_to_bool(args.use_debye_screening)
+
+    if args.p_index is not None: config["source"]["p_index"] = args.p_index
+    if args.Phi_0 is not None: config["source"]["Phi_0"] = args.Phi_0
+    if args.z_max is not None: config["source"]["z_max"] = args.z_max
+    if args.rho_evol is not None: config["source"]["rho_evol"] = args.rho_evol
+    if args.f_e_S is not None: config["source"]["f_e_S"] = args.f_e_S
+    if args.f_mu_S is not None: config["source"]["f_mu_S"] = args.f_mu_S
+    if args.f_tau_S is not None: config["source"]["f_tau_S"] = args.f_tau_S
+    if args.is_antineutrino is not None: config["source"]["is_antineutrino"] = args.is_antineutrino
+
+    if args.E_min_eV is not None: config["grid"]["E_min_eV"] = args.E_min_eV
+    if args.E_max_eV is not None: config["grid"]["E_max_eV"] = args.E_max_eV
+    if args.n_E_bins is not None: config["grid"]["n_E_bins"] = args.n_E_bins
+    if args.n_z_bins is not None: config["grid"]["n_z_bins"] = args.n_z_bins
+    if args.n_mw_paths is not None: config["grid"]["n_mw_paths"] = args.n_mw_paths
+    if args.n_earth_chords is not None: config["grid"]["n_earth_chords"] = args.n_earth_chords
+
+    if args.flux_filename is not None: config["output"]["flux_filename"] = args.flux_filename
+    if args.plot_filename is not None: config["output"]["plot_filename"] = args.plot_filename
+
+    if args.n_cores is not None: config["execution"]["n_cores"] = args.n_cores
+    if args.verbose is not None: config["execution"]["verbose"] = args.verbose
             
     E_array, Flux_array = run_solver(config)
     
-    # Safely retrieve output filenames from the config, fallback if missing
     output_cfg = config.get("output", {})
     flux_filename = output_cfg.get("flux_filename", "../output/data/output_flux.txt")
     plot_filename = output_cfg.get("plot_filename", "../output/plots/flux_plot.png")
     
-    # Ensure the target directory for the flux text file exists
     os.makedirs(os.path.dirname(os.path.abspath(flux_filename)), exist_ok=True)
     save_flux_to_file(E_array, Flux_array, filename=flux_filename)
     
@@ -951,12 +1113,11 @@ if __name__ == "__main__":
     Total_Flux = np.sum(Flux_array, axis=1)
     f_e, f_mu, f_tau = Flux_array[:, 0] / Total_Flux, Flux_array[:, 1] / Total_Flux, Flux_array[:, 2] / Total_Flux
     
-    print("\nIntegration Complete. Sample Output (Mid-grid Energy):")
+    safe_print("\nIntegration Complete. Sample Output (Mid-grid Energy):")
     mid_idx = len(E_array) // 2
-    print(f"Energy: {E_array[mid_idx] / 1e9:.2e} GeV")
-    print(f"Flavor Ratios at Earth [e, mu, tau]: [{f_e[mid_idx]:.3f}, {f_mu[mid_idx]:.3f}, {f_tau[mid_idx]:.3f}]")
+    safe_print(f"Energy: {E_array[mid_idx] / 1e9:.2e} GeV")
+    safe_print(f"Flavor Ratios at Earth [e, mu, tau]: [{f_e[mid_idx]:.3f}, {f_mu[mid_idx]:.3f}, {f_tau[mid_idx]:.3f}]")
 
     if HAS_MATPLOTLIB:
-        # Ensure the target directory for the plot exists
         os.makedirs(os.path.dirname(os.path.abspath(plot_filename)), exist_ok=True)
-        plot_flavor_fluxes(E_array, Flux_array, config['source']['p_index'], output_filename=plot_filename)
+        plot_flavor_fluxes(E_array, Flux_array, config['source']['p_index'], config['source'].get('is_antineutrino', 'sum'), output_filename=plot_filename)
