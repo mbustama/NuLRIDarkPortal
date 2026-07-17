@@ -107,6 +107,8 @@ The script is entirely self-contained. It can be run immediately without prior s
 python dark_portal_solver.py
 ```
 
+**Note on First Execution:** Because the solver utilizes Numba's Just-In-Time (JIT) compilation with `cache=True` to achieve C-level performance, the script will pause for several seconds during its very first execution. This is perfectly normal; it is compiling and saving the optimized machine code to your hard drive. All subsequent runs will bypass this step and initialize instantly.
+
 ### Parameter Order of Precedence
 The solver determines the active physics parameters by cascading through three levels of preference:
 1. **Immutable Defaults:** Hardcoded baselines instantiated at runtime.
@@ -117,6 +119,13 @@ The solver determines the active physics parameters by cascading through three l
 ```bash
 python dark_portal_solver.py --config my_custom_config.json --n_cores 8 --detector_depth_km 1.5 --g_D 1e-5 --is_antineutrino true
 ```
+
+### Output Specifications
+Upon completion, the solver generates two primary files (dictated by the `[output]` configuration block):
+1. **Data File (`.txt`)**: A columnar text file mapping the exact unscaled flux values $[eV^{-1} cm^{-2} s^{-1} sr^{-1}]$ across the evaluated energy grid for each distinct neutrino flavor ($\nu_e, \nu_\mu, \nu_\tau$).
+2. **Flavor Spectrum Plot (`.png`)**: A two-panel figure summarizing the results:
+   * **Top Panel:** Displays the absolute diffuse flux scaled by $E_0^2$ to highlight high-energy tail attenuation.
+   * **Bottom Panel:** Maps the relative, normalized flavor ratios ($f_e, f_\mu, f_\tau$) as a function of observed energy at the configured detector depth.
 
 ---
 
