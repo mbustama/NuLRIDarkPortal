@@ -64,11 +64,19 @@ In the limit $\Gamma \Delta t \to \infty$, this unconditionally stable method sa
 ### 2.2 Vectorization & Multiprocessing
 The energy cascading mechanism rigidly couples higher-energy bins to lower-energy bins. Therefore, the solver does not integrate individual energy bins independently. Instead, it vectorizes the entire spectrum $\vec{E}$ and propagates it uniformly through $dz$. For parameter space scans, the code is structurally wrapped in a Python `multiprocessing` pool, ready to distribute distinct parameter sets across available CPU cores.
 
+### 2.3 Spatial Handover (Local Universe)
+To accurately capture the potentials of gravitationally bound local structures, the solver employs a two-phase integration strategy. First, the cosmological baseline is established by integrating the flux down from $z_{max}$ to $z=0$. The resulting density matrix is then handed over as the initial condition for a purely spatial ODE solver. Because $z=0$ is now fixed, the Hubble time step $dt$ is replaced by a flat-space path-length step $dr$.
+
+The spatial solver dynamically updates the effective Hamiltonian as the neutrino propagates through the local environment toward the IceCube detector:
+* **The Milky Way:** Treated as an extended source. The solver evaluates the ambient neutron density from the galaxy's bulge, discs, and halo at Earth's distance of 8.33 kpc from the Galactic Center.
+* **The Sun and Moon:** Treated as point sources. As the neutrino crosses their respective distances (1 A.U. and $4 \cdot 10^5$ km), their potentials are calculated based on their total neutron content.
+* **The Earth:** Treated as an extended source. The solver integrates through the specific arrival chord using the varying neutron densities of the Preliminary Reference Earth Model (PREM). This ensures both the long-range potential and the Standard Model MSW matter potential are captured correctly as they steepen inside the planet.
+
 ---
 
 ## 3. Repository Structure
 
-```text
+~~~text
 .
 ├── dark_portal_solver.py      # Main solver and integration script
 ├── config/
@@ -76,7 +84,7 @@ The energy cascading mechanism rigidly couples higher-energy bins to lower-energ
 └── output/
     ├── data/                  # Exported absolute flux data (.txt)
     └── plots/                 # Generated matplotlib figures (.png)
-```
+~~~
 
 ---
 
@@ -90,9 +98,9 @@ The code is written in Python 3 and strictly utilizes fast, standard numerical l
 * `matplotlib` (For automated 2-panel plotting).
 * `tqdm` (For progress bar rendering).
 
-```bash
+~~~bash
 pip install numpy numba matplotlib tqdm
-```
+~~~
 
 ---
 
@@ -100,12 +108,12 @@ pip install numpy numba matplotlib tqdm
 
 The script is entirely self-contained. Running it directly will automatically execute the solver using the parameters defined in the JSON configuration file. If the config file does not exist, the script will generate a baseline template automatically.
 
-```bash
+~~~bash
 python dark_portal_solver.py
-```
+~~~
 
 ### Example Console Output
-```text
+~~~text
 Created default configuration file: ../config/config_dark_portal.json
 Initializing solver across 1000 coupled energy bins...
 Deploying 12 multiprocessing workers.
@@ -118,7 +126,7 @@ Energy: 3.16e+05 GeV
 Flavor Ratios at Earth [e, mu, tau]: [0.298, 0.351, 0.351]
 
 Plot successfully saved to: /path/to/output/plots/flux_plot.png
-```
+~~~
 
 ---
 
