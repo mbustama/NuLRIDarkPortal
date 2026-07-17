@@ -327,6 +327,27 @@ def step_cosmological_propagation(z: float, dt: float, R_z: float, E_bins: np.nd
             rate_F_sum_arr[j] += Gamma_flavor[j, b] * F_flavor[j, b]
         
     for i in range(N_E):
+        U_z = get_adiabatic_mixing_cosmo(E_bins[i], z, U_pmns, M_sq, u_arr, m_Zd, g_D, eps_prime, 
+                                         n_n0, T_nu0, use_debye_screening, is_antineutrino, eta_bg)
+        U_z_all[i] = U_z
+        for a in range(3):
+            F_flavor[i, a] = np.sum(np.abs(U_z[a, :])**2 * F_mass[i, :])
+        Gamma_flavor[i, :] = thermal_averaged_rates_flavor(E_bins[i], z, sum_G, sum_G_alpha, m_Zd, m_nu_bg_arr, T_nu0, eta_mass)
+        
+    # Pre-calculate the redundant interaction rate sum per energy bin to eliminate O(N^2) redundancy
+    for j in range(N_E):
+        for b in range(3):
+            rate_F_sum_arr[j] += Gamma_flavor[j, b] * F_flavor[j, b]
+        
+    for i in range(N_E):
+        integral = 0.0
+        for j in range(i, N_E):
+            E_prime = E_bins[j]
+            integral += 1.0 * (rate_F_sum_arr[j] * 3.0 * (E_bins[i]**2) / (E_prime**3)) * dE[j]
+        for a in range(3):
+            dF_casc_flavor[i, a] = BR[a] * integral
+            
+    for i in range(N_E):
         U_z = U_z_all[i]
         E_z = E_bins[i] * (1.0 + z)
         inj_spectrum = Phi_0 * (E_z**(-p_index))
@@ -454,10 +475,12 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
                             T_nu0: float, use_debye_screening: bool, eta_bg: np.ndarray, 
                             detector_depth_km: float, use_SM_potential: bool, 
                             is_antineutrino: bool, n_mw_paths: int, n_earth_chords: int, 
+                            N_steps_MW: int = 100, r_start_kpc: float = 100.0,
                             show_progress: bool = True, verbose: int = 1) -> np.ndarray:
     """
     Executes pure spatial ODE through Milky Way and Earth with active tracking.
     Added dynamic array generation for arbitrary spatial integration paths.
+    Parameters N_steps_MW and r_start_kpc are now dynamically configurable.
     """
     N_E = len(E_bins)
     lbl = "Anti-Nu" if is_antineutrino else "Nu"
@@ -503,8 +526,6 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
 
     # PHASE 1: Milky Way & Solar System Approach
     rho_surf_avg = np.zeros((N_E, 3, 3), dtype=np.complex128)
-    N_steps_MW = 1000
-    r_start_kpc = 30.0
     r_end_kpc = 6371.0 / 3.08567758e16 
     dr_kpc = (r_start_kpc - r_end_kpc) / N_steps_MW
     dr_MW_eV_inv = dr_kpc * 3.08567758e16 * 1e3 * m_to_eV_inv
@@ -591,6 +612,7 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                        use_SM_potential: bool, n_e_earth: float,
                        is_antineutrino: bool, p_index: float, rho_evol: float,
                        Phi_0: float, eta_bg: np.ndarray, n_mw_paths: int, n_earth_chords: int, 
+                       N_steps_MW: int = 100, r_start_kpc: float = 100.0,
                        show_progress: bool = True, verbose: int = 1) -> np.ndarray:
     """
     Executes the complete spectrum integration, driving the underlying JIT kernels.
@@ -670,6 +692,7 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
     F_earth = propagate_earth_spatial(E_bins, F_mass, U_pmns, M_sq, u_arr, m_Zd, g_D, eps_prime, 
                                       T_nu0, use_debye_screening, eta_bg, detector_depth_km, 
                                       use_SM_potential, is_antineutrino, n_mw_paths, n_earth_chords, 
+                                      N_steps_MW=N_steps_MW, r_start_kpc=r_start_kpc,
                                       show_progress=show_progress, verbose=verbose)
             
     return F_earth
@@ -738,6 +761,7 @@ def propagation_worker(args) -> Tuple[np.ndarray, np.ndarray]:
             params['use_SM_potential'], params['n_e_earth_eV3'],
             is_anti, params['p_index'], params['rho_evol'], params['Phi_0'], eta_bg, 
             params['n_mw_paths'], params['n_earth_chords'],
+            params['N_steps_MW'], params['r_start_kpc'],
             show_progress=show_progress, verbose=verbose
         )
     
@@ -805,6 +829,8 @@ def run_solver(config: Dict) -> Tuple[np.ndarray, np.ndarray]:
     params['n_z_bins'] = config['grid']['n_z_bins']
     params['n_mw_paths'] = int(config['grid'].get('n_mw_paths', 6))
     params['n_earth_chords'] = int(config['grid'].get('n_earth_chords', 3))
+    params['N_steps_MW'] = int(config['grid'].get('N_steps_MW', 100))
+    params['r_start_kpc'] = float(config['grid'].get('r_start_kpc', 100.0))
     
     E_bins = np.logspace(np.log10(config['grid']['E_min_eV']), 
                          np.log10(config['grid']['E_max_eV']), 
@@ -953,7 +979,9 @@ def create_default_config(filename: str = "../config/config_dark_portal.json") -
             "n_E_bins": 1000,
             "n_z_bins": 1000,
             "n_mw_paths": 6,
-            "n_earth_chords": 3
+            "n_earth_chords": 3,
+            "N_steps_MW": 100,
+            "r_start_kpc": 100.0
         },
         "output": {
             "flux_filename": "../output/data/output_flux.txt",
@@ -1024,6 +1052,8 @@ if __name__ == "__main__":
     parser.add_argument("--n_z_bins", type=int, default=None)
     parser.add_argument("--n_mw_paths", type=int, default=None, help="Number of Milky Way trajectories for solid-angle average")
     parser.add_argument("--n_earth_chords", type=int, default=None, help="Number of Earth chords for PREM evaluation")
+    parser.add_argument("--N_steps_MW", type=int, default=None, help="Number of spatial integration steps in the Milky Way")
+    parser.add_argument("--r_start_kpc", type=float, default=None, help="Starting distance for Milky Way integration in kpc")
     
     # Export Slated Locations Overrides
     parser.add_argument("--flux_filename", type=str, default=None)
@@ -1037,13 +1067,66 @@ if __name__ == "__main__":
 
     # Establish immutable master dictionary structure baseline defaults
     config = {
-        "cosmology": {"H0_km_s_Mpc": 67.4, "Omega_m": 0.315, "Omega_L": 0.685, "T_nu0_eV": 1.95e-4, "n_n0_cm3": 0.25e-6, "m_lightest_eV": 0.01, "mass_ordering": "normal", "eta_e": 1.0, "eta_mu": 1.0, "eta_tau": 1.0},
-        "standard_mixing": {"dm21_sq": 7.41e-5, "dm31_sq": 2.511e-3, "th12_deg": 33.41, "th13_deg": 8.58, "th23_deg": 49.1, "d_cp_deg": 132.0, "use_SM_potential": False, "n_e_earth_cm3": 1.5e24, "detector_depth_km": 1.5},
-        "dark_portal": {"u_e": 0.5, "u_mu": 0.5, "u_tau": 0.0, "m_Zd_eV": 2.0e6, "g_D": 1.e-4, "epsilon_prime": 1e-1, "use_debye_screening": True},
-        "source": {"p_index": 2.5, "Phi_0": 1.0, "z_max": 4.0, "rho_evol": 0.0, "f_e_S": 0.333333, "f_mu_S": 0.666667, "f_tau_S": 0.0, "is_antineutrino": "sum"},
-        "grid": {"E_min_eV": 1e13, "E_max_eV": 3e16, "n_E_bins": 1000, "n_z_bins": 1000, "n_mw_paths": 6, "n_earth_chords": 3},
-        "output": {"flux_filename": "../output/data/output_flux.txt", "plot_filename": "../output/plots/flux_plot.png"},
-        "execution": {"n_cores": multiprocessing.cpu_count() - 1 if multiprocessing.cpu_count() > 1 else 1, "verbose": 1}
+        "cosmology": {
+            "H0_km_s_Mpc": 67.4, 
+            "Omega_m": 0.315, 
+            "Omega_L": 0.685, 
+            "T_nu0_eV": 1.95e-4, 
+            "n_n0_cm3": 0.25e-6, 
+            "m_lightest_eV": 0.01, 
+            "mass_ordering": "normal", 
+            "eta_e": 1.0, 
+            "eta_mu": 1.0, 
+            "eta_tau": 1.0
+        },
+        "standard_mixing": {
+            "dm21_sq": 7.41e-5, 
+            "dm31_sq": 2.511e-3, 
+            "th12_deg": 33.41, 
+            "th13_deg": 8.58, 
+            "th23_deg": 49.1, 
+            "d_cp_deg": 132.0, 
+            "use_SM_potential": False, 
+            "n_e_earth_cm3": 1.5e24, 
+            "detector_depth_km": 1.5
+        },
+        "dark_portal": {
+            "u_e": 0.5, 
+            "u_mu": 0.5, 
+            "u_tau": 0.0, 
+            "m_Zd_eV": 2.0e6, 
+            "g_D": 1.e-4, 
+            "epsilon_prime": 1e-1, 
+            "use_debye_screening": True
+        },
+        "source": {
+            "p_index": 2.5, 
+            "Phi_0": 1.0, 
+            "z_max": 4.0, 
+            "rho_evol": 0.0, 
+            "f_e_S": 0.333333, 
+            "f_mu_S": 0.666667, 
+            "f_tau_S": 0.0, 
+            "is_antineutrino": "sum"
+        },
+        "grid": {
+            "E_min_eV": 1e13, 
+            "E_max_eV": 3e16, 
+            "n_E_bins": 1000, 
+            "n_z_bins": 1000, 
+            "n_mw_paths": 6, 
+            "n_earth_chords": 3, 
+            "N_steps_MW": 100, 
+            "r_start_kpc": 100.0
+        },
+        "output": {
+            "flux_filename": "../output/data/output_flux.txt", 
+            "plot_filename": "../output/plots/flux_plot.png"
+        },
+        "execution": {
+            "n_cores": multiprocessing.cpu_count() - 1 if multiprocessing.cpu_count() > 1 else 1, 
+            "verbose": 1
+        }
     }
     
     # Precedence Step 2: Overlay values from JSON file if one exists
@@ -1106,6 +1189,8 @@ if __name__ == "__main__":
     if args.n_z_bins is not None: config["grid"]["n_z_bins"] = args.n_z_bins
     if args.n_mw_paths is not None: config["grid"]["n_mw_paths"] = args.n_mw_paths
     if args.n_earth_chords is not None: config["grid"]["n_earth_chords"] = args.n_earth_chords
+    if args.N_steps_MW is not None: config["grid"]["N_steps_MW"] = args.N_steps_MW
+    if args.r_start_kpc is not None: config["grid"]["r_start_kpc"] = args.r_start_kpc
 
     if args.flux_filename is not None: config["output"]["flux_filename"] = args.flux_filename
     if args.plot_filename is not None: config["output"]["plot_filename"] = args.plot_filename
