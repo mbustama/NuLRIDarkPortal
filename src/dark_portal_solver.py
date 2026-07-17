@@ -278,18 +278,31 @@ def get_baseline_earth(d_km: float, costh: float) -> float:
 # =============================================================================
 
 @njit(fastmath=True, cache=True)
+def precompute_all_thermal_rates(E_bins: np.ndarray, z_bins: np.ndarray, sum_G: float, 
+                                 sum_G_alpha: np.ndarray, m_Zd: float, m_nu_bg_arr: np.ndarray, 
+                                 T_nu0: float, eta_mass: np.ndarray) -> np.ndarray:
+    """Pre-computes the thermal attenuation rates for the entire energy and redshift grid."""
+    N_E = len(E_bins)
+    N_z = len(z_bins)
+    Gamma_grid = np.zeros((N_z, N_E, 3), dtype=np.float64)
+    for k in range(N_z):
+        for i in range(N_E):
+            Gamma_grid[k, i, :] = thermal_averaged_rates_flavor(E_bins[i], z_bins[k], sum_G, sum_G_alpha, m_Zd, m_nu_bg_arr, T_nu0, eta_mass)
+    return Gamma_grid
+    
+@njit(fastmath=True, cache=True)
 def step_cosmological_propagation(z: float, dt: float, R_z: float, E_bins: np.ndarray, 
                                   F_mass: np.ndarray, rho_src: np.ndarray, 
                                   U_pmns: np.ndarray, M_sq: np.ndarray,
                                   u_arr: np.ndarray, m_Zd: float, g_D: float, eps_prime: float,
-                                  m_nu_bg_arr: np.ndarray, n_n0: float, T_nu0: float,
+                                  n_n0: float, T_nu0: float,
                                   use_debye_screening: bool, is_antineutrino: bool,
                                   p_index: float, Phi_0: float, eta_bg: np.ndarray,
-                                  eta_mass: np.ndarray, sum_G: float, sum_G_alpha: np.ndarray, 
                                   BR: np.ndarray, dE: np.ndarray, 
                                   F_flavor: np.ndarray, Gamma_flavor: np.ndarray, 
-                                  dF_casc_flavor: np.ndarray, U_z_all: np.ndarray, rate_F_sum_arr: np.ndarray):
-    """Executes a single cosmological integration step using pre-allocated buffers for speed."""
+                                  dF_casc_flavor: np.ndarray, U_z_all: np.ndarray, rate_F_sum_arr: np.ndarray,
+                                  precomputed_Gamma_flavor: np.ndarray):
+    """Executes a single cosmological integration step using pre-allocated buffers and pre-computed rates."""
     N_E = len(E_bins)
     
     # Zero out buffers at start of step
@@ -304,21 +317,15 @@ def step_cosmological_propagation(z: float, dt: float, R_z: float, E_bins: np.nd
         U_z_all[i] = U_z
         for a in range(3):
             F_flavor[i, a] = np.sum(np.abs(U_z[a, :])**2 * F_mass[i, :])
-        Gamma_flavor[i, :] = thermal_averaged_rates_flavor(E_bins[i], z, sum_G, sum_G_alpha, m_Zd, m_nu_bg_arr, T_nu0, eta_mass)
+        
+        # Assign the exact pre-computed interaction rate for this specific energy bin
+        Gamma_flavor[i, :] = precomputed_Gamma_flavor[i, :]
         
     # Pre-calculate the redundant interaction rate sum per energy bin to eliminate O(N^2) redundancy
     for j in range(N_E):
         for b in range(3):
             rate_F_sum_arr[j] += Gamma_flavor[j, b] * F_flavor[j, b]
         
-    for i in range(N_E):
-        integral = 0.0
-        for j in range(i, N_E):
-            E_prime = E_bins[j]
-            integral += 1.0 * (rate_F_sum_arr[j] * 3.0 * (E_bins[i]**2) / (E_prime**3)) * dE[j]
-        for a in range(3):
-            dF_casc_flavor[i, a] = BR[a] * integral
-            
     for i in range(N_E):
         U_z = U_z_all[i]
         E_z = E_bins[i] * (1.0 + z)
@@ -631,6 +638,11 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
     U_z_all = np.zeros((N_E, 3, 3), dtype=np.complex128)
     rate_F_sum_arr = np.zeros(N_E, dtype=np.float64)
 
+    # FIX #2: Pre-compute the thermal interaction rates for the entire grid before sequential stepping
+    if verbose == 2:
+        safe_print(f"Pre-computing thermal interaction rate grids...")
+    Gamma_grid_all = precompute_all_thermal_rates(E_bins, z_bins, sum_G, sum_G_alpha, m_Zd, m_nu_bg_arr, T_nu0, eta_mass)
+
     iterator = tqdm(range(1, len(z_bins)), desc=f"Cosmo Phase ({lbl})", leave=False) if (HAS_TQDM and show_progress) else range(1, len(z_bins))
     z_print_mod = max(1, len(z_bins) // 10)
 
@@ -646,10 +658,11 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
             safe_print(f"Cosmological propagation: currently integrating at redshift z = {z:.4f}")
         
         step_cosmological_propagation(z, dt, R_z, E_bins, F_mass, rho_src, U_pmns, M_sq, u_arr, 
-                                      m_Zd, g_D, eps_prime, m_nu_bg_arr, n_n0, T_nu0, 
+                                      m_Zd, g_D, eps_prime, n_n0, T_nu0, 
                                       use_debye_screening, is_antineutrino, p_index, Phi_0, 
-                                      eta_bg, eta_mass, sum_G, sum_G_alpha, BR, dE,
-                                      F_flavor, Gamma_flavor, dF_casc_flavor, U_z_all, rate_F_sum_arr)
+                                      eta_bg, BR, dE,
+                                      F_flavor, Gamma_flavor, dF_casc_flavor, U_z_all, rate_F_sum_arr,
+                                      Gamma_grid_all[k, :, :])
                 
     if verbose == 2:
         safe_print(f"Cosmological baseline finished at z = {z_bins[-1]:.4f}.")
