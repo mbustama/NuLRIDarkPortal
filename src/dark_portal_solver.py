@@ -772,60 +772,103 @@ def propagation_worker(args) -> Tuple[np.ndarray, np.ndarray]:
 def run_solver(config: Dict) -> Tuple[np.ndarray, np.ndarray]:
     """Orchestrates configuration and parallelization."""
     params = {}
-    params['H0_eV'] = (config['cosmology']['H0_km_s_Mpc'] * km_per_s) / Mpc_to_eV_inv
-    params['Omega_m'] = config['cosmology']['Omega_m']
-    params['Omega_L'] = config['cosmology']['Omega_L']
-    params['T_nu0_eV'] = config['cosmology']['T_nu0_eV']
-    params['n_n0_eV3'] = config['cosmology']['n_n0_cm3'] * cm_inv3_to_eV3
+    params['H0_eV'] = float((config['cosmology']['H0_km_s_Mpc'] * km_per_s) / Mpc_to_eV_inv)
+    params['Omega_m'] = float(config['cosmology']['Omega_m'])
+    params['Omega_L'] = float(config['cosmology']['Omega_L'])
+    params['T_nu0_eV'] = float(config['cosmology']['T_nu0_eV'])
+    params['n_n0_eV3'] = float(config['cosmology']['n_n0_cm3'] * cm_inv3_to_eV3)
     params['mass_ordering'] = config['cosmology'].get('mass_ordering', 'normal')
+    mo = str(config['cosmology'].get('mass_ordering', 'normal')).strip().lower()
+    if mo not in ['normal', 'inverted']:
+        raise ValueError(f"mass_ordering must be strictly 'normal' or 'inverted'. Received: {mo}")
     
     params['eta_bg'] = np.array([
-        config['cosmology'].get('eta_e', 1.0),
-        config['cosmology'].get('eta_mu', 1.0),
-        config['cosmology'].get('eta_tau', 1.0)
+        float(config['cosmology'].get('eta_e', 1.0)),
+        float(config['cosmology'].get('eta_mu', 1.0)),
+        float(config['cosmology'].get('eta_tau', 1.0))
     ], dtype=np.float64)
-    
-    params['dm21_sq'] = config['standard_mixing']['dm21_sq']
-    params['dm31_sq'] = config['standard_mixing']['dm31_sq']
-    params['th12'] = np.radians(config['standard_mixing']['th12_deg'])
-    params['th13'] = np.radians(config['standard_mixing']['th13_deg'])
-    params['th23'] = np.radians(config['standard_mixing']['th23_deg'])
-    params['d_cp'] = np.radians(config['standard_mixing']['d_cp_deg'])
+    if config['cosmology']['eta_e'] < 0 or config['cosmology']['eta_mu'] < 0 or config['cosmology']['eta_tau'] < 0:
+        raise ValueError("CnuB flavor asymmetries (eta) must be >= 0 to avoid complex Debye screening masses.")
+
+    params['dm21_sq'] = float(config['standard_mixing']['dm21_sq'])
+    params['dm31_sq'] = float(config['standard_mixing']['dm31_sq'])
+    params['th12'] = float(np.radians(config['standard_mixing']['th12_deg']))
+    params['th13'] = float(np.radians(config['standard_mixing']['th13_deg']))
+    params['th23'] = float(np.radians(config['standard_mixing']['th23_deg']))
+    params['d_cp'] = float(np.radians(config['standard_mixing']['d_cp_deg']))
     params['use_SM_potential'] = config['standard_mixing'].get('use_SM_potential', False)
-    params['n_e_earth_eV3'] = config['standard_mixing'].get('n_e_earth_cm3', 1.5e24) * cm_inv3_to_eV3
-    params['detector_depth_km'] = config['standard_mixing'].get('detector_depth_km', 1.5)
-    
+    params['n_e_earth_eV3'] = float(config['standard_mixing'].get('n_e_earth_cm3', 1.5e24) * cm_inv3_to_eV3)
+    params['detector_depth_km'] = float(config['standard_mixing'].get('detector_depth_km', 1.5))
+    depth_km = float(config['standard_mixing']['detector_depth_km'])
+    if depth_km < 0.0 or depth_km > 6371.0:
+        raise ValueError(f"detector_depth_km ({depth_km}) must be between 0 and the Earth's radius (6371.0 km).")
+
     params['m_nu_bg_arr'] = get_mass_eigenvalues(
-        config['cosmology']['m_lightest_eV'],
-        params['dm21_sq'],
-        params['dm31_sq'],
+        float(config['cosmology']['m_lightest_eV']),
+        float(params['dm21_sq']),
+        float(params['dm31_sq']),
         params['mass_ordering']
     )
     
-    params['u_e'] = config['dark_portal']['u_e']
-    params['u_mu'] = config['dark_portal']['u_mu']
-    params['u_tau'] = config['dark_portal']['u_tau']
-    params['m_Zd_eV'] = config['dark_portal']['m_Zd_eV']
-    params['g_D'] = config['dark_portal']['g_D']
-    params['epsilon_prime'] = config['dark_portal']['epsilon_prime']
+    params['u_e'] = float(config['dark_portal']['u_e'])
+    params['u_mu'] = float(config['dark_portal']['u_mu'])
+    params['u_tau'] = float(config['dark_portal']['u_tau'])
+    u_sq_sum = np.abs(params['u_e'])**2 + np.abs(params['u_mu'])**2 + np.abs(params['u_tau'])**2
+    if u_sq_sum > 1.0:
+        raise ValueError(f"Sterile mixing elements violate unitarity. Sum of squares is {u_sq_sum:.4f} (must be <= 1.0).")
+    params['m_Zd_eV'] = float(config['dark_portal']['m_Zd_eV'])
+    params['g_D'] = float(config['dark_portal']['g_D'])
+    params['epsilon_prime'] = float(config['dark_portal']['epsilon_prime'])
+    # Physical positivity bounds
+    if params['m_Zd_eV'] <= 0:
+        raise ValueError("Dark mediator mass m_Zd_eV must be strictly positive.")
+    if params['g_D'] <= 0:
+        raise ValueError("Dark mediator gauge coupling g_D must be strictly positive.")
+    if params['g_D'] >= np.sqrt(4 * np.pi):
+        raise ValueError(f"Dark gauge coupling g_D ({params['g_D']:.2f}) exceeds the perturbativity bound (sqrt(4*pi)).")
+    if params['epsilon_prime'] <= 0:
+        raise ValueError("Kinetic mixing epsilon_prime must be strictly positive.")
     params['use_debye_screening'] = config['dark_portal'].get('use_debye_screening', True)
     
-    params['p_index'] = config['source']['p_index']
-    params['Phi_0'] = config['source'].get('Phi_0', 1.0) 
-    params['z_max'] = config['source']['z_max']
-    params['rho_evol'] = config['source']['rho_evol']
-    params['f_e_S'] = config['source']['f_e_S']
-    params['f_mu_S'] = config['source']['f_mu_S']
-    params['f_tau_S'] = config['source']['f_tau_S']
+    params['p_index'] = float(config['source']['p_index'])
+    if config['source']['p_index'] <= 0:
+        raise ValueError("p_index should be positive. The solver assumes a spectrum proportional to E^(-p_index).")
+    params['Phi_0'] = float(config['source'].get('Phi_0', 1.0))
+    if config['source']['Phi_0'] <= 0:
+        raise ValueError("Flux normalization Phi_0 should be strictly positive.")
+    params['z_max'] = float(config['source']['z_max'])
+    if params['z_max'] <= 0.0:
+        raise ValueError("Maximum redshift z_max must be strictly positive.")
+    params['rho_evol'] = float(config['source']['rho_evol'])
+    params['f_e_S'] = float(config['source']['f_e_S'])
+    params['f_mu_S'] = float(config['source']['f_mu_S'])
+    params['f_tau_S'] = float(config['source']['f_tau_S'])
+    flavor_sum = params['f_e_S'] + params['f_mu_S'] + params['f_tau_S']
+    if not np.isclose(flavor_sum, 1.0, atol=1e-5):
+        raise ValueError(f"Source flavor ratios must sum to 1.0. Current sum: {flavor_sum}")
+    if params['f_e_S'] < 0 or params['f_mu_S'] < 0 or params['f_tau_S'] < 0:
+        raise ValueError("Source flavor fractions must be strictly >= 0. Negative flux injection is unphysical.")
     params['is_antineutrino'] = config['source'].get('is_antineutrino', 'sum')
     params['nubar_to_nu_ratio'] = config['source'].get('nubar_to_nu_ratio', 1.0)
     
-    params['n_z_bins'] = config['grid']['n_z_bins']
+    params['n_z_bins'] = int(config['grid']['n_z_bins'])
     params['n_mw_paths'] = int(config['grid'].get('n_mw_paths', 6))
     params['n_earth_chords'] = int(config['grid'].get('n_earth_chords', 3))
     params['N_steps_MW'] = int(config['grid'].get('N_steps_MW', 100))
     params['r_start_kpc'] = float(config['grid'].get('r_start_kpc', 100.0))
+    paths_mw = config['grid']['n_mw_paths']
+    chords_earth = config['grid']['n_earth_chords']
+    if not isinstance(paths_mw, int) or paths_mw < 1:
+        raise ValueError("n_mw_paths must be an integer >= 1.")
+    if not isinstance(chords_earth, int) or chords_earth < 1:
+        raise ValueError("n_earth_chords must be an integer >= 1.")
     
+    if config['grid']['n_E_bins'] <= 1 or config['grid']['n_z_bins'] <= 1:
+        raise ValueError("Grid resolution (n_E_bins, n_z_bins) must be greater than 1 to define integration steps.")
+
+    # Energy grid sanity check
+    if config['grid']['E_min_eV'] >= config['grid']['E_max_eV']:
+        raise ValueError("E_max_eV must be strictly greater than E_min_eV for the cascading integral to function properly.")
     E_bins = np.logspace(np.log10(config['grid']['E_min_eV']), 
                          np.log10(config['grid']['E_max_eV']), 
                          int(config['grid']['n_E_bins']))
