@@ -214,6 +214,7 @@ def plot_parameter_scans(m_Zd_file: str, g_D_file: str, u_e_file: str, u_mu_file
     axes[1, 0].plot(u_e_vals, u_e_fmu, color='royalblue', linestyle='-.', lw=2.5)
     axes[1, 0].plot(u_e_vals, u_e_ftau, color='forestgreen', linestyle=':', lw=2.5)
     
+    axes[1, 0].set_xscale('log')
     axes[1, 0].set_xlim(min(u_e_vals), max(u_e_vals))
     axes[1, 0].set_ylim(0.0, 1.0)
     axes[1, 0].set_xlabel(r'Sterile electron mixing, $u_e$', fontsize=14)
@@ -222,7 +223,7 @@ def plot_parameter_scans(m_Zd_file: str, g_D_file: str, u_e_file: str, u_mu_file
     axes[1, 0].grid(True, which="both", ls="--", alpha=0.4)
     # Add parameter text label (Hardcoding u_mu to 0.0 to match the scan logic)
     # text_bl = f"$u_\\mu = {u_mu_base}$\n$m_{{Z_D}} = {m_Zd_base}$ eV\n$g_D = {g_D_base}$\n$\\epsilon' = {eps_prime_base}$"
-    text_bl = f"$u_\\mu = 0.0$\n$m_{{Z_D}} = {m_Zd_base}$ eV\n$g_D = {g_D_base}$\n$\\epsilon' = {eps_prime_base}$"
+    text_bl = f"$u_\\mu = 0.0$\n$m_{{Z_D}} = {m_Zd_base/1e6}$ MeV\n$g_D = {g_D_base}$\n$\\epsilon' = {eps_prime_base}$"
     axes[1, 0].text(0.05, 0.05, text_bl, transform=axes[1, 0].transAxes, fontsize=11, 
                     verticalalignment='bottom', bbox=dict(boxstyle='round', facecolor='white', alpha=0.85))
 
@@ -231,6 +232,7 @@ def plot_parameter_scans(m_Zd_file: str, g_D_file: str, u_e_file: str, u_mu_file
     axes[1, 1].plot(u_mu_vals, u_mu_fmu, color='royalblue', linestyle='-.', lw=2.5)
     axes[1, 1].plot(u_mu_vals, u_mu_ftau, color='forestgreen', linestyle=':', lw=2.5)
     
+    axes[1, 1].set_xscale('log')
     axes[1, 1].set_xlim(min(u_mu_vals), max(u_mu_vals))
     axes[1, 1].set_ylim(0.0, 1.0)
     axes[1, 1].set_xlabel(r'Sterile muon mixing, $u_\mu$', fontsize=14)
@@ -238,7 +240,7 @@ def plot_parameter_scans(m_Zd_file: str, g_D_file: str, u_e_file: str, u_mu_file
     axes[1, 1].grid(True, which="both", ls="--", alpha=0.4)
     # Add parameter text label (Hardcoding u_e to 0.0 to match the scan logic)
     # text_br = f"$u_e = {u_e_base}$\n$m_{{Z_D}} = {m_Zd_base}$ eV\n$g_D = {g_D_base}$\n$\\epsilon' = {eps_prime_base}$"
-    text_br = f"$u_e = 0.0$\n$m_{{Z_D}} = {m_Zd_base}$ eV\n$g_D = {g_D_base}$\n$\\epsilon' = {eps_prime_base}$"
+    text_br = f"$u_e = 0.0$\n$m_{{Z_D}} = {m_Zd_base/1e6}$ MeV\n$g_D = {g_D_base}$\n$\\epsilon' = {eps_prime_base}$"
     axes[1, 1].text(0.05, 0.05, text_br, transform=axes[1, 1].transAxes, fontsize=11, 
                     verticalalignment='bottom', bbox=dict(boxstyle='round', facecolor='white', alpha=0.85))
 
@@ -260,27 +262,27 @@ if __name__ == "__main__":
     # Compile Numba kernels in advance using a lightweight dummy execution.
     # This prevents all independent multiprocessing workers from attempting to JIT-compile 
     # simultaneously on the first iteration, which risks bottlenecking the LLVM cache.
-    # print("Initiating Numba compiler cache warm-up...")
-    # warmup_config = copy.deepcopy(base_config)
-    # warmup_config['grid']['n_E_bins'] = 200
-    # warmup_config['grid']['n_z_bins'] = 200
-    # warmup_config['grid']['n_mw_paths'] = 100
-    # warmup_config['grid']['n_earth_chords'] = 100
-    # warmup_config['execution']['n_cores'] = 11
-    # warmup_config['execution']['verbose'] = 0
+    print("Initiating Numba compiler cache warm-up...")
+    warmup_config = copy.deepcopy(base_config)
+    warmup_config['grid']['n_E_bins'] = 200
+    warmup_config['grid']['n_z_bins'] = 200
+    warmup_config['grid']['n_mw_paths'] = 100
+    warmup_config['grid']['n_earth_chords'] = 100
+    warmup_config['execution']['n_cores'] = 11
+    warmup_config['execution']['verbose'] = 0
     
-    # import sys, io
-    # old_stdout = sys.stdout
-    # sys.stdout = io.StringIO()
-    # try:
-    #     _ = dps.run_solver(warmup_config)
-    #     # Warm up the newly decorated ratio compiler
-    #     dummy_E = np.logspace(13, 16, 200)
-    #     dummy_Flux = np.zeros((200, 3))
-    #     _ = compute_energy_averaged_ratios(dummy_E, dummy_Flux)
-    # finally:
-    #     sys.stdout = old_stdout
-    # print("Warm-up complete. Numba kernels mapped to physical disk cache.")
+    import sys, io
+    old_stdout = sys.stdout
+    sys.stdout = io.StringIO()
+    try:
+        _ = dps.run_solver(warmup_config)
+        # Warm up the newly decorated ratio compiler
+        dummy_E = np.logspace(13, 16, 200)
+        dummy_Flux = np.zeros((200, 3))
+        _ = compute_energy_averaged_ratios(dummy_E, dummy_Flux)
+    finally:
+        sys.stdout = old_stdout
+    print("Warm-up complete. Numba kernels mapped to physical disk cache.")
 
     # Lowering the integration grid resolution to speed up 1D parameter scans
     base_config['grid']['n_E_bins'] = 200
@@ -305,8 +307,8 @@ if __name__ == "__main__":
     plot_output = "../output/plots/parameter_scan_plot.png"
 
     # Execute decoupled configuration mappings
-    # run_parameter_scan('m_Zd_eV', m_Zd_range, base_config, m_Zd_output)
-    # run_parameter_scan('g_D', g_D_range, base_config, g_D_output)
+    run_parameter_scan('m_Zd_eV', m_Zd_range, base_config, m_Zd_output)
+    run_parameter_scan('g_D', g_D_range, base_config, g_D_output)
     u_e_base  = base_config['dark_portal']['u_e']
     u_mu_base  = base_config['dark_portal']['u_mu']
     base_config['dark_portal']['u_mu'] = 0.0
