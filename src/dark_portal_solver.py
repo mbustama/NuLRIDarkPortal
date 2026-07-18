@@ -758,7 +758,10 @@ def propagation_worker(args) -> Tuple[np.ndarray, np.ndarray]:
     flag_val = str(params.get('is_antineutrino', 'sum')).strip().lower()
     
     if flag_val in ['sum', 'both']:
-        flux_at_earth = compute_flux(False) + compute_flux(True)
+        ratio = params.get('nubar_to_nu_ratio', 1.0)
+        w_nu = 1.0 / (1.0 + ratio)
+        w_nubar = ratio / (1.0 + ratio)
+        flux_at_earth = w_nu * compute_flux(False) + w_nubar * compute_flux(True)
     elif flag_val in ['true', 'antineutrino', 'antinu', 'nubar']:
         flux_at_earth = compute_flux(True)
     else:
@@ -815,6 +818,7 @@ def run_solver(config: Dict) -> Tuple[np.ndarray, np.ndarray]:
     params['f_mu_S'] = config['source']['f_mu_S']
     params['f_tau_S'] = config['source']['f_tau_S']
     params['is_antineutrino'] = config['source'].get('is_antineutrino', 'sum')
+    params['nubar_to_nu_ratio'] = config['source'].get('nubar_to_nu_ratio', 1.0)
     
     params['n_z_bins'] = config['grid']['n_z_bins']
     params['n_mw_paths'] = int(config['grid'].get('n_mw_paths', 6))
@@ -961,7 +965,8 @@ def create_default_config(filename: str = "../config/config_dark_portal.json") -
             "f_e_S": 0.333333,
             "f_mu_S": 0.666667,
             "f_tau_S": 0.0,
-            "is_antineutrino": "sum"
+            "is_antineutrino": "sum",
+            "nubar_to_nu_ratio": 1.0
         },
         "grid": {
             "E_min_eV": 1e13,
@@ -1034,6 +1039,7 @@ if __name__ == "__main__":
     parser.add_argument("--f_mu_S", type=float, default=None)
     parser.add_argument("--f_tau_S", type=float, default=None)
     parser.add_argument("--is_antineutrino", type=str, default=None)
+    parser.add_argument("--nubar_to_nu_ratio", type=float, default=None)
     
     # Grid Configurations Overrides
     parser.add_argument("--E_min_eV", type=float, default=None)
@@ -1097,7 +1103,8 @@ if __name__ == "__main__":
             "f_e_S": 0.333333, 
             "f_mu_S": 0.666667, 
             "f_tau_S": 0.0, 
-            "is_antineutrino": "sum"
+            "is_antineutrino": "sum",
+            "nubar_to_nu_ratio": 1.0
         },
         "grid": {
             "E_min_eV": 1e13, 
@@ -1172,6 +1179,7 @@ if __name__ == "__main__":
     if args.f_mu_S is not None: config["source"]["f_mu_S"] = args.f_mu_S
     if args.f_tau_S is not None: config["source"]["f_tau_S"] = args.f_tau_S
     if args.is_antineutrino is not None: config["source"]["is_antineutrino"] = args.is_antineutrino
+    if args.nubar_to_nu_ratio is not None: config["source"]["nubar_to_nu_ratio"] = args.nubar_to_nu_ratio
 
     if args.E_min_eV is not None: config["grid"]["E_min_eV"] = args.E_min_eV
     if args.E_max_eV is not None: config["grid"]["E_max_eV"] = args.E_max_eV
