@@ -184,6 +184,7 @@ Below is an exhaustive dictionary of all configurable parameters, their respecti
   * `"sum"` or `"both"`: Computes $\nu$ and $\bar{\nu}$ independently and sums the flux.
   * `"true"` or `"antineutrino"`: Computes $\bar{\nu}$ flux only.
   * `"false"`: Computes $\nu$ flux only.
+* `--nubar_to_nu_ratio` (float): The ratio of antineutrinos to neutrinos injected at the source. This applies a normalized statistical weight to the combined baseline spectrum when `--is_antineutrino` is set to `"sum"` or `"both"` (Default: `1.0`).
 
 ### `[grid]`
 * `--E_min_eV` (float): Minimum observed energy at Earth in eV (Default: `1e13`).
