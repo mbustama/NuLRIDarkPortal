@@ -14,7 +14,7 @@
 # ==============================================================================
 
 # Updated to target your main orchestrator script
-SCRIPT_TO_RUN="src.main.py"
+SCRIPT_TO_RUN="src/main.py"
 
 # 1. Validate Arguments
 if [ "$#" -ne 1 ]; then
@@ -66,7 +66,8 @@ run_job() {
     echo "=================================================================="
     
     # Run the command with both required arguments
-    python -u -m "$SCRIPT_TO_RUN" --config_file="$config_file" --output_dir="$output_dir"
+    # python -u -m "$SCRIPT_TO_RUN" --config_file="$config_file" --output_dir="$output_dir"
+    python -u -m src.main --config_file="$config_file" --output_dir="$output_dir"
     
     # Check exit status
     if [ $? -eq 0 ]; then
