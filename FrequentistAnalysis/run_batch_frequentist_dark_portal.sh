@@ -14,7 +14,7 @@
 # ==============================================================================
 
 # Updated to target your main orchestrator script
-SCRIPT_TO_RUN="main.py"
+SCRIPT_TO_RUN="src.main.py"
 
 # 1. Validate Arguments
 if [ "$#" -ne 1 ]; then
