@@ -458,8 +458,8 @@ class GenericLikelihoodWrapper:
             
             dm31_sq_signed = -dm31_sq if ordering.lower().strip() == "inverted" else dm31_sq
             new_M_sq = np.ascontiguousarray(np.diag([0.0, dm21_sq, dm31_sq_signed]).astype(np.complex128))
-            new_m_nu_bg = get_mass_eigenvalues(m_lightest_eV, dm21_sq, dm31_sq, ordering)
-            
+            m_nu_bg_arr = np.ascontiguousarray(get_mass_eigenvalues(m_lightest_eV, dm21_sq, dm31_sq, mass_ordering), dtype=np.float64)
+
             sd_list = list(self.static_data)
             sd_list[10] = new_U_pmns
             sd_list[11] = new_M_sq
