@@ -1,14 +1,26 @@
 {
     "m_Zd_eV": {
-        "best_fit": 1960000.0
+        "best_fit": 1915378.1281382276,
+        "1sigma": null,
+        "2sigma": null,
+        "3sigma": null
     },
     "g_D": {
-        "best_fit": 1e-10
+        "best_fit": 1e-10,
+        "1sigma": null,
+        "2sigma": null,
+        "3sigma": null
     },
     "u_e": {
-        "best_fit": 0.09999999999999998
+        "best_fit": 1e-10,
+        "1sigma": null,
+        "2sigma": null,
+        "3sigma": null
     },
     "u_mu": {
-        "best_fit": 0.09999999999999998
+        "best_fit": 0.1499996198224135,
+        "1sigma": null,
+        "2sigma": null,
+        "3sigma": null
     }
 }
