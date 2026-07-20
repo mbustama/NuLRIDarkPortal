@@ -153,7 +153,7 @@ def calc_V_LRI_cosmo(z: float, u_arr: np.ndarray, m_Zd: float, g_D: float, eps_p
             
     return V_LRI
 
-@njit(fastmath=True, cache=True)
+# @njit(fastmath=True, cache=True)
 def thermal_averaged_rates_flavor(E0: float, z: float, sum_G: float, sum_G_alpha: np.ndarray, 
                                   m_Zd: float, m_nu_bg_arr: np.ndarray, T_nu0: float, 
                                   eta_mass: np.ndarray) -> np.ndarray:
@@ -228,8 +228,7 @@ def get_adiabatic_mixing_cosmo(E0: float, z: float, U_pmns: np.ndarray, M_sq: np
             
     H_tot = H_vac + V_LRI
     evals, evecs = np.linalg.eigh(H_tot)
-    return np.ascontiguousarray(evecs)
-    # return evecs
+    return evecs
 
 # =============================================================================
 # SPATIAL HANDOVER HELPER FUNCTIONS
@@ -388,7 +387,7 @@ def init_mw_density_matrix(r_start_kpc: float, theta: float, phi: float, E_bins:
                     rho_f[i, a, b] += evecs_a[a, k] * F_mass_arrival[i, k] * np.conjugate(evecs_a[b, k])
     return rho_f
 
-@njit(fastmath=True, cache=True)
+# @njit(fastmath=True, cache=True)
 def step_mw_approach(r_current_kpc: float, theta: float, phi: float, dr_MW_eV_inv: float,
                      E_bins: np.ndarray, rho_f: np.ndarray, U_pmns: np.ndarray, M_sq: np.ndarray,
                      m_eff: float, Coef: float, U_LRI_struct: np.ndarray, U_step_buffer: np.ndarray):
@@ -422,7 +421,7 @@ def step_mw_approach(r_current_kpc: float, theta: float, phi: float, dr_MW_eV_in
         
         rho_f[i] = U_step_buffer @ rho_f[i] @ np.ascontiguousarray(np.conjugate(U_step_buffer).T)
 
-@njit(fastmath=True, cache=True)
+# @njit(fastmath=True, cache=True)
 def step_earth_transit(l_km: float, baseline_km: float, costh: float, dr_earth_eV_inv: float,
                        E_bins: np.ndarray, rho_earth: np.ndarray, U_pmns: np.ndarray, M_sq: np.ndarray,
                        n_n_amb_eV3: float, Coef: float, U_LRI_struct: np.ndarray,
@@ -676,7 +675,7 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         #     print(f"  -> U_pmns norms: {np.linalg.norm(U_pmns):.4f}")
         #     print(f"  -> u_arr: {u_arr}")
         #     print(f"  -> Gamma_grid_all min/max: {np.min(Gamma_grid_all[k]):.4e}, {np.max(Gamma_grid_all[k]):.4e}")
-
+            
         if verbose == 2 and k % z_print_mod == 0:
             safe_print(f"Cosmological propagation: currently integrating at redshift z = {z:.4f}")
         
