@@ -688,6 +688,7 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
             safe_print(f"Cosmological propagation: currently integrating at redshift z = {z:.4f}")
         
         # Insert right before line 690
+        import numba
         print("--- Numba JIT Type Signatures before line 690 ---")
         print("z:       ", numba.typeof(z))
         print("dt:      ", numba.typeof(dt))
