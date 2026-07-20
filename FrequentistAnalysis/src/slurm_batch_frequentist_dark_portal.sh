@@ -4,7 +4,7 @@
 #SBATCH --job-name=limdp
 #SBATCH --partition=astro3_short
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=150
+#SBATCH --cpus-per-task=200
 #SBATCH --time=0-12:00:00
 
 # --- Logging & Notifications ---
