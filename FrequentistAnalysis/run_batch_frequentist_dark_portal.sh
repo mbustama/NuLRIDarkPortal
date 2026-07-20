@@ -66,7 +66,7 @@ run_job() {
     echo "=================================================================="
     
     # Run the command with both required arguments
-    python -u "$SCRIPT_TO_RUN" --config_file="$config_file" --output_dir="$output_dir"
+    python -u -m "$SCRIPT_TO_RUN" --config_file="$config_file" --output_dir="$output_dir"
     
     # Check exit status
     if [ $? -eq 0 ]; then
