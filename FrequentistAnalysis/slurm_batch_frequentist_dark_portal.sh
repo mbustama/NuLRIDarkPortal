@@ -17,6 +17,10 @@
 source ~/anaconda3/etc/profile.d/conda.sh
 conda activate py310
 export NUMBA_CPU_NAME=generic
+export MKL_NUM_THREADS=1
+export NUMEXPR_NUM_THREADS=1
+export OMP_NUM_THREADS=1
+export OPENBLAS_NUM_THREADS=1
 
 # --- Execution ---
 # Note: These paths are placeholders. Update them to point to your new 
