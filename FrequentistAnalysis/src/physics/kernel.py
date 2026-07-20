@@ -203,9 +203,10 @@ def compute_user_model_single(params, static_data):
     if z_bins.size < 2: 
         z_bins = np.linspace(0, 4, 10)
         
+    # FIX: Enforce flavor array size to strictly 3, not E_bins.size
     rho_src = np.atleast_1d(np.array(rho_src, dtype=np.float64))
-    if rho_src.size != E_bins.size: 
-        rho_src = np.ones_like(E_bins)
+    if rho_src.size != 3: 
+        rho_src = np.array([1.0/3.0, 1.0/3.0, 1.0/3.0], dtype=np.float64)
         
     m_nu_bg_arr = np.atleast_1d(np.array(m_nu_bg_arr, dtype=np.float64))
     if m_nu_bg_arr.size != 3: 
