@@ -5,7 +5,7 @@
 #SBATCH --partition=astro3_short
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=200
-#SBATCH --time=0-12:00:00
+#SBATCH --time=0-1:00:00
 
 # --- Logging & Notifications ---
 #SBATCH --output=%x_%j.out
