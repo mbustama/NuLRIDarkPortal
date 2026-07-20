@@ -688,16 +688,25 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
             safe_print(f"Cosmological propagation: currently integrating at redshift z = {z:.4f}")
         
         # Insert right before line 690
-        import numba
-        print("--- Numba JIT Type Signatures before line 690 ---")
-        print("z:       ", numba.typeof(z))
-        print("dt:      ", numba.typeof(dt))
-        print("F_mass:  ", numba.typeof(F_mass))
-        print("rho_src: ", numba.typeof(rho_src))
-        print("U_pmns:  ", numba.typeof(U_pmns))
-        print("M_sq:    ", numba.typeof(M_sq))
-        print("u_arr:   ", numba.typeof(u_arr))
-        print("eta_bg:  ", numba.typeof(eta_bg))
+        # import numba
+        # print("--- Numba JIT Type Signatures before line 690 ---")
+        # print("z:       ", numba.typeof(z))
+        # print("dt:      ", numba.typeof(dt))
+        # print("F_mass:  ", numba.typeof(F_mass))
+        # print("rho_src: ", numba.typeof(rho_src))
+        # print("U_pmns:  ", numba.typeof(U_pmns))
+        # print("M_sq:    ", numba.typeof(M_sq))
+        # print("u_arr:   ", numba.typeof(u_arr))
+        # print("eta_bg:  ", numba.typeof(eta_bg))
+        print("--- Array Shapes ---")
+        print("F_mass: ", F_mass.shape)
+        print("rho_src:", rho_src.shape)
+        print("U_pmns: ", U_pmns.shape)
+        print("u_arr:  ", u_arr.shape)
+        print("eta_bg: ", eta_bg.shape)
+        print("E_bins: ", E_bins.shape)
+        if isinstance(R_z, np.ndarray): 
+            print("R_z:    ", R_z.shape)
         print("-------------------------------------------------")
 
         step_cosmological_propagation(z, dt, R_z, E_bins, F_mass, rho_src, U_pmns, M_sq, u_arr, 
