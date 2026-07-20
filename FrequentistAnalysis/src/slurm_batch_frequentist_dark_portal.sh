@@ -16,6 +16,7 @@
 # --- Environment Setup ---
 source ~/anaconda3/etc/profile.d/conda.sh
 conda activate py310
+export NUMBA_CPU_NAME=generic
 
 # --- Execution ---
 # Note: These paths are placeholders. Update them to point to your new 
@@ -27,6 +28,8 @@ conda activate py310
 
 # Example: Projections for 2040/2050
 # bash run_batch_frequentist_dark_portal.sh ../config/limit_setting/dark_portal/proj_2040/dark_portal_2040_case_1.json
+rm -rf /lustre/astro/mbustama/NuLRIDarkPortal/FrequentistAnalysis/src/physics/__pycache__
+rm -rf /lustre/astro/mbustama/NuLRIDarkPortal/src/__pycache__
 bash run_batch_frequentist_dark_portal.sh ../config/pion_2050_case_5_fixed_nuisance.json
 
 # Alternatively, if you have all dark portal configs in one directory, 
