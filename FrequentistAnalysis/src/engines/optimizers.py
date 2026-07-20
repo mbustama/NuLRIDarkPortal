@@ -11,7 +11,7 @@ from iminuit import Minuit
 
 def estimate_param_names(config):
     """Filters floating variables from user-assigned fixed parameters."""
-    potential_params = ['param1', 'param2', 'param3'] 
+    potential_params = list(config.get('start_values', {}).keys())
     fixed_params = config.get('fixed_params', {})
     return [p for p in potential_params if p not in fixed_params]
 

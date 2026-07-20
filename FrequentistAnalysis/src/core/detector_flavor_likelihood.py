@@ -21,8 +21,8 @@ It supports various analytical approximations for the likelihood surface:
 """
 
 import numpy as np
-import params_detector_flavor_likelihood
-
+# import params_detector_flavor_likelihood
+import src.core.params_detector_flavor_likelihood as params_detector_flavor_likelihood
 
 def detector_flavor_log_likelihood(
     x_points: np.ndarray, 

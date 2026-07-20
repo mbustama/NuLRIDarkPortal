@@ -142,8 +142,9 @@ def calc_V_LRI_cosmo(z: float, u_arr: np.ndarray, m_Zd: float, g_D: float, eps_p
     c_W = 0.88
     m_Z = 91.18 * GeV
     g_weak = 0.65
-    
-    A_LRI = (g_D * eps_prime) / (m_Zd**2 + m_D_sq) * (4.0 * c_W * m_Z**2 / g_weak) * (np.sqrt(2)/2.0 * G_F * n_n_z)
+
+    denominator = max(m_Zd**2 + m_D_sq, 1e-25)
+    A_LRI = (g_D * eps_prime) / denominator * (4.0 * c_W * m_Z**2 / g_weak) * (np.sqrt(2)/2.0 * G_F * n_n_z)
     
     V_LRI = np.zeros((3, 3), dtype=np.complex128)
     for i in range(3):
@@ -349,7 +350,10 @@ def step_cosmological_propagation(z: float, dt: float, R_z: float, E_bins: np.nd
             
             if Gamma_mass_a > 1e-30:
                 decay = np.exp(-Gamma_mass_a * dt)
-                F_mass[i, a] = F_mass[i, a] * decay + (total_rate / Gamma_mass_a) * (1.0 - decay)
+                # Numerically stable calculation for (1 - exp(-x)) / x
+                # We use -np.expm1(-x) which is equivalent to 1 - exp(-x) but stable near 0
+                term = total_rate * (-np.expm1(-Gamma_mass_a * dt) / Gamma_mass_a)
+                F_mass[i, a] = F_mass[i, a] * decay + term
             else:
                 F_mass[i, a] += total_rate * dt
 
@@ -666,6 +670,12 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         dt = dz / (calc_H_Hubble(z, H0, Omega_m, Omega_L) * (1.0 + z))
         R_z = calc_R_source(z, rho_evol)
         
+        # if k % z_print_mod == 0:
+        #     print(f"\n[DEBUG] Redshift z={z:.4f} | dt={dt:.4e} | R_z={R_z:.4e}")
+        #     print(f"  -> U_pmns norms: {np.linalg.norm(U_pmns):.4f}")
+        #     print(f"  -> u_arr: {u_arr}")
+        #     print(f"  -> Gamma_grid_all min/max: {np.min(Gamma_grid_all[k]):.4e}, {np.max(Gamma_grid_all[k]):.4e}")
+            
         if verbose == 2 and k % z_print_mod == 0:
             safe_print(f"Cosmological propagation: currently integrating at redshift z = {z:.4f}")
         

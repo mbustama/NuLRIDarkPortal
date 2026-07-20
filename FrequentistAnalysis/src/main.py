@@ -37,6 +37,30 @@ from src.topology.repair import repair_scan_outliers, repair_scan_continuity, re
 from src.analysis.statistics import calculate_intervals
 from src.analysis.plotting import plot_1d_analysis, plot_2d_analysis
 
+def validate_config(config):
+    """Checks for contradictions between scanning targets and locked parameters."""
+    fixed_params = config.get("fixed_params", {})
+    scan_settings = config.get("scan_settings", {})
+    
+    target_1d = scan_settings.get("target_subset_1d", [])
+    log_params = scan_settings.get("log_scan_parameters", [])
+    
+    # Identify parameters asked to be scanned/logged but also locked
+    conflicts = list(set([p for p in target_1d + log_params if p in fixed_params]))
+    
+    if conflicts:
+        print("\n" + "="*60)
+        print(" [CONFIGURATION ERROR] Conflicting Directives Detected")
+        print("="*60)
+        print(f" You are attempting to profile or log these parameters:")
+        print(f" {conflicts}")
+        print("\n However, they are strictly locked in 'fixed_params'.")
+        print(" Minuit cannot calculate gradients for frozen variables.")
+        print("\n -> FIX: To scan them, remove them from 'fixed_params'.")
+        print(" -> FIX: To keep them locked, remove them from 'target_subset_1d' and 'log_scan_parameters'.")
+        print(" Exiting gracefully...\n")
+        sys.exit(1)
+
 def run_2d_analysis(args, m, param_names, limits, func, global_min_chi2, scan_settings, confidence_cfg, repair_settings, pool=None, num_cores=1):
     """Executes the secondary operational branch routing parameter permutations across coupled multidimensional limits."""
     print("\n" + "="*60 + "\nSTARTING 2D PROFILE SCANS\n" + "="*60)
@@ -199,6 +223,7 @@ def main():
             config["repair_settings"][k] = def_val
             
     scan_settings = config.get("scan_settings", {})
+    validate_config(config)
     req_cores = scan_settings.get("num_cores", cpu_count())
     actual_cores = len(os.sched_getaffinity(0)) if hasattr(os, 'sched_getaffinity') else int(os.environ.get("SLURM_CPUS_PER_TASK", cpu_count()))
     num_cores = max(1, min(req_cores, actual_cores))
@@ -236,6 +261,54 @@ def main():
         except Exception as e:
             print(f"  [WARNING] Initial global minimization failed ({e}). Proceeding to grid scans; repair loops will attempt to find the true minimum organically.")
             global_min_chi2 = np.inf
+        
+        # =====================================================================
+        # PARAMETER STATUS SUMMARY 
+        # =====================================================================
+        print("\n" + "="*60)
+        print(" PARAMETER STATUS SUMMARY")
+        print("="*60)
+        
+        fixed_params = config.get("fixed_params", {})
+        print(f" [FIXED] Locked parameters ({len(fixed_params)}):")
+        if fixed_params:
+            for k, v in fixed_params.items():
+                print(f"   - {k}: {v}")
+        else:
+            print("   - None")
+            
+        print(f"\n [VARIED] Floating parameters in global fit ({len(param_names)}):")
+        if param_names:
+            for p in param_names:
+                print(f"   - {p}")
+        else:
+            print("   - None")
+            
+        scan_2d_only = scan_settings.get("scan_2d_only", False)
+        if not scan_2d_only:
+            target_1d = scan_settings.get("target_subset_1d", [])
+            profiled_params = target_1d if target_1d else param_names
+            print(f"\n [PROFILED] 1D Scan targets ({len(profiled_params)}):")
+            if profiled_params:
+                for p in profiled_params:
+                    print(f"   - {p}")
+            else:
+                print("   - None")
+        else:
+            print("\n [PROFILED] 1D Scans disabled (scan_2d_only = True)")
+            
+        if scan_settings.get("scan_2d", False) or scan_2d_only:
+            target_2d = scan_settings.get("target_subset_2d", [])
+            profiled_2d = target_2d if target_2d else param_names
+            print(f"\n [PROFILED] 2D Scan targets ({len(profiled_2d)}):")
+            if profiled_2d:
+                for p in profiled_2d:
+                    print(f"   - {p}")
+            else:
+                print("   - None")
+                
+        print("="*60 + "\n")
+        # =====================================================================
         
         if not scan_settings.get("skip_sanity_check", False):
             perform_sanity_check(func, m)

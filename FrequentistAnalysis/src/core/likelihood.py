@@ -6,12 +6,13 @@ evaluation caching and automated empirical prior spline construction.
 """
 
 import os
+import traceback
 import numpy as np
 from scipy.interpolate import RegularGridInterpolator, interp1d, PchipInterpolator
 
 # Import internal physics and external detector likelihood module
 from src.physics.kernel import compute_user_model_single
-from detector_flavor_likelihood import detector_flavor_log_likelihood_wrapper
+from src.core.detector_flavor_likelihood import detector_flavor_log_likelihood_wrapper
 
 def load_and_grid_2d(filename):
     """
@@ -54,6 +55,45 @@ class PchipBoundsWrapper:
         if np.isnan(val): raise ValueError("Out of bounds")
         return val
 
+def construct_PMNS(th12: float, th13: float, th23: float, d_cp: float) -> np.ndarray:
+    """Constructs the standard 3x3 unitary PMNS neutrino mixing matrix."""
+    c12, s12 = np.cos(th12), np.sin(th12)
+    c13, s13 = np.cos(th13), np.sin(th13)
+    c23, s23 = np.cos(th23), np.sin(th23)
+    
+    phase = np.exp(1j * d_cp)
+    phase_conj = np.exp(-1j * d_cp)
+    
+    R12 = np.zeros((3, 3), dtype=np.complex128)
+    R12[0, 0] = c12;  R12[0, 1] = s12
+    R12[1, 0] = -s12; R12[1, 1] = c12
+    R12[2, 2] = 1.0
+    
+    R13 = np.zeros((3, 3), dtype=np.complex128)
+    R13[0, 0] = c13;  R13[0, 2] = s13 * phase_conj
+    R13[1, 1] = 1.0
+    R13[2, 0] = -s13 * phase; R13[2, 2] = c13
+    
+    R23 = np.zeros((3, 3), dtype=np.complex128)
+    R23[0, 0] = 1.0
+    R23[1, 1] = c23;  R23[1, 2] = s23
+    R23[2, 1] = -s23; R23[2, 2] = c23
+    
+    return R23 @ R13 @ R12
+
+def get_mass_eigenvalues(m_lightest: float, dm21_sq: float, dm31_sq: float, ordering: str) -> np.ndarray:
+    """Calculates the three absolute mass eigenvalues based on the lightest mass and ordering hierarchy."""
+    masses = np.zeros(3, dtype=np.float64)
+    if ordering.lower().strip() == "inverted":
+        masses[2] = m_lightest
+        masses[1] = np.sqrt(masses[2]**2 + dm31_sq)
+        masses[0] = np.sqrt(masses[1]**2 - dm21_sq)
+    else:
+        masses[0] = m_lightest
+        masses[1] = np.sqrt(masses[0]**2 + dm21_sq)
+        masses[2] = np.sqrt(masses[0]**2 + dm31_sq)
+    return masses
+
 class GenericLikelihoodWrapper:
     """
     State-machine encapsulating parameter evaluation. Acts as a bridge transferring 
@@ -76,21 +116,138 @@ class GenericLikelihoodWrapper:
         self.experiment = config.get('experiment', 'icecube_mese_2025')
         
         self.asimov = asimov
-        
-        # EXACT variable order the dark portal Numba math kernel requires.
-        self.all_params = ['m_Zd_eV', 'g_D', 'epsilon_prime', 'u_e', 'u_mu', 'u_tau']
-        
         self.fixed_params_cfg = config.get('fixed_params', {})
         self.use_fuzzy_cache = config.get("scan_settings", {}).get("use_fuzzy_cache", False)
+        
+        # ==========================================================
+        # DIAGNOSTIC: Check for scanner disconnects
+        # ==========================================================
+        passed_params = set(self.param_names)
+        
+        if 'param1' in passed_params and len(passed_params) > 0:
+            print("\n" + "!"*70)
+            print(" [WARNING: SCANNER DISCONNECT DETECTED]")
+            print(f" src.main provided these parameters to scan: {self.param_names}")
+            print(" Because src.main isn't correctly identifying the scan parameters in")
+            print(" your JSON, it is varying dummy variables (param1), doing nothing to")
+            print(" the actual physics. The kernel will be forced to fallback to static")
+            print(" 'start_values'. Please check how src.main extracts target parameters.")
+            print("!"*70 + "\n")
+        # ==========================================================
         
         # MCMC Memory Guard Toggle
         self._cache = {}
         self._cache_enabled = True
 
-        # Fetch specifically constructed 22-element tuple from main script configuration
+        # Ensure the tuple expects 26 elements now to allow dynamic spatial tracking overrides
         self.static_data = self.config.get("static_data_tuple", None)
-        if self.static_data is None or len(self.static_data) != 22:
-            print("  [Warning] Valid 22-element 'static_data_tuple' not found in config. Injecting mock tuple for initialization.")
+        if self.static_data is None or len(self.static_data) != 26:
+            try:
+                # Direct read from the flat physics_constants dict in the active frequentist config
+                pc = self.config.get("physics_constants", {})
+                
+                # Physical constants and conversion factors
+                eV = 1.0
+                m_to_eV_inv = 5.0677e6
+                cm_inv3_to_eV3 = 1.0 / ((m_to_eV_inv * 1e-2)**3)
+                Mpc_to_eV_inv = 3.08567758e22 * m_to_eV_inv
+                km_per_s = 1.0 / 299792.458
+                
+                # Cosmology
+                H0_eV = float((pc.get("H0_km_s_Mpc", 67.4) * km_per_s) / Mpc_to_eV_inv)
+                Omega_m = float(pc.get("Omega_m", 0.315))
+                Omega_L = float(pc.get("Omega_L", 0.685))
+                T_nu0_eV = float(pc.get("T_nu0_eV", 0.000195))
+                n_n0_eV3 = float(pc.get("n_n0_cm3", 2.5e-07) * cm_inv3_to_eV3)
+                m_lightest_eV = float(pc.get("m_lightest_eV", 0.01))
+                mass_ordering = pc.get("mass_ordering", "normal")
+                
+                # Formulated as a NumPy array for Numba compatibility
+                eta_e = float(pc.get("eta_e", 1.0))
+                eta_mu = float(pc.get("eta_mu", 1.0))
+                eta_tau = float(pc.get("eta_tau", 1.0))
+                eta_bg_arr = np.array([eta_e, eta_mu, eta_tau], dtype=np.float64)
+                
+                # Standard Mixing
+                dm21_sq = float(pc.get("dm21_sq", 7.41e-05))
+                dm31_sq = float(pc.get("dm31_sq", 0.002511))
+                th12 = float(np.radians(pc.get("th12_deg", 33.41)))
+                th13 = float(np.radians(pc.get("th13_deg", 8.58)))
+                th23 = float(np.radians(pc.get("th23_deg", 49.1)))
+                d_cp = float(np.radians(pc.get("d_cp_deg", 132.0)))
+                detector_depth_km = float(pc.get("detector_depth_km", 1.5))
+                
+                # Source
+                p_index = float(pc.get("p_index", 2.5))
+                Phi_0 = float(pc.get("Phi_0", 1.0))
+                z_max = float(pc.get("z_max", 4.0))
+                rho_evol = float(pc.get("rho_evol", 0.0))
+                f_e_S = float(pc.get("f_e_S", 0.333333))
+                f_mu_S = float(pc.get("f_mu_S", 0.666667))
+                f_tau_S = float(pc.get("f_tau_S", 0.0))
+                is_antineutrino = pc.get("is_antineutrino", "sum")
+                nubar_to_nu_ratio = float(pc.get("nubar_to_nu_ratio", 1.0))
+                
+                # Grid & Interpolation parameters
+                E_min_eV = float(pc.get("E_min_eV", 1e13))
+                E_max_eV = float(pc.get("E_max_eV", 3e16))
+                n_E_bins = int(pc.get("n_E_bins", 1000))
+                n_z_bins = int(pc.get("n_z_bins", 1000))
+                
+                # Extracted grid spatial tracking overrides
+                n_mw_paths = int(pc.get("n_mw_paths", 6))
+                n_earth_chords = int(pc.get("n_earth_chords", 3))
+                N_steps_MW = int(pc.get("N_steps_MW", 100))
+                r_start_kpc = float(pc.get("r_start_kpc", 100.0))
+                
+                # Computed structures
+                E_bins = np.logspace(np.log10(E_min_eV), np.log10(E_max_eV), n_E_bins)
+                z_bins = np.linspace(z_max, 0.0, n_z_bins)
+                rho_src = np.array([f_e_S, f_mu_S, f_tau_S], dtype=np.float64)
+                
+                U_pmns = construct_PMNS(th12, th13, th23, d_cp)
+                
+                dm31_sq_signed = -dm31_sq if mass_ordering.lower().strip() == "inverted" else dm31_sq
+                M_sq = np.ascontiguousarray(np.diag([0.0, dm21_sq, dm31_sq_signed]).astype(np.complex128))
+                
+                m_nu_bg_arr = get_mass_eigenvalues(m_lightest_eV, dm21_sq, dm31_sq, mass_ordering)
+                
+                # Construct expanded 26-element static_data tuple
+                self.static_data = (
+                    0.33,                           # 0. obs_f_e (not used)
+                    0.33,                           # 1. obs_f_mu (not used)
+                    0.05,                           # 2. obs_err_e (not used)
+                    0.05,                           # 3. obs_err_mu (not used)
+                    E_bins,                         # 4. E_bins
+                    z_bins,                         # 5. z_bins
+                    rho_src,                        # 6. rho_src
+                    H0_eV,                          # 7. H0 (natural units)
+                    Omega_m,                        # 8. Omega_m
+                    Omega_L,                        # 9. Omega_L
+                    U_pmns,                         # 10. U_pmns
+                    M_sq,                           # 11. M_sq
+                    m_nu_bg_arr,                    # 12. m_nu_bg_arr
+                    n_n0_eV3,                       # 13. n_n0 (natural units)
+                    T_nu0_eV,                       # 14. T_nu0
+                    eta_bg_arr,                     # 15. eta_bg (Numpy Array)
+                    detector_depth_km,              # 16. detector_depth_km
+                    is_antineutrino,                # 17. is_antineutrino
+                    p_index,                        # 18. p_index
+                    rho_evol,                       # 19. rho_evol
+                    Phi_0,                          # 20. Phi_0
+                    nubar_to_nu_ratio,              # 21. nubar_to_nu_ratio
+                    n_mw_paths,                     # 22. n_mw_paths
+                    n_earth_chords,                 # 23. n_earth_chords
+                    N_steps_MW,                     # 24. N_steps_MW
+                    r_start_kpc                     # 25. r_start_kpc
+                )
+                print(f"  [Server] Successfully loaded physical constants from active config.")
+            except Exception as e:
+                print(f"  [Warning] Failed to parse physics config from self.config: {e}. Falling back to default mock static_data.")
+                self.static_data = None
+                    
+        if self.static_data is None:
+            print("  [Warning] Valid 26-element 'static_data_tuple' not found in config. Injecting mock tuple for initialization.")
             self.static_data = (
                 0.33, 0.33, 0.05, 0.05,                         
                 np.logspace(5, 8, 10), np.linspace(0, 4, 10),   
@@ -99,38 +256,43 @@ class GenericLikelihoodWrapper:
                 np.eye(3, dtype=np.complex128),                 
                 np.array([0., 7.4e-5, 2.51e-3]),                
                 np.array([0., 0.0086, 0.0501]),                 
-                112.0, 1.95e-4, 6e-10,                          
+                112.0, 1.95e-4, np.ones(3, dtype=np.float64),   
                 1.5, False, 2.0, 0.0, 1e-18,                    
-                1.0                                             
+                1.0, 6, 3, 100, 100.0                           
             )
-        
+
         if self.asimov:
             print("  [Asimov] Mode activated. Generating mock expected data...")
             asimov_injections = self.config.get("asimov_injections", {})
             if asimov_injections:
                 print(f"  [Asimov] Injecting null-hypothesis parameters: {asimov_injections}")
             
-            mock_args = [asimov_injections.get(p, self.fixed_params_cfg.get(p, 0.0)) for p in self.all_params]
+            # Construct dictionary state specifically for Asimov projection overrides
+            mock_params = {}
+            mock_params.update(self.config.get("physics_constants", {}))
+            mock_params.update(self.config.get("start_values", {}))
+            mock_params.update(self.fixed_params_cfg)
+            mock_params.update(asimov_injections)
             
             # Print expected flavor baseline for the null hypothesis
-            mock_f_e, mock_f_mu, mock_f_tau = compute_user_model_single(np.array(mock_args, dtype=np.float64), self.static_data)
+            mock_f_e, mock_f_mu, mock_f_tau = compute_user_model_single(mock_params, self.static_data)
             print(f"  [Asimov] Mock expectation initialized at: e={mock_f_e:.3f}, mu={mock_f_mu:.3f}, tau={mock_f_tau:.3f}")
         
         self._build_prior_interpolators()
         
     def _get_val(self, vals, key):
         """
-        Fetches dynamic floating values or static pinned values uniformly.
-        
-        Parameters:
-        - vals (dict): Current parameter coordinates provided by Minuit.
-        - key (str): Parameter name to lookup.
-        
-        Returns:
-        - float: The parameter value, or None if completely unassigned.
+        Fetches dynamic floating values or static pinned values uniformly,
+        strictly preventing 0.0 fallback crashes.
         """
         if key in vals: return vals[key]
-        return self.fixed_params_cfg.get(key)
+        if key in self.fixed_params_cfg: return self.fixed_params_cfg[key]
+            
+        start_vals = self.config.get('start_values', {})
+        if key in start_vals:
+            return start_vals[key]
+            
+        return None
         
     def _build_prior_interpolators(self):
         """Automatically ingests empirical chi2 datafiles into active cubic splines."""
@@ -169,16 +331,7 @@ class GenericLikelihoodWrapper:
                 except Exception as e: print(f"  [Prior Error] Loading 2D {fname}: {e}")
 
     def _calculate_gaussian_fallback(self, param_name, val):
-        """
-        Computes quadratic penalties for parameters without empirical constraints.
-        
-        Parameters:
-        - param_name (str): Target parameter name.
-        - val (float): Current evaluated parameter value.
-        
-        Returns:
-        - float: Calculated penalty mapped as a Chi-Square addition.
-        """
+        """Computes quadratic penalties for parameters without empirical constraints."""
         fallbacks = self.config.get('fallbacks', {})
         if param_name in fallbacks:
             spec = fallbacks[param_name]
@@ -241,48 +394,94 @@ class GenericLikelihoodWrapper:
         """
         The objective function invoked directly by Minuit gradient algorithms and MCMC samplers.
         Evaluates the physics kernel and processes the external detector likelihood.
-        
-        Parameters:
-        - args: Dynamic floating point coordinates passed continuously by the Minuit/Emcee optimizer.
-        
-        Returns:
-        - float: The total calculated frequentist Chi-Square penalty.
         """
         if self.use_fuzzy_cache: cache_key = tuple(round(x, 5) for x in args)
         else: cache_key = tuple(args)
             
-        # Conditional Memory Check
         if self._cache_enabled and cache_key in self._cache: return self._cache[cache_key]
         vals = dict(zip(self.param_names, args))
         
-        # Unpack floating coordinates in strict order sequence expected by compiler.
-        model_args = [self._get_val(vals, p) for p in self.all_params]
-        p_arr = np.array([val if val is not None else 0.0 for val in model_args], dtype=np.float64)
+        # Build comprehensive dictionary
+        full_params = {}
+        full_params.update(self.config.get("physics_constants", {}))
+        full_params.update(self.config.get("start_values", {}))
+        full_params.update(vals)
+        full_params.update(self.fixed_params_cfg)
         
+        for k in vals.keys():
+            # Only sanitize if it's a numeric parameter Minuit is floating
+            if k in full_params and isinstance(full_params[k], (float, int)):
+                val = float(full_params[k])
+                # Enforce floor (1e-35) if the parameter is too close to 0.0
+                if abs(val) < 1e-35:
+                    full_params[k] = 1e-35 * np.sign(val or 1.0)
+
+        # =====================================================================
+        # 1. TRANSLATION LAYER: Sine-Squared to Degrees
+        # =====================================================================
+        if "s12sq" in full_params: 
+            val = np.clip(float(full_params["s12sq"]), 1e-10, 1.0)
+            full_params["th12_deg"] = np.degrees(np.arcsin(np.sqrt(val)))
+        if "s13sq" in full_params: 
+            val = np.clip(float(full_params["s13sq"]), 1e-10, 1.0)
+            full_params["th13_deg"] = np.degrees(np.arcsin(np.sqrt(val)))
+        if "s23sq" in full_params: 
+            val = np.clip(float(full_params["s23sq"]), 1e-10, 1.0)
+            full_params["th23_deg"] = np.degrees(np.arcsin(np.sqrt(val)))
+
+        # =====================================================================
+        # 2. EXHAUSTIVE SANITIZATION
+        # Force all critical physical constants to be strictly non-zero
+        # =====================================================================
+        safe_keys = ["m_Zd_eV", "g_D", "epsilon_prime", "dm21_sq", "dm31_sq", "m_lightest_eV"]
+        for k in safe_keys:
+            if k in full_params:
+                # Force a tiny floor to prevent ZeroDivisionError
+                full_params[k] = max(abs(float(full_params[k])), 1e-30) * np.sign(float(full_params[k]) or 1)
+
+        # =====================================================================
+        # 3. DYNAMIC MATRIX RECONSTRUCTION
+        # =====================================================================
+        osc_keys = {"s12sq", "s13sq", "s23sq", "th12_deg", "th13_deg", "th23_deg", "d_cp_deg", "dm21_sq", "dm31_sq", "mass_ordering", "m_lightest_eV"}
+        
+        if any(k in full_params for k in osc_keys) and self.static_data is not None:
+            th12 = np.radians(float(full_params.get("th12_deg", 33.41)))
+            th13 = np.radians(float(full_params.get("th13_deg", 8.58)))
+            th23 = np.radians(float(full_params.get("th23_deg", 49.1)))
+            d_cp = np.radians(float(full_params.get("d_cp_deg", 132.0)))
+            new_U_pmns = construct_PMNS(th12, th13, th23, d_cp)
+            
+            dm21_sq = float(full_params.get("dm21_sq", 7.41e-05))
+            dm31_sq = float(full_params.get("dm31_sq", 0.002511))
+            ordering = str(full_params.get("mass_ordering", "normal"))
+            m_lightest_eV = float(full_params.get("m_lightest_eV", 0.01))
+            
+            dm31_sq_signed = -dm31_sq if ordering.lower().strip() == "inverted" else dm31_sq
+            new_M_sq = np.ascontiguousarray(np.diag([0.0, dm21_sq, dm31_sq_signed]).astype(np.complex128))
+            new_m_nu_bg = get_mass_eigenvalues(m_lightest_eV, dm21_sq, dm31_sq, ordering)
+            
+            sd_list = list(self.static_data)
+            sd_list[10] = new_U_pmns
+            sd_list[11] = new_M_sq
+            sd_list[12] = new_m_nu_bg
+            current_static_data = tuple(sd_list)
+        else:
+            current_static_data = self.static_data
+
         try: 
-            # 1. Obtain raw flavor fractions from the physics kernel
-            f_e, f_mu, f_tau = compute_user_model_single(p_arr, self.static_data)
-            
-            # 2. Package into the specific 2D array structure the detector wrapper requires
+            f_e, f_mu, f_tau = compute_user_model_single(full_params, current_static_data)
             fE = np.array([[f_e, f_mu, f_tau]])
-            
-            # 3. Retrieve the Log-Likelihood and convert it into a frequentist Chi-Square
             log_l = detector_flavor_log_likelihood_wrapper(fE, experiment=self.experiment)
-            
-            # Unpack array scalar safely depending on the detector module return signature
             chi2_data = -2.0 * log_l[0] if isinstance(log_l, np.ndarray) else -2.0 * log_l
-        except Exception: 
+        except Exception as e:
+            print(f"\n  [CRITICAL KERNEL CRASH] Evaluation failed! Reason: {e}")
+            traceback.print_exc()
             return 1e9 
             
-        # Safely reject unphysical domain cliffs
         if np.isnan(chi2_data) or np.isinf(chi2_data): chi2_data = 1e9
 
         chi2_prior = self._compute_prior_penalty(vals)
-        if np.isnan(chi2_prior) or np.isinf(chi2_prior): chi2_prior = 1e9 if chi2_prior > 0 else 0.0
-
         total_chi2 = chi2_data + chi2_prior
-        if np.isnan(total_chi2) or np.isinf(total_chi2): total_chi2 = 1e9
         
-        # Save evaluation to tracking dictionary only if toggle allows it.
         if self._cache_enabled: self._cache[cache_key] = total_chi2
         return total_chi2
