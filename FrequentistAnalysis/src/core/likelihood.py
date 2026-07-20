@@ -208,8 +208,7 @@ class GenericLikelihoodWrapper:
                 U_pmns = construct_PMNS(th12, th13, th23, d_cp)
                 
                 dm31_sq_signed = -dm31_sq if mass_ordering.lower().strip() == "inverted" else dm31_sq
-                M_sq = np.ascontiguousarray(np.array([0.0, dm21_sq, dm31_sq_signed], dtype=np.complex128))
-                # M_sq = np.ascontiguousarray(np.diag([0.0, dm21_sq, dm31_sq_signed]).astype(np.complex128))
+                M_sq = np.ascontiguousarray(np.diag([0.0, dm21_sq, dm31_sq_signed]).astype(np.complex128))
                 
                 m_nu_bg_arr = np.ascontiguousarray(get_mass_eigenvalues(m_lightest_eV, dm21_sq, dm31_sq, mass_ordering), dtype=np.float64)
                 
@@ -458,8 +457,7 @@ class GenericLikelihoodWrapper:
             m_lightest_eV = float(full_params.get("m_lightest_eV", 0.01))
             
             dm31_sq_signed = -dm31_sq if ordering.lower().strip() == "inverted" else dm31_sq
-            # new_M_sq = np.ascontiguousarray(np.diag([0.0, dm21_sq, dm31_sq_signed]).astype(np.complex128))
-            new_M_sq = np.ascontiguousarray(np.array([0.0, dm21_sq, dm31_sq_signed], dtype=np.complex128))
+            new_M_sq = np.ascontiguousarray(np.diag([0.0, dm21_sq, dm31_sq_signed]).astype(np.complex128))
             new_m_nu_bg = np.ascontiguousarray(get_mass_eigenvalues(m_lightest_eV, dm21_sq, dm31_sq, ordering), dtype=np.float64)
 
             sd_list = list(self.static_data)

@@ -228,7 +228,8 @@ def get_adiabatic_mixing_cosmo(E0: float, z: float, U_pmns: np.ndarray, M_sq: np
             
     H_tot = H_vac + V_LRI
     evals, evecs = np.linalg.eigh(H_tot)
-    return evecs
+    return np.ascontiguousarray(evecs)
+    # return evecs
 
 # =============================================================================
 # SPATIAL HANDOVER HELPER FUNCTIONS
@@ -675,7 +676,7 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         #     print(f"  -> U_pmns norms: {np.linalg.norm(U_pmns):.4f}")
         #     print(f"  -> u_arr: {u_arr}")
         #     print(f"  -> Gamma_grid_all min/max: {np.min(Gamma_grid_all[k]):.4e}, {np.max(Gamma_grid_all[k]):.4e}")
-            
+
         if verbose == 2 and k % z_print_mod == 0:
             safe_print(f"Cosmological propagation: currently integrating at redshift z = {z:.4f}")
         
