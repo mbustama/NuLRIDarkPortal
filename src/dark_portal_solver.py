@@ -153,7 +153,7 @@ def calc_V_LRI_cosmo(z: float, u_arr: np.ndarray, m_Zd: float, g_D: float, eps_p
             
     return V_LRI
 
-# @njit(fastmath=True, cache=True)
+@njit(fastmath=True, cache=True)
 def thermal_averaged_rates_flavor(E0: float, z: float, sum_G: float, sum_G_alpha: np.ndarray, 
                                   m_Zd: float, m_nu_bg_arr: np.ndarray, T_nu0: float, 
                                   eta_mass: np.ndarray) -> np.ndarray:
@@ -307,10 +307,14 @@ def step_cosmological_propagation(z: float, dt: float, R_z: float, E_bins: np.nd
     N_E = len(E_bins)
     
     # Zero out buffers at start of step
-    F_flavor[:] = 0.0
-    Gamma_flavor[:] = 0.0
-    dF_casc_flavor[:] = 0.0
-    rate_F_sum_arr[:] = 0.0
+    F_flavor.fill(0.0)
+    Gamma_flavor.fill(0.0)
+    dF_casc_flavor.fill(0.0)
+    rate_F_sum_arr.fill(0.0)
+    # F_flavor[:] = 0.0
+    # Gamma_flavor[:] = 0.0
+    # dF_casc_flavor[:] = 0.0
+    # rate_F_sum_arr[:] = 0.0
 
     # First loop: Calculate flavor composition and assign pre-computed interaction rates
     for i in range(N_E):
@@ -387,7 +391,7 @@ def init_mw_density_matrix(r_start_kpc: float, theta: float, phi: float, E_bins:
                     rho_f[i, a, b] += evecs_a[a, k] * F_mass_arrival[i, k] * np.conjugate(evecs_a[b, k])
     return rho_f
 
-# @njit(fastmath=True, cache=True)
+@njit(fastmath=True, cache=True)
 def step_mw_approach(r_current_kpc: float, theta: float, phi: float, dr_MW_eV_inv: float,
                      E_bins: np.ndarray, rho_f: np.ndarray, U_pmns: np.ndarray, M_sq: np.ndarray,
                      m_eff: float, Coef: float, U_LRI_struct: np.ndarray, U_step_buffer: np.ndarray):
@@ -413,15 +417,17 @@ def step_mw_approach(r_current_kpc: float, theta: float, phi: float, dr_MW_eV_in
         H_local = H_vac + V_LRI
         evals, evecs = np.linalg.eigh(H_local)
         
-        U_step_buffer[:] = 0.0
+        # U_step_buffer[:] = 0.0
+        U_step_buffer.fill(0.0 + 0.0j)
         for a in range(3):
             for b in range(3):
                 for k in range(3):
                     U_step_buffer[a,b] += evecs[a,k] * np.exp(-1j * evals[k] * dr_MW_eV_inv) * np.conjugate(evecs[b,k])
         
-        rho_f[i] = U_step_buffer @ rho_f[i] @ np.ascontiguousarray(np.conjugate(U_step_buffer).T)
+        # rho_f[i] = U_step_buffer @ rho_f[i] @ np.ascontiguousarray(np.conjugate(U_step_buffer).T)
+        rho_f[i] = np.ascontiguousarray(U_step_buffer @ rho_f[i] @ np.ascontiguousarray(np.conjugate(U_step_buffer).T))
 
-# @njit(fastmath=True, cache=True)
+@njit(fastmath=True, cache=True)
 def step_earth_transit(l_km: float, baseline_km: float, costh: float, dr_earth_eV_inv: float,
                        E_bins: np.ndarray, rho_earth: np.ndarray, U_pmns: np.ndarray, M_sq: np.ndarray,
                        n_n_amb_eV3: float, Coef: float, U_LRI_struct: np.ndarray,
@@ -451,13 +457,15 @@ def step_earth_transit(l_km: float, baseline_km: float, costh: float, dr_earth_e
         H_local = H_vac + V_LRI + V_SM
         evals, evecs = np.linalg.eigh(H_local)
         
-        U_step_buffer[:] = 0.0
+        # U_step_buffer[:] = 0.0
+        U_step_buffer.fill(0.0 + 0.0j)
         for a in range(3):
             for b in range(3):
                 for k in range(3):
                     U_step_buffer[a,b] += evecs[a,k] * np.exp(-1j * evals[k] * dr_earth_eV_inv) * np.conjugate(evecs[b,k])
         
-        rho_earth[i] = U_step_buffer @ rho_earth[i] @ np.ascontiguousarray(np.conjugate(U_step_buffer).T)
+        # rho_earth[i] = U_step_buffer @ rho_earth[i] @ np.ascontiguousarray(np.conjugate(U_step_buffer).T)
+        rho_earth[i] = np.ascontiguousarray(U_step_buffer @ rho_earth[i] @ np.ascontiguousarray(np.conjugate(U_step_buffer).T))
 
 # =============================================================================
 # REVISED SOLVERS WITH VERBOSE PROGRESS TRACKING
