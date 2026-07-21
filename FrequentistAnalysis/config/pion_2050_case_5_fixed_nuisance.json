@@ -44,7 +44,7 @@
         "merge_disconnected_islands": true,
         "island_merge_tolerance": 0.1,
         "enforce_spline_monotonicity": false,
-        "n_steps": 200,
+        "n_steps": 100,
         "scan_range_sigma": 4.0,
         "force_rigid_bounds": false,
         "use_n_points_internal": true,
@@ -67,12 +67,12 @@
     "_comment_repair": "Settings for the topological defect repair loops.",
     "repair_settings": {
         "disable_outlier_repair": false,
-        "use_simplex_polish": true,
-        "minuit_retries": 3,
+        "use_simplex_polish": false,
+        "minuit_retries": 1,
         "spike_threshold": 0.2,
-        "continuity_threshold": 1.0,
+        "continuity_threshold": 2.5,
         "gradient_threshold": 50.0,
-        "max_repair_passes": 10
+        "max_repair_passes": 3
     },
     
     "_comment_steps": "Initial step sizes Minuit uses to calculate gradients.",
