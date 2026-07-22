@@ -257,6 +257,7 @@ def main():
         try:
             m.simplex(); m.migrad()
             global_min_chi2 = m.fval
+            # global_min_chi2 = np.inf
             print(f"Global Best Fit Chi2: {global_min_chi2:.4f}")
         except Exception as e:
             print(f"  [WARNING] Initial global minimization failed ({e}). Proceeding to grid scans; repair loops will attempt to find the true minimum organically.")
