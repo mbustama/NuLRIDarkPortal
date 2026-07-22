@@ -38,13 +38,13 @@
     
     "_comment_scan_settings": "Core configuration for 1D and 2D profile likelihood execution.",
     "scan_settings": {
-        "num_cores": 200,
+        "num_cores": 220,
         "use_checkpointing": true,
         "skip_sanity_check": false,
         "merge_disconnected_islands": true,
         "island_merge_tolerance": 0.1,
         "enforce_spline_monotonicity": false,
-        "n_steps": 100,
+        "n_steps": 150,
         "scan_range_sigma": 4.0,
         "force_rigid_bounds": true,
         "use_n_points_internal": true,
