@@ -35,7 +35,8 @@ export OPENBLAS_NUM_THREADS=1
 # bash run_batch_frequentist_dark_portal.sh ../config/limit_setting/dark_portal/proj_2040/dark_portal_2040_case_1.json
 rm -rf /lustre/astro/mbustama/NuLRIDarkPortal/FrequentistAnalysis/src/physics/__pycache__
 rm -rf /lustre/astro/mbustama/NuLRIDarkPortal/src/__pycache__
-bash run_batch_frequentist_dark_portal.sh config/pion_2050_case_5_fixed_nuisance.json
+# bash run_batch_frequentist_dark_portal.sh config/pion_2050_case_5_fixed_nuisance.json
+bash run_batch_frequentist_dark_portal.sh config/pion_2050_case_5_fixed_nuisance_mZD.json
 
 # Alternatively, if you have all dark portal configs in one directory, 
 # you can run the directory mode instead of listing every file manually:
