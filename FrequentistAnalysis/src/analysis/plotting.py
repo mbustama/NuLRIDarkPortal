@@ -13,7 +13,7 @@ from scipy.interpolate import PchipInterpolator
 from scipy.ndimage import gaussian_filter
 from src.physics.kernel import get_label, format_title_stats
 
-def plot_1d_analysis(output_dir, param_names, confidence_cfg, global_min_chi2):
+def plot_1d_analysis(output_dir, param_names, confidence_cfg, global_min_chi2, scan_settings):
     """Synthesizes isolated JSON payload outputs formulating a consolidated 1D multi-panel graphic."""
     if not param_names: return
     rows = (len(param_names) + 1) // 2
@@ -23,6 +23,8 @@ def plot_1d_analysis(output_dir, param_names, confidence_cfg, global_min_chi2):
     info_dir = os.path.join(output_dir, 'info')
     freq_results = json.load(open(os.path.join(info_dir, 'frequentist_results.json'))) if os.path.exists(os.path.join(info_dir, 'frequentist_results.json')) else {}
     
+    log_params = scan_settings.get("log_scan_parameters", [])
+
     for i, p in enumerate(param_names):
         json_path = os.path.join(info_dir, f"profile_1d_{p}.json")
         if not os.path.exists(json_path): axes[i].text(0.5, 0.5, "No Data", ha='center'); continue
@@ -32,6 +34,10 @@ def plot_1d_analysis(output_dir, param_names, confidence_cfg, global_min_chi2):
         dchi2[dchi2 < 0] = 0
         
         axes[i].plot(x_scan, dchi2, 'b.-', lw=1.5)
+        
+        if p in log_params:
+            axes[i].set_xscale('log')
+        
         for sig in ["1sigma", "2sigma", "3sigma"]:
             if sig in confidence_cfg: axes[i].axhline(confidence_cfg[sig], color='gray', ls={'1sigma':'--', '2sigma':':', '3sigma':'-.'}[sig], label=rf'${sig[0]}\sigma$')
         
@@ -63,6 +69,11 @@ def plot_2d_analysis(output_dir, param_names, confidence_cfg, global_min_chi2, s
             ax = axes_corner[i, j]
             param_y, param_x = param_names[i], param_names[j]
             
+            if param_x in log_params:
+                ax.set_xscale('log')
+            if i > j and param_y in log_params: # Only scale y-axis for the 2D contour panels
+                ax.set_yscale('log')
+                
             if i == j:
                 json_path = os.path.join(info_dir, f"profile_1d_{param_x}.json")
                 if os.path.exists(json_path):

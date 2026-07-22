@@ -407,7 +407,8 @@ def main():
                 with open(os.path.join(config["output_dir"], 'info', 'frequentist_results.json'), 'w') as f: 
                     json.dump(final_results_dict, f, indent=4)
                 
-            plot_1d_analysis(config["output_dir"], scan_params_1d, config.get("confidence_thresholds", {}), global_min_chi2)
+            plot_1d_analysis(config["output_dir"], scan_params_1d, config.get("confidence_thresholds", {}), global_min_chi2,
+                             scan_settings)
         
         # --- 2D Scans ---
         if scan_settings.get("scan_2d", False) or scan_2d_only:
