@@ -122,7 +122,8 @@ class GenericLikelihoodWrapper:
         self._cache_enabled = True
 
         # Ensure the tuple expects 34 elements now (spatial tracking overrides plus
-        # use_SM_potential/n_e_earth/use_debye_screening/n_cores_standalone)
+        # use_SM_potential/n_e_earth/use_debye_screening/n_cores_standalone/
+        # V_SM_struct/U_LRI_struct/n_z_thermal)
         self.static_data = self.config.get("static_data_tuple", None)
         if self.static_data is None or len(self.static_data) != 34:
             try:

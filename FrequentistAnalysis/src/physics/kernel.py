@@ -128,9 +128,10 @@ def compute_user_model_single(params, static_data):
     Standard Python wrapper. Evaluates the dark portal propagation by calling 
     external solvers and returns the predicted flavor fractions at Earth.
     """
-    # Unpack the immutable data tuple (expanded to 31 elements; N_steps_earth,
-    # use_SM_potential, n_e_earth, use_debye_screening, and n_cores_standalone all default to
-    # safe values for any caller still passing an older, shorter tuple. N_steps_earth=500 is
+    # Unpack the immutable data tuple (currently 34 elements; every element beyond the
+    # original 26 -- N_steps_earth, use_SM_potential, n_e_earth, use_debye_screening,
+    # n_cores_standalone, V_SM_struct, U_LRI_struct, n_z_thermal -- defaults to a safe
+    # value for any caller still passing an older, shorter tuple. N_steps_earth=500 is
     # the only value validated against resonance-crossing sensitivity, see
     # propagate_earth_spatial's docstring in dark_portal_solver.py).
     (obs_f_e, obs_f_mu, obs_err_e, obs_err_mu,
