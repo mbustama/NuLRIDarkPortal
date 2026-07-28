@@ -99,7 +99,8 @@ def run_2d_analysis(args, m, param_names, limits, func, global_min_chi2, scan_se
                         scan_range_sigma=scan_settings.get("scan_range_sigma_2d", 3.5), 
                         minuit_retries=repair_settings.get("minuit_retries", 3), 
                         force_rigid_bounds=scan_settings.get("force_rigid_bounds", False),
-                        pool=pool, num_cores=num_cores
+                        pool=pool, num_cores=num_cores,
+                        use_warm_start=scan_settings.get("use_warm_start", True)
                     )
                     
                     if not repair_settings.get("disable_outlier_repair", False):
@@ -354,7 +355,8 @@ def main():
                     x, y, hist = scan_parameter_parallel(m, p, m.values[p], max(m.errors[p], 0.1), func, limits, param_names, config["output_dir"], 
                                                          n_steps=scan_settings.get("n_steps", 40), use_n_points_internal=scan_settings.get("use_n_points_internal", False),
                                                          n_points_internal=scan_settings.get("n_points_internal", 100), scan_range_sigma=scan_settings.get("scan_range_sigma", 4.0),
-                                                         use_log_scan=use_log_scan, force_rigid_bounds=scan_settings.get("force_rigid_bounds", False), pool=pool, num_cores=num_cores)
+                                                         use_log_scan=use_log_scan, force_rigid_bounds=scan_settings.get("force_rigid_bounds", False), pool=pool, num_cores=num_cores,
+                                                         use_warm_start=scan_settings.get("use_warm_start", True))
                     
                     if not repair_cfg.get("disable_outlier_repair", False):
                         x, y = repair_scan_outliers(x, y, hist, p, func, limits, param_names, dict(zip(m.parameters, m.errors)), 

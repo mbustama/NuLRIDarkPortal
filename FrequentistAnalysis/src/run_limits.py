@@ -169,7 +169,8 @@ def run_pair(base_config, pair, ls, output_dir, pool, num_cores, repair_cfg):
         m, param_x, param_y, scan_limits, func, param_names,
         n_steps=n_steps, minuit_retries=repair_cfg.get("minuit_retries", 3),
         force_rigid_bounds=True, pool=pool, num_cores=num_cores,
-        use_log_x=True, use_log_y=True)
+        use_log_x=True, use_log_y=True,
+        use_warm_start=base_config.get("scan_settings", {}).get("use_warm_start", True))
 
     if not repair_cfg.get("disable_outlier_repair", False):
         x_grid, y_grid, Z_chi2 = repair_2d_scan_outliers(

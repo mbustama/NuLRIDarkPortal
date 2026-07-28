@@ -847,6 +847,25 @@ def _earth_chord_worker(args) -> np.ndarray:
                            detector_depth_km, U_step_buffer, H_buf, T_buf)
     return rho_earth
 
+def _split_E_blocks(N_E: int, n_units: int, n_workers: int):
+    """Contiguous energy-index blocks for splitting spatial-transit tasks.
+
+    Every energy bin evolves independently through the spatial transit (H depends on E
+    only through its own bin), so a (path-or-chord, E-block) pair is just as valid a
+    unit of parallel work as a whole path or chord -- and much better balanced when the
+    unit count doesn't divide the worker count (e.g. the default 12 Earth chords on 8
+    workers leave 4 workers idle for half the phase). Blocks are sized so that
+    n_units * n_blocks comfortably exceeds the worker count. Returns [(0, N_E)] (no
+    splitting) when a single worker is in use, preserving the sequential path exactly.
+    """
+    if n_workers <= 1 or n_units <= 0:
+        return [(0, N_E)]
+    blocks_per_unit = int(np.ceil(2.0 * n_workers / n_units))
+    blocks_per_unit = max(1, min(blocks_per_unit, N_E))
+    edges = np.linspace(0, N_E, blocks_per_unit + 1).astype(np.int64)
+    return [(int(edges[b]), int(edges[b + 1])) for b in range(blocks_per_unit)
+            if edges[b + 1] > edges[b]]
+
 def _run_spatial_tasks(worker_fn, tasks, desc, n_workers, show_progress, external_pool=None):
     """Dispatches independent spatial-handover tasks (MW paths / Earth chords) either
     sequentially, across a freshly-created multiprocessing pool, or across a caller-managed
@@ -957,9 +976,21 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
         safe_print(f"\n--- Spatial Handover Commencing ({lbl}) ---")
         safe_print(f"Entering Milky Way geometry at r = {r_start_kpc:.1f} kpc from Earth ({len(mw_theta)} path(s), {n_workers} worker(s))...")
 
-    mw_tasks = [(mw_theta[k], mw_phi[k], r_start_kpc, dr_kpc, dr_MW_eV_inv, N_steps_MW, E_bins,
-                 F_mass_arrival, M_rot, m_eff, Coef, U_LRI_struct) for k in range(len(mw_theta))]
-    mw_results = _run_spatial_tasks(_mw_path_worker, mw_tasks, f"MW paths ({lbl})", n_workers, show_progress, external_pool=external_pool)
+    # Tasks are (path, E-block) pairs: energy bins evolve independently, so splitting the
+    # E-grid gives even worker loads when the path count doesn't divide the worker count
+    # (see _split_E_blocks). Per-path results are reassembled to full arrays first, so the
+    # np.mean over paths below is arithmetically identical to the unsplit version.
+    mw_blocks = _split_E_blocks(N_E, len(mw_theta), n_workers)
+    mw_tasks = [(mw_theta[k], mw_phi[k], r_start_kpc, dr_kpc, dr_MW_eV_inv, N_steps_MW, E_bins[b0:b1],
+                 F_mass_arrival[b0:b1], M_rot, m_eff, Coef, U_LRI_struct)
+                for k in range(len(mw_theta)) for (b0, b1) in mw_blocks]
+    mw_block_results = _run_spatial_tasks(_mw_path_worker, mw_tasks, f"MW paths ({lbl})", n_workers, show_progress, external_pool=external_pool)
+    mw_results = []
+    for k in range(len(mw_theta)):
+        rho_full = np.empty((N_E, 3, 3), dtype=np.complex128)
+        for b, (b0, b1) in enumerate(mw_blocks):
+            rho_full[b0:b1] = mw_block_results[k * len(mw_blocks) + b]
+        mw_results.append(rho_full)
     rho_surf_avg = np.mean(np.stack(mw_results, axis=0), axis=0)
 
     # PHASE 2: Earth Transit (PREM Layers)
@@ -1009,10 +1040,18 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
     # the 500 default across a resonance-scanning parameter range -- verify convergence
     # against a higher-resolution reference for your own m_Zd range before trusting a lower
     # value in a real fit.
-    earth_tasks = [(costh, get_baseline_earth(detector_depth_km, costh), N_steps_earth, E_bins, rho_surf_avg,
-                    M_rot, n_n_amb_eV3, Coef, U_LRI_struct, V_SM,
-                    detector_depth_km) for costh in earth_costh]
-    earth_results = _run_spatial_tasks(_earth_chord_worker, earth_tasks, f"Earth chords ({lbl})", n_workers, show_progress, external_pool=external_pool)
+    # Same (chord, E-block) task splitting as the Milky Way phase above.
+    earth_blocks = _split_E_blocks(N_E, len(earth_costh), n_workers)
+    earth_tasks = [(costh, get_baseline_earth(detector_depth_km, costh), N_steps_earth, E_bins[b0:b1],
+                    rho_surf_avg[b0:b1], M_rot, n_n_amb_eV3, Coef, U_LRI_struct, V_SM,
+                    detector_depth_km) for costh in earth_costh for (b0, b1) in earth_blocks]
+    earth_block_results = _run_spatial_tasks(_earth_chord_worker, earth_tasks, f"Earth chords ({lbl})", n_workers, show_progress, external_pool=external_pool)
+    earth_results = []
+    for c in range(len(earth_costh)):
+        rho_full = np.empty((N_E, 3, 3), dtype=np.complex128)
+        for b, (b0, b1) in enumerate(earth_blocks):
+            rho_full[b0:b1] = earth_block_results[c * len(earth_blocks) + b]
+        earth_results.append(rho_full)
     rho_earth_avg = np.mean(np.stack(earth_results, axis=0), axis=0)
     F_earth = np.real(np.diagonal(rho_earth_avg, axis1=1, axis2=2)).copy()
 

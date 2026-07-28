@@ -23,6 +23,7 @@ DEFAULT_SCAN_SETTINGS = {
     "n_steps_2d": 20,
     "scan_range_sigma_2d": 3.5,
     "use_explicit_step_sizes": True,
+    "use_warm_start": True,
     "use_linear_interp": False,
     "use_fuzzy_cache": False,
     "clip_contour_smearing": False,

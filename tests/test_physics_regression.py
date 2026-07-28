@@ -852,6 +852,33 @@ def test_build_thermal_grid_exact_and_interpolated():
     np.testing.assert_allclose(interp[1::2], 0.5 * (exact[::2][:-1] + exact[::2][1:]), rtol=1e-12)
 
 
+def test_spatial_E_block_parallelism_is_exact():
+    """The spatial handover splits (path/chord, E-block) tasks across workers for load
+    balancing. Energy bins evolve independently, and per-unit results are reassembled to
+    full arrays before the average over units, so the multi-worker blocked path must be
+    EXACTLY equal (not merely close) to the single-worker sequential path."""
+    E_bins = np.logspace(13, 16, 30)
+    rng = np.random.default_rng(9)
+    F_mass_arrival = rng.uniform(1e18, 1e22, size=(30, 3))
+    U_pmns = np.ascontiguousarray(dps.construct_PMNS(np.radians(33.41), np.radians(8.58),
+                                                     np.radians(49.1), np.radians(132.0)))
+    M_sq = np.diag([0.0, 7.41e-5, 2.511e-3]).astype(np.complex128)
+    M_rot = np.ascontiguousarray(U_pmns @ M_sq @ np.conjugate(U_pmns).T)
+    u_arr = np.array([0.5, 0.5, 0.0], dtype=np.complex128)
+
+    common = dict(N_steps_MW=4, r_start_kpc=100.0, show_progress=False, verbose=0,
+                  N_steps_earth=6)
+    F_seq = dps.propagate_earth_spatial(E_bins, F_mass_arrival, M_rot, u_arr,
+                                        2.0e6, 1e-4, 0.1, 1.95e-4, True, np.ones(3),
+                                        1.5, False, 0.0, False, 3, 5,
+                                        n_cores=1, **common)
+    F_par = dps.propagate_earth_spatial(E_bins, F_mass_arrival, M_rot, u_arr,
+                                        2.0e6, 1e-4, 0.1, 1.95e-4, True, np.ones(3),
+                                        1.5, False, 0.0, False, 3, 5,
+                                        n_cores=3, **common)
+    np.testing.assert_array_equal(F_seq, F_par)
+
+
 def test_mw_density_finite_on_galactic_center_line():
     """calc_MW_neutron_density previously crashed (ZeroDivisionError) or returned NaN when
     evaluated on the exact line through the galactic center (r ~ R_0 = 8.33 kpc along
