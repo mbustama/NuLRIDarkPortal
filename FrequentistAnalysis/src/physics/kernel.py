@@ -150,6 +150,10 @@ def compute_user_model_single(params, static_data):
     n_e_earth = float(static_data[28]) if len(static_data) > 28 else 1.5e24 * cm_inv3_to_eV3
     use_debye_screening = bool(static_data[29]) if len(static_data) > 29 else True
     n_cores_standalone = int(static_data[30]) if len(static_data) > 30 else 1
+    # Optional flavor-structure overrides (neutrino convention; propagate_spectrum applies
+    # the antineutrino conjugation centrally). None means the built-in defaults.
+    V_SM_struct = static_data[31] if len(static_data) > 31 else None
+    U_LRI_struct = static_data[32] if len(static_data) > 32 else None
 
     # 1. Unpack scanning parameters from the generic Minuit engine wrapper.
     #    Handles backwards compatibility if passed as a positional array.
@@ -316,7 +320,8 @@ def compute_user_model_single(params, static_data):
             is_anti_flag, p_index, rho_evol, Phi_0, eta_bg,
             n_mw_paths, n_earth_chords, N_steps_MW, r_start_kpc,
             show_progress, verbose, n_cores_for_call, Gamma_grid_all, N_steps_earth,
-            external_pool=persistent_pool
+            external_pool=persistent_pool,
+            U_LRI_struct=U_LRI_struct, V_SM_struct=V_SM_struct
         )
 
     # Evaluate flags to match solver's native worker capabilities

@@ -213,8 +213,10 @@ def test_antineutrino_LRI_conjugation_cosmological_path():
     eta_bg = np.ones(3)
     z = 1.0
 
-    V_nu = dps.calc_V_LRI_cosmo(z, u_base, m_Zd, g_D, eps_prime, n_n0, T_nu0, True, eta_bg)
-    V_nubar = dps.calc_V_LRI_cosmo(z, np.conjugate(u_base), m_Zd, g_D, eps_prime, n_n0, T_nu0, True, eta_bg)
+    S_nu = np.ascontiguousarray(np.outer(u_base, np.conjugate(u_base)))
+    S_nubar = np.ascontiguousarray(np.outer(np.conjugate(u_base), u_base))
+    V_nu = dps.calc_V_LRI_cosmo(z, u_base, S_nu, m_Zd, g_D, eps_prime, n_n0, T_nu0, True, eta_bg)
+    V_nubar = dps.calc_V_LRI_cosmo(z, np.conjugate(u_base), S_nubar, m_Zd, g_D, eps_prime, n_n0, T_nu0, True, eta_bg)
     V_nubar = -V_nubar  # matches the (fixed) sign-flip-only convention in get_adiabatic_mixing_cosmo
 
     np.testing.assert_allclose(V_nubar, -np.conjugate(V_nu), rtol=1e-12, atol=1e-30)
@@ -238,12 +240,15 @@ def test_get_adiabatic_mixing_cosmo_diagonalizes_correct_antineutrino_hamiltonia
     M_rot = U_pmns @ M_sq @ np.conjugate(U_pmns).T
     H_vac = (1.0 / (2.0 * E0 * (1.0 + z))) * M_rot
 
-    V_nu = dps.calc_V_LRI_cosmo(z, u_base, m_Zd, g_D, eps_prime, n_n0, T_nu0, True, eta_bg)
+    S_nu = np.ascontiguousarray(np.outer(u_base, np.conjugate(u_base)))
+    V_nu = dps.calc_V_LRI_cosmo(z, u_base, S_nu, m_Zd, g_D, eps_prime, n_n0, T_nu0, True, eta_bg)
     V_nubar_correct = -np.conjugate(V_nu)
     H_tot_reference = H_vac + V_nubar_correct
 
-    # Antineutrino call: the caller pre-conjugates u_arr (see propagation_worker), as production code does.
-    evecs = dps.get_adiabatic_mixing_cosmo(E0, z, M_rot, np.conjugate(u_base), m_Zd, g_D, eps_prime,
+    # Antineutrino call: the caller pre-conjugates u_arr AND the structure matrix
+    # (see propagate_spectrum), as production code does.
+    S_nubar = np.ascontiguousarray(np.conjugate(S_nu))
+    evecs = dps.get_adiabatic_mixing_cosmo(E0, z, M_rot, np.conjugate(u_base), S_nubar, m_Zd, g_D, eps_prime,
                                            n_n0, T_nu0, True, True, eta_bg)
 
     # evecs must diagonalize H_tot_reference: evecs^dagger @ H_tot_reference @ evecs is diagonal.
@@ -264,8 +269,10 @@ def test_cosmological_and_spatial_LRI_conjugation_agree():
     z = 0.5
 
     # Cosmological path: single sign flip applied to a potential built from pre-conjugated u_arr.
-    V_cosmo_nu = dps.calc_V_LRI_cosmo(z, u_base, m_Zd, g_D, eps_prime, n_n0, T_nu0, True, eta_bg)
-    V_cosmo_nubar = -dps.calc_V_LRI_cosmo(z, np.conjugate(u_base), m_Zd, g_D, eps_prime, n_n0, T_nu0, True, eta_bg)
+    S_nu = np.ascontiguousarray(np.outer(u_base, np.conjugate(u_base)))
+    S_nubar = np.ascontiguousarray(np.conjugate(S_nu))
+    V_cosmo_nu = dps.calc_V_LRI_cosmo(z, u_base, S_nu, m_Zd, g_D, eps_prime, n_n0, T_nu0, True, eta_bg)
+    V_cosmo_nubar = -dps.calc_V_LRI_cosmo(z, np.conjugate(u_base), S_nubar, m_Zd, g_D, eps_prime, n_n0, T_nu0, True, eta_bg)
 
     # Spatial-handover path: Coef flips sign only; U_LRI_struct is built from whatever u_arr
     # is passed in. Coef itself excludes the number density (propagate_earth_spatial applies
@@ -509,7 +516,7 @@ def test_frequentist_static_data_wires_use_SM_potential_and_n_e_earth():
     func_lo = GenericLikelihoodWrapper(cfg_lo, [])
     func_hi = GenericLikelihoodWrapper(cfg_hi, [])
 
-    assert len(func_off.static_data) == 31
+    assert len(func_off.static_data) == 33
     assert func_off.static_data[27] is False or func_off.static_data[27] == False  # noqa: E712
     assert func_lo.static_data[27] is True or func_lo.static_data[27] == True  # noqa: E712
     assert func_lo.static_data[28] != func_hi.static_data[28]
@@ -581,6 +588,116 @@ def test_frequentist_static_data_backward_compatible_with_shorter_tuples():
 
 
 # =============================================================================
+# 7b. Configurable potential structure matrices (U_LRI_struct / V_SM_struct)
+# =============================================================================
+
+def _propagate_small(u_arr, is_anti, U_LRI_struct=None, V_SM_struct=None, use_SM=False):
+    """Minimal, fast propagate_spectrum call used by the structure-override tests.
+    Mirrors propagation_worker's conventions: U_pmns/u_arr are conjugated here for
+    antineutrinos, while structure overrides are passed in neutrino convention
+    (propagate_spectrum conjugates those internally)."""
+    E_bins = np.logspace(13, 16, 12)
+    z_bins = np.linspace(4.0, 0.0, 12)
+    rho_src = np.array([0.333333, 0.666667, 0.0])
+    U_pmns = np.ascontiguousarray(dps.construct_PMNS(np.radians(33.41), np.radians(8.58),
+                                                     np.radians(49.1), np.radians(132.0)))
+    M_sq = np.ascontiguousarray(np.diag([0.0, 7.41e-5, 2.511e-3]).astype(np.complex128))
+    H0 = 67.4 * dps.km_per_s / dps.Mpc_to_eV_inv
+    m_nu_bg = np.array([0.01, np.sqrt(0.01**2 + 7.41e-5), np.sqrt(0.01**2 + 2.511e-3)])
+
+    local_U_pmns = np.ascontiguousarray(np.conjugate(U_pmns)) if is_anti else U_pmns
+    local_u = np.ascontiguousarray(np.conjugate(u_arr)) if is_anti else np.ascontiguousarray(u_arr)
+
+    return dps.propagate_spectrum(
+        E_bins, z_bins, rho_src, H0, 0.315, 0.685, local_U_pmns, M_sq,
+        local_u, 2.0e6, 1e-4, 0.1, m_nu_bg, 0.25e-6 * dps.cm_inv3_to_eV3, 1.95e-4,
+        True, 1.5, use_SM, 1.5e24 * dps.cm_inv3_to_eV3,
+        is_anti, 2.5, 0.0, 1.0, np.ones(3), 1, 1,
+        N_steps_MW=5, r_start_kpc=100.0, show_progress=False, verbose=0, n_cores=1,
+        N_steps_earth=5, U_LRI_struct=U_LRI_struct, V_SM_struct=V_SM_struct)
+
+
+def test_structure_override_default_equals_absent():
+    """Passing the default textures explicitly (U_LRI_struct = outer(u, conj u),
+    V_SM_struct = diag(1,0,0)) must reproduce the no-override path exactly, for both
+    neutrinos and antineutrinos -- pins down that the override plumbing introduces no
+    convention shift on the path every existing config exercises."""
+    u = np.array([0.5, 0.5, 0.0], dtype=np.complex128)
+    S_lri = np.outer(u, np.conjugate(u))
+    S_sm = np.diag([1.0, 0.0, 0.0]).astype(np.complex128)
+    for is_anti in (False, True):
+        F_default = _propagate_small(u, is_anti, use_SM=True)
+        F_explicit = _propagate_small(u, is_anti, U_LRI_struct=S_lri, V_SM_struct=S_sm, use_SM=True)
+        np.testing.assert_array_equal(F_default, F_explicit)
+
+
+def test_structure_override_changes_flux():
+    """A genuinely different Hermitian texture must change the output flux: overriding
+    U_LRI_struct always, and overriding V_SM_struct when use_SM_potential is on."""
+    u = np.array([0.5, 0.5, 0.0], dtype=np.complex128)
+    F_default = _propagate_small(u, False, use_SM=True)
+
+    S_lri_alt = np.array([[0.25, 0.0, 0.1], [0.0, 0.25, 0.0], [0.1, 0.0, 0.2]], dtype=np.complex128)
+    F_lri = _propagate_small(u, False, U_LRI_struct=S_lri_alt, use_SM=True)
+    assert not np.allclose(F_default, F_lri)
+
+    S_sm_alt = np.diag([1.0, 0.5, 0.0]).astype(np.complex128)
+    F_sm = _propagate_small(u, False, V_SM_struct=S_sm_alt, use_SM=True)
+    assert not np.allclose(F_default, F_sm, rtol=1e-10, atol=0.0)
+
+
+def test_structure_override_antineutrino_conjugation_matches_u_arr_path():
+    """For a complex (CP-violating) sterile mixing vector, running with the explicit
+    override S = outer(u, conj u) must reproduce the default u_arr-built path exactly for
+    BOTH neutrinos and antineutrinos. This pins the override's antineutrino convention
+    (conjugated centrally in propagate_spectrum) to the pre-conjugated-u_arr convention the
+    double-conjugation fix established -- if a future edit conjugates the override in the
+    wrong place (or twice), the antineutrino case here fails while the neutrino case
+    passes."""
+    u = np.array([0.4 * np.exp(1j * 0.3), 0.6, 0.2 * np.exp(-1j * 0.9)], dtype=np.complex128)
+    S = np.outer(u, np.conjugate(u))
+    for is_anti in (False, True):
+        F_default = _propagate_small(u, is_anti)
+        F_override = _propagate_small(u, is_anti, U_LRI_struct=S)
+        np.testing.assert_array_equal(F_default, F_override)
+
+
+def test_parse_structure_matrix_3x3_formats_and_validation():
+    """parse_structure_matrix_3x3 must accept plain numbers and [re, im] pairs, and must
+    reject wrong shapes and non-Hermitian matrices loudly (eigh reads only one triangle,
+    so a non-Hermitian structure would be silently wrong, not visibly broken)."""
+    parsed = dps.parse_structure_matrix_3x3(
+        [[1.0, [0.0, 0.5], 0.0], [[0.0, -0.5], 2.0, 0.0], [0.0, 0.0, 3.0]], "test")
+    expected = np.array([[1.0, 0.5j, 0.0], [-0.5j, 2.0, 0.0], [0.0, 0.0, 3.0]], dtype=np.complex128)
+    np.testing.assert_array_equal(parsed, expected)
+
+    with pytest.raises(ValueError):
+        dps.parse_structure_matrix_3x3([[1.0, 0.0], [0.0, 1.0]], "test")  # wrong shape
+    with pytest.raises(ValueError):
+        dps.parse_structure_matrix_3x3(
+            [[1.0, 0.7, 0.0], [0.2, 1.0, 0.0], [0.0, 0.0, 1.0]], "test")  # not Hermitian
+
+
+def test_run_solver_accepts_structure_overrides_in_config(tmp_path):
+    """End-to-end: the config keys standard_mixing.V_SM_struct and
+    dark_portal.U_LRI_struct must reach the physics through run_solver -- an override
+    differing from the default texture must change the output flux."""
+    import copy
+
+    cfg = dps.create_default_config(str(tmp_path / "cfg.json"))
+    cfg["grid"].update(dict(n_E_bins=12, n_z_bins=12, n_mw_paths=1, n_earth_chords=1,
+                            N_steps_MW=5, N_steps_earth=5))
+    cfg["execution"].update(dict(n_cores=1, verbose=0))
+
+    cfg_override = copy.deepcopy(cfg)
+    cfg_override["dark_portal"]["U_LRI_struct"] = [[0.25, 0.0, 0.1], [0.0, 0.25, 0.0], [0.1, 0.0, 0.2]]
+
+    _, F_base = dps.run_solver(cfg)
+    _, F_override = dps.run_solver(cfg_override)
+    assert not np.allclose(F_base, F_override)
+
+
+# =============================================================================
 # 8. MainProcess-adaptive n_cores (regression test for the fix)
 # =============================================================================
 
@@ -594,7 +711,7 @@ def test_frequentist_n_cores_standalone_wired_from_scan_settings():
     cfg = _make_frequentist_config()
     cfg["scan_settings"] = {"num_cores": 4}
     func = GenericLikelihoodWrapper(cfg, [])
-    assert len(func.static_data) == 31
+    assert len(func.static_data) == 33
     assert func.static_data[30] == 4
 
     # Clamped to what's actually available, never silently allowed above it.

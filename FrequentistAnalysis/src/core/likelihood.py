@@ -23,7 +23,7 @@ _current_dir = os.path.dirname(os.path.abspath(__file__))
 _dark_portal_dir = os.path.abspath(os.path.join(_current_dir, "../../../src/"))
 if _dark_portal_dir not in sys.path:
     sys.path.insert(0, _dark_portal_dir)
-from dark_portal_solver import construct_PMNS, get_mass_eigenvalues, cm_inv3_to_eV3
+from dark_portal_solver import construct_PMNS, get_mass_eigenvalues, cm_inv3_to_eV3, parse_structure_matrix_3x3
 
 def load_and_grid_2d(filename):
     """
@@ -121,10 +121,10 @@ class GenericLikelihoodWrapper:
         self._cache = {}
         self._cache_enabled = True
 
-        # Ensure the tuple expects 31 elements now (spatial tracking overrides plus
+        # Ensure the tuple expects 33 elements now (spatial tracking overrides plus
         # use_SM_potential/n_e_earth/use_debye_screening/n_cores_standalone)
         self.static_data = self.config.get("static_data_tuple", None)
-        if self.static_data is None or len(self.static_data) != 31:
+        if self.static_data is None or len(self.static_data) != 33:
             try:
                 # Direct read from the flat physics_constants dict in the active frequentist config
                 pc = self.config.get("physics_constants", {})
@@ -171,6 +171,30 @@ class GenericLikelihoodWrapper:
                 n_e_earth_eV3 = float(pc.get("n_e_earth_cm3", 1.5e24) * cm_inv3_to_eV3)
                 use_debye_screening = bool(pc.get("use_debye_screening", True))
 
+                # Optional flavor-structure overrides for the coherent forward-scattering
+                # potentials (neutrino convention; propagate_spectrum conjugates for
+                # antineutrinos centrally). None means the defaults: diag(1,0,0) for the
+                # SM potential, outer(u, conj(u)) for the LRI potential. NOTE: an
+                # U_LRI_struct override freezes the potential's flavor texture -- if
+                # u_e/u_mu/u_tau are simultaneously being scanned, they then affect only
+                # the attenuation/regeneration rates and Debye mass, not the potential;
+                # a warning is printed for that combination below.
+                V_SM_struct = None
+                if pc.get("V_SM_struct", None) is not None:
+                    V_SM_struct = parse_structure_matrix_3x3(pc["V_SM_struct"], "physics_constants.V_SM_struct")
+                U_LRI_struct = None
+                if pc.get("U_LRI_struct", None) is not None:
+                    U_LRI_struct = parse_structure_matrix_3x3(pc["U_LRI_struct"], "physics_constants.U_LRI_struct")
+                    scanned_u = [p for p in self.param_names if p in ("u_e", "u_mu", "u_tau")]
+                    if scanned_u:
+                        print("\n" + "!"*70)
+                        print(" [WARNING] physics_constants.U_LRI_struct override is set, but the")
+                        print(f" sterile mixing parameters {scanned_u} are being scanned. With the")
+                        print(" override active, those parameters affect ONLY the thermal")
+                        print(" attenuation/regeneration rates and the Debye screening mass --")
+                        print(" NOT the coherent LRI potential's flavor structure.")
+                        print("!"*70 + "\n")
+
                 # Source
                 p_index = float(pc.get("p_index", 2.5))
                 Phi_0 = float(pc.get("Phi_0", 1.0))
@@ -210,7 +234,7 @@ class GenericLikelihoodWrapper:
                 
                 m_nu_bg_arr = np.ascontiguousarray(get_mass_eigenvalues(m_lightest_eV, dm21_sq, dm31_sq, mass_ordering), dtype=np.float64)
                 
-                # Construct expanded 31-element static_data tuple
+                # Construct expanded 33-element static_data tuple
                 self.static_data = (
                     0.33,                           # 0. obs_f_e (not used)
                     0.33,                           # 1. obs_f_mu (not used)
@@ -242,7 +266,9 @@ class GenericLikelihoodWrapper:
                     use_SM_potential,               # 27. use_SM_potential
                     n_e_earth_eV3,                  # 28. n_e_earth (natural units)
                     use_debye_screening,             # 29. use_debye_screening
-                    self.n_cores_standalone           # 30. n_cores_standalone
+                    self.n_cores_standalone,          # 30. n_cores_standalone
+                    V_SM_struct,                     # 31. V_SM_struct (None = default diag(1,0,0))
+                    U_LRI_struct                     # 32. U_LRI_struct (None = outer(u, conj(u)))
                 )
                 print(f"  [Server] Successfully loaded physical constants from active config.")
             except Exception as e:
@@ -250,7 +276,7 @@ class GenericLikelihoodWrapper:
                 self.static_data = None
 
         if self.static_data is None:
-            print("  [Warning] Valid 31-element 'static_data_tuple' not found in config. Injecting mock tuple for initialization.")
+            print("  [Warning] Valid 33-element 'static_data_tuple' not found in config. Injecting mock tuple for initialization.")
             self.static_data = (
                 0.33, 0.33, 0.05, 0.05,
                 np.logspace(5, 8, 10), np.linspace(0, 4, 10),
@@ -263,7 +289,8 @@ class GenericLikelihoodWrapper:
                 1.5, False, 2.0, 0.0, 1e-18,
                 1.0, 6, 3, 100, 100.0, 500,
                 False, 1.5e24 * cm_inv3_to_eV3, True,
-                self.n_cores_standalone
+                self.n_cores_standalone,
+                None, None
             )
 
         if self.asimov:

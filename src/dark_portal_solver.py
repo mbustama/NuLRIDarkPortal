@@ -150,29 +150,34 @@ def calc_debye_mass_sq(g_D: float, u_arr: np.ndarray, T_nu: float, eta_bg: np.nd
     return (g_D**2 / 6.0) * np.sum(u_mag_4 * T_nu_alpha_sq)
 
 @njit(cache=True)
-def calc_V_LRI_cosmo(z: float, u_arr: np.ndarray, m_Zd: float, g_D: float, eps_prime: float,
+def calc_V_LRI_cosmo(z: float, u_arr: np.ndarray, U_LRI_struct: np.ndarray,
+                     m_Zd: float, g_D: float, eps_prime: float,
                      n_n0: float, T_nu0: float, use_debye_screening: bool, eta_bg: np.ndarray) -> np.ndarray:
-    """Computes the macroscopic effective potential V_{LRI} sourced ONLY by cosmological neutrons."""
+    """Computes the macroscopic effective potential V_{LRI} sourced ONLY by cosmological neutrons.
+
+    U_LRI_struct is the dimensionless 3x3 Hermitian flavor structure of the potential --
+    by default the outer product u_i * conj(u_j) of the sterile mixing vector, but
+    caller-overridable (config key dark_portal.U_LRI_struct) for arbitrary textures.
+    Callers pass the already-conjugated structure for antineutrinos (see
+    propagate_spectrum), matching the pre-conjugated-u_arr convention used before this
+    matrix was threaded through. u_arr itself is still needed here for the Debye
+    screening mass, which remains tied to the u magnitudes regardless of any override.
+    """
     n_n_z = n_n0 * (1.0 + z)**3
 
     m_D_sq = 0.0
     if use_debye_screening:
         T_nu_z = T_nu0 * (1.0 + z)
         m_D_sq = calc_debye_mass_sq(g_D, u_arr, T_nu_z, eta_bg)
-    
+
     c_W = 0.88
     m_Z = 91.18 * GeV
     g_weak = 0.65
 
     denominator = max(m_Zd**2 + m_D_sq, 1e-25)
     A_LRI = (g_D * eps_prime) / denominator * (4.0 * c_W * m_Z**2 / g_weak) * (np.sqrt(2)/2.0 * G_F * n_n_z)
-    
-    V_LRI = np.zeros((3, 3), dtype=np.complex128)
-    for i in range(3):
-        for j in range(3):
-            V_LRI[i, j] = A_LRI * u_arr[i] * np.conjugate(u_arr[j])
-            
-    return V_LRI
+
+    return A_LRI * U_LRI_struct
 
 @njit(fastmath=True, cache=True)
 def thermal_averaged_rates_flavor(E0: float, z: float, sum_G: float, sum_G_alpha: np.ndarray, 
@@ -235,7 +240,8 @@ def thermal_averaged_rates_flavor(E0: float, z: float, sum_G: float, sum_G_alpha
 
 @njit(cache=True)
 def get_adiabatic_mixing_cosmo(E0: float, z: float, M_rot: np.ndarray,
-                               u_arr: np.ndarray, m_Zd: float, g_D: float, eps_prime: float,
+                               u_arr: np.ndarray, U_LRI_struct: np.ndarray,
+                               m_Zd: float, g_D: float, eps_prime: float,
                                n_n0: float, T_nu0: float, use_debye_screening: bool,
                                is_antineutrino: bool, eta_bg: np.ndarray) -> np.ndarray:
     """Computes the instantaneous mass eigenstates (eigenvectors) of the total effective Hamiltonian.
@@ -243,18 +249,20 @@ def get_adiabatic_mixing_cosmo(E0: float, z: float, M_rot: np.ndarray,
     M_rot = U_pmns @ M_sq @ conj(U_pmns).T is fixed for an entire propagate_spectrum call (U_pmns
     and M_sq never change within it), so callers precompute it once and pass it in here rather
     than recomputing the same two 3x3 matrix products on every single (E, z) evaluation.
+    U_LRI_struct is likewise fixed per call -- see calc_V_LRI_cosmo's docstring.
     """
     E_z = E0 * (1.0 + z)
     H_vac = (1.0 / (2.0 * E_z)) * M_rot
 
-    V_LRI = calc_V_LRI_cosmo(z, u_arr, m_Zd, g_D, eps_prime, n_n0, T_nu0, use_debye_screening, eta_bg)
+    V_LRI = calc_V_LRI_cosmo(z, u_arr, U_LRI_struct, m_Zd, g_D, eps_prime, n_n0, T_nu0, use_debye_screening, eta_bg)
 
     if is_antineutrino:
-        # Callers already pass in a pre-conjugated u_arr for antineutrinos (see propagation_worker),
-        # so V_LRI here is already built from conj(u_arr); only the sign needs flipping. Conjugating
-        # again would double-apply the transform and corrupt off-diagonal phases whenever the
-        # sterile mixing elements are complex (CP-violating textures). Must match the single-transform
-        # convention used in the spatial handover (propagate_earth_spatial's Coef sign flip).
+        # Callers already pass in a pre-conjugated u_arr AND a pre-conjugated U_LRI_struct
+        # for antineutrinos (see propagate_spectrum), so V_LRI here is already built from
+        # the conjugated structure; only the sign needs flipping. Conjugating again would
+        # double-apply the transform and corrupt off-diagonal phases whenever the structure
+        # is complex (CP-violating textures). Must match the single-transform convention
+        # used in the spatial handover (propagate_earth_spatial's Coef sign flip).
         V_LRI = -V_LRI
 
     H_tot = H_vac + V_LRI
@@ -330,7 +338,8 @@ def precompute_all_thermal_rates(E_bins: np.ndarray, z_bins: np.ndarray, sum_G: 
 def step_cosmological_propagation(z: float, dt: float, R_z: float, E_bins: np.ndarray,
                                   F_mass: np.ndarray, rho_src: np.ndarray,
                                   M_rot: np.ndarray,
-                                  u_arr: np.ndarray, m_Zd: float, g_D: float, eps_prime: float,
+                                  u_arr: np.ndarray, U_LRI_struct: np.ndarray,
+                                  m_Zd: float, g_D: float, eps_prime: float,
                                   n_n0: float, T_nu0: float,
                                   use_debye_screening: bool, is_antineutrino: bool,
                                   p_index: float, Phi_0: float, eta_bg: np.ndarray,
@@ -356,7 +365,7 @@ def step_cosmological_propagation(z: float, dt: float, R_z: float, E_bins: np.nd
 
     # First loop: Calculate flavor composition and assign pre-computed interaction rates
     for i in prange(N_E):
-        U_z = get_adiabatic_mixing_cosmo(E_bins[i], z, M_rot, u_arr, m_Zd, g_D, eps_prime,
+        U_z = get_adiabatic_mixing_cosmo(E_bins[i], z, M_rot, u_arr, U_LRI_struct, m_Zd, g_D, eps_prime,
                                          n_n0, T_nu0, use_debye_screening, is_antineutrino, eta_bg)
         U_z_all[i] = U_z
         for a in range(3):
@@ -483,9 +492,16 @@ def step_mw_approach(r_current_kpc: float, theta: float, phi: float, dr_MW_eV_in
 def step_earth_transit(l_km: float, baseline_km: float, costh: float, dr_earth_eV_inv: float,
                        E_bins: np.ndarray, rho_earth: np.ndarray, M_rot: np.ndarray,
                        n_n_amb_eV3: float, Coef: float, U_LRI_struct: np.ndarray,
-                       use_SM_potential: bool, is_antineutrino: bool, detector_depth_km: float,
-                       n_e_earth_eV3: float, U_step_buffer: np.ndarray):
-    """Executes a single path-length step through the Earth interior using pre-allocated contiguous matrix buffers."""
+                       V_SM: np.ndarray, detector_depth_km: float,
+                       U_step_buffer: np.ndarray):
+    """Executes a single path-length step through the Earth interior using pre-allocated contiguous matrix buffers.
+
+    V_SM is the complete, prebuilt 3x3 SM matter potential (zeros when use_SM_potential is
+    off). It is constant along the entire chord -- it depends only on the configured
+    electron density and the antineutrino sign convention, never on position -- so it is
+    built exactly once in propagate_earth_spatial rather than being reconstructed here on
+    every single path-length step as it previously was.
+    """
     N_E = len(E_bins)
     f1 = baseline_km - l_km
     f2 = 6371.0 - detector_depth_km
@@ -497,16 +513,6 @@ def step_earth_transit(l_km: float, baseline_km: float, costh: float, dr_earth_e
     n_tot_eV3 = n_n_amb_eV3 + n_n_earth_cm3 * cm_inv3_to_eV3
     V_LRI = (Coef * n_tot_eV3) * U_LRI_struct
 
-    V_SM = np.zeros((3,3), dtype=np.complex128)
-    if use_SM_potential:
-        # Uses the user-configured electron density (n_e_earth_cm3), not the PREM-derived
-        # neutron density above: V_SM is the SM charged-current potential, which depends on
-        # electron number density specifically, not the LRI potential's neutron density.
-        V_SM_val = np.sqrt(2.0) * G_F * n_e_earth_eV3
-        if is_antineutrino:
-            V_SM_val = -V_SM_val
-        V_SM[0,0] = V_SM_val
-        
     for i in range(N_E):
         H_vac = (1.0 / (2.0 * E_bins[i])) * M_rot
         H_local = H_vac + V_LRI + V_SM
@@ -549,7 +555,7 @@ def _earth_chord_worker(args) -> np.ndarray:
     the Earth phase of the spatial handover.
     """
     (costh, baseline_km, N_steps_earth, E_bins, rho_surf_avg, M_rot, n_n_amb_eV3, Coef,
-     U_LRI_struct, use_SM_potential, is_antineutrino, detector_depth_km, n_e_earth_eV3) = args
+     U_LRI_struct, V_SM, detector_depth_km) = args
 
     dr_earth_km = baseline_km / N_steps_earth
     dr_earth_eV_inv = dr_earth_km * 1e3 * m_to_eV_inv
@@ -558,8 +564,8 @@ def _earth_chord_worker(args) -> np.ndarray:
     for step in range(N_steps_earth):
         l_km = step * dr_earth_km
         step_earth_transit(l_km, baseline_km, costh, dr_earth_eV_inv, E_bins, rho_earth, M_rot,
-                           n_n_amb_eV3, Coef, U_LRI_struct, use_SM_potential, is_antineutrino,
-                           detector_depth_km, n_e_earth_eV3, U_step_buffer)
+                           n_n_amb_eV3, Coef, U_LRI_struct, V_SM,
+                           detector_depth_km, U_step_buffer)
     return rho_earth
 
 def _run_spatial_tasks(worker_fn, tasks, desc, n_workers, show_progress, external_pool=None):
@@ -602,7 +608,8 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
                             is_antineutrino: bool, n_mw_paths: int, n_earth_chords: int,
                             N_steps_MW: int = 100, r_start_kpc: float = 100.0,
                             show_progress: bool = True, verbose: int = 1, n_cores: int = 1,
-                            N_steps_earth: int = 500, external_pool=None) -> np.ndarray:
+                            N_steps_earth: int = 500, external_pool=None,
+                            U_LRI_struct=None, V_SM_struct=None) -> np.ndarray:
     """
     Executes pure spatial ODE through Milky Way and Earth with active tracking.
     Milky Way trajectories and Earth chords are mutually independent, so when n_cores > 1
@@ -610,6 +617,15 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
 
     external_pool, if given, is a caller-managed multiprocessing.Pool reused across many
     calls instead of creating a fresh one each time -- see _run_spatial_tasks's docstring.
+
+    U_LRI_struct / V_SM_struct, if given, are dimensionless 3x3 Hermitian flavor structure
+    matrices overriding the default LRI texture (u_i * conj(u_j)) and SM matter-potential
+    texture (diag(1, 0, 0)) respectively. IMPORTANT CONVENTION: this function expects them
+    already conjugated for antineutrinos, exactly as u_arr itself arrives pre-conjugated --
+    propagate_spectrum handles that conjugation centrally, so pass neutrino-convention
+    matrices there, not here. The overrides affect only the coherent forward-scattering
+    potentials; the Debye screening mass (and, upstream, the thermal attenuation and
+    regeneration rates) remain tied to the u_e/u_mu/u_tau mixing amplitudes.
     """
     N_E = len(E_bins)
     lbl = "Anti-Nu" if is_antineutrino else "Nu"
@@ -646,10 +662,12 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
     if is_antineutrino:
         Coef = -Coef
 
-    U_LRI_struct = np.zeros((3, 3), dtype=np.complex128)
-    for i in range(3):
-        for j in range(3):
-            U_LRI_struct[i, j] = u_arr[i] * np.conjugate(u_arr[j])
+    if U_LRI_struct is None:
+        # Default texture: outer product of the sterile mixing vector. u_arr arrives
+        # pre-conjugated for antineutrinos, so this construction is automatically in the
+        # right convention for either case.
+        U_LRI_struct = np.outer(u_arr, np.conjugate(u_arr))
+    U_LRI_struct = np.ascontiguousarray(U_LRI_struct, dtype=np.complex128)
 
     # PHASE 1: Milky Way & Solar System Approach
     r_end_kpc = 6371.0 / 3.08567758e16
@@ -675,6 +693,26 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
         n_moon_eV3 = N_n_moon * (m_eff**2) / (4.0 * np.pi * d_moon_eV_inv) * np.exp(-m_eff * d_moon_eV_inv)
     n_n_amb_eV3 = calc_MW_neutron_density(0.0, 0.0, 0.0) * cm_inv3_to_eV3 + n_sun_eV3 + n_moon_eV3
 
+    # The SM matter potential is constant along every chord (it depends only on the
+    # configured electron density, the flavor structure, and the antineutrino sign
+    # convention -- never on position), so it is built exactly once here and handed to
+    # step_earth_transit prebuilt, instead of being reconstructed at every path-length
+    # step of every chord as it previously was. V_SM_struct defaults to the standard
+    # charged-current texture diag(1, 0, 0); when a user override is supplied it arrives
+    # here already conjugated for antineutrinos (propagate_spectrum's convention).
+    V_SM = np.zeros((3, 3), dtype=np.complex128)
+    if use_SM_potential:
+        if V_SM_struct is None:
+            S_SM = np.zeros((3, 3), dtype=np.complex128)
+            S_SM[0, 0] = 1.0
+        else:
+            S_SM = np.asarray(V_SM_struct, dtype=np.complex128)
+        V_SM_scale = np.sqrt(2.0) * G_F * n_e_earth_eV3
+        if is_antineutrino:
+            V_SM_scale = -V_SM_scale
+        V_SM = V_SM_scale * S_SM
+    V_SM = np.ascontiguousarray(V_SM)
+
     # NOTE: An earlier version of this code scaled n_steps_earth down for shorter chords
     # (same physical km/step as the costh=-1 chord, since that seemed to only cost
     # resolution nobody needed -- verified via a synthetic, purely-diagonal test state to
@@ -693,8 +731,8 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
     # against a higher-resolution reference for your own m_Zd range before trusting a lower
     # value in a real fit.
     earth_tasks = [(costh, get_baseline_earth(detector_depth_km, costh), N_steps_earth, E_bins, rho_surf_avg,
-                    M_rot, n_n_amb_eV3, Coef, U_LRI_struct, use_SM_potential, is_antineutrino,
-                    detector_depth_km, n_e_earth_eV3) for costh in earth_costh]
+                    M_rot, n_n_amb_eV3, Coef, U_LRI_struct, V_SM,
+                    detector_depth_km) for costh in earth_costh]
     earth_results = _run_spatial_tasks(_earth_chord_worker, earth_tasks, f"Earth chords ({lbl})", n_workers, show_progress, external_pool=external_pool)
     rho_earth_avg = np.mean(np.stack(earth_results, axis=0), axis=0)
     F_earth = np.real(np.diagonal(rho_earth_avg, axis1=1, axis2=2)).copy()
@@ -768,10 +806,20 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                        N_steps_MW: int = 100, r_start_kpc: float = 100.0,
                        show_progress: bool = True, verbose: int = 1, n_cores: int = 1,
                        precomputed_Gamma_grid_all: np.ndarray = None, N_steps_earth: int = 500,
-                       external_pool=None) -> np.ndarray:
+                       external_pool=None, U_LRI_struct=None, V_SM_struct=None) -> np.ndarray:
     """
     Executes the complete spectrum integration, driving the underlying JIT kernels.
     Includes verbose level 2 for periodic redshift status updates.
+
+    U_LRI_struct / V_SM_struct, if given, are dimensionless 3x3 Hermitian flavor structure
+    matrices overriding the default LRI texture (u_i * conj(u_j)) and SM matter-potential
+    texture (diag(1, 0, 0)). Pass them in NEUTRINO convention regardless of
+    is_antineutrino: the antineutrino conjugation (V -> -conj(V)) is applied centrally
+    here, matching how u_arr/U_pmns arrive pre-conjugated from propagation_worker. The
+    overrides affect only the coherent forward-scattering potentials -- the Debye
+    screening mass and the thermal attenuation/regeneration rates remain tied to the
+    u_e/u_mu/u_tau amplitudes (config keys: dark_portal.U_LRI_struct,
+    standard_mixing.V_SM_struct).
 
     external_pool, if given, is a caller-managed multiprocessing.Pool passed straight through
     to propagate_earth_spatial, reused across many calls instead of creating a fresh one each
@@ -804,6 +852,22 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
     # recomputed (identically) on every single (E, z) evaluation downstream -- see
     # get_adiabatic_mixing_cosmo's docstring for where this is consumed.
     M_rot = np.ascontiguousarray(U_pmns @ M_sq @ np.ascontiguousarray(np.conjugate(U_pmns).T))
+
+    # Resolve the LRI flavor structure once for the whole call. The default is the outer
+    # product of the sterile mixing vector; since u_arr arrives pre-conjugated for
+    # antineutrinos, building it here lands in the right convention automatically. A user
+    # override arrives in neutrino convention and is conjugated here (single-transform
+    # convention: the downstream kernels then only flip the sign).
+    if U_LRI_struct is None:
+        U_LRI_struct_eff = np.outer(u_arr, np.conjugate(u_arr))
+    else:
+        U_LRI_struct_eff = np.conjugate(U_LRI_struct) if is_antineutrino else U_LRI_struct
+    U_LRI_struct_eff = np.ascontiguousarray(U_LRI_struct_eff, dtype=np.complex128)
+
+    V_SM_struct_eff = None
+    if V_SM_struct is not None:
+        V_SM_struct_eff = np.conjugate(V_SM_struct) if is_antineutrino else V_SM_struct
+        V_SM_struct_eff = np.ascontiguousarray(V_SM_struct_eff, dtype=np.complex128)
 
     sum_G, sum_G_alpha, eta_mass = compute_gamma_grid_inputs(U_pmns, u_arr, g_D, eps_prime, eta_bg)
 
@@ -854,6 +918,7 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
             safe_print(f"Cosmological propagation: currently integrating at redshift z = {z:.4f}")
 
         step_cosmological_propagation(z, dt, R_z, E_bins, F_mass, rho_src, M_rot, u_arr,
+                                      U_LRI_struct_eff,
                                       m_Zd, g_D, eps_prime, n_n0, T_nu0,
                                       use_debye_screening, is_antineutrino, p_index, Phi_0,
                                       eta_bg, BR, W_kernel,
@@ -868,7 +933,8 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                                       use_SM_potential, n_e_earth, is_antineutrino, n_mw_paths, n_earth_chords,
                                       N_steps_MW=N_steps_MW, r_start_kpc=r_start_kpc,
                                       show_progress=show_progress, verbose=verbose, n_cores=n_cores,
-                                      N_steps_earth=N_steps_earth, external_pool=external_pool)
+                                      N_steps_earth=N_steps_earth, external_pool=external_pool,
+                                      U_LRI_struct=U_LRI_struct_eff, V_SM_struct=V_SM_struct_eff)
             
     return F_earth
 
@@ -886,6 +952,45 @@ def save_flux_to_file(E_array: np.ndarray, Flux_array: np.ndarray, filename: str
 # =============================================================================
 # MULTIPROCESSING WRAPPER & CONFIGURATION MANAGER
 # =============================================================================
+
+def parse_structure_matrix_3x3(entry, name: str) -> np.ndarray:
+    """Parses a JSON-friendly 3x3 flavor structure matrix into a complex Hermitian ndarray.
+
+    Each of the nine entries may be either a plain number (real) or a two-element list
+    [re, im] (complex) -- JSON has no native complex type. The result must be Hermitian
+    to machine precision relative to its own scale: a non-Hermitian potential would make
+    the eigh-based propagation silently wrong (eigh only reads one triangle), so this
+    raises loudly instead. Used for the config keys dark_portal.U_LRI_struct and
+    standard_mixing.V_SM_struct.
+    """
+    arr = np.zeros((3, 3), dtype=np.complex128)
+    try:
+        if len(entry) != 3:
+            raise ValueError
+        for i in range(3):
+            row = entry[i]
+            if len(row) != 3:
+                raise ValueError
+            for j in range(3):
+                v = row[j]
+                if isinstance(v, (list, tuple)):
+                    if len(v) != 2:
+                        raise ValueError
+                    arr[i, j] = complex(float(v[0]), float(v[1]))
+                else:
+                    arr[i, j] = complex(float(v), 0.0)
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"{name} must be a 3x3 nested list; each entry a number or a two-element [re, im] list."
+        )
+
+    scale = np.max(np.abs(arr))
+    if scale > 0 and np.max(np.abs(arr - np.conjugate(arr).T)) > 1e-12 * scale:
+        raise ValueError(
+            f"{name} must be Hermitian (M == conj(M).T): the eigh-based propagation reads only "
+            f"one triangle of the Hamiltonian, so a non-Hermitian structure would be silently wrong."
+        )
+    return arr
 
 def get_mass_eigenvalues(m_lightest: float, dm21_sq: float, dm31_sq: float, ordering: str) -> np.ndarray:
     """Calculates the three absolute mass eigenvalues based on the lightest mass and ordering hierarchy."""
@@ -944,7 +1049,8 @@ def propagation_worker(args) -> Tuple[np.ndarray, np.ndarray]:
             params['n_mw_paths'], params['n_earth_chords'],
             params['N_steps_MW'], params['r_start_kpc'],
             show_progress=show_progress, verbose=verbose, n_cores=params.get('n_cores', 1),
-            precomputed_Gamma_grid_all=Gamma_grid_all, N_steps_earth=params.get('N_steps_earth', 500)
+            precomputed_Gamma_grid_all=Gamma_grid_all, N_steps_earth=params.get('N_steps_earth', 500),
+            U_LRI_struct=params.get('U_LRI_struct', None), V_SM_struct=params.get('V_SM_struct', None)
         )
 
     flag_val = str(params.get('is_antineutrino', 'sum')).strip().lower()
@@ -990,6 +1096,17 @@ def run_solver(config: Dict) -> Tuple[np.ndarray, np.ndarray]:
     params['d_cp'] = float(np.radians(config['standard_mixing']['d_cp_deg']))
     params['use_SM_potential'] = config['standard_mixing'].get('use_SM_potential', False)
     params['n_e_earth_eV3'] = float(config['standard_mixing'].get('n_e_earth_cm3', 1.5e24) * cm_inv3_to_eV3)
+    # Optional flavor-structure overrides for the coherent forward-scattering potentials
+    # (neutrino convention; antineutrino conjugation is applied centrally in
+    # propagate_spectrum). See parse_structure_matrix_3x3 for the accepted JSON format.
+    params['V_SM_struct'] = None
+    if config['standard_mixing'].get('V_SM_struct', None) is not None:
+        params['V_SM_struct'] = parse_structure_matrix_3x3(
+            config['standard_mixing']['V_SM_struct'], "standard_mixing.V_SM_struct")
+    params['U_LRI_struct'] = None
+    if config['dark_portal'].get('U_LRI_struct', None) is not None:
+        params['U_LRI_struct'] = parse_structure_matrix_3x3(
+            config['dark_portal']['U_LRI_struct'], "dark_portal.U_LRI_struct")
     params['detector_depth_km'] = float(config['standard_mixing'].get('detector_depth_km', 1.5))
     depth_km = float(config['standard_mixing']['detector_depth_km'])
     if depth_km < 0.0 or depth_km > 6371.0:
