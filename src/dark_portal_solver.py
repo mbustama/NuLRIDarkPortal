@@ -679,22 +679,16 @@ def step_cosmological_propagation(z: float, dt: float, R_z: float, E_bins: np.nd
                 F_mass[i, a] += total_rate * dt
 
 @njit(fastmath=True, cache=True)
-def init_mw_density_matrix(r_start_kpc: float, theta: float, phi: float, E_bins: np.ndarray, F_mass_arrival: np.ndarray,
-                           M_rot: np.ndarray, m_eff: float, Coef: float, U_LRI_struct: np.ndarray) -> np.ndarray:
-    """Calculates the initial density matrix mapping at the 30 kpc galactic edge.
+def spatial_total_density_mw(r_kpc: float, theta: float, phi: float, m_eff: float) -> float:
+    """Total ambient number density (eV^3) at a point on a Milky Way trajectory: the
+    galactic profile plus the Yukawa-enveloped Sun/Moon/Earth point-source terms.
 
-    M_rot = U_pmns @ M_sq @ conj(U_pmns).T is precomputed once by the caller (see
-    get_adiabatic_mixing_cosmo's docstring) since it never changes within a run.
+    Single canonical implementation shared by init_mw_density_matrix, step_mw_approach
+    (which previously each carried an identical copy of this block) and the GPU spatial
+    path's density-sequence precompute -- one source of truth instead of three.
     """
-    N_E = len(E_bins)
-    rho_f = np.zeros((N_E, 3, 3), dtype=np.complex128)
-
-    # n_tot_edge depends only on r_start_kpc/theta/phi/m_eff, all fixed for this whole call,
-    # never on the energy bin i -- hoisted out of the loop below (matches the pattern already
-    # used correctly in the sibling step_mw_approach/step_earth_transit functions; this was
-    # the one place in the spatial handover where it was still being recomputed per-bin).
-    n_n_MW_edge = calc_MW_neutron_density(r_start_kpc, theta, phi) * cm_inv3_to_eV3
-    r_eV = r_start_kpc * 3.08567758e16 * 1e3 * m_to_eV_inv
+    n_n_MW = calc_MW_neutron_density(r_kpc, theta, phi) * cm_inv3_to_eV3
+    r_eV = r_kpc * 3.08567758e16 * 1e3 * m_to_eV_inv
 
     r_sun_eV = np.sqrt(r_eV**2 + d_sun_eV_inv**2)
     r_moon_eV = np.sqrt(r_eV**2 + d_moon_eV_inv**2)
@@ -705,7 +699,38 @@ def init_mw_density_matrix(r_start_kpc: float, theta: float, phi: float, E_bins:
         n_moon_eV3 = N_n_moon * (m_eff**2) / (4.0 * np.pi * r_moon_eV) * np.exp(-m_eff * r_moon_eV)
         n_earth_eV3 = N_n_earth * (m_eff**2) / (4.0 * np.pi * r_eV) * np.exp(-m_eff * r_eV)
 
-    n_tot_edge = n_n_MW_edge + n_sun_eV3 + n_moon_eV3 + n_earth_eV3
+    return n_n_MW + n_sun_eV3 + n_moon_eV3 + n_earth_eV3
+
+@njit(fastmath=True, cache=True)
+def spatial_total_density_earth(l_km: float, baseline_km: float, costh: float,
+                                detector_depth_km: float, n_n_amb_eV3: float) -> float:
+    """Total neutron number density (eV^3) at path position l_km along an Earth chord:
+    the PREM profile at the corresponding geocentric radius plus the ambient
+    (galactic + Sun/Moon Yukawa) background. Shared by step_earth_transit and the GPU
+    spatial path's density-sequence precompute."""
+    f1 = baseline_km - l_km
+    f2 = 6371.0 - detector_depth_km
+    r_center_km = np.sqrt(f1**2 + f2**2 + 2.0 * f1 * f2 * costh)
+
+    rho_earth_g = calc_earth_density(r_center_km)
+    n_n_earth_cm3 = rho_earth_g * 3.011e23
+
+    return n_n_amb_eV3 + n_n_earth_cm3 * cm_inv3_to_eV3
+
+@njit(fastmath=True, cache=True)
+def init_mw_density_matrix(r_start_kpc: float, theta: float, phi: float, E_bins: np.ndarray, F_mass_arrival: np.ndarray,
+                           M_rot: np.ndarray, m_eff: float, Coef: float, U_LRI_struct: np.ndarray) -> np.ndarray:
+    """Calculates the initial density matrix mapping at the 30 kpc galactic edge.
+
+    M_rot = U_pmns @ M_sq @ conj(U_pmns).T is precomputed once by the caller (see
+    get_adiabatic_mixing_cosmo's docstring) since it never changes within a run.
+    """
+    N_E = len(E_bins)
+    rho_f = np.zeros((N_E, 3, 3), dtype=np.complex128)
+
+    # n_tot_edge depends only on r_start_kpc/theta/phi/m_eff, all fixed for this whole
+    # call, never on the energy bin i -- computed once outside the loop.
+    n_tot_edge = spatial_total_density_mw(r_start_kpc, theta, phi, m_eff)
     V_LRI_edge = (Coef * n_tot_edge) * U_LRI_struct
 
     for i in range(N_E):
@@ -758,19 +783,7 @@ def step_mw_approach(r_current_kpc: float, theta: float, phi: float, dr_MW_eV_in
                      m_eff: float, Coef: float, U_LRI_struct: np.ndarray, U_step_buffer: np.ndarray,
                      H_buf: np.ndarray, T_buf: np.ndarray):
     """Executes a single path-length step through the Milky Way using pre-allocated contiguous matrix buffers."""
-    r_eV = r_current_kpc * 3.08567758e16 * 1e3 * m_to_eV_inv
-    n_n_MW = calc_MW_neutron_density(r_current_kpc, theta, phi) * cm_inv3_to_eV3
-
-    r_sun_eV = np.sqrt(r_eV**2 + d_sun_eV_inv**2)
-    r_moon_eV = np.sqrt(r_eV**2 + d_moon_eV_inv**2)
-
-    n_sun_eV3, n_moon_eV3, n_earth_eV3 = 0.0, 0.0, 0.0
-    if m_eff > 0:
-        n_sun_eV3 = N_n_sun * (m_eff**2) / (4.0 * np.pi * r_sun_eV) * np.exp(-m_eff * r_sun_eV)
-        n_moon_eV3 = N_n_moon * (m_eff**2) / (4.0 * np.pi * r_moon_eV) * np.exp(-m_eff * r_moon_eV)
-        n_earth_eV3 = N_n_earth * (m_eff**2) / (4.0 * np.pi * r_eV) * np.exp(-m_eff * r_eV)
-
-    n_tot = n_n_MW + n_sun_eV3 + n_moon_eV3 + n_earth_eV3
+    n_tot = spatial_total_density_mw(r_current_kpc, theta, phi, m_eff)
     V_LRI = (Coef * n_tot) * U_LRI_struct
 
     _evolve_rho_all_bins(E_bins, rho_f, M_rot, V_LRI, dr_MW_eV_inv, H_buf, U_step_buffer, T_buf)
@@ -789,14 +802,7 @@ def step_earth_transit(l_km: float, baseline_km: float, costh: float, dr_earth_e
     built exactly once in propagate_earth_spatial rather than being reconstructed here on
     every single path-length step as it previously was.
     """
-    f1 = baseline_km - l_km
-    f2 = 6371.0 - detector_depth_km
-    r_center_km = np.sqrt(f1**2 + f2**2 + 2.0 * f1 * f2 * costh)
-
-    rho_earth_g = calc_earth_density(r_center_km)
-    n_n_earth_cm3 = rho_earth_g * 3.011e23
-
-    n_tot_eV3 = n_n_amb_eV3 + n_n_earth_cm3 * cm_inv3_to_eV3
+    n_tot_eV3 = spatial_total_density_earth(l_km, baseline_km, costh, detector_depth_km, n_n_amb_eV3)
     V_LRI = (Coef * n_tot_eV3) * U_LRI_struct + V_SM
 
     _evolve_rho_all_bins(E_bins, rho_earth, M_rot, V_LRI, dr_earth_eV_inv, H_buf, U_step_buffer, T_buf)
@@ -907,7 +913,7 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
                             N_steps_MW: int = 25, r_start_kpc: float = 100.0,
                             show_progress: bool = True, verbose: int = 1, n_cores: int = 1,
                             N_steps_earth: int = 500, external_pool=None,
-                            U_LRI_struct=None, V_SM_struct=None) -> np.ndarray:
+                            U_LRI_struct=None, V_SM_struct=None, use_gpu: bool = False) -> np.ndarray:
     """
     Executes pure spatial ODE through Milky Way and Earth with active tracking.
     Milky Way trajectories and Earth chords are mutually independent, so when n_cores > 1
@@ -967,10 +973,82 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
         U_LRI_struct = np.outer(u_arr, np.conjugate(u_arr))
     U_LRI_struct = np.ascontiguousarray(U_LRI_struct, dtype=np.complex128)
 
+    # Ambient (galactic-center + Sun/Moon Yukawa) density and the SM matter potential are
+    # pure functions of the inputs -- computed here, ahead of both phases, so the CPU and
+    # GPU orchestrations below share them.
+    n_sun_eV3, n_moon_eV3 = 0.0, 0.0
+    if m_eff > 0:
+        n_sun_eV3 = N_n_sun * (m_eff**2) / (4.0 * np.pi * d_sun_eV_inv) * np.exp(-m_eff * d_sun_eV_inv)
+        n_moon_eV3 = N_n_moon * (m_eff**2) / (4.0 * np.pi * d_moon_eV_inv) * np.exp(-m_eff * d_moon_eV_inv)
+    n_n_amb_eV3 = calc_MW_neutron_density(0.0, 0.0, 0.0) * cm_inv3_to_eV3 + n_sun_eV3 + n_moon_eV3
+
+    # The SM matter potential is constant along every chord (it depends only on the
+    # configured electron density, the flavor structure, and the antineutrino sign
+    # convention -- never on position), so it is built exactly once here and handed to
+    # step_earth_transit prebuilt. V_SM_struct defaults to the standard charged-current
+    # texture diag(1, 0, 0); a user override arrives here already conjugated for
+    # antineutrinos (propagate_spectrum's convention).
+    V_SM = np.zeros((3, 3), dtype=np.complex128)
+    if use_SM_potential:
+        if V_SM_struct is None:
+            S_SM = np.zeros((3, 3), dtype=np.complex128)
+            S_SM[0, 0] = 1.0
+        else:
+            S_SM = np.asarray(V_SM_struct, dtype=np.complex128)
+        V_SM_scale = np.sqrt(2.0) * G_F * n_e_earth_eV3
+        if is_antineutrino:
+            V_SM_scale = -V_SM_scale
+        V_SM = V_SM_scale * S_SM
+    V_SM = np.ascontiguousarray(V_SM)
+
     # PHASE 1: Milky Way & Solar System Approach
     r_end_kpc = 6371.0 / 3.08567758e16
     dr_kpc = (r_start_kpc - r_end_kpc) / N_steps_MW
     dr_MW_eV_inv = dr_kpc * 3.08567758e16 * 1e3 * m_to_eV_inv
+
+    # Optional CUDA path: the whole handover as one batched GPU workload (same physics --
+    # shared density helpers, same closed-form propagator and degeneracy guard; see
+    # gpu_spatial.py, including its validation-status note). Falls back to the CPU path
+    # with a warning when cupy or a CUDA device is missing.
+    if use_gpu:
+        try:
+            from gpu_spatial import gpu_available, run_spatial_handover_gpu
+            _gpu_ok = gpu_available()
+        except ImportError:
+            _gpu_ok = False
+        if not _gpu_ok:
+            safe_print("[GPU] use_gpu requested but cupy with a CUDA device is unavailable -- using the CPU path.")
+        else:
+            if verbose == 2:
+                safe_print(f"\n--- Spatial Handover on GPU ({lbl}): {len(mw_theta)} path(s), {len(earth_costh)} chord(s) ---")
+            rho0_paths = np.stack([init_mw_density_matrix(r_start_kpc, mw_theta[k], mw_phi[k], E_bins,
+                                                          F_mass_arrival, M_rot, m_eff, Coef, U_LRI_struct)
+                                   for k in range(len(mw_theta))], axis=0)
+            n_seq_mw = np.empty((len(mw_theta), N_steps_MW))
+            for k in range(len(mw_theta)):
+                for s in range(N_steps_MW):
+                    n_seq_mw[k, s] = spatial_total_density_mw(r_start_kpc - s * dr_kpc, mw_theta[k], mw_phi[k], m_eff)
+            rho_paths = run_spatial_handover_gpu(E_bins, rho0_paths, n_seq_mw,
+                                                 np.full(len(mw_theta), dr_MW_eV_inv),
+                                                 M_rot, Coef, U_LRI_struct, None)
+            rho_surf_avg = np.mean(rho_paths, axis=0)
+
+            baselines = np.array([get_baseline_earth(detector_depth_km, c) for c in earth_costh])
+            dr_earth_km = baselines / N_steps_earth
+            n_seq_earth = np.empty((len(earth_costh), N_steps_earth))
+            for c in range(len(earth_costh)):
+                for s in range(N_steps_earth):
+                    n_seq_earth[c, s] = spatial_total_density_earth(s * dr_earth_km[c], baselines[c],
+                                                                    earth_costh[c], detector_depth_km, n_n_amb_eV3)
+            rho0_chords = np.broadcast_to(rho_surf_avg, (len(earth_costh), N_E, 3, 3)).copy()
+            rho_chords = run_spatial_handover_gpu(E_bins, rho0_chords, n_seq_earth,
+                                                  dr_earth_km * 1e3 * m_to_eV_inv,
+                                                  M_rot, Coef, U_LRI_struct, V_SM)
+            rho_earth_avg = np.mean(rho_chords, axis=0)
+            F_earth = np.real(np.diagonal(rho_earth_avg, axis1=1, axis2=2)).copy()
+            if verbose == 2:
+                safe_print(f"Spatial propagation finished ({lbl}, GPU).")
+            return F_earth
 
     if verbose == 2:
         safe_print(f"\n--- Spatial Handover Commencing ({lbl}) ---")
@@ -996,32 +1074,6 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
     # PHASE 2: Earth Transit (PREM Layers)
     if verbose == 2:
         safe_print(f"Milky Way transit complete. Initiating Solar System point-source locks and Earth PREM transit ({len(earth_costh)} chord(s))...")
-
-    n_sun_eV3, n_moon_eV3 = 0.0, 0.0
-    if m_eff > 0:
-        n_sun_eV3 = N_n_sun * (m_eff**2) / (4.0 * np.pi * d_sun_eV_inv) * np.exp(-m_eff * d_sun_eV_inv)
-        n_moon_eV3 = N_n_moon * (m_eff**2) / (4.0 * np.pi * d_moon_eV_inv) * np.exp(-m_eff * d_moon_eV_inv)
-    n_n_amb_eV3 = calc_MW_neutron_density(0.0, 0.0, 0.0) * cm_inv3_to_eV3 + n_sun_eV3 + n_moon_eV3
-
-    # The SM matter potential is constant along every chord (it depends only on the
-    # configured electron density, the flavor structure, and the antineutrino sign
-    # convention -- never on position), so it is built exactly once here and handed to
-    # step_earth_transit prebuilt, instead of being reconstructed at every path-length
-    # step of every chord as it previously was. V_SM_struct defaults to the standard
-    # charged-current texture diag(1, 0, 0); when a user override is supplied it arrives
-    # here already conjugated for antineutrinos (propagate_spectrum's convention).
-    V_SM = np.zeros((3, 3), dtype=np.complex128)
-    if use_SM_potential:
-        if V_SM_struct is None:
-            S_SM = np.zeros((3, 3), dtype=np.complex128)
-            S_SM[0, 0] = 1.0
-        else:
-            S_SM = np.asarray(V_SM_struct, dtype=np.complex128)
-        V_SM_scale = np.sqrt(2.0) * G_F * n_e_earth_eV3
-        if is_antineutrino:
-            V_SM_scale = -V_SM_scale
-        V_SM = V_SM_scale * S_SM
-    V_SM = np.ascontiguousarray(V_SM)
 
     # NOTE: An earlier version of this code scaled n_steps_earth down for shorter chords
     # (same physical km/step as the costh=-1 chord, since that seemed to only cost
@@ -1125,7 +1177,7 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                        show_progress: bool = True, verbose: int = 1, n_cores: int = 1,
                        precomputed_Gamma_grid_all: np.ndarray = None, N_steps_earth: int = 500,
                        external_pool=None, U_LRI_struct=None, V_SM_struct=None,
-                       n_z_thermal: int = 0) -> np.ndarray:
+                       n_z_thermal: int = 0, use_gpu: bool = False) -> np.ndarray:
     """
     Executes the complete spectrum integration, driving the underlying JIT kernels.
     Includes verbose level 2 for periodic redshift status updates.
@@ -1254,7 +1306,8 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                                       N_steps_MW=N_steps_MW, r_start_kpc=r_start_kpc,
                                       show_progress=show_progress, verbose=verbose, n_cores=n_cores,
                                       N_steps_earth=N_steps_earth, external_pool=external_pool,
-                                      U_LRI_struct=U_LRI_struct_eff, V_SM_struct=V_SM_struct_eff)
+                                      U_LRI_struct=U_LRI_struct_eff, V_SM_struct=V_SM_struct_eff,
+                                      use_gpu=use_gpu)
             
     return F_earth
 
@@ -1380,7 +1433,8 @@ def propagation_worker(args) -> Tuple[np.ndarray, np.ndarray]:
             params['N_steps_MW'], params['r_start_kpc'],
             show_progress=show_progress, verbose=verbose, n_cores=params.get('n_cores', 1),
             precomputed_Gamma_grid_all=Gamma_grid_all, N_steps_earth=params.get('N_steps_earth', 500),
-            U_LRI_struct=params.get('U_LRI_struct', None), V_SM_struct=params.get('V_SM_struct', None)
+            U_LRI_struct=params.get('U_LRI_struct', None), V_SM_struct=params.get('V_SM_struct', None),
+            use_gpu=params.get('use_gpu', False)
         )
 
     flag_val = str(params.get('is_antineutrino', 'sum')).strip().lower()
@@ -1530,6 +1584,9 @@ def run_solver(config: Dict) -> Tuple[np.ndarray, np.ndarray]:
     # independent work to distribute.
     n_cores = max(1, int(config['execution'].get('n_cores', 1)))
     params['n_cores'] = n_cores
+    # Optional CUDA spatial handover (requires cupy + a CUDA device; silently falls back
+    # to the CPU path with a warning when unavailable -- see gpu_spatial.py).
+    params['use_gpu'] = bool(config['execution'].get('use_gpu', False))
     params['show_progress'] = True
     params['verbose'] = int(config['execution'].get('verbose', 1))
 
@@ -1668,7 +1725,8 @@ def create_default_config(filename: str = "../config/config_dark_portal.json") -
         },
         "execution": {
             "n_cores": multiprocessing.cpu_count() - 1 if multiprocessing.cpu_count() > 1 else 1,
-            "verbose": 1
+            "verbose": 1,
+            "use_gpu": False
         }
     }
     os.makedirs(os.path.dirname(os.path.abspath(filename)), exist_ok=True)
@@ -1743,6 +1801,7 @@ if __name__ == "__main__":
     
     # Execution Architecture Overrides
     parser.add_argument("--n_cores", type=int, default=None)
+    parser.add_argument("--use_gpu", type=str, default=None, help="Set to 'true' to run the spatial handover on a CUDA GPU via cupy (falls back to CPU if unavailable)")
     parser.add_argument("--verbose", type=int, default=None)
     
     args = parser.parse_args()
@@ -1810,7 +1869,8 @@ if __name__ == "__main__":
         },
         "execution": {
             "n_cores": multiprocessing.cpu_count() - 1 if multiprocessing.cpu_count() > 1 else 1, 
-            "verbose": 1
+            "verbose": 1,
+            "use_gpu": False
         }
     }
     
@@ -1884,6 +1944,7 @@ if __name__ == "__main__":
     if args.plot_filename is not None: config["output"]["plot_filename"] = args.plot_filename
 
     if args.n_cores is not None: config["execution"]["n_cores"] = args.n_cores
+    if args.use_gpu is not None: config["execution"]["use_gpu"] = str_to_bool(args.use_gpu)
     if args.verbose is not None: config["execution"]["verbose"] = args.verbose
             
     E_array, Flux_array = run_solver(config)

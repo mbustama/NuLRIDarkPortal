@@ -879,6 +879,50 @@ def test_spatial_E_block_parallelism_is_exact():
     np.testing.assert_array_equal(F_seq, F_par)
 
 
+def _spatial_args_small():
+    E_bins = np.logspace(13, 16, 20)
+    rng = np.random.default_rng(13)
+    F_mass_arrival = rng.uniform(1e18, 1e22, size=(20, 3))
+    U_pmns = np.ascontiguousarray(dps.construct_PMNS(np.radians(33.41), np.radians(8.58),
+                                                     np.radians(49.1), np.radians(132.0)))
+    M_sq = np.diag([0.0, 7.41e-5, 2.511e-3]).astype(np.complex128)
+    M_rot = np.ascontiguousarray(U_pmns @ M_sq @ np.conjugate(U_pmns).T)
+    u_arr = np.array([0.5, 0.5, 0.0], dtype=np.complex128)
+    args = (E_bins, F_mass_arrival, M_rot, u_arr, 2.0e6, 1e-4, 0.1, 1.95e-4, True, np.ones(3),
+            1.5, False, 0.0, False, 2, 3)
+    kwargs = dict(N_steps_MW=4, r_start_kpc=100.0, show_progress=False, verbose=0,
+                  n_cores=1, N_steps_earth=6)
+    return args, kwargs
+
+
+def test_use_gpu_falls_back_to_cpu_without_cuda():
+    """With use_gpu=True but no cupy/CUDA available, propagate_earth_spatial must warn
+    and produce EXACTLY the CPU result -- the flag must never change physics output when
+    the GPU path cannot run. (On a machine with a working GPU this test still passes
+    vacuously unless results diverge, which the dedicated GPU test below then catches.)"""
+    import gpu_spatial
+    args, kwargs = _spatial_args_small()
+    F_cpu = dps.propagate_earth_spatial(*args, **kwargs)
+    F_flagged = dps.propagate_earth_spatial(*args, use_gpu=True, **kwargs)
+    if not gpu_spatial.gpu_available():
+        np.testing.assert_array_equal(F_cpu, F_flagged)
+
+
+def test_gpu_spatial_matches_cpu():
+    """GPU spatial handover vs CPU path at identical inputs. SKIPPED without a CUDA
+    device -- run this on the GPU machine before trusting --use_gpu results. The two
+    paths share the density helpers and the closed-form propagator mathematics, so
+    agreement should be at fp-noise level."""
+    import gpu_spatial
+    if not gpu_spatial.gpu_available():
+        pytest.skip("no cupy/CUDA device available")
+    args, kwargs = _spatial_args_small()
+    F_cpu = dps.propagate_earth_spatial(*args, **kwargs)
+    F_gpu = dps.propagate_earth_spatial(*args, use_gpu=True, **kwargs)
+    rel = np.max(np.abs(F_cpu - F_gpu) / np.maximum(np.abs(F_cpu), 1e-300))
+    assert rel < 1e-9, f"GPU vs CPU max relative difference {rel:.3e}"
+
+
 def test_mw_density_finite_on_galactic_center_line():
     """calc_MW_neutron_density previously crashed (ZeroDivisionError) or returned NaN when
     evaluated on the exact line through the galactic center (r ~ R_0 = 8.33 kpc along
