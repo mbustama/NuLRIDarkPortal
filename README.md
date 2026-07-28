@@ -3,26 +3,68 @@
 ![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)
 ![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)
 
-This repository contains a high-performance, Python-based numerical solver for simulating the cosmological propagation of high-energy astrophysical neutrinos under the influence of new dark sector physics. 
+This repository contains a high-performance, Python-based numerical solver for simulating the cosmological propagation of high-energy astrophysical neutrinos (E ≳ 10⁴ GeV) under the influence of new dark-sector physics, together with a full frequentist statistical pipeline for confronting the predictions with detector flavor-ratio measurements.
 
 The code evaluates a comprehensive framework featuring a light vector mediator ($Z_D$) that couples to active neutrinos via mixing with a sterile state, and to standard matter via kinetic mixing ($\epsilon'$). It explicitly tracks flavor evolution, resonant attenuation against the Cosmic Neutrino Background (C$\nu$B), exact energy cascading (down-scattering), and environmentally dependent long-range interactions (LRI).
 
 ---
 
 ## Table of Contents
-1. [Physics and Mathematics Framework](#1-physics-and-mathematics-framework)
-2. [Numerical Implementation & Spatial Handover](#2-numerical-implementation--spatial-handover)
-3. [Repository Structure](#3-repository-structure)
-4. [Installation & Dependencies](#4-installation--dependencies)
-5. [Usage & Order of Precedence](#5-usage--order-of-precedence)
-6. [Configuration Guide & Command-Line Flags](#6-configuration-guide--command-line-flags)
-7. [Authors & Citation](#7-authors--citation)
+1. [Quick Start](#1-quick-start)
+2. [Physics and Mathematics Framework](#2-physics-and-mathematics-framework)
+3. [Numerical Implementation & Spatial Handover](#3-numerical-implementation--spatial-handover)
+4. [Repository Structure](#4-repository-structure)
+5. [Installation & Dependencies](#5-installation--dependencies)
+6. [The Solver & Scanner](#6-the-solver--scanner)
+7. [Configuration Guide & Command-Line Flags](#7-configuration-guide--command-line-flags)
+8. [Custom Potential Structure Matrices](#8-custom-potential-structure-matrices)
+9. [The Frequentist Analysis Pipeline](#9-the-frequentist-analysis-pipeline)
+10. [Exclusion Limits vs. Mediator Mass](#10-exclusion-limits-vs-mediator-mass)
+11. [Choosing Resolution Parameters (Convergence Tool)](#11-choosing-resolution-parameters-convergence-tool)
+12. [Performance Notes](#12-performance-notes)
+13. [Testing](#13-testing)
+14. [Authors & Citation](#14-authors--citation)
 
 ---
 
-## 1. Physics and Mathematics Framework
+## 1. Quick Start
 
-The solver evaluates the continuous integro-differential equation dictating the cosmological transport of the astrophysical neutrino density matrix, propagating it backwards in redshift from $z_{max}$ to $z=0$. 
+```bash
+# Install dependencies
+pip install numpy scipy numba matplotlib tqdm iminuit pytest
+
+# 1) Compute one flux spectrum at the default dark-portal parameters
+#    (first run pauses ~10 s while numba JIT-compiles and caches the kernels)
+cd src
+python3 dark_portal_solver.py --n_cores 8
+
+# 2) Same, overriding physics parameters from the command line
+python3 dark_portal_solver.py --m_Zd_eV 2e6 --g_D 1e-4 --u_e 0.5 --u_mu 0.5 --n_cores 8
+
+# 3) 1D parameter scans (m_Zd, g_D, u_e, u_mu) with a 2x2 summary figure
+python3 dark_portal_scanner.py
+
+# 4) Full frequentist profile-likelihood scan (1D profiles + 2D contours)
+cd ../FrequentistAnalysis
+python3 -m src.main --config_file ../config/pion_2050_case_5_fixed_nuisance.json
+
+# 5) Profiled exclusion limits: each coupling vs m_Zd
+python3 -m src.run_limits --config_file ../config/pion_2050_case_5_fixed_nuisance.json
+
+# 6) Find the coarsest safe resolution settings for YOUR parameter region
+cd ../tools
+python3 convergence_study.py --axes n_z_bins n_E_bins --n_cores 8
+
+# 7) Run the regression test suite (do this after any physics edit)
+cd ..
+python3 -m pytest tests/test_physics_regression.py -v
+```
+
+---
+
+## 2. Physics and Mathematics Framework
+
+The solver evaluates the continuous integro-differential equation dictating the cosmological transport of the astrophysical neutrino density matrix, propagating it backwards in redshift from $z_{max}$ to $z=0$.
 
 The total flavor flux $F(E)$ evolves according to:
 $$\frac{dF_i(E, z)}{dt} = -\Gamma_i(E, z) F_i(E, z) + \int_E^{E_{max}} dE' W(E, E') \sum_\alpha \left[ \Gamma_\alpha(E', z) F_\alpha(E', z) \right] + Q_{i}(E, z)$$
@@ -33,181 +75,290 @@ Where:
 * $W(E, E')$ is the inelastic cascading kernel.
 * $Q_i$ is the continuous source injection term.
 
-### 1.1 Adiabatic Flavor Mixing and Long-Range Interactions (LRI)
+### 2.1 Adiabatic Flavor Mixing and Long-Range Interactions (LRI)
 Neutrinos propagate as instantaneous mass eigenstates of an effective Hamiltonian that incorporates vacuum mixing, Standard Model (SM) matter effects, and a new macroscopic Long-Range Interaction (LRI) potential sourced by ambient cosmological neutrons.
 
 $$H_{tot} = H_{vac} + V_{SM} + V_{LRI}$$
 
 * **Vacuum Hamiltonian:** $H_{vac} = \frac{1}{2E} U_{PMNS} M^2 U_{PMNS}^\dagger$. The absolute mass scale is dynamically computed using the user-defined mass of the lightest state and the mass ordering hierarchy.
-* **SM Matter Potential:** $V_{SM} = \sqrt{2} G_F n_e \text{diag}(1, 0, 0)$, activated near/inside the Earth.
+* **SM Matter Potential:** $V_{SM} = \sqrt{2} G_F n_e \, S_{SM}$, activated near/inside the Earth, with the flavor texture $S_{SM} = \mathrm{diag}(1, 0, 0)$ by default (see [Section 8](#8-custom-potential-structure-matrices) for overrides). **Off by default** (`use_SM_potential: false`): this code targets neutrinos above $10^4$ GeV, where standard MSW matter effects are negligible — they shape the oscillations of GeV-scale neutrinos.
 * **LRI Potential:** Sourced by the local and cosmological neutron density $n_n(z)$, mediated by the dark vector $Z_D$ through kinetic mixing $\epsilon'$:
 
-$$V_{LRI, ij} = \left[ \frac{g_D \epsilon'}{m_{Z_D}^2 + m_D^2} \right] \left( \frac{4 c_W m_Z^2}{g_w} \right) \left( \frac{\sqrt{2}}{2} G_F n_n(z) \right) u_i u_j^*$$
+$$V_{LRI, ij} = \left[ \frac{g_D \epsilon'}{m_{Z_D}^2 + m_D^2} \right] \left( \frac{4 c_W m_Z^2}{g_w} \right) \left( \frac{\sqrt{2}}{2} G_F n_n(z) \right) S_{LRI, ij}$$
+
+with the flavor texture $S_{LRI, ij} = u_i u_j^*$ by default (also overridable, [Section 8](#8-custom-potential-structure-matrices)). Antineutrinos experience $V \to -V^*$; the code applies this transform in a single, centralized place (`propagate_spectrum`) for both potentials.
 
 **Debye Screening & Flavor Asymmetry:** The LRI potential is dynamically screened by the hot plasma of the C$\nu$B, which generates a Debye mass $m_D$. The solver accounts for theoretical C$\nu$B lepton asymmetries ($\eta_\alpha \equiv n_{\nu_\alpha}/n_{\nu, \text{sym}}$), which orthogonalizes the screening across flavors:
 $$m_D^2 = \frac{g_D^2}{6} \sum_i |u_i|^4 T_{\nu, i}^2 \quad \text{where} \quad T_{\nu, i}^2 = T_{\nu, \text{base}}^2 \cdot \eta_i^{2/3}$$
 
-### 1.2 Resonant Attenuation (Absorption)
-High-energy neutrinos scatter resonantly off the C$\nu$B via $s$-channel $Z_D$ exchange. The attenuation rate $\Gamma(E)$ is determined by integrating the Breit-Wigner cross-section over the full Fermi-Dirac momentum distribution $f_{FD}(p)$ of the C$\nu$B. To avoid numerical "pole-skipping" when the coupling $g_D$ is extremely small, the inner angular integral over $d\cos\theta$ is evaluated **exactly analytically**, and the outer momentum integral is parallelized using implicit vectorization.
+### 2.2 Resonant Attenuation (Absorption)
+High-energy neutrinos scatter resonantly off the C$\nu$B via $s$-channel $Z_D$ exchange. The attenuation rate $\Gamma(E)$ is determined by integrating the Breit-Wigner cross-section over the full Fermi-Dirac momentum distribution $f_{FD}(p)$ of the C$\nu$B. To avoid numerical "pole-skipping" when the coupling $g_D$ is extremely small, the inner angular integral over $d\cos\theta$ is evaluated **exactly analytically**, and the outer momentum integral is parallelized using implicit vectorization. The cosmological absorption resonance sits at $E_{res} \sim m_{Z_D}^2 / (2 m_\nu)$ and sweeps through the observed energy band as $m_{Z_D}$ varies — this drives the resolution requirements discussed in [Section 11](#11-choosing-resolution-parameters-convergence-tool).
 
-### 1.3 Energy Cascading & Injection
+### 2.3 Energy Cascading & Injection
 For resonant scattering events ($Z_D \to \nu + \bar{\nu}$), particles cascade to lower energies following the exact lab-frame differential cross-section for the decay of a vector mediator into chiral fermions ($W(E, E') = 3 \frac{E^2}{(E')^3}$). The cascading integral is weighted precisely using exact logarithmic bin boundaries to strictly conserve energy. The code continuously integrates flux injections at every redshift utilizing a broken power-law Star Formation Rate (SFR) combined with an arbitrary source evolution modifier $\rho_{evol}$.
 
 ---
 
-## 2. Numerical Implementation & Spatial Handover
+## 3. Numerical Implementation & Spatial Handover
 
-### 2.1 Stiff-Stable Semi-Analytic Integration
+### 3.1 Stiff-Stable Semi-Analytic Integration
 Because the resonance width $\Gamma_{Z_D} \propto g_D^2$, small couplings generate narrow interaction rates where standard explicit Euler integration causes unphysical numerical explosions. The solver circumvents this by utilizing an exact semi-analytic exponential time step for the coupled ODE:
 $$F_{n+1} = F_n e^{-\Gamma \Delta t} + \frac{\text{Total Source}}{\Gamma} \left( 1 - e^{-\Gamma \Delta t} \right)$$
 
-### 2.2 Spatial Handover (Local Universe Transit)
+### 3.2 Spatial Handover (Local Universe Transit)
 To accurately capture the potentials of gravitationally bound local structures, the solver executes a two-phase integration. Once the cosmological baseline flux arrives at $z=0$, the resulting density matrix is passed into a pure spatial ODE solver utilizing flat-space path-length steps $dr$.
 
-This state-of-the-art spatial handover dynamically resolves specific environmental shaping:
-* **The Milky Way (Extended Source):** The Milky Way density transit begins at a 30 kpc edge radius. The specific local neutron density is evaluated iteratively using McMillan (2011) multi-component models (bulge, thin disc, thick disc) and the Miller & Bregman (2013) hot gas halo profile.
-* **Milky Way Solid-Angle Averaging:** To account for anisotropic galactic potentials, the solver computes an ensemble average of transits. The user can specify the number of integration paths (`n_mw_paths`). If an arbitrary value is provided, the solver dynamically generates a **Fibonacci Spherical Lattice** (Golden Spiral) to guarantee perfectly isotropic, uniform solid-angle sky coverage.
-* **The Sun & Moon (Point Sources):** As the neutrino state transits the Solar System, the Sun and Moon impose exponentially decaying Yukawa potential envelopes $\propto e^{-m_{eff}r}/r$ relative to their precise nucleon mass counts.
-* **The Earth (PREM & MSW Effect):** The final transit solves the density matrix through the varying depths of the Earth using the 10-layer polynomials of the Preliminary Reference Earth Model (PREM). This generates an exact mapping of both the LRI and the Standard Model MSW matter potentials. The integration dynamically evaluates over multiple evenly-spaced Earth chords (`n_earth_chords`), sweeping continuously from core-crossing trajectories to grazing trajectories, resolving the flux at a parameterized detector depth (`detector_depth_km`).
+* **The Milky Way (Extended Source):** The local neutron density is evaluated using McMillan (2011) multi-component models (bulge, thin disc, thick disc) and the Miller & Bregman (2013) hot gas halo profile.
+* **Milky Way Solid-Angle Averaging:** The solver computes an ensemble average over `n_mw_paths` trajectories. For arbitrary path counts it generates a **Fibonacci Spherical Lattice** (Golden Spiral) guaranteeing isotropic solid-angle coverage.
+* **The Sun & Moon (Point Sources):** Exponentially decaying Yukawa potential envelopes $\propto e^{-m_{eff}r}/r$ tied to their precise nucleon counts.
+* **The Earth (PREM & MSW Effect):** The final transit solves the density matrix through the 10-layer polynomials of the Preliminary Reference Earth Model (PREM), averaged over `n_earth_chords` evenly-spaced chords from core-crossing to grazing, resolved at a parameterized detector depth (`detector_depth_km`).
+
+### 3.3 The Spatial Propagator
+Each path-length step applies $\rho \to U \rho U^\dagger$ with $U = \exp(-i H \, dr)$ per energy bin. $U$ is computed by a **closed-form Hermitian 3×3 propagator** (`propagator_3x3`): trigonometric eigenvalues plus Lagrange spectral interpolation (Cayley–Hamilton form), ~3× faster per call than an eigendecomposition at identical accuracy. Near eigenvalue degeneracies — exactly what an MSW-like matter resonance produces — the closed form loses precision, so for relative eigenvalue gaps below $10^{-4}$ it automatically falls back to the numerically-safe `eigh` construction. The threshold is empirically calibrated (see the docstring in `src/dark_portal_solver.py`); full production runs agree with the eigendecomposition-only reference to a few $\times 10^{-11}$ in flux across resonance-stressing parameter points.
+
+### 3.4 A Cautionary Note on Earth-Transit Step Counts
+`N_steps_earth` (default 500) is deliberately **uniform across chords regardless of chord length**. An earlier optimization that gave shorter chords proportionally fewer steps validated perfectly against a synthetic diagonal test state, yet introduced a silent, energy-localized ~10% error with the real coherence-carrying state near an Earth matter resonance — near a level crossing, eigenvectors rotate rapidly with *position*, independent of total path length. A regression test locks in the uniform behavior; read the long comment at `propagate_earth_spatial` before touching step counts, and validate any resolution change with the convergence tool ([Section 11](#11-choosing-resolution-parameters-convergence-tool)) at *your* parameter points.
 
 ---
 
-## 3. Repository Structure
+## 4. Repository Structure
 
 ```text
 .
-├── dark_portal_solver.py      # Main solver, CLI interface, and spatial ODE integration script
-├── dark_portal_scanner.py     # Multiprocessing parameter scanner and 2x2 grid visualization tool
-├── config/
-│   └── config_dark_portal.json # Autogenerated configuration parameters
-└── output/
-    ├── data/                  # Exported absolute flux data and scan grids (.txt)
-    └── plots/                 # Generated matplotlib figures (.png)
+├── src/
+│   ├── dark_portal_solver.py      # Core physics: cosmological + spatial propagation, CLI
+│   ├── dark_portal_scanner.py     # Multiprocessing 1D parameter scanner + 2x2 grid figure
+│   └── flux_postprocessing.py     # Energy-averaged flavor ratios (shared by scanner & fits)
+├── FrequentistAnalysis/
+│   ├── config/                    # Analysis configuration JSONs
+│   └── src/
+│       ├── main.py                # Profile-likelihood scan orchestrator (1D + 2D)
+│       ├── run_limits.py          # Profiled exclusion limits: couplings vs m_Zd
+│       ├── core/
+│       │   ├── likelihood.py      # GenericLikelihoodWrapper (Minuit/emcee objective)
+│       │   ├── config.py          # JSON parsing / comment stripping
+│       │   ├── defaults.py        # Default scan & repair settings
+│       │   └── detector_flavor_likelihood.py   # Detector contour likelihood models
+│       ├── engines/
+│       │   ├── optimizers.py      # Per-point Minuit minimization, MCMC warm start
+│       │   └── scanner.py         # Parallel 1D/2D profile grids
+│       ├── physics/kernel.py      # Bridge: analysis parameters -> solver -> flavor ratios
+│       ├── topology/repair.py     # Spike / continuity / gradient repair passes
+│       └── analysis/              # Interval extraction & plotting
+├── tools/
+│   └── convergence_study.py       # Resolution-parameter convergence studies
+├── tests/
+│   └── test_physics_regression.py # Regression suite (run before & after every change)
+├── config/                        # Solver configuration (autogenerated on first run)
+└── output/                        # Flux data, plots, convergence-study reports
 ```
 
 ---
 
-## 4. Installation & Dependencies
+## 5. Installation & Dependencies
 
 The code is written in Python 3 and strictly utilizes fast, standard numerical libraries.
 
-**Dependencies:**
-* `numpy`
-* `numba` (Crucial for JIT-compiling the nested physics kernels. Features persistent layout caching `cache=True` and static C-signatures)
-* `matplotlib` (For automated plotting)
-* `tqdm` (For granular progress bar rendering)
+**Core dependencies:** `numpy`, `scipy`, `numba` (JIT compilation of all physics kernels, with persistent on-disk caching), `matplotlib`, `tqdm`.
+**Frequentist pipeline:** additionally `iminuit` (and optionally `emcee` for the MCMC warm start).
+**Tests:** `pytest`.
 
 ```bash
-pip install numpy numba matplotlib tqdm
+pip install numpy scipy numba matplotlib tqdm iminuit pytest
 ```
 
 ---
 
-## 5. Usage & Order of Precedence
+## 6. The Solver & Scanner
 
-### 5.1 Running the Main Solver (`dark_portal_solver.py`)
-The main solver script is entirely self-contained. It can be run immediately without prior setup. 
+### 6.1 Running the Main Solver (`src/dark_portal_solver.py`)
 
 ```bash
-python dark_portal_solver.py
+cd src && python3 dark_portal_solver.py
 ```
 
-**Note on First Execution:** Because the solver utilizes Numba's Just-In-Time (JIT) compilation with `cache=True` to achieve C-level performance, the script will pause for several seconds during its very first execution. This is perfectly normal; it is compiling and saving the optimized machine code to your hard drive. All subsequent runs will bypass this step and initialize instantly.
+**Note on First Execution:** numba JIT-compiles the kernels with `cache=True` on first run (a pause of ~10 s); subsequent runs load the cached machine code instantly.
 
 #### Parameter Order of Precedence
-The solver determines the active physics parameters by cascading through three levels of preference:
-1. **Immutable Defaults:** Hardcoded baselines instantiated at runtime.
-2. **JSON Configuration File:** Overlays and overrides the baseline parameters if a `config_dark_portal.json` file is detected (automatically generated on the first run).
-3. **Command-Line Interface (CLI) Flags:** The highest priority. Terminal arguments will dynamically overwrite both the system defaults and the JSON file settings for that specific execution.
-
-**Example CLI Execution:**
-```bash
-python dark_portal_solver.py --config my_custom_config.json --n_cores 8 --detector_depth_km 1.5 --g_D 1e-5 --is_antineutrino true
-```
-
-#### Output Specifications
-Upon completion, the solver generates two primary files (dictated by the `[output]` configuration block):
-1. **Data File (`.txt`)**: A columnar text file mapping the exact unscaled flux values $[eV^{-1} cm^{-2} s^{-1} sr^{-1}]$ across the evaluated energy grid for each distinct neutrino flavor ($\nu_e, \nu_\mu, \nu_\tau$).
-2. **Flavor Spectrum Plot (`.png`)**: A two-panel figure summarizing the results:
-   * **Top Panel:** Displays the absolute diffuse flux scaled by $E_0^2$ to highlight high-energy tail attenuation.
-   * **Bottom Panel:** Maps the relative, normalized flavor ratios ($f_e, f_\mu, f_\tau$) as a function of observed energy at the configured detector depth.
-
-### 5.2 Running Parameter Scans (`dark_portal_scanner.py`)
-To explore the multidimensional parameter space, the repository includes a dedicated multiprocessing scanner. This script evaluates a grid of parameter values across the dark portal sector, computes the energy-averaged flavor ratios at the detector, and generates a 2x2 multi-panel diagnostic plot.
+1. **Immutable defaults** hardcoded at runtime.
+2. **JSON configuration file** (autogenerated at `config/config_dark_portal.json` on first run) overrides the defaults.
+3. **CLI flags** (highest priority) override both.
 
 ```bash
-python dark_portal_scanner.py
+python3 dark_portal_solver.py --config my_config.json --n_cores 8 --g_D 1e-5 --is_antineutrino true
 ```
 
-**Scanner Features:**
-* **Automated 1D Grids:** Conducts high-resolution logarithmic scans across the dark vector mass ($m_{Z_D}$), gauge coupling ($g_D$), and sterile mixing matrix elements ($u_e$, $u_\mu$).
-* **Multiprocessing Optimization:** Distributes the grid evaluations across all available CPU cores using `multiprocessing.Pool`, suppressing standard solver verbosity to maintain clean top-level progress bars via `tqdm`.
-* **Energy-Averaged Ratios:** Integrates the resulting absolute fluxes across the defined energy bins using exact geometric midpoints to extract the mean expected flavor composition $\langle f_e \rangle$, $\langle f_\mu \rangle$, $\langle f_\tau \rangle$.
-* **Visualization:** Exports the raw columnar text data (`scan_m_Zd.txt`, etc.) and automatically renders a `parameter_scan_plot.png` showcasing the macroscopic flavor response. Base configuration parameters are elegantly overlaid as text labels within the individual plot panels.
+#### Outputs
+1. **Data file (`.txt`)**: columnar flux $[\mathrm{eV}^{-1}\,\mathrm{cm}^{-2}\,\mathrm{s}^{-1}\,\mathrm{sr}^{-1}]$ per flavor over the energy grid.
+2. **Flavor spectrum plot (`.png`)**: $E^2\Phi$ spectra (top) and flavor ratios vs energy (bottom).
+
+### 6.2 Running Parameter Scans (`src/dark_portal_scanner.py`)
+
+```bash
+cd src && python3 dark_portal_scanner.py
+```
+
+Runs logarithmic 1D scans over $m_{Z_D}$, $g_D$, $u_e$, $u_\mu$, distributing configurations across a `multiprocessing.Pool` sized by the config's `execution.n_cores`, computes energy-averaged flavor ratios per point (via `flux_postprocessing.compute_energy_averaged_ratios`, which shares the solver's exact geometric bin widths), exports columnar scan data, and renders a 2×2 summary figure.
 
 ---
 
-## 6. Configuration Guide & Command-Line Flags
-
-Below is an exhaustive dictionary of all configurable parameters, their respective JSON block locations, and their corresponding CLI flags.
+## 7. Configuration Guide & Command-Line Flags
 
 ### `[cosmology]`
 * `--H0_km_s_Mpc` (float): Present-day Hubble constant in km/s/Mpc (Default: `67.4`).
 * `--Omega_m` (float): Cosmological matter density parameter (Default: `0.315`).
 * `--Omega_L` (float): Cosmological dark energy density parameter (Default: `0.685`).
-* `--T_nu0_eV` (float): Present-day temperature of the C$\nu$B in eV (Default: `1.95e-4`).
+* `--T_nu0_eV` (float): Present-day C$\nu$B temperature in eV (Default: `1.95e-4`).
 * `--n_n0_cm3` (float): Present-day cosmological background neutron density in cm$^{-3}$ (Default: `0.25e-6`).
-* `--m_lightest_eV` (float): Absolute mass of the lightest neutrino eigenstate in eV (Default: `0.01`).
-* `--mass_ordering` (str): `"normal"` or `"inverted"`. Dictates how absolute masses are derived from $\Delta m^2$ (Default: `"normal"`).
-* `--eta_e`, `--eta_mu`, `--eta_tau` (float): Dimensionless flavor asymmetry multipliers for the C$\nu$B (Default: `1.0`).
+* `--m_lightest_eV` (float): Mass of the lightest neutrino eigenstate in eV (Default: `0.01`).
+* `--mass_ordering` (str): `"normal"` or `"inverted"` (Default: `"normal"`).
+* `--eta_e`, `--eta_mu`, `--eta_tau` (float): C$\nu$B flavor asymmetry multipliers (Default: `1.0`).
 
 ### `[standard_mixing]`
-* `--dm21_sq` (float): Solar mass squared difference $\Delta m_{21}^2$ in eV$^2$ (Default: `7.41e-5`).
-* `--dm31_sq` (float): Atmospheric mass squared difference $\Delta m_{31}^2$ in eV$^2$. *(Code automatically handles negative signs for inverted ordering)* (Default: `2.511e-3`).
-* `--th12_deg`, `--th13_deg`, `--th23_deg` (float): PMNS mixing angles $\theta_{ij}$ in degrees (Defaults: `33.41`, `8.58`, `49.1`).
-* `--d_cp_deg` (float): CP-violating Dirac phase $\delta_{CP}$ in degrees (Default: `132.0`).
-* `--use_SM_potential` (str/bool): `"true"` or `"false"`. Applies standard MSW coherent scattering $V_{SM}$ near/inside the Earth (Default: `"false"`).
-* `--n_e_earth_cm3` (float): Standard matter electron density in cm$^{-3}$ used for $V_{SM}$ (Default: `1.5e24`).
-* `--detector_depth_km` (float): Subterranean depth of the simulated observatory in km (e.g., 1.5 for IceCube) (Default: `1.5`).
+* `--dm21_sq`, `--dm31_sq` (float): Mass-squared differences in eV$^2$ (Defaults: `7.41e-5`, `2.511e-3`; the sign of $\Delta m^2_{31}$ is handled automatically for inverted ordering).
+* `--th12_deg`, `--th13_deg`, `--th23_deg` (float): PMNS angles in degrees (Defaults: `33.41`, `8.58`, `49.1`).
+* `--d_cp_deg` (float): Dirac CP phase in degrees (Default: `132.0`).
+* `--use_SM_potential` (bool): Standard MSW potential inside the Earth (Default: `false` — negligible for the $>10^4$ GeV energies this code targets; see Section 2.1).
+* `--n_e_earth_cm3` (float): Electron density for $V_{SM}$ in cm$^{-3}$ (Default: `1.5e24`).
+* `V_SM_struct` (JSON only): optional 3×3 flavor texture override for $V_{SM}$ ([Section 8](#8-custom-potential-structure-matrices)).
+* `--detector_depth_km` (float): Detector depth in km (Default: `1.5`).
 
 ### `[dark_portal]`
-* `--u_e`, `--u_mu`, `--u_tau` (float): Sterile flavor mixing parameters $|U_{\alpha 4}|$ (Defaults: `0.5`, `0.5`, `0.0`). 
-* `--m_Zd_eV` (float): Mass of the dark vector mediator $Z_D$ in eV (Default: `2.0e6`).
-* `--g_D` (float): Dark gauge coupling constant $g_D$ (Default: `1e-4`).
-* `--epsilon_prime` (float): Effective kinetic mixing parameter $\epsilon'$ (Default: `1e-1`).
-* `--use_debye_screening` (str/bool): `"true"` or `"false"`. Applies the thermal Debye mass $m_D^2$ to the LRI potential denominator (Default: `"true"`).
+* `--u_e`, `--u_mu`, `--u_tau` (float): Sterile flavor mixing parameters (Defaults: `0.5`, `0.5`, `0.0`).
+* `--m_Zd_eV` (float): Dark mediator mass in eV (Default: `2.0e6`).
+* `--g_D` (float): Dark gauge coupling (Default: `1e-4`).
+* `--epsilon_prime` (float): Kinetic mixing parameter (Default: `1e-1`).
+* `--use_debye_screening` (bool): Thermal Debye mass in the LRI denominator (Default: `true`).
+* `U_LRI_struct` (JSON only): optional 3×3 flavor texture override for $V_{LRI}$ ([Section 8](#8-custom-potential-structure-matrices)).
 
 ### `[source]`
-* `--p_index` (float): Power-law spectral index ($\gamma$) of the injected neutrino spectrum (Default: `2.5`).
-* `--Phi_0` (float): Baseline source flux normalization multiplier (Default: `1.0`).
-* `--z_max` (float): Maximum redshift to integrate back to (Default: `4.0`).
-* `--rho_evol` (float): Cosmological source evolution index (modifies the base SFR) (Default: `0.0`).
-* `--f_e_S`, `--f_mu_S`, `--f_tau_S` (float): Injection flavor ratios at the source (e.g., `0.333, 0.666, 0.0` for pion decay) (Defaults: `0.333333`, `0.666667`, `0.0`).
-* `--is_antineutrino` (str): (Default: `"sum"`)
-  * `"sum"` or `"both"`: Computes $\nu$ and $\bar{\nu}$ independently and sums the flux.
-  * `"true"` or `"antineutrino"`: Computes $\bar{\nu}$ flux only.
-  * `"false"`: Computes $\nu$ flux only.
-* `--nubar_to_nu_ratio` (float): The ratio of antineutrinos to neutrinos injected at the source. This applies a normalized statistical weight to the combined baseline spectrum when `--is_antineutrino` is set to `"sum"` or `"both"` (Default: `1.0`).
+* `--p_index` (float): Injection spectral index (Default: `2.5`).
+* `--Phi_0` (float): Source normalization (Default: `1.0`).
+* `--z_max` (float): Maximum redshift (Default: `4.0`).
+* `--rho_evol` (float): Source evolution index on top of the SFR (Default: `0.0`).
+* `--f_e_S`, `--f_mu_S`, `--f_tau_S` (float): Source flavor ratios (Defaults: `0.333333, 0.666667, 0.0` — pion decay).
+* `--is_antineutrino` (str): `"sum"`/`"both"` ($\nu + \bar\nu$), `"true"` ($\bar\nu$ only), `"false"` ($\nu$ only) (Default: `"sum"`).
+* `--nubar_to_nu_ratio` (float): $\bar\nu/\nu$ injection ratio for `"sum"` mode (Default: `1.0`).
 
 ### `[grid]`
-* `--E_min_eV` (float): Minimum observed energy at Earth in eV (Default: `1e13`).
-* `--E_max_eV` (float): Maximum observed energy at Earth in eV (Default: `3e16`).
-* `--n_E_bins` (int): Number of exact logarithmically spaced energy bins (Default: `1000`).
-* `--n_z_bins` (int): Number of linearly spaced redshift bins (Default: `1000`).
-* `--n_mw_paths` (int): Total Milky Way spatial integration trajectories evaluated for the solid-angle sky average (Default: `6`).
-* `--n_earth_chords` (int): Total PREM-layer transits averaged across the Earth's radius (Default: `3`).
-* `--N_steps_MW` (int): Number of spatial integration steps evaluated during the Milky Way transit (Default: `100`).
-* `--r_start_kpc` (float): Starting distance from Earth for the Milky Way spatial integration in kpc (Default: `100.0`).
+* `--E_min_eV`, `--E_max_eV` (float): Energy band (Defaults: `1e13`, `3e16` — i.e. $10^4$ to $3\times10^7$ GeV).
+* `--n_E_bins` (int): Log-spaced energy bins (Default: `1000`).
+* `--n_z_bins` (int): Linear redshift bins (Default: `1000`).
+* `--n_mw_paths` (int): Milky Way trajectories in the solid-angle average (Default: `6`).
+* `--n_earth_chords` (int): Earth chords in the zenith average (Default: `3`).
+* `--N_steps_MW` (int): Path-length steps per Milky Way trajectory (Default: `100`).
+* `--N_steps_earth` (int): Path-length steps per Earth chord (Default: `500`; **uniform across chords by design** — see Section 3.4 before changing).
+* `--r_start_kpc` (float): Milky Way integration start radius in kpc (Default: `100.0`).
 
 ### `[output]` & `[execution]`
-* `--flux_filename` (str): Target filepath for the output `.txt` data file (Default: `"../output/data/output_flux.txt"`).
-* `--plot_filename` (str): Target filepath for the output `.png` plot (Default: `"../output/plots/flux_plot.png"`).
-* `--n_cores` (int): Number of CPU cores to utilize for parameter-scan multiprocessing (Default: Total available system cores minus 1). (Note: The solver dynamically sets this to `1` and reveals detailed progress bars if only a single configuration is evaluated).
-* `--verbose` (int): Sets the logging detail level (`1` for standard, `2` for detailed granular milestone reporting) (Default: `1`).
+* `--flux_filename`, `--plot_filename` (str): Output paths.
+* `--n_cores` (int): Cores used to parallelize the Milky Way paths / Earth chords of the spatial handover within a single run (Default: available cores − 1). The scanner reads the same key for its own process pool.
+* `--verbose` (int): `1` standard, `2` granular milestones (Default: `1`).
 
 ---
 
-## 7. Authors & Citation
+## 8. Custom Potential Structure Matrices
 
-**Author:** Mauricio Bustamante  
+Both coherent forward-scattering potentials accept an optional user-defined 3×3 Hermitian **flavor structure matrix** through the config dict, replacing the built-in textures:
+
+```jsonc
+{
+    "standard_mixing": {
+        "use_SM_potential": true,
+        "V_SM_struct": [[1.0, 0.0, 0.0],
+                        [0.0, 0.5, 0.0],
+                        [0.0, 0.0, 0.0]]
+    },
+    "dark_portal": {
+        "U_LRI_struct": [[0.25, [0.0, 0.1], 0.0],
+                         [[0.0, -0.1], 0.25, 0.0],
+                         [0.0, 0.0, 0.2]]
+    }
+}
+```
+
+* Each entry is a plain number (real) or a two-element `[re, im]` list (complex) — JSON has no native complex type.
+* Matrices are validated at parse time: shape must be 3×3 and the matrix must be Hermitian (the eigensolver reads only one triangle, so a non-Hermitian potential would be *silently* wrong; the code raises instead).
+* Supply matrices in **neutrino convention**; the antineutrino transform $V \to -V^*$ is applied centrally.
+* Defaults when absent: $S_{SM} = \mathrm{diag}(1,0,0)$ and $S_{LRI,ij} = u_i u_j^*$ — bit-identical to the pre-override behavior (regression-tested).
+* **Physics caveat:** the overrides change only the coherent forward-scattering potentials. The Debye screening mass and the thermal attenuation/regeneration rates remain tied to `u_e/u_mu/u_tau`. In the frequentist pipeline (same keys under `physics_constants`), combining a `U_LRI_struct` override with *scanning* the `u_*` parameters triggers a loud warning, since the scanned parameters would then affect only the rates, not the potential.
+
+---
+
+## 9. The Frequentist Analysis Pipeline
+
+`FrequentistAnalysis/` wraps the solver in a profile-likelihood machinery driven by `iminuit`:
+
+```bash
+cd FrequentistAnalysis
+python3 -m src.main --config_file ../config/pion_2050_case_5_fixed_nuisance.json
+```
+
+* **Objective:** `GenericLikelihoodWrapper` maps Minuit's floating parameters through `physics/kernel.py` into `propagate_spectrum`, collapses the flux to energy-averaged flavor ratios, and scores them against detector flavor-contour likelihoods (`detector_flavor_likelihood.py`: symmetric/asymmetric Gaussian, Student's-t, and polar ray-casting contour models), plus optional empirical priors from external $\chi^2$ files.
+* **Workflow:** global `simplex` + `migrad` fit → optional MCMC warm start (`--use_mcmc_warm_start`) → parallel 1D profile scans → spike/continuity/gradient repair passes → interval extraction → parallel 2D contour scans → corner plots. Checkpointing resumes interrupted scans from the JSON outputs.
+* **Configuration:** one JSON file holds `physics_constants` (everything from Section 7, including `use_SM_potential`, `n_e_earth_cm3`, `use_debye_screening`, `N_steps_earth`, and the structure-matrix overrides), `scan_settings`, `repair_settings`, `parameter_limits`, `start_values`, `fixed_params`, `step_sizes`, and confidence thresholds. CLI flags override `scan_settings`/`repair_settings` entries.
+* **Parallelism:** the scan/repair grids distribute across a `multiprocessing.Pool` (`scan_settings.num_cores`); each worker's physics evaluation is strictly single-core to avoid oversubscription. The *initial global fit*, which runs in the main process before any worker exists, automatically parallelizes its spatial handover across the same core budget through a persistent internal pool.
+
+---
+
+## 10. Exclusion Limits vs. Mediator Mass
+
+`run_limits.py` computes the standard "coupling vs. mediator mass, everything else profiled" exclusion curves in five planes — $(m_{Z_D}, u_e)$, $(m_{Z_D}, u_\mu)$, $(m_{Z_D}, u_\tau)$, $(m_{Z_D}, g_D)$, $(m_{Z_D}, \epsilon')$:
+
+```bash
+cd FrequentistAnalysis
+python3 -m src.run_limits --config_file ../config/pion_2050_case_5_fixed_nuisance.json
+# subset / resolution / cores:
+python3 -m src.run_limits --config_file ... --pairs u_e g_D --n_steps 25 --num_cores 32
+```
+
+At every point of a log-log grid the pair is fixed and **all other floating parameters are profiled** with Minuit; per-$m_{Z_D}$-column threshold crossings of the profiled $\Delta\chi^2$ (default 90%/95% CL: 2.71/3.84) give the limit curves. Pairs pinned in the base config's `fixed_params` (e.g. `u_tau`, `epsilon_prime` in the shipped configs) are automatically unlocked for their own plane. Outputs per plane: a JSON $\Delta\chi^2$ surface, a text limit table, and a combined log-log summary PDF. Grid windows, pair list, and thresholds are configurable through an optional `limits_settings` config block (see the module docstring).
+
+---
+
+## 11. Choosing Resolution Parameters (Convergence Tool)
+
+**The safe resolution settings depend on the dark-portal parameters.** The absorption resonance ($E_{res} \sim m_{Z_D}^2/2m_\nu$) moves through the energy band with $m_{Z_D}$, and the Earth's MSW-like level crossing depends on the potential magnitude — a grid that converges beautifully at one parameter point can be badly under-resolved at another. `tools/convergence_study.py` measures this directly, running the **full production pipeline** over resolution ladders and comparing each rung against a finer reference via the **maximum** relative difference over the **full** spectrum (plus energy-averaged flavor ratios), at several parameter points spanning resonance-below-band / in-band / strong-coupling:
+
+```bash
+cd tools
+python3 convergence_study.py --n_cores 8                          # all six axes (slow; run overnight)
+python3 convergence_study.py --axes n_z_bins n_E_bins --n_cores 8 # just the cosmological grid
+python3 convergence_study.py --param_points my_points.json        # your own parameter region
+```
+
+Reports (JSON + text) land in `output/convergence/`. Headline findings at the default parameter points:
+
+* **`n_z_bins` / `n_E_bins` = 1000 are *not* overkill.** Energy-averaged flavor ratios still move at the few-$10^{-3}$ / few-$10^{-4}$ level respectively between 1000 and a 1500-bin reference when the resonance is in-band. Pointwise flux in the deep absorption dip never converges tightly — exponential attenuation amplifies any resolved-rate difference — which is why the ratio metric is the one to watch. Note that analysis configs running much coarser grids (e.g. 50×50) can carry percent-level numerical systematics on the ratios; check with this tool before trusting them.
+* **`N_steps_MW` is heavily over-resolved:** 25 steps already agree with a 400-step reference to $\sim10^{-10}$ at all tested points (the Milky Way transit is deeply adiabatic; its potential is negligible at the default parameter points). The default 100 is safe margin, not necessity.
+* **`n_mw_paths` = 6 suffices at the default points** for the same reason — but this is exactly the axis whose difficulty is parameter-dependent: at much smaller $m_{Z_D}$ (unscreened, longer-range galactic potential) the anisotropy matters and the tool should be re-run.
+* **`n_earth_chords` is the weakest default.** The solver's default of 3 chords carries $1.6\text{–}4.9\times10^{-2}$ *absolute* flavor-ratio error against a 100-chord reference at every tested parameter point — far above the other axes — improving to $\sim10^{-2}$ at 12 chords and $0.7\text{–}11\times10^{-3}$ at 50 (the analysis configs' value). Convergence is non-monotonic (25 chords tested *worse* than 12): the zenith average samples Earth-transit interference structure, so chord-count changes partially alias rather than settle. Use ≥ 12 chords for percent-level ratio work, ≥ 50 for sub-percent, and check with the tool at your own parameter points.
+* **`N_steps_earth` likewise shows percent-level *fringe aliasing*, not clean convergence**, when a resonance is in-band: the Earth transit imprints interference fringes in energy finer than the energy grid resolves, so bin-center sampling turns resolution changes into pseudo-random percent-level scatter of the ratios (125 → 2000 steps never settles below $\sim10^{-2}$ ratio scatter at the in-band point). Increasing step counts alone does not remove this — it is a property of the unsmeared observable. For robust fits near such parameter points, either apply detector energy smearing downstream or treat percent-level ratio scatter as a numerical systematic.
+
+---
+
+## 12. Performance Notes
+
+* **Thread pinning:** BLAS/LAPACK pools (MKL/OpenBLAS/OMP) are pinned to one thread at import, *before* numpy loads. Every linear-algebra call here touches 3×3 matrices; unconstrained BLAS pools multiply against the code's own process-level parallelism and can slow parallel runs 3–5×.
+* **Solver parallelism:** within one run, `n_cores` distributes the independent Milky Way paths / Earth chords across processes, and the cosmological phase's `prange` loops scale via `numba.set_num_threads`.
+* **Scanner / frequentist parallelism:** both parallelize across configurations/grid points at the process level; each worker forces its internal physics to a single core.
+* **Spawn-safe pooling:** the frequentist `main.py` forces the `spawn` start method, under which creating a pool is expensive; the physics kernel therefore maintains one *persistent* internal pool for main-process evaluations rather than recreating one per Minuit call (measured ~3× faster per evaluation at analysis-scale settings; per-call pool creation under `spawn` was ~10× *slower* than single-core).
+* **Closed-form propagator:** the spatial hot loops use `propagator_3x3` with allocation-free ρ-updates (Section 3.3), ~1.5× end-to-end in spatial-dominated configurations on top of the above.
+* **JIT cache:** first-ever execution compiles for ~10 s; the scanner additionally warms the cache once before spawning workers so they don't compile simultaneously.
+
+---
+
+## 13. Testing
+
+```bash
+python3 -m pytest tests/test_physics_regression.py -v
+```
+
+The regression suite pins down, among other things: the closed-form Breit-Wigner angular integral against brute-force quadrature; the antineutrino conjugation conventions of both potentials (including complex, CP-violating textures) across the cosmological and spatial code paths; the structure-matrix override plumbing (explicit defaults must be bit-identical to no override); the closed-form propagator against the eigendecomposition, including near-degenerate fallback; the uniform-across-chords Earth step count (Section 3.4); the config-wiring of every parameter that once went silently dead (`n_e_earth_cm3`, `use_SM_potential`, `use_debye_screening`, `n_cores`); Milky Way density finiteness on the galactic-center line; and the frequentist `static_data` contract with backward compatibility. **Run it before and after any physics change.**
+
+---
+
+## 14. Authors & Citation
+
+**Author:** Mauricio Bustamante
 If you use this code in academic research, please cite the associated theoretical manuscripts detailing this statistical procedure and propagation framework.
