@@ -73,9 +73,14 @@ def scan_parameter_parallel(m_global, param_name, start_val, sigma_guess, func, 
         
     return exec_grid, chi2_arr_exec, param_hists_exec
 
-def scan_pair_parallel(m_global, param_x, param_y, limits, func, param_names, n_steps=20, 
-                       scan_range_sigma=3.5, minuit_retries=3, force_rigid_bounds=False, pool=None, num_cores=1):
-    """Iterates a distributed two-dimensional mesh matrix computing profile isolines contour projections."""
+def scan_pair_parallel(m_global, param_x, param_y, limits, func, param_names, n_steps=20,
+                       scan_range_sigma=3.5, minuit_retries=3, force_rigid_bounds=False, pool=None, num_cores=1,
+                       use_log_x=False, use_log_y=False):
+    """Iterates a distributed two-dimensional mesh matrix computing profile isolines contour projections.
+
+    use_log_x / use_log_y switch the corresponding grid to geometric (logarithmic)
+    spacing -- the 2D analogue of scan_parameter_parallel's use_log_scan, needed for
+    parameters spanning decades (m_Zd_eV, couplings, sterile mixings)."""
     sigma_x = m_global.errors[param_x] if m_global.errors[param_x] > 0 else 0.1
     sigma_y = m_global.errors[param_y] if m_global.errors[param_y] > 0 else 0.1
     val_x, val_y = m_global.values[param_x], m_global.values[param_y]
@@ -100,8 +105,18 @@ def scan_pair_parallel(m_global, param_x, param_y, limits, func, param_names, n_
         min_y = max(calc_min_y, lim_min_y) if lim_min_y is not None else calc_min_y
         max_y = min(calc_max_y, lim_max_y) if lim_max_y is not None else calc_max_y
         
-    x_grid = np.linspace(min_x, max_x, n_steps)
-    y_grid = np.linspace(min_y, max_y, n_steps)
+    if use_log_x:
+        min_x = max(min_x, 1e-30)
+        max_x = max(max_x, 2e-30)
+        x_grid = np.geomspace(min_x, max_x, n_steps)
+    else:
+        x_grid = np.linspace(min_x, max_x, n_steps)
+    if use_log_y:
+        min_y = max(min_y, 1e-30)
+        max_y = max(max_y, 2e-30)
+        y_grid = np.geomspace(min_y, max_y, n_steps)
+    else:
+        y_grid = np.linspace(min_y, max_y, n_steps)
     tasks = [(x, y) for y in y_grid for x in x_grid]
     
     global_vals = dict(zip(m_global.parameters, m_global.values))
