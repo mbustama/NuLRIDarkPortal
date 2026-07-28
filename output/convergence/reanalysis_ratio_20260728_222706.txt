@@ -1,0 +1,48 @@
+Re-analysis of ../output/convergence/convergence_production_20260728_185624.json
+Criterion: ratio (flux tol 0.001, ratio tol 0.001)
+Original study profile: production, baseline {'n_E_bins': 1000, 'n_z_bins': 1000, 'n_mw_paths': 6, 'n_earth_chords': 3, 'N_steps_MW': 100, 'N_steps_earth': 500}
+
+  Axis n_z_bins (worst case across parameter points):
+    n_z_bins=100: max_rel_flux=4.392e+02, max_abs_ratio_diff=9.093e-03
+    n_z_bins=200: max_rel_flux=1.979e+01, max_abs_ratio_diff=1.145e-02
+    n_z_bins=400: max_rel_flux=1.377e+00, max_abs_ratio_diff=1.519e-02
+    n_z_bins=700: max_rel_flux=9.974e-01, max_abs_ratio_diff=1.001e-02
+    n_z_bins=1000: max_rel_flux=9.365e-01, max_abs_ratio_diff=5.277e-03
+    -> no tested value of n_z_bins met criterion 'ratio'; use the study reference or extend the ladder
+
+  Axis n_E_bins (worst case across parameter points):
+    n_E_bins=100: max_rel_flux=3.981e+22, max_abs_ratio_diff=2.650e-02
+    n_E_bins=200: max_rel_flux=6.432e+09, max_abs_ratio_diff=6.123e-03
+    n_E_bins=400: max_rel_flux=9.334e+03, max_abs_ratio_diff=2.291e-03
+    n_E_bins=700: max_rel_flux=4.368e+01, max_abs_ratio_diff=9.990e-04
+    n_E_bins=1000: max_rel_flux=5.026e+00, max_abs_ratio_diff=8.043e-04
+    -> RECOMMENDED n_E_bins >= 700 under criterion 'ratio'
+
+  Axis N_steps_MW (worst case across parameter points):
+    N_steps_MW=25: max_rel_flux=1.715e-10, max_abs_ratio_diff=3.788e-13
+    N_steps_MW=50: max_rel_flux=1.830e-10, max_abs_ratio_diff=4.802e-13
+    N_steps_MW=100: max_rel_flux=1.662e-10, max_abs_ratio_diff=5.045e-13
+    N_steps_MW=200: max_rel_flux=1.193e-10, max_abs_ratio_diff=3.365e-13
+    -> RECOMMENDED N_steps_MW >= 25 under criterion 'ratio'
+
+  Axis N_steps_earth (worst case across parameter points):
+    N_steps_earth=125: max_rel_flux=6.962e-01, max_abs_ratio_diff=7.293e-02
+    N_steps_earth=250: max_rel_flux=3.816e-01, max_abs_ratio_diff=3.658e-02
+    N_steps_earth=500: max_rel_flux=2.339e-01, max_abs_ratio_diff=1.606e-02
+    N_steps_earth=1000: max_rel_flux=7.465e-01, max_abs_ratio_diff=6.266e-02
+    -> no tested value of N_steps_earth met criterion 'ratio'; use the study reference or extend the ladder
+
+  Axis n_mw_paths (worst case across parameter points):
+    n_mw_paths=6: max_rel_flux=2.787e-11, max_abs_ratio_diff=2.260e-13
+    n_mw_paths=12: max_rel_flux=1.118e-13, max_abs_ratio_diff=5.551e-16
+    n_mw_paths=25: max_rel_flux=5.412e-14, max_abs_ratio_diff=1.665e-16
+    n_mw_paths=50: max_rel_flux=5.549e-14, max_abs_ratio_diff=2.776e-16
+    -> RECOMMENDED n_mw_paths >= 6 under criterion 'ratio'
+
+  Axis n_earth_chords (worst case across parameter points):
+    n_earth_chords=3: max_rel_flux=4.445e-01, max_abs_ratio_diff=4.941e-02
+    n_earth_chords=6: max_rel_flux=2.892e-01, max_abs_ratio_diff=3.518e-02
+    n_earth_chords=12: max_rel_flux=1.057e-01, max_abs_ratio_diff=1.241e-02
+    n_earth_chords=25: max_rel_flux=1.928e-01, max_abs_ratio_diff=2.167e-02
+    n_earth_chords=50: max_rel_flux=9.238e-02, max_abs_ratio_diff=1.112e-02
+    -> no tested value of n_earth_chords met criterion 'ratio'; use the study reference or extend the ladder

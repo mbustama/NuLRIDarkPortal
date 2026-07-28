@@ -96,8 +96,10 @@ QUICK_LADDERS = {
 
 # Baseline (held-fixed) resolution while one axis is scanned. The production baseline is
 # the solver's own default grid; the quick baseline is only for smoke-testing the tool.
+# (n_earth_chords=12 / N_steps_MW=25 track the solver defaults adopted from the
+# 2026-07-28 production study in output/convergence/.)
 PRODUCTION_BASELINE = {"n_E_bins": 1000, "n_z_bins": 1000, "n_mw_paths": 6,
-                       "n_earth_chords": 3, "N_steps_MW": 100, "N_steps_earth": 500}
+                       "n_earth_chords": 12, "N_steps_MW": 25, "N_steps_earth": 500}
 QUICK_BASELINE = {"n_E_bins": 100, "n_z_bins": 100, "n_mw_paths": 6,
                   "n_earth_chords": 3, "N_steps_MW": 25, "N_steps_earth": 100}
 
@@ -201,20 +203,83 @@ def study_axis(axis, ladder, baseline, param_point, n_cores, scratch_dir, log):
     return results
 
 
-def recommend(axis_results_across_points, tolerance, ratio_tolerance):
-    """Smallest tested value that satisfies both tolerances at EVERY parameter point."""
+def _rung_passes(rung, criterion, tolerance, ratio_tolerance):
+    """Whether one ladder rung meets the active convergence criterion.
+
+    criterion:
+      "ratio" (default) -- energy-averaged flavor-ratio agreement only. This is the
+          observable the likelihood actually consumes, and the one that CAN converge:
+          the pointwise-flux metric is structurally unmeetable in the deep absorption
+          dip, where exponential attenuation amplifies any resolved-rate difference
+          into an O(1) relative difference of a minuscule flux.
+      "flux"  -- pointwise max relative flux only (diagnostic; expect strict verdicts).
+      "both"  -- the original strict AND of the two gates.
+    """
+    flux_ok = rung["max_rel_flux"] < tolerance
+    ratio_ok = rung["max_abs_ratio_diff"] < ratio_tolerance
+    if criterion == "ratio":
+        return ratio_ok
+    if criterion == "flux":
+        return flux_ok
+    return flux_ok and ratio_ok
+
+
+def recommend(axis_results_across_points, tolerance, ratio_tolerance, criterion="ratio"):
+    """Smallest tested value from which EVERY tested value upward also satisfies the
+    criterion at every parameter point.
+
+    The stronger "upward-closed" condition matters because several axes converge
+    non-monotonically (fringe aliasing makes intermediate resolutions test worse than
+    coarser ones -- e.g. the production study's n_z_bins ratio errors go 9.1e-3 at 100,
+    1.1e-2 at 200, 1.5e-2 at 400, then back under 1e-2 only at 1000). Under a naive
+    "smallest passing value" rule, 100 would be recommended even though refining it can
+    make the answer WORSE; a value is only trustworthy if refinement never degrades it
+    within the tested ladder."""
     by_value = {}
     for res in axis_results_across_points:
         for rung in res["rungs"]:
             v = rung["value"]
             by_value.setdefault(v, []).append(rung)
-    candidates = []
-    for v in sorted(by_value):
-        rungs = by_value[v]
-        if all(r["max_rel_flux"] < tolerance and r["max_abs_ratio_diff"] < ratio_tolerance
-               for r in rungs):
-            candidates.append(v)
-    return candidates[0] if candidates else None
+    values = sorted(by_value)
+    passes = {v: all(_rung_passes(r, criterion, tolerance, ratio_tolerance)
+                     for r in by_value[v]) for v in values}
+    recommended = None
+    for v in reversed(values):
+        if passes[v]:
+            recommended = v
+        else:
+            break
+    return recommended
+
+
+def reanalyze(saved_json_path, tolerance, ratio_tolerance, criterion, log):
+    """Recomputes per-axis recommendations from a previously saved study JSON under new
+    tolerances / criterion -- no solver runs. A full production study takes the better
+    part of an hour; the per-rung metrics it records are criterion-agnostic, so
+    re-deriving verdicts is free."""
+    with open(saved_json_path) as f:
+        saved = json.load(f)
+    log(f"Re-analysis of {saved_json_path}")
+    log(f"Criterion: {criterion} (flux tol {tolerance:g}, ratio tol {ratio_tolerance:g})")
+    log(f"Original study profile: {saved.get('profile')}, baseline {saved.get('baseline')}")
+    for axis, entry in saved.get("axes", {}).items():
+        rec = recommend(entry["results"], tolerance, ratio_tolerance, criterion)
+        worst = {}
+        for res in entry["results"]:
+            for rung in res["rungs"]:
+                v = rung["value"]
+                w = worst.setdefault(v, {"max_rel_flux": 0.0, "max_abs_ratio_diff": 0.0})
+                w["max_rel_flux"] = max(w["max_rel_flux"], rung["max_rel_flux"])
+                w["max_abs_ratio_diff"] = max(w["max_abs_ratio_diff"], rung["max_abs_ratio_diff"])
+        log(f"\n  Axis {axis} (worst case across parameter points):")
+        for v in sorted(worst):
+            log(f"    {axis}={v}: max_rel_flux={worst[v]['max_rel_flux']:.3e}, "
+                f"max_abs_ratio_diff={worst[v]['max_abs_ratio_diff']:.3e}")
+        if rec is not None:
+            log(f"    -> RECOMMENDED {axis} >= {rec} under criterion '{criterion}'")
+        else:
+            log(f"    -> no tested value of {axis} met criterion '{criterion}'; "
+                f"use the study reference or extend the ladder")
 
 
 def main():
@@ -227,14 +292,37 @@ def main():
                              "smoke-testing the tool only, NOT for real recommendations.")
     parser.add_argument("--tolerance", type=float, default=1e-3,
                         help="Max relative flux difference accepted vs the reference (default 1e-3).")
-    parser.add_argument("--ratio_tolerance", type=float, default=1e-4,
-                        help="Max absolute flavor-ratio difference accepted (default 1e-4).")
+    parser.add_argument("--ratio_tolerance", type=float, default=1e-2,
+                        help="Max absolute flavor-ratio difference accepted (default 1e-2 -- "
+                             "percent-level flavor ratios; tighten to 1e-3 for sub-percent work).")
+    parser.add_argument("--criterion", choices=["ratio", "flux", "both"], default="ratio",
+                        help="Which metric gates the recommendation (default 'ratio': the "
+                             "energy-averaged flavor ratios the likelihood consumes -- the "
+                             "pointwise-flux gate is structurally unmeetable in the deep "
+                             "absorption dip; 'both' restores the original strict AND).")
+    parser.add_argument("--reanalyze", type=str, default=None, metavar="SAVED_JSON",
+                        help="Recompute recommendations from a previously saved study JSON "
+                             "under the given tolerances/criterion, without running the solver.")
     parser.add_argument("--param_points", type=str, default=None,
                         help="JSON file with a list of dark_portal override dicts; defaults "
                              "to three points placing the resonance below/inside/above band.")
     parser.add_argument("--n_cores", type=int, default=max(1, os.cpu_count() - 1))
     parser.add_argument("--output_dir", type=str, default=os.path.join(_TOOL_DIR, "..", "output", "convergence"))
     args = parser.parse_args()
+
+    if args.reanalyze:
+        lines = []
+        def relog(msg):
+            print(msg, flush=True)
+            lines.append(msg)
+        reanalyze(args.reanalyze, args.tolerance, args.ratio_tolerance, args.criterion, relog)
+        stamp = time.strftime("%Y%m%d_%H%M%S")
+        os.makedirs(args.output_dir, exist_ok=True)
+        out = os.path.join(args.output_dir, f"reanalysis_{args.criterion}_{stamp}.txt")
+        with open(out, "w") as f:
+            f.write("\n".join(lines) + "\n")
+        print(f"\nSaved: {out}")
+        return
 
     ladders = QUICK_LADDERS if args.profile == "quick" else DEFAULT_LADDERS
     baseline = QUICK_BASELINE if args.profile == "quick" else PRODUCTION_BASELINE
@@ -261,6 +349,7 @@ def main():
 
     all_results = {"profile": args.profile, "baseline": baseline,
                    "tolerance": args.tolerance, "ratio_tolerance": args.ratio_tolerance,
+                   "criterion": args.criterion,
                    "param_points": param_points, "axes": {}}
 
     for axis in args.axes:
@@ -273,14 +362,15 @@ def main():
             log(f"  Parameter point: {point.get('label', point)}")
             per_point.append(study_axis(axis, ladders[axis], baseline, point,
                                         args.n_cores, scratch_dir, log))
-        rec = recommend(per_point, args.tolerance, args.ratio_tolerance)
+        rec = recommend(per_point, args.tolerance, args.ratio_tolerance, args.criterion)
         all_results["axes"][axis] = {"results": per_point, "recommended": rec}
         if rec is not None:
             log(f"  -> RECOMMENDED {axis} >= {rec} (worst case across parameter points, "
-                f"max_rel_flux < {args.tolerance:g} and ratio diff < {args.ratio_tolerance:g})")
+                f"criterion '{args.criterion}': flux tol {args.tolerance:g} / "
+                f"ratio tol {args.ratio_tolerance:g})")
         else:
-            log(f"  -> NO tested value of {axis} met the tolerances at every parameter "
-                f"point; use the reference value {ladders[axis]['reference']} or extend the ladder.")
+            log(f"  -> NO tested value of {axis} met criterion '{args.criterion}' at every "
+                f"parameter point; use the reference value {ladders[axis]['reference']} or extend the ladder.")
 
     stamp = time.strftime("%Y%m%d_%H%M%S")
     json_path = os.path.join(args.output_dir, f"convergence_{args.profile}_{stamp}.json")

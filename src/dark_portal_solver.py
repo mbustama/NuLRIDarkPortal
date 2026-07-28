@@ -725,7 +725,7 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
                             T_nu0: float, use_debye_screening: bool, eta_bg: np.ndarray,
                             detector_depth_km: float, use_SM_potential: bool, n_e_earth_eV3: float,
                             is_antineutrino: bool, n_mw_paths: int, n_earth_chords: int,
-                            N_steps_MW: int = 100, r_start_kpc: float = 100.0,
+                            N_steps_MW: int = 25, r_start_kpc: float = 100.0,
                             show_progress: bool = True, verbose: int = 1, n_cores: int = 1,
                             N_steps_earth: int = 500, external_pool=None,
                             U_LRI_struct=None, V_SM_struct=None) -> np.ndarray:
@@ -922,7 +922,7 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                        use_SM_potential: bool, n_e_earth: float,
                        is_antineutrino: bool, p_index: float, rho_evol: float,
                        Phi_0: float, eta_bg: np.ndarray, n_mw_paths: int, n_earth_chords: int,
-                       N_steps_MW: int = 100, r_start_kpc: float = 100.0,
+                       N_steps_MW: int = 25, r_start_kpc: float = 100.0,
                        show_progress: bool = True, verbose: int = 1, n_cores: int = 1,
                        precomputed_Gamma_grid_all: np.ndarray = None, N_steps_earth: int = 500,
                        external_pool=None, U_LRI_struct=None, V_SM_struct=None) -> np.ndarray:
@@ -1281,8 +1281,15 @@ def run_solver(config: Dict) -> Tuple[np.ndarray, np.ndarray]:
     
     params['n_z_bins'] = int(config['grid']['n_z_bins'])
     params['n_mw_paths'] = int(config['grid'].get('n_mw_paths', 6))
-    params['n_earth_chords'] = int(config['grid'].get('n_earth_chords', 3))
-    params['N_steps_MW'] = int(config['grid'].get('N_steps_MW', 100))
+    # Defaults set by the production convergence study (tools/convergence_study.py,
+    # report in output/convergence/): n_earth_chords=3 (the old default) carried
+    # 1.6-4.9e-2 absolute flavor-ratio error against a 100-chord reference at every
+    # tested dark-portal point -- by far the largest numerical systematic of any default
+    # -- while 12 chords bring it to ~1e-2 (percent level). N_steps_MW=25 already agrees
+    # with a 400-step reference to ~1e-10 everywhere (the Milky Way transit is deeply
+    # adiabatic), so the old default of 100 was pure surplus.
+    params['n_earth_chords'] = int(config['grid'].get('n_earth_chords', 12))
+    params['N_steps_MW'] = int(config['grid'].get('N_steps_MW', 25))
     params['N_steps_earth'] = int(config['grid'].get('N_steps_earth', 500))
     params['r_start_kpc'] = float(config['grid'].get('r_start_kpc', 100.0))
     paths_mw = config['grid']['n_mw_paths']
@@ -1436,8 +1443,8 @@ def create_default_config(filename: str = "../config/config_dark_portal.json") -
             "n_E_bins": 1000,
             "n_z_bins": 1000,
             "n_mw_paths": 6,
-            "n_earth_chords": 3,
-            "N_steps_MW": 100,
+            "n_earth_chords": 12,
+            "N_steps_MW": 25,
             "N_steps_earth": 500,
             "r_start_kpc": 100.0
         },
@@ -1576,8 +1583,8 @@ if __name__ == "__main__":
             "n_E_bins": 1000, 
             "n_z_bins": 1000, 
             "n_mw_paths": 6,
-            "n_earth_chords": 3,
-            "N_steps_MW": 100,
+            "n_earth_chords": 12,
+            "N_steps_MW": 25,
             "N_steps_earth": 500,
             "r_start_kpc": 100.0
         },

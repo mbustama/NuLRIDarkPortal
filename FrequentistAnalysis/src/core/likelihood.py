@@ -212,10 +212,13 @@ class GenericLikelihoodWrapper:
                 n_E_bins = int(pc.get("n_E_bins", 1000))
                 n_z_bins = int(pc.get("n_z_bins", 1000))
                 
-                # Extracted grid spatial tracking overrides
+                # Extracted grid spatial tracking overrides. Fallback defaults follow the
+                # production convergence study (output/convergence/): 12 chords for
+                # percent-level flavor-ratio accuracy (3 carried 1.6-4.9e-2 absolute
+                # error), 25 MW steps (converged to ~1e-10; 100 was pure surplus).
                 n_mw_paths = int(pc.get("n_mw_paths", 6))
-                n_earth_chords = int(pc.get("n_earth_chords", 3))
-                N_steps_MW = int(pc.get("N_steps_MW", 100))
+                n_earth_chords = int(pc.get("n_earth_chords", 12))
+                N_steps_MW = int(pc.get("N_steps_MW", 25))
                 # N_steps_earth defaults to 500, the only value validated against
                 # resonance-crossing sensitivity -- see propagate_earth_spatial's docstring
                 # in dark_portal_solver.py before lowering it for a resonance-scanning fit.

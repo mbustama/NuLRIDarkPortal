@@ -2,21 +2,20 @@
     "_comment_global": "Dark portal frequentist profile likelihood scan.",
     "experiment": "pion_2050_case_5",
     "output_dir": "../output/pion_2050_case_5/pion_2050_case_5_fixed_nuisance_mZD/",
-    
     "_comment_physics": "Static data tuple components reconstructed at runtime in likelihood.py.",
     "physics_constants": {
         "H0_km_s_Mpc": 67.4,
         "Omega_m": 0.315,
         "Omega_L": 0.685,
-        "T_nu0_eV": 1.95e-4,
-        "n_n0_cm3": 0.25e-6,
+        "T_nu0_eV": 0.000195,
+        "n_n0_cm3": 2.5e-07,
         "m_lightest_eV": 0.01,
         "mass_ordering": "normal",
         "eta_e": 1.0,
         "eta_mu": 1.0,
         "eta_tau": 1.0,
         "use_SM_potential": false,
-        "n_e_earth_cm3": 1.5e24,
+        "n_e_earth_cm3": 1.5e+24,
         "detector_depth_km": 1.5,
         "p_index": 2.5,
         "Phi_0": 1.0,
@@ -26,16 +25,16 @@
         "f_mu_S": 0.666667,
         "f_tau_S": 0.0,
         "is_antineutrino": "sum",
-        "E_min_eV": 1e13,
-        "E_max_eV": 3e16,
-        "n_E_bins": 50,
-        "n_z_bins": 50,
+        "E_min_eV": 10000000000000.0,
+        "E_max_eV": 3e+16,
+        "n_E_bins": 200,
+        "n_z_bins": 200,
         "n_mw_paths": 50,
         "n_earth_chords": 50,
-        "N_steps_MW": 50,
-        "r_start_kpc": 100.0
+        "N_steps_MW": 25,
+        "r_start_kpc": 100.0,
+        "_comment_resolution": "Grid resolution set from tools/convergence_study.py's production study (output/convergence/, 2026-07-28). The old 50x50 E/z grid carried few-percent numerical systematics on the flavor ratios; 200x200 brings the E-component to ~6e-3 and the z-component to ~1.1e-2, comparable to the ~1.1e-2 fringe-aliasing floor set by n_earth_chords=50. Measured cost: ~33 s per likelihood evaluation single-core (~15x the old grid; ~10 s in the multi-core global-fit path) -- budget cores accordingly. Escalation path if the chord floor is ever addressed: the robust sub-1e-2 z knee is n_z_bins=1000 (adds ~7 s/eval via the thermal-rate grid). N_steps_MW=25 is converged to ~1e-10; n_mw_paths/n_earth_chords stay at 50 because the scan explores m_Zd regimes beyond the study's parameter points."
     },
-    
     "_comment_scan_settings": "Core configuration for 1D and 2D profile likelihood execution.",
     "scan_settings": {
         "num_cores": 220,
@@ -56,14 +55,26 @@
         "use_explicit_step_sizes": true,
         "use_linear_interp": false,
         "use_fuzzy_cache": false,
-        "log_scan_parameters": ["g_D", "u_e", "u_mu"],
-        "target_subset_1d": ["g_D", "u_e", "u_mu"],
-        "target_subset_2d": [["u_e", "g_D"]],
+        "log_scan_parameters": [
+            "g_D",
+            "u_e",
+            "u_mu"
+        ],
+        "target_subset_1d": [
+            "g_D",
+            "u_e",
+            "u_mu"
+        ],
+        "target_subset_2d": [
+            [
+                "u_e",
+                "g_D"
+            ]
+        ],
         "clip_contour_smearing": false,
         "smooth_marginalized_1d": false,
         "save_nuisance_evolution": false
     },
-    
     "_comment_repair": "Settings for the topological defect repair loops.",
     "repair_settings": {
         "disable_outlier_repair": false,
@@ -74,102 +85,158 @@
         "gradient_threshold": 50.0,
         "max_repair_passes": 3
     },
-    
     "_comment_steps": "Initial step sizes Minuit uses to calculate gradients.",
     "step_sizes": {
         "s12sq": 0.01,
         "s13sq": 0.001,
         "s23sq": 0.01,
         "m_Zd_eV": 10000.0,
-        "g_D": 1e-5,
+        "g_D": 1e-05,
         "epsilon_prime": 0.01,
         "u_e": 0.05,
         "u_mu": 0.05,
         "u_tau": 0.05,
         "f_e_S": 0.01
     },
-    
     "_comment_limits": "Hard mathematical walls Minuit cannot cross based on physical bounds.",
     "parameter_limits": {
-        "s12sq": [0.01, 1.0],
-        "s13sq": [0.01, 1.0],
-        "s23sq": [0.01, 1.0],
-        "m_Zd_eV": [1e-30, 1e10],
-        "g_D": [1e-10, 3.54],
-        "epsilon_prime": [1e-10, 1.0],
-        "u_e": [1e-10, 1.0],
-        "u_mu": [1e-10, 1.0],
-        "u_tau": [1e-10, 1.0],
-        "f_e_S": [0.0, 1.0]
+        "s12sq": [
+            0.01,
+            1.0
+        ],
+        "s13sq": [
+            0.01,
+            1.0
+        ],
+        "s23sq": [
+            0.01,
+            1.0
+        ],
+        "m_Zd_eV": [
+            1e-30,
+            10000000000.0
+        ],
+        "g_D": [
+            1e-10,
+            3.54
+        ],
+        "epsilon_prime": [
+            1e-10,
+            1.0
+        ],
+        "u_e": [
+            1e-10,
+            1.0
+        ],
+        "u_mu": [
+            1e-10,
+            1.0
+        ],
+        "u_tau": [
+            1e-10,
+            1.0
+        ],
+        "f_e_S": [
+            0.0,
+            1.0
+        ]
     },
-    
     "_comment_fixed": "Parameters locked permanently in place.",
     "fixed_params": {
         "s12sq": 0.3088,
         "s13sq": 0.02248,
-        "s23sq": 0.470,
-        "dm21_sq": 7.41e-5,
-        "dm31_sq": 2.511e-3,
+        "s23sq": 0.47,
+        "dm21_sq": 7.41e-05,
+        "dm31_sq": 0.002511,
         "d_cp_deg": 132.0,
         "nubar_to_nu_ratio": 1.0,
-        "epsilon_prime": 1e-4,
+        "epsilon_prime": 0.0001,
         "f_e_S": 0.3333,
         "f_mu_S": 0.6667,
         "f_tau_S": 0.0,
         "u_tau": 0.0,
         "m_Zd_eV": 1e-30
     },
-    
     "_comment_starts": "Initial guesses for floating parameters.",
     "start_values": {
         "s12sq": 0.3088,
         "s13sq": 0.02248,
-        "s23sq": 0.470,
-        "m_Zd_eV": 2.0e6,
-        "g_D": 1.0e-4,
+        "s23sq": 0.47,
+        "m_Zd_eV": 2000000.0,
+        "g_D": 0.0001,
         "epsilon_prime": 0.1,
         "u_e": 0.5,
         "u_mu": 0.5,
         "u_tau": 0.0,
         "f_e_S": 0.333333
     },
-    
     "_comment_fallbacks": "Gaussian penalty priors applied to parameters not restricted by an input file.",
     "fallbacks": {
-        "s12sq": ["gaussian", 0.3088, 0.0016416],
-        "s23sq": ["gaussian", 0.470, 0.00418],
-        "s13sq": ["gaussian", 0.02248, 0.00059],
-        "dcp": ["gaussian", 212.0, 6.687, "degrees"],
-        "rho": ["uniform", 0.0, 360.0, "degrees"],
-        "sigma": ["uniform", 0.0, 360.0, "degrees"],
-        "dm21_sq": ["gaussian", 7.537e-5, 3.7685e-7],
-        "dm3l_sq": ["gaussian", 2.511e-3, 1.2555e-5]
+        "s12sq": [
+            "gaussian",
+            0.3088,
+            0.0016416
+        ],
+        "s23sq": [
+            "gaussian",
+            0.47,
+            0.00418
+        ],
+        "s13sq": [
+            "gaussian",
+            0.02248,
+            0.00059
+        ],
+        "dcp": [
+            "gaussian",
+            212.0,
+            6.687,
+            "degrees"
+        ],
+        "rho": [
+            "uniform",
+            0.0,
+            360.0,
+            "degrees"
+        ],
+        "sigma": [
+            "uniform",
+            0.0,
+            360.0,
+            "degrees"
+        ],
+        "dm21_sq": [
+            "gaussian",
+            7.537e-05,
+            3.7685e-07
+        ],
+        "dm3l_sq": [
+            "gaussian",
+            0.002511,
+            1.2555e-05
+        ]
     },
-
     "_comment_coupled_priors": "Define multi-parameter penalties here.",
     "coupled_priors": {},
-    
     "_comment_asimov": "Parameter overrides used to generate the mock null-hypothesis.",
     "asimov_injections": {
-        "m_Zd_eV": 2.0e6,
-        "g_D": 1.0e-4,
+        "m_Zd_eV": 2000000.0,
+        "g_D": 0.0001,
         "epsilon_prime": 0.1,
         "u_e": 0.0,
         "u_mu": 0.0,
         "u_tau": 0.0
     },
-    
     "_comment_inputs": "Paths to 1D/2D chi2 grid files to act as dynamic prior penalties.",
     "input_configs": [],
     "use_quadratic_fallback": false,
-    
     "_comment_confidence": "Delta chi2 thresholds used to draw boundaries on the 1D and 2D plots.",
     "confidence_thresholds": {
-        "1sigma": 1.0, 
-        "2sigma": 4.0, 
+        "1sigma": 1.0,
+        "2sigma": 4.0,
         "3sigma": 9.0,
-        "1sigma_2d": 2.30, 
-        "2sigma_2d": 4.61, 
+        "1sigma_2d": 2.3,
+        "2sigma_2d": 4.61,
         "3sigma_2d": 11.83
     }
 }

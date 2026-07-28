@@ -267,7 +267,9 @@ if __name__ == "__main__":
     base_config['grid']['n_z_bins'] = 200
     base_config['grid']['n_mw_paths'] = 100
     base_config['grid']['n_earth_chords'] = 100
-    base_config["grid"]['N_steps_MW'] = 100
+    # 25 MW steps agree with a 400-step reference to ~1e-10 at every parameter point
+    # tested by tools/convergence_study.py -- the old 100 was pure surplus.
+    base_config["grid"]['N_steps_MW'] = 25
     base_config["grid"]['r_start_kpc'] = 100.0
     # This now actually drives run_parameter_scan's pool size (see its docstring) instead of
     # being silently dropped in favor of a hardcoded value there.
