@@ -8,6 +8,8 @@ Configure your specific observable topologies, arrays, and labels here.
 
 import sys
 import os
+import atexit
+import multiprocessing
 import numpy as np
 
 # Get the absolute path of the directory containing THIS file (kernel.py)
@@ -79,16 +81,54 @@ def format_title_stats(param, results_dict):
     low, high = target_interval
     return rf"${base_label} = {bf:.3g}_{{-{bf - low:.3g}}}^{{+{high - bf:.3g}}}$"
 
+# =============================================================================
+# PERSISTENT SPATIAL-HANDOVER POOL (MainProcess-only)
+# =============================================================================
+# compute_user_model_single runs once per Minuit function evaluation -- potentially
+# hundreds of times during main.py's initial global fit alone. propagate_spectrum's spatial
+# handover distributes independent Milky Way paths / Earth chords across a
+# multiprocessing.Pool when n_cores > 1; creating a fresh Pool per call is cheap under the
+# 'fork' start method but expensive under 'spawn' (a full interpreter relaunch plus reimport
+# per worker) -- and main.py forces 'spawn'. A pool reused across the whole fit instead pays
+# that cost once. This module-level pool is only ever touched from the main process: scan/
+# repair Pool workers always evaluate with n_cores=1 and never call _get_persistent_pool.
+_persistent_pool = None
+_persistent_pool_size = None
+_persistent_pool_atexit_registered = False
+
+def _close_persistent_pool():
+    global _persistent_pool
+    if _persistent_pool is not None:
+        _persistent_pool.terminate()
+        _persistent_pool.join()
+        _persistent_pool = None
+
+def _get_persistent_pool(n_cores):
+    """Returns a persistent multiprocessing.Pool of exactly n_cores workers, creating (or
+    resizing) it on first use. Returns None if n_cores <= 1 (no pool needed)."""
+    global _persistent_pool, _persistent_pool_size, _persistent_pool_atexit_registered
+    if n_cores <= 1:
+        return None
+    if _persistent_pool is not None and _persistent_pool_size == n_cores:
+        return _persistent_pool
+    _close_persistent_pool()
+    _persistent_pool = multiprocessing.Pool(processes=n_cores)
+    _persistent_pool_size = n_cores
+    if not _persistent_pool_atexit_registered:
+        atexit.register(_close_persistent_pool)
+        _persistent_pool_atexit_registered = True
+    return _persistent_pool
+
 def compute_user_model_single(params, static_data):
     """
     Standard Python wrapper. Evaluates the dark portal propagation by calling 
     external solvers and returns the predicted flavor fractions at Earth.
     """
-    # Unpack the immutable data tuple (expanded to 30 elements; N_steps_earth,
-    # use_SM_potential, n_e_earth, and use_debye_screening all default to their
-    # dark_portal_solver.py defaults for any caller still passing an older, shorter tuple.
-    # N_steps_earth=500 is the only value validated against resonance-crossing sensitivity,
-    # see propagate_earth_spatial's docstring in dark_portal_solver.py).
+    # Unpack the immutable data tuple (expanded to 31 elements; N_steps_earth,
+    # use_SM_potential, n_e_earth, use_debye_screening, and n_cores_standalone all default to
+    # safe values for any caller still passing an older, shorter tuple. N_steps_earth=500 is
+    # the only value validated against resonance-crossing sensitivity, see
+    # propagate_earth_spatial's docstring in dark_portal_solver.py).
     (obs_f_e, obs_f_mu, obs_err_e, obs_err_mu,
      E_bins, z_bins, rho_src, H0, Omega_m, Omega_L,
      U_pmns, M_sq, m_nu_bg_arr, n_n0, T_nu0, eta_bg,
@@ -105,6 +145,7 @@ def compute_user_model_single(params, static_data):
     use_SM_potential = bool(static_data[27]) if len(static_data) > 27 else False
     n_e_earth = float(static_data[28]) if len(static_data) > 28 else 1.5e24 * cm_inv3_to_eV3
     use_debye_screening = bool(static_data[29]) if len(static_data) > 29 else True
+    n_cores_standalone = int(static_data[30]) if len(static_data) > 30 else 1
 
     # 1. Unpack scanning parameters from the generic Minuit engine wrapper.
     #    Handles backwards compatibility if passed as a positional array.
@@ -236,6 +277,30 @@ def compute_user_model_single(params, static_data):
     sum_G, sum_G_alpha, eta_mass = compute_gamma_grid_inputs(U_pmns_complex, u_arr_base, g_D, epsilon_prime, eta_bg)
     Gamma_grid_all = precompute_all_thermal_rates(E_bins, z_bins, sum_G, sum_G_alpha, m_Zd_eV, m_nu_bg_arr, T_nu0, eta_mass)
 
+    # propagate_spectrum's own n_cores must stay 1 whenever this call is running inside
+    # main.py's scan/repair multiprocessing.Pool (each worker must not itself spin up a
+    # nested pool -- oversubscription hazard, see the BLAS/numba thread-pinning guards in
+    # dark_portal_solver.py). But the initial global m.simplex()/m.migrad() fit in main.py
+    # runs in the *main* process, before any pool worker ever touches this function, and
+    # every one of Migrad's function evaluations there was previously paying full single-core
+    # cost for no reason. multiprocessing.current_process().name is 'MainProcess' only in the
+    # former case, never inside a Pool worker (those are named e.g. 'SpawnPoolWorker-N'), so
+    # this distinguishes the two safely.
+    #
+    # A persistent, module-level Pool (_get_persistent_pool) is reused across every one of
+    # these MainProcess calls rather than creating a fresh one per evaluation -- essential
+    # under main.py's forced 'spawn' start method, where per-call Pool creation costs far more
+    # than the multi-core speedup saves (measured ~10x *slower* without reuse). With reuse, a
+    # single-flavor propagate_spectrum call at FrequentistAnalysis-scale grid settings
+    # (n_mw_paths=50, n_earth_chords=50, N_steps_earth=500) measured ~2.9x faster at n_cores=8
+    # vs 1.
+    if multiprocessing.current_process().name == 'MainProcess':
+        n_cores_for_call = n_cores_standalone
+        persistent_pool = _get_persistent_pool(n_cores_standalone)
+    else:
+        n_cores_for_call = 1
+        persistent_pool = None
+
     def run_propagation(is_anti_flag):
         local_U_pmns = np.ascontiguousarray(np.conjugate(U_pmns_complex)) if is_anti_flag else np.ascontiguousarray(U_pmns_complex)
         local_u_arr = np.ascontiguousarray(np.conjugate(u_arr_base)) if is_anti_flag else np.ascontiguousarray(u_arr_base)
@@ -246,7 +311,8 @@ def compute_user_model_single(params, static_data):
             use_debye_screening, detector_depth_km, use_SM_potential, n_e_earth,
             is_anti_flag, p_index, rho_evol, Phi_0, eta_bg,
             n_mw_paths, n_earth_chords, N_steps_MW, r_start_kpc,
-            show_progress, verbose, 1, Gamma_grid_all, N_steps_earth
+            show_progress, verbose, n_cores_for_call, Gamma_grid_all, N_steps_earth,
+            external_pool=persistent_pool
         )
 
     # Evaluate flags to match solver's native worker capabilities

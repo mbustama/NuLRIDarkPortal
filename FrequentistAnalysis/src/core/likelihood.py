@@ -8,6 +8,7 @@ evaluation caching and automated empirical prior spline construction.
 import os
 import sys
 import traceback
+import multiprocessing
 import numpy as np
 from scipy.interpolate import RegularGridInterpolator, interp1d, PchipInterpolator
 
@@ -89,7 +90,17 @@ class GenericLikelihoodWrapper:
         self.asimov = asimov
         self.fixed_params_cfg = config.get('fixed_params', {})
         self.use_fuzzy_cache = config.get("scan_settings", {}).get("use_fuzzy_cache", False)
-        
+
+        # Cores available for the physics kernel to use *internally* (via propagate_spectrum's
+        # own n_cores, distributing the Milky Way/Earth spatial handover) when a call is not
+        # running inside main.py's scan/repair multiprocessing.Pool -- see kernel.py's
+        # run_propagation, which is the only place that reads this back out of static_data.
+        # Mirrors main.py's own num_cores derivation (scan_settings.num_cores, clamped to
+        # actually-available cores) so the two don't drift apart.
+        _actual_cores = len(os.sched_getaffinity(0)) if hasattr(os, 'sched_getaffinity') else int(os.environ.get("SLURM_CPUS_PER_TASK", multiprocessing.cpu_count()))
+        _req_cores = int(config.get("scan_settings", {}).get("num_cores", _actual_cores))
+        self.n_cores_standalone = max(1, min(_req_cores, _actual_cores))
+
         # ==========================================================
         # DIAGNOSTIC: Check for scanner disconnects
         # ==========================================================
@@ -110,10 +121,10 @@ class GenericLikelihoodWrapper:
         self._cache = {}
         self._cache_enabled = True
 
-        # Ensure the tuple expects 30 elements now (spatial tracking overrides plus
-        # use_SM_potential/n_e_earth/use_debye_screening)
+        # Ensure the tuple expects 31 elements now (spatial tracking overrides plus
+        # use_SM_potential/n_e_earth/use_debye_screening/n_cores_standalone)
         self.static_data = self.config.get("static_data_tuple", None)
-        if self.static_data is None or len(self.static_data) != 30:
+        if self.static_data is None or len(self.static_data) != 31:
             try:
                 # Direct read from the flat physics_constants dict in the active frequentist config
                 pc = self.config.get("physics_constants", {})
@@ -199,7 +210,7 @@ class GenericLikelihoodWrapper:
                 
                 m_nu_bg_arr = np.ascontiguousarray(get_mass_eigenvalues(m_lightest_eV, dm21_sq, dm31_sq, mass_ordering), dtype=np.float64)
                 
-                # Construct expanded 30-element static_data tuple
+                # Construct expanded 31-element static_data tuple
                 self.static_data = (
                     0.33,                           # 0. obs_f_e (not used)
                     0.33,                           # 1. obs_f_mu (not used)
@@ -230,15 +241,16 @@ class GenericLikelihoodWrapper:
                     N_steps_earth,                  # 26. N_steps_earth
                     use_SM_potential,               # 27. use_SM_potential
                     n_e_earth_eV3,                  # 28. n_e_earth (natural units)
-                    use_debye_screening              # 29. use_debye_screening
+                    use_debye_screening,             # 29. use_debye_screening
+                    self.n_cores_standalone           # 30. n_cores_standalone
                 )
                 print(f"  [Server] Successfully loaded physical constants from active config.")
             except Exception as e:
                 print(f"  [Warning] Failed to parse physics config from self.config: {e}. Falling back to default mock static_data.")
                 self.static_data = None
-                    
+
         if self.static_data is None:
-            print("  [Warning] Valid 30-element 'static_data_tuple' not found in config. Injecting mock tuple for initialization.")
+            print("  [Warning] Valid 31-element 'static_data_tuple' not found in config. Injecting mock tuple for initialization.")
             self.static_data = (
                 0.33, 0.33, 0.05, 0.05,
                 np.logspace(5, 8, 10), np.linspace(0, 4, 10),
@@ -250,7 +262,8 @@ class GenericLikelihoodWrapper:
                 112.0, 1.95e-4, np.ones(3, dtype=np.float64),
                 1.5, False, 2.0, 0.0, 1e-18,
                 1.0, 6, 3, 100, 100.0, 500,
-                False, 1.5e24 * cm_inv3_to_eV3, True
+                False, 1.5e24 * cm_inv3_to_eV3, True,
+                self.n_cores_standalone
             )
 
         if self.asimov:

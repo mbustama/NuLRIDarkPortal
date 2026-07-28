@@ -24,6 +24,7 @@ Run with: python3 -m pytest tests/test_physics_regression.py -v
 
 import os
 import sys
+import subprocess
 
 import numpy as np
 import pytest
@@ -505,7 +506,7 @@ def test_frequentist_static_data_wires_use_SM_potential_and_n_e_earth():
     func_lo = GenericLikelihoodWrapper(cfg_lo, [])
     func_hi = GenericLikelihoodWrapper(cfg_hi, [])
 
-    assert len(func_off.static_data) == 30
+    assert len(func_off.static_data) == 31
     assert func_off.static_data[27] is False or func_off.static_data[27] == False  # noqa: E712
     assert func_lo.static_data[27] is True or func_lo.static_data[27] == True  # noqa: E712
     assert func_lo.static_data[28] != func_hi.static_data[28]
@@ -574,6 +575,140 @@ def test_frequentist_static_data_backward_compatible_with_shorter_tuples():
     result = compute_user_model_single(_default_dark_portal_params(), old_static_data)
     assert len(result) == 3
     assert all(np.isfinite(result))
+
+
+# =============================================================================
+# 8. MainProcess-adaptive n_cores (regression test for the fix)
+# =============================================================================
+
+def test_frequentist_n_cores_standalone_wired_from_scan_settings():
+    """GenericLikelihoodWrapper must read scan_settings.num_cores (clamped to actually
+    available cores) into static_data as n_cores_standalone, for kernel.py's
+    run_propagation to use whenever it is *not* running inside main.py's scan/repair
+    multiprocessing.Pool."""
+    from src.core.likelihood import GenericLikelihoodWrapper
+
+    cfg = _make_frequentist_config()
+    cfg["scan_settings"] = {"num_cores": 4}
+    func = GenericLikelihoodWrapper(cfg, [])
+    assert len(func.static_data) == 31
+    assert func.static_data[30] == 4
+
+    # Clamped to what's actually available, never silently allowed above it.
+    import multiprocessing as _mp
+    huge_request = _mp.cpu_count() * 100
+    cfg_huge = _make_frequentist_config()
+    cfg_huge["scan_settings"] = {"num_cores": huge_request}
+    func_huge = GenericLikelihoodWrapper(cfg_huge, [])
+    assert 1 <= func_huge.static_data[30] <= _mp.cpu_count()
+
+
+def _call_kernel_and_report_process(args):
+    """Module-level (picklable) helper for
+    test_frequentist_kernel_uses_n_cores_standalone_only_in_main_process -- must live at
+    module scope so multiprocessing can pickle it for dispatch to a real Pool worker."""
+    import multiprocessing as _mp
+    from src.physics.kernel import compute_user_model_single
+    static_data, params = args
+    proc_name = _mp.current_process().name
+    result = compute_user_model_single(params, static_data)
+    return proc_name, proc_name == "MainProcess", result
+
+
+def test_frequentist_kernel_uses_n_cores_standalone_only_in_main_process():
+    """kernel.py's run_propagation must use n_cores_standalone when running in the main
+    process (e.g. main.py's initial m.simplex()/m.migrad() global fit, which runs before
+    any scan/repair Pool worker ever touches this function), but must force n_cores back
+    to 1 whenever called from inside an actual multiprocessing.Pool worker -- otherwise a
+    worker would itself spin up a nested pool and oversubscribe every core (the same
+    hazard the BLAS/numba thread-pinning guards in dark_portal_solver.py exist to avoid).
+    Both must produce the exact same physics result regardless of core count."""
+    from src.core.likelihood import GenericLikelihoodWrapper
+    import multiprocessing as _mp
+
+    cfg = _make_frequentist_config()
+    cfg["scan_settings"] = {"num_cores": max(2, min(4, _mp.cpu_count()))}
+    func = GenericLikelihoodWrapper(cfg, [])
+    params = _default_dark_portal_params()
+
+    assert _mp.current_process().name == "MainProcess"
+    result_main = _call_kernel_and_report_process((func.static_data, params))
+
+    with _mp.Pool(processes=2) as pool:
+        result_worker = pool.apply(_call_kernel_and_report_process, ((func.static_data, params),))
+
+    proc_name_main, is_main_flag, flux_main = result_main
+    proc_name_worker, is_main_worker_flag, flux_worker = result_worker
+
+    assert is_main_flag is True
+    assert is_main_worker_flag is False
+    assert proc_name_worker != "MainProcess"
+    np.testing.assert_allclose(flux_main, flux_worker, rtol=1e-9)
+
+
+def test_frequentist_persistent_pool_reused_under_spawn_not_recreated_per_call():
+    """Regression test for a near-miss caught during this fix's own development: the first
+    version of the MainProcess-adaptive n_cores fix created a fresh multiprocessing.Pool
+    inside propagate_earth_spatial on every single call. That is cheap under the 'fork' start
+    method (the default on Linux, and what every earlier timing check in this fix's
+    development happened to use) but *catastrophically* expensive under 'spawn' -- a full
+    interpreter relaunch plus reimport per worker, per call. main.py explicitly forces
+    'spawn' (multiprocessing.set_start_method('spawn', force=True)), and measured directly on
+    the real production config, using more cores made every single Migrad evaluation ~10x
+    *slower* without pool reuse (3.75s/eval vs 0.37s/eval). kernel.py's _get_persistent_pool
+    must construct the Pool at most once and reuse it across many calls.
+
+    This runs in an isolated subprocess: the multiprocessing start method is process-global
+    and can only be forced to 'spawn' once, before any Pool has been created in that process
+    -- doing so here would affect every other test in this file that uses multiprocessing.
+    """
+    script = f'''
+import sys, multiprocessing, multiprocessing.pool
+sys.path.insert(0, {_FREQ_DIR!r})
+multiprocessing.set_start_method("spawn", force=True)
+
+_pool_construct_count = [0]
+_RealPool = multiprocessing.pool.Pool
+class _CountingPool(_RealPool):
+    def __init__(self, *a, **k):
+        _pool_construct_count[0] += 1
+        super().__init__(*a, **k)
+multiprocessing.Pool = _CountingPool
+
+from src.core.likelihood import GenericLikelihoodWrapper
+from src.physics.kernel import compute_user_model_single
+
+config = {{
+    "experiment": "test",
+    "physics_constants": {{
+        "H0_km_s_Mpc": 67.4, "Omega_m": 0.315, "Omega_L": 0.685,
+        "T_nu0_eV": 1.95e-4, "n_n0_cm3": 0.25e-6, "m_lightest_eV": 0.01,
+        "mass_ordering": "normal", "eta_e": 1.0, "eta_mu": 1.0, "eta_tau": 1.0,
+        "detector_depth_km": 1.5, "p_index": 2.5, "Phi_0": 1.0, "z_max": 4.0,
+        "rho_evol": 0.0, "f_e_S": 0.333333, "f_mu_S": 0.666667, "f_tau_S": 0.0,
+        "is_antineutrino": "sum", "E_min_eV": 1e13, "E_max_eV": 3e16,
+        "n_E_bins": 12, "n_z_bins": 12, "n_mw_paths": 8, "n_earth_chords": 8,
+        "N_steps_MW": 5, "N_steps_earth": 5,
+    }},
+    "scan_settings": {{"num_cores": 4}},
+}}
+params = {{"m_Zd_eV": 2.0e6, "g_D": 1e-4, "epsilon_prime": 0.1, "u_e": 0.5, "u_mu": 0.5, "u_tau": 0.0}}
+
+func = GenericLikelihoodWrapper(config, [])
+results = [compute_user_model_single(params, func.static_data) for _ in range(3)]
+
+assert all(r == results[0] for r in results), f"results differ across repeated calls: {{results}}"
+print(f"POOL_CONSTRUCTIONS={{_pool_construct_count[0]}}")
+print("OK")
+'''
+    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, f"subprocess failed:\nstdout={result.stdout}\nstderr={result.stderr}"
+    assert "OK" in result.stdout, f"stdout={result.stdout}\nstderr={result.stderr}"
+
+    pool_count_lines = [l for l in result.stdout.splitlines() if l.startswith("POOL_CONSTRUCTIONS=")]
+    assert pool_count_lines, f"missing pool count marker in output: {result.stdout}"
+    pool_constructions = int(pool_count_lines[0].split("=")[1])
+    assert pool_constructions == 1, f"expected exactly 1 Pool construction reused across 3 calls, got {pool_constructions}"
 
 
 if __name__ == "__main__":

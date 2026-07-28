@@ -562,15 +562,33 @@ def _earth_chord_worker(args) -> np.ndarray:
                            detector_depth_km, n_e_earth_eV3, U_step_buffer)
     return rho_earth
 
-def _run_spatial_tasks(worker_fn, tasks, desc, n_workers, show_progress):
+def _run_spatial_tasks(worker_fn, tasks, desc, n_workers, show_progress, external_pool=None):
     """Dispatches independent spatial-handover tasks (MW paths / Earth chords) either
-    sequentially or across a multiprocessing pool, depending on n_workers."""
+    sequentially, across a freshly-created multiprocessing pool, or across a caller-managed
+    persistent pool (external_pool), depending on n_workers and whether one was supplied.
+
+    external_pool exists for callers that invoke this many times in a tight loop (e.g.
+    FrequentistAnalysis's kernel.py evaluating the physics kernel once per Migrad iteration
+    during the initial global fit) and want to reuse the same worker processes across all of
+    them, rather than spinning up a fresh Pool every call. Creating a Pool is cheap under the
+    'fork' start method (a copy-on-write process clone) but expensive under 'spawn' (a full
+    interpreter relaunch plus reimport per worker) -- and FrequentistAnalysis's main.py forces
+    'spawn'. Without reuse, using more than one core here made every single Migrad evaluation
+    roughly 10x *slower*, not faster (measured directly). Passing None here (the default)
+    preserves the exact original per-call pool creation behavior for every existing caller.
+    """
     if n_workers > 1 and len(tasks) > 1:
-        with multiprocessing.Pool(processes=min(n_workers, len(tasks))) as pool:
-            iterator = pool.imap(worker_fn, tasks)
+        if external_pool is not None:
+            iterator = external_pool.imap(worker_fn, tasks)
             if HAS_TQDM and show_progress:
                 iterator = tqdm(iterator, total=len(tasks), desc=desc, leave=False)
             results = list(iterator)
+        else:
+            with multiprocessing.Pool(processes=min(n_workers, len(tasks))) as pool:
+                iterator = pool.imap(worker_fn, tasks)
+                if HAS_TQDM and show_progress:
+                    iterator = tqdm(iterator, total=len(tasks), desc=desc, leave=False)
+                results = list(iterator)
     else:
         iterator = tqdm(tasks, desc=desc, leave=False) if (HAS_TQDM and show_progress) else tasks
         results = [worker_fn(t) for t in iterator]
@@ -584,11 +602,14 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
                             is_antineutrino: bool, n_mw_paths: int, n_earth_chords: int,
                             N_steps_MW: int = 100, r_start_kpc: float = 100.0,
                             show_progress: bool = True, verbose: int = 1, n_cores: int = 1,
-                            N_steps_earth: int = 500) -> np.ndarray:
+                            N_steps_earth: int = 500, external_pool=None) -> np.ndarray:
     """
     Executes pure spatial ODE through Milky Way and Earth with active tracking.
     Milky Way trajectories and Earth chords are mutually independent, so when n_cores > 1
     each set is distributed across a multiprocessing pool instead of being run sequentially.
+
+    external_pool, if given, is a caller-managed multiprocessing.Pool reused across many
+    calls instead of creating a fresh one each time -- see _run_spatial_tasks's docstring.
     """
     N_E = len(E_bins)
     lbl = "Anti-Nu" if is_antineutrino else "Nu"
@@ -641,7 +662,7 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
 
     mw_tasks = [(mw_theta[k], mw_phi[k], r_start_kpc, dr_kpc, dr_MW_eV_inv, N_steps_MW, E_bins,
                  F_mass_arrival, M_rot, m_eff, Coef, U_LRI_struct) for k in range(len(mw_theta))]
-    mw_results = _run_spatial_tasks(_mw_path_worker, mw_tasks, f"MW paths ({lbl})", n_workers, show_progress)
+    mw_results = _run_spatial_tasks(_mw_path_worker, mw_tasks, f"MW paths ({lbl})", n_workers, show_progress, external_pool=external_pool)
     rho_surf_avg = np.mean(np.stack(mw_results, axis=0), axis=0)
 
     # PHASE 2: Earth Transit (PREM Layers)
@@ -674,7 +695,7 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
     earth_tasks = [(costh, get_baseline_earth(detector_depth_km, costh), N_steps_earth, E_bins, rho_surf_avg,
                     M_rot, n_n_amb_eV3, Coef, U_LRI_struct, use_SM_potential, is_antineutrino,
                     detector_depth_km, n_e_earth_eV3) for costh in earth_costh]
-    earth_results = _run_spatial_tasks(_earth_chord_worker, earth_tasks, f"Earth chords ({lbl})", n_workers, show_progress)
+    earth_results = _run_spatial_tasks(_earth_chord_worker, earth_tasks, f"Earth chords ({lbl})", n_workers, show_progress, external_pool=external_pool)
     rho_earth_avg = np.mean(np.stack(earth_results, axis=0), axis=0)
     F_earth = np.real(np.diagonal(rho_earth_avg, axis1=1, axis2=2)).copy()
 
@@ -746,10 +767,15 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                        Phi_0: float, eta_bg: np.ndarray, n_mw_paths: int, n_earth_chords: int,
                        N_steps_MW: int = 100, r_start_kpc: float = 100.0,
                        show_progress: bool = True, verbose: int = 1, n_cores: int = 1,
-                       precomputed_Gamma_grid_all: np.ndarray = None, N_steps_earth: int = 500) -> np.ndarray:
+                       precomputed_Gamma_grid_all: np.ndarray = None, N_steps_earth: int = 500,
+                       external_pool=None) -> np.ndarray:
     """
     Executes the complete spectrum integration, driving the underlying JIT kernels.
     Includes verbose level 2 for periodic redshift status updates.
+
+    external_pool, if given, is a caller-managed multiprocessing.Pool passed straight through
+    to propagate_earth_spatial, reused across many calls instead of creating a fresh one each
+    time -- see _run_spatial_tasks's docstring for why this matters under 'spawn'.
 
     precomputed_Gamma_grid_all lets a caller that evaluates both neutrinos and antineutrinos
     (e.g. is_antineutrino="sum") compute the thermal-rate grid once and pass it to both calls,
@@ -842,7 +868,7 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                                       use_SM_potential, n_e_earth, is_antineutrino, n_mw_paths, n_earth_chords,
                                       N_steps_MW=N_steps_MW, r_start_kpc=r_start_kpc,
                                       show_progress=show_progress, verbose=verbose, n_cores=n_cores,
-                                      N_steps_earth=N_steps_earth)
+                                      N_steps_earth=N_steps_earth, external_pool=external_pool)
             
     return F_earth
 
