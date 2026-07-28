@@ -121,10 +121,10 @@ class GenericLikelihoodWrapper:
         self._cache = {}
         self._cache_enabled = True
 
-        # Ensure the tuple expects 33 elements now (spatial tracking overrides plus
+        # Ensure the tuple expects 34 elements now (spatial tracking overrides plus
         # use_SM_potential/n_e_earth/use_debye_screening/n_cores_standalone)
         self.static_data = self.config.get("static_data_tuple", None)
-        if self.static_data is None or len(self.static_data) != 33:
+        if self.static_data is None or len(self.static_data) != 34:
             try:
                 # Direct read from the flat physics_constants dict in the active frequentist config
                 pc = self.config.get("physics_constants", {})
@@ -224,6 +224,9 @@ class GenericLikelihoodWrapper:
                 # in dark_portal_solver.py before lowering it for a resonance-scanning fit.
                 N_steps_earth = int(pc.get("N_steps_earth", 500))
                 r_start_kpc = float(pc.get("r_start_kpc", 100.0))
+                # Coarse z-sampling of the thermal-rate grid (0 = exact grid; see
+                # dark_portal_solver.build_thermal_grid).
+                n_z_thermal = int(pc.get("n_z_thermal", 0))
                 
                 # Computed structures
                 E_bins = np.logspace(np.log10(E_min_eV), np.log10(E_max_eV), n_E_bins)
@@ -237,7 +240,7 @@ class GenericLikelihoodWrapper:
                 
                 m_nu_bg_arr = np.ascontiguousarray(get_mass_eigenvalues(m_lightest_eV, dm21_sq, dm31_sq, mass_ordering), dtype=np.float64)
                 
-                # Construct expanded 33-element static_data tuple
+                # Construct expanded 34-element static_data tuple
                 self.static_data = (
                     0.33,                           # 0. obs_f_e (not used)
                     0.33,                           # 1. obs_f_mu (not used)
@@ -271,7 +274,8 @@ class GenericLikelihoodWrapper:
                     use_debye_screening,             # 29. use_debye_screening
                     self.n_cores_standalone,          # 30. n_cores_standalone
                     V_SM_struct,                     # 31. V_SM_struct (None = default diag(1,0,0))
-                    U_LRI_struct                     # 32. U_LRI_struct (None = outer(u, conj(u)))
+                    U_LRI_struct,                    # 32. U_LRI_struct (None = outer(u, conj(u)))
+                    n_z_thermal                      # 33. n_z_thermal (0 = exact thermal grid)
                 )
                 print(f"  [Server] Successfully loaded physical constants from active config.")
             except Exception as e:
@@ -279,7 +283,7 @@ class GenericLikelihoodWrapper:
                 self.static_data = None
 
         if self.static_data is None:
-            print("  [Warning] Valid 33-element 'static_data_tuple' not found in config. Injecting mock tuple for initialization.")
+            print("  [Warning] Valid 34-element 'static_data_tuple' not found in config. Injecting mock tuple for initialization.")
             self.static_data = (
                 0.33, 0.33, 0.05, 0.05,
                 np.logspace(5, 8, 10), np.linspace(0, 4, 10),
@@ -293,7 +297,7 @@ class GenericLikelihoodWrapper:
                 1.0, 6, 3, 100, 100.0, 500,
                 False, 1.5e24 * cm_inv3_to_eV3, True,
                 self.n_cores_standalone,
-                None, None
+                None, None, 0
             )
 
         if self.asimov:

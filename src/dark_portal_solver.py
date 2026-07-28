@@ -266,8 +266,9 @@ def get_adiabatic_mixing_cosmo(E0: float, z: float, M_rot: np.ndarray,
         V_LRI = -V_LRI
 
     H_tot = H_vac + V_LRI
-    evals, evecs = np.linalg.eigh(H_tot)
-    return evecs
+    # Closed-form eigenvectors (ascending-eigenvalue columns, matching eigh's convention)
+    # with an internal eigh fallback near level crossings -- see eigenvectors_3x3.
+    return eigenvectors_3x3(H_tot)
 
 # =============================================================================
 # SPATIAL HANDOVER HELPER FUNCTIONS
@@ -412,6 +413,104 @@ def propagator_3x3(H: np.ndarray, t: float, out: np.ndarray):
                 val += A0
             out[a, b] = val
 
+@njit(fastmath=True, cache=True)
+def eigenvectors_3x3(H: np.ndarray) -> np.ndarray:
+    """Eigenvectors of a Hermitian 3x3 H, columns ordered by ASCENDING eigenvalue --
+    the same convention as np.linalg.eigh, whose call in the cosmological mixing loop
+    this replaces (the adiabatic mass-eigenstate bookkeeping relies on that ordering
+    staying consistent across every (E, z) evaluation).
+
+    Method: closed-form trigonometric eigenvalues (identical to propagator_3x3), then
+    for each eigenvalue lam_k the spectral projector numerator (H - lam_j I)(H - lam_l I)
+    -- every nonzero column of which is proportional to the eigenvector -- taking the
+    largest-norm column and normalizing. Column phases are arbitrary, exactly as they
+    are for eigh; every downstream consumer uses only |U|^2 projections.
+
+    Same precision guard as propagator_3x3: relative eigenvalue gaps below 1e-4 fall
+    back to np.linalg.eigh (near an MSW-like level crossing the projector columns
+    suffer the same catastrophic cancellation as the Lagrange denominators).
+    """
+    q = (H[0, 0].real + H[1, 1].real + H[2, 2].real) / 3.0
+    p1 = (H[0, 1].real**2 + H[0, 1].imag**2 +
+          H[0, 2].real**2 + H[0, 2].imag**2 +
+          H[1, 2].real**2 + H[1, 2].imag**2)
+    d0 = H[0, 0].real - q
+    d1 = H[1, 1].real - q
+    d2 = H[2, 2].real - q
+    p2 = d0 * d0 + d1 * d1 + d2 * d2 + 2.0 * p1
+    p = np.sqrt(p2 / 6.0)
+
+    scale = np.abs(q) + p
+    if p <= 1e-14 * max(scale, 1e-300):
+        # H ~ q * I: any orthonormal basis works; the identity matches eigh's output here.
+        out = np.zeros((3, 3), dtype=np.complex128)
+        out[0, 0] = 1.0
+        out[1, 1] = 1.0
+        out[2, 2] = 1.0
+        return out
+
+    b01 = H[0, 1]
+    b02 = H[0, 2]
+    b12 = H[1, 2]
+    detB = (d0 * (d1 * d2 - (b12.real**2 + b12.imag**2))
+            - (b01 * (np.conjugate(b01) * d2 - b12 * np.conjugate(b02))).real
+            + (b02 * (np.conjugate(b01) * np.conjugate(b12) - d1 * np.conjugate(b02))).real)
+    r = detB / (2.0 * p * p * p)
+    if r < -1.0:
+        r = -1.0
+    elif r > 1.0:
+        r = 1.0
+    phi = np.arccos(r) / 3.0
+
+    lam_hi = q + 2.0 * p * np.cos(phi)
+    lam_lo = q + 2.0 * p * np.cos(phi + 2.0 * np.pi / 3.0)
+    lam_mid = 3.0 * q - lam_hi - lam_lo
+
+    g01 = abs(lam_hi - lam_mid)
+    g02 = abs(lam_hi - lam_lo)
+    g12 = abs(lam_mid - lam_lo)
+    if min(g01, min(g02, g12)) < 1e-4 * (abs(lam_hi) + abs(lam_mid) + abs(lam_lo) + 1e-300):
+        evals, evecs = np.linalg.eigh(H)
+        return np.ascontiguousarray(evecs)
+
+    out = np.empty((3, 3), dtype=np.complex128)
+    lams_asc = (lam_lo, lam_mid, lam_hi)
+    for k in range(3):
+        lam_k = lams_asc[k]
+        lam_a = lams_asc[(k + 1) % 3]
+        lam_b = lams_asc[(k + 2) % 3]
+        # M = (H - lam_a I)(H - lam_b I); columns proportional to the lam_k eigenvector
+        best_norm = -1.0
+        v0 = 0.0 + 0.0j
+        v1 = 0.0 + 0.0j
+        v2 = 0.0 + 0.0j
+        for c in range(3):
+            # column c of (H - lam_b I): H[:, c] - lam_b * e_c
+            y0 = H[0, c]
+            y1 = H[1, c]
+            y2 = H[2, c]
+            if c == 0:
+                y0 -= lam_b
+            elif c == 1:
+                y1 -= lam_b
+            else:
+                y2 -= lam_b
+            # m = (H - lam_a I) @ y
+            m0 = (H[0, 0] - lam_a) * y0 + H[0, 1] * y1 + H[0, 2] * y2
+            m1 = H[1, 0] * y0 + (H[1, 1] - lam_a) * y1 + H[1, 2] * y2
+            m2 = H[2, 0] * y0 + H[2, 1] * y1 + (H[2, 2] - lam_a) * y2
+            nrm = (m0.real**2 + m0.imag**2 + m1.real**2 + m1.imag**2 + m2.real**2 + m2.imag**2)
+            if nrm > best_norm:
+                best_norm = nrm
+                v0 = m0
+                v1 = m1
+                v2 = m2
+        inv_nrm = 1.0 / np.sqrt(best_norm)
+        out[0, k] = v0 * inv_nrm
+        out[1, k] = v1 * inv_nrm
+        out[2, k] = v2 * inv_nrm
+    return out
+
 @njit("float64(float64, float64)", fastmath=True, cache=True)
 def get_baseline_earth(d_km: float, costh: float) -> float:
     """Calculates the exact baseline distance traversed inside the Earth."""
@@ -438,7 +537,63 @@ def precompute_all_thermal_rates(E_bins: np.ndarray, z_bins: np.ndarray, sum_G: 
         for i in range(N_E):
             Gamma_grid[k, i, :] = thermal_averaged_rates_flavor(E_bins[i], z_bins[k], sum_G, sum_G_alpha, m_Zd, m_nu_bg_arr, T_nu0, eta_mass)
     return Gamma_grid
-    
+
+@njit(fastmath=True, cache=True, parallel=True)
+def _interp_thermal_grid_z(Gamma_sub: np.ndarray, N_z: int) -> np.ndarray:
+    """Linearly interpolates a thermal-rate grid computed on a coarse uniform z-subgrid
+    onto the full uniform z-grid. Both grids are uniform linspaces over the same
+    [z_max, 0] range (in the same direction), so the fractional-index mapping
+    t = k * (n_sub - 1) / (N_z - 1) is exact -- no searching required."""
+    n_sub = Gamma_sub.shape[0]
+    N_E = Gamma_sub.shape[1]
+    out = np.empty((N_z, N_E, 3), dtype=np.float64)
+    scale = (n_sub - 1.0) / (N_z - 1.0)
+    for k in prange(N_z):
+        t = k * scale
+        i0 = int(t)
+        if i0 > n_sub - 2:
+            i0 = n_sub - 2
+        w = t - i0
+        for i in range(N_E):
+            for a in range(3):
+                out[k, i, a] = (1.0 - w) * Gamma_sub[i0, i, a] + w * Gamma_sub[i0 + 1, i, a]
+    return out
+
+def build_thermal_grid(E_bins: np.ndarray, z_bins: np.ndarray, sum_G: float,
+                       sum_G_alpha: np.ndarray, m_Zd: float, m_nu_bg_arr: np.ndarray,
+                       T_nu0: float, eta_mass: np.ndarray, n_z_thermal: int = 0) -> np.ndarray:
+    """Builds the (N_z, N_E, 3) thermal attenuation-rate grid, optionally via a coarse
+    z-subgrid plus linear interpolation.
+
+    Each grid entry is a full Breit-Wigner momentum integration
+    (thermal_averaged_rates_flavor), making the exact N_z x N_E precompute one of the
+    most expensive per-evaluation costs at large N_z.
+
+    INTERPOLATION IS OFF BY DEFAULT (n_z_thermal = 0 -> exact grid), deliberately: the
+    tempting smoothness argument -- the (1+z) scalings sweep a thermally-broadened
+    resonance slowly through the band -- FAILS for the heavier CnuB mass states, which
+    are non-relativistic (p ~ T << m), so their resonance condition s ~ 2 E (1+z) m_i
+    is met over a z-window of relative width only ~ p/m_i ~ 0.4-2%. Measured at
+    production settings (N_z = 1000, subgrid 201): up to 3.5e-3 absolute flavor-ratio
+    error and ~10% pointwise flux error in the absorption dip at a below-band
+    resonance point (m_Zd = 3e5 eV), vs ~4e-5 ratio error at an in-band point. Enable
+    it (config key grid.n_z_thermal, CLI --n_z_thermal) only when that error budget is
+    acceptable for your parameter region, or with a subgrid fine enough to resolve the
+    narrow-in-z resonance of the heaviest background state.
+
+    n_z_thermal: number of coarse z-samples. Values < 2, or >= the full N_z, disable
+    interpolation and compute the exact grid.
+    """
+    N_z = len(z_bins)
+    n_sub = int(n_z_thermal)
+    if n_sub < 2 or n_sub >= N_z:
+        return precompute_all_thermal_rates(E_bins, z_bins, sum_G, sum_G_alpha, m_Zd,
+                                            m_nu_bg_arr, T_nu0, eta_mass)
+    z_sub = np.linspace(z_bins[0], z_bins[-1], n_sub)
+    Gamma_sub = precompute_all_thermal_rates(E_bins, z_sub, sum_G, sum_G_alpha, m_Zd,
+                                             m_nu_bg_arr, T_nu0, eta_mass)
+    return _interp_thermal_grid_z(np.ascontiguousarray(Gamma_sub), N_z)
+
 @njit(fastmath=True, cache=True, parallel=True)
 def step_cosmological_propagation(z: float, dt: float, R_z: float, E_bins: np.ndarray,
                                   F_mass: np.ndarray, rho_src: np.ndarray,
@@ -479,22 +634,27 @@ def step_cosmological_propagation(z: float, dt: float, R_z: float, E_bins: np.nd
         # Use the pre-computed grid values instead of the thermal kernel
         Gamma_flavor[i, :] = precomputed_Gamma_flavor[i, :]
 
-    # Second loop: Pre-calculate the redundant interaction rate sum per energy bin
-    for j in range(N_E):
-        for b in range(3):
-            rate_F_sum_arr[j] += Gamma_flavor[j, b] * F_flavor[j, b]
+    # Second loop: Energy cascading integral, reduced from O(N_E^2) to O(N_E).
+    # The cascading kernel W(E_i, E_j) = 3 E_i^2 * dE_j / E_j^3 is separable: the entire
+    # i-dependence is the prefactor 3 E_i^2, so the per-bin integral
+    #     integral_i = sum_{j >= i} rate_F_sum[j] * W_kernel[j]
+    # is a pure suffix sum over a fixed vector. The previous formulation recomputed each
+    # suffix independently -- N_E^2/2 multiply-adds per z-step, the single dominant cost
+    # of the whole cosmological phase at the production 1000x1000 grid (10^9 operations
+    # per run) -- where one reversed sweep produces every suffix in N_E operations.
+    # rate_F_sum_arr[j] now stores the suffix value sum_{k >= j} rate*W rather than the
+    # per-bin summand; nothing downstream reads the old meaning.
+    suffix = 0.0
+    for j in range(N_E - 1, -1, -1):
+        s = (Gamma_flavor[j, 0] * F_flavor[j, 0]
+             + Gamma_flavor[j, 1] * F_flavor[j, 1]
+             + Gamma_flavor[j, 2] * F_flavor[j, 2])
+        suffix += s * W_kernel[j]
+        rate_F_sum_arr[j] = suffix
 
-    # Third loop: Energy cascading integral (O(N_E^2) -- the dominant cost of this step).
-    # W_kernel[j] = dE[j] / E_bins[j]**3 is precomputed once per run (it depends only on the
-    # fixed energy grid, never on i or z): the inner loop previously recomputed E_bins[j]**3
-    # and a division for every (i, j) pair even though it only varies with j, redoing the
-    # same N_E divisions up to N_E times over. Only the i-dependent factor 3*E_bins[i]^2
-    # needs to be applied, once, after the sum over j.
+    # Third loop: apply the i-dependent prefactor and branching ratios
     for i in prange(N_E):
-        integral = 0.0
-        for j in range(i, N_E):
-            integral += rate_F_sum_arr[j] * W_kernel[j]
-        casc_i = 3.0 * (E_bins[i]**2) * integral
+        casc_i = 3.0 * (E_bins[i]**2) * rate_F_sum_arr[i]
         for a in range(3):
             dF_casc_flavor[i, a] = BR[a] * casc_i
 
@@ -925,7 +1085,8 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                        N_steps_MW: int = 25, r_start_kpc: float = 100.0,
                        show_progress: bool = True, verbose: int = 1, n_cores: int = 1,
                        precomputed_Gamma_grid_all: np.ndarray = None, N_steps_earth: int = 500,
-                       external_pool=None, U_LRI_struct=None, V_SM_struct=None) -> np.ndarray:
+                       external_pool=None, U_LRI_struct=None, V_SM_struct=None,
+                       n_z_thermal: int = 0) -> np.ndarray:
     """
     Executes the complete spectrum integration, driving the underlying JIT kernels.
     Includes verbose level 2 for periodic redshift status updates.
@@ -1020,7 +1181,8 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
     else:
         if verbose == 2:
             safe_print(f"Pre-computing thermal interaction rate grids...")
-        Gamma_grid_all = precompute_all_thermal_rates(E_bins, z_bins, sum_G, sum_G_alpha, m_Zd, m_nu_bg_arr, T_nu0, eta_mass)
+        Gamma_grid_all = build_thermal_grid(E_bins, z_bins, sum_G, sum_G_alpha, m_Zd, m_nu_bg_arr, T_nu0, eta_mass,
+                                            n_z_thermal=n_z_thermal)
 
     iterator = tqdm(range(1, len(z_bins)), desc=f"Cosmo Phase ({lbl})", leave=False) if (HAS_TQDM and show_progress) else range(1, len(z_bins))
     z_print_mod = max(1, len(z_bins) // 10)
@@ -1143,14 +1305,24 @@ def propagation_worker(args) -> Tuple[np.ndarray, np.ndarray]:
     eta_bg = params['eta_bg']
     U_pmns_base = np.ascontiguousarray(construct_PMNS(params['th12'], params['th13'], params['th23'], params['d_cp']))
 
-    # The thermal-rate grid (precompute_all_thermal_rates) depends only on |U_pmns| and
-    # |u_arr| magnitudes, which conjugation never changes -- so it is identical for the
-    # neutrino and antineutrino calls below. Computing it once here and sharing it (instead
-    # of letting each flavor call redo this expensive O(N_z * N_E) precomputation from
-    # scratch) roughly halves that stage's cost whenever both flavors are evaluated
-    # (is_antineutrino="sum", the default).
+    # Pin numba's thread pool BEFORE the thermal-grid precompute below: that prange kernel
+    # previously ran ahead of propagate_spectrum's own set_num_threads call, so inside a
+    # scanner pool worker (n_cores=1) the first evaluation used numba's default thread
+    # count (all cores) -- transient oversubscription multiplied across every worker.
+    if HAS_NUMBA:
+        numba.set_num_threads(max(1, int(params.get('n_cores', 1))))
+
+    # The thermal-rate grid depends only on |U_pmns| and |u_arr| magnitudes, which
+    # conjugation never changes -- so it is identical for the neutrino and antineutrino
+    # calls below. Computing it once here and sharing it (instead of letting each flavor
+    # call redo this expensive O(N_z * N_E) precomputation from scratch) roughly halves
+    # that stage's cost whenever both flavors are evaluated (is_antineutrino="sum", the
+    # default). build_thermal_grid can additionally sample z on a coarse subgrid and
+    # interpolate (grid.n_z_thermal; OFF by default -- see its docstring for the measured
+    # error budget before enabling).
     sum_G, sum_G_alpha, eta_mass = compute_gamma_grid_inputs(U_pmns_base, u_arr_base, params['g_D'], params['epsilon_prime'], eta_bg)
-    Gamma_grid_all = precompute_all_thermal_rates(E_bins, z_bins, sum_G, sum_G_alpha, params['m_Zd_eV'], params['m_nu_bg_arr'], params['T_nu0_eV'], eta_mass)
+    Gamma_grid_all = build_thermal_grid(E_bins, z_bins, sum_G, sum_G_alpha, params['m_Zd_eV'], params['m_nu_bg_arr'], params['T_nu0_eV'], eta_mass,
+                                        n_z_thermal=params.get('n_z_thermal', 0))
 
     def compute_flux(is_anti: bool) -> np.ndarray:
         # Enforce C-contiguous alignment when passing matrices to Numba kernels
@@ -1290,6 +1462,8 @@ def run_solver(config: Dict) -> Tuple[np.ndarray, np.ndarray]:
     # adiabatic), so the old default of 100 was pure surplus.
     params['n_earth_chords'] = int(config['grid'].get('n_earth_chords', 12))
     params['N_steps_MW'] = int(config['grid'].get('N_steps_MW', 25))
+    # Coarse z-sampling of the thermal-rate grid (0 disables interpolation -- exact grid).
+    params['n_z_thermal'] = int(config['grid'].get('n_z_thermal', 0))
     params['N_steps_earth'] = int(config['grid'].get('N_steps_earth', 500))
     params['r_start_kpc'] = float(config['grid'].get('r_start_kpc', 100.0))
     paths_mw = config['grid']['n_mw_paths']
@@ -1445,6 +1619,7 @@ def create_default_config(filename: str = "../config/config_dark_portal.json") -
             "n_mw_paths": 6,
             "n_earth_chords": 12,
             "N_steps_MW": 25,
+            "n_z_thermal": 0,
             "N_steps_earth": 500,
             "r_start_kpc": 100.0
         },
@@ -1516,6 +1691,7 @@ if __name__ == "__main__":
     parser.add_argument("--E_max_eV", type=float, default=None)
     parser.add_argument("--n_E_bins", type=int, default=None)
     parser.add_argument("--n_z_bins", type=int, default=None)
+    parser.add_argument("--n_z_thermal", type=int, default=None, help="Coarse z-samples for the thermal-rate grid (default 0 = exact, no interpolation; see build_thermal_grid before enabling)")
     parser.add_argument("--n_mw_paths", type=int, default=None, help="Number of Milky Way trajectories for solid-angle average")
     parser.add_argument("--n_earth_chords", type=int, default=None, help="Number of Earth chords for PREM evaluation")
     parser.add_argument("--N_steps_MW", type=int, default=None, help="Number of spatial integration steps in the Milky Way")
@@ -1585,6 +1761,7 @@ if __name__ == "__main__":
             "n_mw_paths": 6,
             "n_earth_chords": 12,
             "N_steps_MW": 25,
+            "n_z_thermal": 0,
             "N_steps_earth": 500,
             "r_start_kpc": 100.0
         },
@@ -1657,6 +1834,7 @@ if __name__ == "__main__":
     if args.E_max_eV is not None: config["grid"]["E_max_eV"] = args.E_max_eV
     if args.n_E_bins is not None: config["grid"]["n_E_bins"] = args.n_E_bins
     if args.n_z_bins is not None: config["grid"]["n_z_bins"] = args.n_z_bins
+    if args.n_z_thermal is not None: config["grid"]["n_z_thermal"] = args.n_z_thermal
     if args.n_mw_paths is not None: config["grid"]["n_mw_paths"] = args.n_mw_paths
     if args.n_earth_chords is not None: config["grid"]["n_earth_chords"] = args.n_earth_chords
     if args.N_steps_MW is not None: config["grid"]["N_steps_MW"] = args.N_steps_MW

@@ -516,7 +516,7 @@ def test_frequentist_static_data_wires_use_SM_potential_and_n_e_earth():
     func_lo = GenericLikelihoodWrapper(cfg_lo, [])
     func_hi = GenericLikelihoodWrapper(cfg_hi, [])
 
-    assert len(func_off.static_data) == 33
+    assert len(func_off.static_data) == 34
     assert func_off.static_data[27] is False or func_off.static_data[27] == False  # noqa: E712
     assert func_lo.static_data[27] is True or func_lo.static_data[27] == True  # noqa: E712
     assert func_lo.static_data[28] != func_hi.static_data[28]
@@ -750,6 +750,108 @@ def test_propagator_3x3_near_degenerate_fallback():
     assert worst < 1e-9
 
 
+def test_eigenvectors_3x3_matches_eigh():
+    """eigenvectors_3x3 (closed-form projector-column method, replacing np.linalg.eigh in
+    the cosmological mixing loop) must return true eigenvectors with columns in
+    ASCENDING-eigenvalue order -- eigh's convention, which the adiabatic mass-eigenstate
+    bookkeeping relies on. Column phases are arbitrary (as they are for eigh), so the
+    comparison uses |U|^2, the only projection every downstream consumer uses."""
+    rng = np.random.default_rng(3)
+    worst_resid = 0.0
+    worst_proj = 0.0
+    for _ in range(500):
+        scale = 10.0 ** rng.uniform(-20, -12)
+        A = rng.normal(size=(3, 3)) + 1j * rng.normal(size=(3, 3))
+        H = np.ascontiguousarray((A + A.conj().T) / 2 * scale)
+        evals_ref, evecs_ref = np.linalg.eigh(H)
+        U = dps.eigenvectors_3x3(H)
+        # Residual: each column must be an eigenvector of H with the ascending eigenvalue
+        for k in range(3):
+            resid = np.max(np.abs(H @ U[:, k] - evals_ref[k] * U[:, k])) / scale
+            worst_resid = max(worst_resid, float(resid))
+        worst_proj = max(worst_proj, float(np.max(np.abs(np.abs(U)**2 - np.abs(evecs_ref)**2))))
+    assert worst_resid < 1e-10
+    assert worst_proj < 1e-9
+
+    # Near-degenerate spectra take the eigh fallback and must agree exactly with eigh
+    for _ in range(100):
+        gap = 10.0 ** rng.uniform(-14, -6)
+        lam = np.array([1.0, 1.0 + gap, 2.0]) * 1e-16
+        Q = np.linalg.qr(rng.normal(size=(3, 3)) + 1j * rng.normal(size=(3, 3)))[0]
+        H = np.ascontiguousarray((Q @ np.diag(lam) @ Q.conj().T + (Q @ np.diag(lam) @ Q.conj().T).conj().T) / 2)
+        U = dps.eigenvectors_3x3(H)
+        evals_ref, evecs_ref = np.linalg.eigh(H)
+        np.testing.assert_allclose(np.abs(U)**2, np.abs(evecs_ref)**2, atol=1e-12)
+
+
+def test_cascade_suffix_sum_matches_bruteforce():
+    """The O(N_E) suffix-sum form of the cascading integral in
+    step_cosmological_propagation must reproduce the original O(N_E^2) double loop:
+    dF_casc[i, a] = BR[a] * 3 E_i^2 * sum_{j >= i} (sum_b Gamma[j,b] F_flavor[j,b]) * W[j].
+    The identity holds because the cascading kernel is separable (the whole i-dependence
+    is the 3 E_i^2 prefactor); this test drives the real JIT kernel and checks its
+    dF_casc buffer against an independent brute-force evaluation built from the same
+    U_z projections."""
+    N_E = 40
+    E_bins = np.logspace(13, 16, N_E)
+    rng = np.random.default_rng(5)
+    F_mass = rng.uniform(1e18, 1e22, size=(N_E, 3))
+    rho_src = np.array([0.333, 0.667, 0.0])
+    U_pmns = np.ascontiguousarray(dps.construct_PMNS(np.radians(33.41), np.radians(8.58),
+                                                     np.radians(49.1), np.radians(132.0)))
+    M_sq = np.diag([0.0, 7.41e-5, 2.511e-3]).astype(np.complex128)
+    M_rot = np.ascontiguousarray(U_pmns @ M_sq @ np.conjugate(U_pmns).T)
+    u_arr = np.array([0.5, 0.5, 0.0], dtype=np.complex128)
+    S = np.ascontiguousarray(np.outer(u_arr, np.conjugate(u_arr)))
+    eta_bg = np.ones(3)
+    BR = np.array([0.4, 0.35, 0.25])
+    dE = dps.compute_dE_geometric(E_bins)
+    W_kernel = dE / E_bins**3
+    Gamma_pre = rng.uniform(1e-20, 1e-18, size=(N_E, 3))
+
+    F_flavor = np.zeros((N_E, 3)); Gamma_flavor = np.zeros((N_E, 3))
+    dF_casc = np.zeros((N_E, 3)); U_z_all = np.zeros((N_E, 3, 3), dtype=np.complex128)
+    rate_buf = np.zeros(N_E)
+    dps.step_cosmological_propagation(0.5, 1.0, 1.0, E_bins, F_mass.copy(), rho_src, M_rot,
+                                      u_arr, S, 2.0e6, 1e-4, 0.1, 2.5e-13, 1.95e-4,
+                                      True, False, 2.5, 1.0, eta_bg, BR, W_kernel,
+                                      F_flavor, Gamma_flavor, dF_casc, U_z_all, rate_buf, Gamma_pre)
+
+    # Brute-force reference from the buffers the kernel itself filled
+    expected = np.zeros((N_E, 3))
+    for i in range(N_E):
+        integral = 0.0
+        for j in range(i, N_E):
+            integral += np.sum(Gamma_flavor[j] * F_flavor[j]) * W_kernel[j]
+        expected[i, :] = BR * 3.0 * E_bins[i]**2 * integral
+    np.testing.assert_allclose(dF_casc, expected, rtol=1e-12)
+
+
+def test_build_thermal_grid_exact_and_interpolated():
+    """build_thermal_grid must be bit-identical to precompute_all_thermal_rates when
+    interpolation is disabled (n_z_thermal = 0, the default, or >= N_z), and when
+    enabled must reproduce the exact rates at every fine-grid point that coincides with
+    a coarse-grid node (uniform-to-uniform index mapping is exact, so coincident nodes
+    interpolate with weight 0)."""
+    E_bins = np.logspace(13, 16, 8)
+    z_bins = np.linspace(4.0, 0.0, 21)
+    u_arr = np.array([0.5, 0.5, 0.0], dtype=np.complex128)
+    U_pmns = dps.construct_PMNS(np.radians(33.41), np.radians(8.58), np.radians(49.1), np.radians(132.0))
+    sum_G, sum_G_alpha, eta_mass = dps.compute_gamma_grid_inputs(U_pmns, u_arr, 1e-4, 0.1, np.ones(3))
+    m_nu = np.array([0.01, 0.012, 0.06])
+
+    exact = dps.precompute_all_thermal_rates(E_bins, z_bins, sum_G, sum_G_alpha, 2.0e6, m_nu, 1.95e-4, eta_mass)
+    for n_sub in (0, 21, 100):
+        got = dps.build_thermal_grid(E_bins, z_bins, sum_G, sum_G_alpha, 2.0e6, m_nu, 1.95e-4, eta_mass, n_z_thermal=n_sub)
+        np.testing.assert_array_equal(got, exact)
+
+    # n_sub = 11 on a 21-point fine grid: every even fine index coincides with a node
+    interp = dps.build_thermal_grid(E_bins, z_bins, sum_G, sum_G_alpha, 2.0e6, m_nu, 1.95e-4, eta_mass, n_z_thermal=11)
+    np.testing.assert_allclose(interp[::2], exact[::2], rtol=1e-12)
+    # Odd indices are genuine midpoint interpolations of the coarse neighbors
+    np.testing.assert_allclose(interp[1::2], 0.5 * (exact[::2][:-1] + exact[::2][1:]), rtol=1e-12)
+
+
 def test_mw_density_finite_on_galactic_center_line():
     """calc_MW_neutron_density previously crashed (ZeroDivisionError) or returned NaN when
     evaluated on the exact line through the galactic center (r ~ R_0 = 8.33 kpc along
@@ -781,7 +883,7 @@ def test_frequentist_n_cores_standalone_wired_from_scan_settings():
     cfg = _make_frequentist_config()
     cfg["scan_settings"] = {"num_cores": 4}
     func = GenericLikelihoodWrapper(cfg, [])
-    assert len(func.static_data) == 33
+    assert len(func.static_data) == 34
     assert func.static_data[30] == 4
 
     # Clamped to what's actually available, never silently allowed above it.

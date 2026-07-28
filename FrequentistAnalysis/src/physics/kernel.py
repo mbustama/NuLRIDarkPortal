@@ -29,7 +29,7 @@ if dark_portal_dir not in sys.path:
 # canonical implementations (also used by dark_portal_solver.py itself); importing them
 # rather than keeping a local copy avoids the two drifting out of sync.
 from dark_portal_solver import (propagate_spectrum, construct_PMNS, get_mass_eigenvalues,
-                                compute_gamma_grid_inputs, precompute_all_thermal_rates,
+                                compute_gamma_grid_inputs, build_thermal_grid,
                                 cm_inv3_to_eV3)
 # Imported from flux_postprocessing (not dark_portal_scanner, its previous home):
 # importing the scanner has side effects -- it globally sets
@@ -154,6 +154,8 @@ def compute_user_model_single(params, static_data):
     # the antineutrino conjugation centrally). None means the built-in defaults.
     V_SM_struct = static_data[31] if len(static_data) > 31 else None
     U_LRI_struct = static_data[32] if len(static_data) > 32 else None
+    # Coarse z-sampling of the thermal-rate grid (0 = exact); see build_thermal_grid.
+    n_z_thermal = int(static_data[33]) if len(static_data) > 33 else 0
 
     # 1. Unpack scanning parameters from the generic Minuit engine wrapper.
     #    Handles backwards compatibility if passed as a positional array.
@@ -276,15 +278,6 @@ def compute_user_model_single(params, static_data):
     # 3. Propagate the spectrum through the cosmological and spatial boundaries
     flag_val = str(is_antineutrino).strip().lower()
 
-    # The thermal-rate grid (precompute_all_thermal_rates) depends only on |U_pmns| and
-    # |u_arr| magnitudes, which conjugation never changes -- so it is identical for the
-    # neutrino and antineutrino calls below. compute_user_model_single runs on every single
-    # Minuit/MCMC/scan evaluation, so computing this grid once and sharing it (instead of
-    # letting each flavor call redo this from scratch) matters a lot more here in aggregate
-    # than it does for a single dark_portal_solver.py run.
-    sum_G, sum_G_alpha, eta_mass = compute_gamma_grid_inputs(U_pmns_complex, u_arr_base, g_D, epsilon_prime, eta_bg)
-    Gamma_grid_all = precompute_all_thermal_rates(E_bins, z_bins, sum_G, sum_G_alpha, m_Zd_eV, m_nu_bg_arr, T_nu0, eta_mass)
-
     # propagate_spectrum's own n_cores must stay 1 whenever this call is running inside
     # main.py's scan/repair multiprocessing.Pool (each worker must not itself spin up a
     # nested pool -- oversubscription hazard, see the BLAS/numba thread-pinning guards in
@@ -308,6 +301,27 @@ def compute_user_model_single(params, static_data):
     else:
         n_cores_for_call = 1
         persistent_pool = None
+
+    # Pin numba's thread pool BEFORE the thermal-grid precompute below. That prange kernel
+    # previously ran before propagate_spectrum's own set_num_threads call, so on the FIRST
+    # evaluation inside each scan-pool worker it used numba's default thread count (all
+    # cores) -- transient but real oversubscription when hundreds of workers hit their
+    # first evaluation together. propagate_spectrum sets the same value again downstream.
+    try:
+        import numba
+        numba.set_num_threads(max(1, int(n_cores_for_call)))
+    except ImportError:
+        pass
+
+    # The thermal-rate grid (precompute_all_thermal_rates) depends only on |U_pmns| and
+    # |u_arr| magnitudes, which conjugation never changes -- so it is identical for the
+    # neutrino and antineutrino calls below. compute_user_model_single runs on every single
+    # Minuit/MCMC/scan evaluation, so computing this grid once and sharing it (instead of
+    # letting each flavor call redo this from scratch) matters a lot more here in aggregate
+    # than it does for a single dark_portal_solver.py run.
+    sum_G, sum_G_alpha, eta_mass = compute_gamma_grid_inputs(U_pmns_complex, u_arr_base, g_D, epsilon_prime, eta_bg)
+    Gamma_grid_all = build_thermal_grid(E_bins, z_bins, sum_G, sum_G_alpha, m_Zd_eV, m_nu_bg_arr, T_nu0, eta_mass,
+                                        n_z_thermal)
 
     def run_propagation(is_anti_flag):
         local_U_pmns = np.ascontiguousarray(np.conjugate(U_pmns_complex)) if is_anti_flag else np.ascontiguousarray(U_pmns_complex)
