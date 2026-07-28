@@ -110,9 +110,9 @@ class GenericLikelihoodWrapper:
         self._cache = {}
         self._cache_enabled = True
 
-        # Ensure the tuple expects 26 elements now to allow dynamic spatial tracking overrides
+        # Ensure the tuple expects 27 elements now to allow dynamic spatial tracking overrides
         self.static_data = self.config.get("static_data_tuple", None)
-        if self.static_data is None or len(self.static_data) != 26:
+        if self.static_data is None or len(self.static_data) != 27:
             try:
                 # Direct read from the flat physics_constants dict in the active frequentist config
                 pc = self.config.get("physics_constants", {})
@@ -169,6 +169,10 @@ class GenericLikelihoodWrapper:
                 n_mw_paths = int(pc.get("n_mw_paths", 6))
                 n_earth_chords = int(pc.get("n_earth_chords", 3))
                 N_steps_MW = int(pc.get("N_steps_MW", 100))
+                # N_steps_earth defaults to 500, the only value validated against
+                # resonance-crossing sensitivity -- see propagate_earth_spatial's docstring
+                # in dark_portal_solver.py before lowering it for a resonance-scanning fit.
+                N_steps_earth = int(pc.get("N_steps_earth", 500))
                 r_start_kpc = float(pc.get("r_start_kpc", 100.0))
                 
                 # Computed structures
@@ -183,7 +187,7 @@ class GenericLikelihoodWrapper:
                 
                 m_nu_bg_arr = np.ascontiguousarray(get_mass_eigenvalues(m_lightest_eV, dm21_sq, dm31_sq, mass_ordering), dtype=np.float64)
                 
-                # Construct expanded 26-element static_data tuple
+                # Construct expanded 27-element static_data tuple
                 self.static_data = (
                     0.33,                           # 0. obs_f_e (not used)
                     0.33,                           # 1. obs_f_mu (not used)
@@ -210,7 +214,8 @@ class GenericLikelihoodWrapper:
                     n_mw_paths,                     # 22. n_mw_paths
                     n_earth_chords,                 # 23. n_earth_chords
                     N_steps_MW,                     # 24. N_steps_MW
-                    r_start_kpc                     # 25. r_start_kpc
+                    r_start_kpc,                    # 25. r_start_kpc
+                    N_steps_earth                   # 26. N_steps_earth
                 )
                 print(f"  [Server] Successfully loaded physical constants from active config.")
             except Exception as e:
@@ -218,18 +223,18 @@ class GenericLikelihoodWrapper:
                 self.static_data = None
                     
         if self.static_data is None:
-            print("  [Warning] Valid 26-element 'static_data_tuple' not found in config. Injecting mock tuple for initialization.")
+            print("  [Warning] Valid 27-element 'static_data_tuple' not found in config. Injecting mock tuple for initialization.")
             self.static_data = (
-                0.33, 0.33, 0.05, 0.05,                         
-                np.logspace(5, 8, 10), np.linspace(0, 4, 10),   
-                np.ones(10),                                    
-                67.4, 0.315, 0.685,                             
-                np.eye(3, dtype=np.complex128),                 
-                np.array([0., 7.4e-5, 2.51e-3]),                
-                np.array([0., 0.0086, 0.0501]),                 
-                112.0, 1.95e-4, np.ones(3, dtype=np.float64),   
-                1.5, False, 2.0, 0.0, 1e-18,                    
-                1.0, 6, 3, 100, 100.0                           
+                0.33, 0.33, 0.05, 0.05,
+                np.logspace(5, 8, 10), np.linspace(0, 4, 10),
+                np.ones(10),
+                67.4, 0.315, 0.685,
+                np.eye(3, dtype=np.complex128),
+                np.array([0., 7.4e-5, 2.51e-3]),
+                np.array([0., 0.0086, 0.0501]),
+                112.0, 1.95e-4, np.ones(3, dtype=np.float64),
+                1.5, False, 2.0, 0.0, 1e-18,
+                1.0, 6, 3, 100, 100.0, 500
             )
 
         if self.asimov:

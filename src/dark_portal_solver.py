@@ -334,7 +334,7 @@ def step_cosmological_propagation(z: float, dt: float, R_z: float, E_bins: np.nd
                                   n_n0: float, T_nu0: float,
                                   use_debye_screening: bool, is_antineutrino: bool,
                                   p_index: float, Phi_0: float, eta_bg: np.ndarray,
-                                  BR: np.ndarray, dE: np.ndarray,
+                                  BR: np.ndarray, W_kernel: np.ndarray,
                                   F_flavor: np.ndarray, Gamma_flavor: np.ndarray,
                                   dF_casc_flavor: np.ndarray, U_z_all: np.ndarray,
                                   rate_F_sum_arr: np.ndarray, precomputed_Gamma_flavor: np.ndarray):
@@ -370,14 +370,19 @@ def step_cosmological_propagation(z: float, dt: float, R_z: float, E_bins: np.nd
         for b in range(3):
             rate_F_sum_arr[j] += Gamma_flavor[j, b] * F_flavor[j, b]
 
-    # Third loop: Energy cascading integral (O(N_E^2) -- the dominant cost of this step)
+    # Third loop: Energy cascading integral (O(N_E^2) -- the dominant cost of this step).
+    # W_kernel[j] = dE[j] / E_bins[j]**3 is precomputed once per run (it depends only on the
+    # fixed energy grid, never on i or z): the inner loop previously recomputed E_bins[j]**3
+    # and a division for every (i, j) pair even though it only varies with j, redoing the
+    # same N_E divisions up to N_E times over. Only the i-dependent factor 3*E_bins[i]^2
+    # needs to be applied, once, after the sum over j.
     for i in prange(N_E):
         integral = 0.0
         for j in range(i, N_E):
-            E_prime = E_bins[j]
-            integral += 1.0 * (rate_F_sum_arr[j] * 3.0 * (E_bins[i]**2) / (E_prime**3)) * dE[j]
+            integral += rate_F_sum_arr[j] * W_kernel[j]
+        casc_i = 3.0 * (E_bins[i]**2) * integral
         for a in range(3):
-            dF_casc_flavor[i, a] = BR[a] * integral
+            dF_casc_flavor[i, a] = BR[a] * casc_i
 
     # Fourth loop: Update mass eigenstate flux with decay and injection
     for i in prange(N_E):
@@ -571,7 +576,8 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
                             detector_depth_km: float, use_SM_potential: bool, n_e_earth_eV3: float,
                             is_antineutrino: bool, n_mw_paths: int, n_earth_chords: int,
                             N_steps_MW: int = 100, r_start_kpc: float = 100.0,
-                            show_progress: bool = True, verbose: int = 1, n_cores: int = 1) -> np.ndarray:
+                            show_progress: bool = True, verbose: int = 1, n_cores: int = 1,
+                            N_steps_earth: int = 500) -> np.ndarray:
     """
     Executes pure spatial ODE through Milky Way and Earth with active tracking.
     Milky Way trajectories and Earth chords are mutually independent, so when n_cores > 1
@@ -641,8 +647,23 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
         n_moon_eV3 = N_n_moon * (m_eff**2) / (4.0 * np.pi * d_moon_eV_inv) * np.exp(-m_eff * d_moon_eV_inv)
     n_n_amb_eV3 = calc_MW_neutron_density(0.0, 0.0, 0.0) * cm_inv3_to_eV3 + n_sun_eV3 + n_moon_eV3
 
-    N_steps_earth = 500
-
+    # NOTE: An earlier version of this code scaled n_steps_earth down for shorter chords
+    # (same physical km/step as the costh=-1 chord, since that seemed to only cost
+    # resolution nobody needed -- verified via a synthetic, purely-diagonal test state to
+    # agree with a 2000-step reference to 1e-12). That test state was misleading: the real
+    # rho_surf_avg arriving from the Milky Way phase carries off-diagonal coherences, and at
+    # production defaults this showed a genuine, energy-localized ~10% error for the shorter
+    # chords, concentrated at the exact energy where the Earth matter potential drives a
+    # near-degenerate (MSW-like) eigenvalue crossing -- near such a crossing, eigenvectors
+    # rotate rapidly with position *independent of total path length*, so "shorter chord
+    # needs fewer steps" is the wrong criterion. Fixed step count for every chord (now
+    # caller-configurable via N_steps_earth, default 500 -- unchanged from before) until a
+    # scheme that actually tracks local eigenvalue splitting is worth the complexity.
+    # WARNING: reducing N_steps_earth trades away exactly the resolution that protects
+    # against the failure mode above. It has NOT been validated as safe at any value below
+    # the 500 default across a resonance-scanning parameter range -- verify convergence
+    # against a higher-resolution reference for your own m_Zd range before trusting a lower
+    # value in a real fit.
     earth_tasks = [(costh, get_baseline_earth(detector_depth_km, costh), N_steps_earth, E_bins, rho_surf_avg,
                     M_rot, n_n_amb_eV3, Coef, U_LRI_struct, use_SM_potential, is_antineutrino,
                     detector_depth_km, n_e_earth_eV3) for costh in earth_costh]
@@ -656,7 +677,35 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
     return F_earth
 
 
-def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarray, 
+@njit(cache=True)
+def compute_gamma_grid_inputs(U_pmns: np.ndarray, u_arr: np.ndarray, g_D: float, eps_prime: float,
+                              eta_bg: np.ndarray):
+    """Computes (sum_G, sum_G_alpha, eta_mass): the only inputs precompute_all_thermal_rates
+    needs beyond the (E, z) grid itself.
+
+    These depend only on |U_pmns| and |u_arr| element-wise magnitudes, which are identical
+    for neutrinos and antineutrinos (conjugation never changes a magnitude) -- so the
+    resulting Gamma_grid_all is exactly the same for both, and callers that evaluate both
+    flavors (e.g. is_antineutrino="sum") should compute it once and share it rather than
+    calling precompute_all_thermal_rates twice for an identical result.
+    """
+    eta_mass = np.zeros(3, dtype=np.float64)
+    for i in range(3):
+        eta_mass[i] = np.sum(np.abs(U_pmns[:, i])**2 * eta_bg)
+
+    u_mag = np.abs(u_arr)
+    sum_G = 0.0
+    sum_G_alpha = np.zeros(3, dtype=np.float64)
+    for a in range(3):
+        for g in range(3):
+            coupling_prod = u_mag[a] * u_mag[g]
+            val = g_D * coupling_prod * (g_D * coupling_prod + eps_prime * (0.65 / 0.88))
+            sum_G += val
+            sum_G_alpha[a] += val
+
+    return sum_G, sum_G_alpha, eta_mass
+
+def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarray,
                        H0: float, Omega_m: float, Omega_L: float,
                        U_pmns: np.ndarray, M_sq: np.ndarray,
                        u_arr: np.ndarray, m_Zd: float, g_D: float, eps_prime: float,
@@ -666,10 +715,21 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                        is_antineutrino: bool, p_index: float, rho_evol: float,
                        Phi_0: float, eta_bg: np.ndarray, n_mw_paths: int, n_earth_chords: int,
                        N_steps_MW: int = 100, r_start_kpc: float = 100.0,
-                       show_progress: bool = True, verbose: int = 1, n_cores: int = 1) -> np.ndarray:
+                       show_progress: bool = True, verbose: int = 1, n_cores: int = 1,
+                       precomputed_Gamma_grid_all: np.ndarray = None, N_steps_earth: int = 500) -> np.ndarray:
     """
     Executes the complete spectrum integration, driving the underlying JIT kernels.
     Includes verbose level 2 for periodic redshift status updates.
+
+    precomputed_Gamma_grid_all lets a caller that evaluates both neutrinos and antineutrinos
+    (e.g. is_antineutrino="sum") compute the thermal-rate grid once and pass it to both calls,
+    since it is identical for both (see compute_gamma_grid_inputs).
+
+    N_steps_earth controls the number of path-length steps per Earth chord (analogous to
+    N_steps_MW for the Milky Way phase). The 500 default is the only value validated against
+    resonance-crossing sensitivity (see propagate_earth_spatial's docstring) -- lowering it
+    trades away exactly the resolution that protects against silently wrong results near a
+    matter resonance; verify convergence for your own m_Zd range before trusting a lower value.
     """
     if HAS_NUMBA:
         # The cosmological step below is parallelized internally via numba prange; cap its
@@ -689,22 +749,10 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
     # get_adiabatic_mixing_cosmo's docstring for where this is consumed.
     M_rot = np.ascontiguousarray(U_pmns @ M_sq @ np.ascontiguousarray(np.conjugate(U_pmns).T))
 
-    eta_mass = np.zeros(3, dtype=np.float64)
-    for i in range(3):
-        eta_mass[i] = np.sum(np.abs(U_pmns[:, i])**2 * eta_bg)
+    sum_G, sum_G_alpha, eta_mass = compute_gamma_grid_inputs(U_pmns, u_arr, g_D, eps_prime, eta_bg)
 
     F_mass = np.zeros((N_E, 3), dtype=np.float64)
-            
-    u_mag = np.abs(u_arr)
-    sum_G = 0.0
-    sum_G_alpha = np.zeros(3, dtype=np.float64)
-    for a in range(3):
-        for g in range(3):
-            coupling_prod = u_mag[a] * u_mag[g]
-            val = g_D * coupling_prod * (g_D * coupling_prod + eps_prime * (0.65 / 0.88))
-            sum_G += val
-            sum_G_alpha[a] += val
-            
+
     BR = np.zeros(3, dtype=np.float64)
     if sum_G > 0:
         BR = sum_G_alpha / sum_G
@@ -719,7 +767,14 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
             dE[i] = E_upper - E_lower
     elif N_E == 1:
         dE[0] = 0.0
-        
+
+    # The cascading integral's kernel dE[j]/E_bins[j]^3 depends only on the (fixed) energy
+    # grid, never on i or z, but was previously recomputed inside the O(N_E^2) inner loop of
+    # step_cosmological_propagation for every (i, j) pair. Precomputing it once here removes
+    # a division and a cube from what is otherwise the single most expensive loop in the solver.
+    W_kernel = dE / E_bins**3
+
+
     # Pre-allocated buffers for the compiled Numba stepper to prevent garbage-collection throttling
     F_flavor = np.zeros((N_E, 3), dtype=np.float64)
     Gamma_flavor = np.zeros((N_E, 3), dtype=np.float64)
@@ -727,10 +782,15 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
     U_z_all = np.zeros((N_E, 3, 3), dtype=np.complex128)
     rate_F_sum_arr = np.zeros(N_E, dtype=np.float64)
 
-    # FIX #2: Pre-compute the thermal interaction rates for the entire grid before sequential stepping
-    if verbose == 2:
-        safe_print(f"Pre-computing thermal interaction rate grids...")
-    Gamma_grid_all = precompute_all_thermal_rates(E_bins, z_bins, sum_G, sum_G_alpha, m_Zd, m_nu_bg_arr, T_nu0, eta_mass)
+    # Pre-compute the thermal interaction rates for the entire grid before sequential stepping.
+    # Reuse the caller's precomputed grid when given one (see the docstring above) instead of
+    # redoing this identical, expensive O(N_z * N_E) calculation for the antineutrino call.
+    if precomputed_Gamma_grid_all is not None:
+        Gamma_grid_all = precomputed_Gamma_grid_all
+    else:
+        if verbose == 2:
+            safe_print(f"Pre-computing thermal interaction rate grids...")
+        Gamma_grid_all = precompute_all_thermal_rates(E_bins, z_bins, sum_G, sum_G_alpha, m_Zd, m_nu_bg_arr, T_nu0, eta_mass)
 
     iterator = tqdm(range(1, len(z_bins)), desc=f"Cosmo Phase ({lbl})", leave=False) if (HAS_TQDM and show_progress) else range(1, len(z_bins))
     z_print_mod = max(1, len(z_bins) // 10)
@@ -749,7 +809,7 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         step_cosmological_propagation(z, dt, R_z, E_bins, F_mass, rho_src, M_rot, u_arr,
                                       m_Zd, g_D, eps_prime, n_n0, T_nu0,
                                       use_debye_screening, is_antineutrino, p_index, Phi_0,
-                                      eta_bg, BR, dE,
+                                      eta_bg, BR, W_kernel,
                                       F_flavor, Gamma_flavor, dF_casc_flavor, U_z_all, rate_F_sum_arr,
                                       Gamma_grid_all[k, :, :])
 
@@ -760,7 +820,8 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                                       T_nu0, use_debye_screening, eta_bg, detector_depth_km,
                                       use_SM_potential, n_e_earth, is_antineutrino, n_mw_paths, n_earth_chords,
                                       N_steps_MW=N_steps_MW, r_start_kpc=r_start_kpc,
-                                      show_progress=show_progress, verbose=verbose, n_cores=n_cores)
+                                      show_progress=show_progress, verbose=verbose, n_cores=n_cores,
+                                      N_steps_earth=N_steps_earth)
             
     return F_earth
 
@@ -809,16 +870,22 @@ def propagation_worker(args) -> Tuple[np.ndarray, np.ndarray]:
     
     u_arr_base = np.ascontiguousarray(np.array([params['u_e'], params['u_mu'], params['u_tau']], dtype=np.complex128))
     eta_bg = params['eta_bg']
-    
+    U_pmns_base = np.ascontiguousarray(construct_PMNS(params['th12'], params['th13'], params['th23'], params['d_cp']))
+
+    # The thermal-rate grid (precompute_all_thermal_rates) depends only on |U_pmns| and
+    # |u_arr| magnitudes, which conjugation never changes -- so it is identical for the
+    # neutrino and antineutrino calls below. Computing it once here and sharing it (instead
+    # of letting each flavor call redo this expensive O(N_z * N_E) precomputation from
+    # scratch) roughly halves that stage's cost whenever both flavors are evaluated
+    # (is_antineutrino="sum", the default).
+    sum_G, sum_G_alpha, eta_mass = compute_gamma_grid_inputs(U_pmns_base, u_arr_base, params['g_D'], params['epsilon_prime'], eta_bg)
+    Gamma_grid_all = precompute_all_thermal_rates(E_bins, z_bins, sum_G, sum_G_alpha, params['m_Zd_eV'], params['m_nu_bg_arr'], params['T_nu0_eV'], eta_mass)
+
     def compute_flux(is_anti: bool) -> np.ndarray:
         # Enforce C-contiguous alignment when passing matrices to Numba kernels
-        U_pmns = np.ascontiguousarray(construct_PMNS(params['th12'], params['th13'], params['th23'], params['d_cp']))
-        u_arr = np.ascontiguousarray(u_arr_base.copy())
-        
-        if is_anti:
-            U_pmns = np.ascontiguousarray(np.conjugate(U_pmns))
-            u_arr = np.ascontiguousarray(np.conjugate(u_arr)) 
-            
+        U_pmns = np.ascontiguousarray(np.conjugate(U_pmns_base)) if is_anti else U_pmns_base
+        u_arr = np.ascontiguousarray(np.conjugate(u_arr_base)) if is_anti else u_arr_base
+
         return propagate_spectrum(
             E_bins, z_bins, rho_src,
             params['H0_eV'], params['Omega_m'], params['Omega_L'],
@@ -826,12 +893,13 @@ def propagation_worker(args) -> Tuple[np.ndarray, np.ndarray]:
             params['m_nu_bg_arr'], params['n_n0_eV3'], params['T_nu0_eV'],
             params['use_debye_screening'], params['detector_depth_km'],
             params['use_SM_potential'], params['n_e_earth_eV3'],
-            is_anti, params['p_index'], params['rho_evol'], params['Phi_0'], eta_bg, 
+            is_anti, params['p_index'], params['rho_evol'], params['Phi_0'], eta_bg,
             params['n_mw_paths'], params['n_earth_chords'],
             params['N_steps_MW'], params['r_start_kpc'],
-            show_progress=show_progress, verbose=verbose, n_cores=params.get('n_cores', 1)
+            show_progress=show_progress, verbose=verbose, n_cores=params.get('n_cores', 1),
+            precomputed_Gamma_grid_all=Gamma_grid_all, N_steps_earth=params.get('N_steps_earth', 500)
         )
-    
+
     flag_val = str(params.get('is_antineutrino', 'sum')).strip().lower()
     
     if flag_val in ['sum', 'both']:
@@ -932,6 +1000,7 @@ def run_solver(config: Dict) -> Tuple[np.ndarray, np.ndarray]:
     params['n_mw_paths'] = int(config['grid'].get('n_mw_paths', 6))
     params['n_earth_chords'] = int(config['grid'].get('n_earth_chords', 3))
     params['N_steps_MW'] = int(config['grid'].get('N_steps_MW', 100))
+    params['N_steps_earth'] = int(config['grid'].get('N_steps_earth', 500))
     params['r_start_kpc'] = float(config['grid'].get('r_start_kpc', 100.0))
     paths_mw = config['grid']['n_mw_paths']
     chords_earth = config['grid']['n_earth_chords']
@@ -1086,6 +1155,7 @@ def create_default_config(filename: str = "../config/config_dark_portal.json") -
             "n_mw_paths": 6,
             "n_earth_chords": 3,
             "N_steps_MW": 100,
+            "N_steps_earth": 500,
             "r_start_kpc": 100.0
         },
         "output": {
@@ -1159,6 +1229,7 @@ if __name__ == "__main__":
     parser.add_argument("--n_mw_paths", type=int, default=None, help="Number of Milky Way trajectories for solid-angle average")
     parser.add_argument("--n_earth_chords", type=int, default=None, help="Number of Earth chords for PREM evaluation")
     parser.add_argument("--N_steps_MW", type=int, default=None, help="Number of spatial integration steps in the Milky Way")
+    parser.add_argument("--N_steps_earth", type=int, default=None, help="Number of spatial integration steps per Earth chord (default 500; only validated at the default -- see propagate_earth_spatial's docstring before lowering it for a resonance-scanning fit)")
     parser.add_argument("--r_start_kpc", type=float, default=None, help="Starting distance for Milky Way integration in kpc")
     
     # Export Slated Locations Overrides
@@ -1221,9 +1292,10 @@ if __name__ == "__main__":
             "E_max_eV": 3e16, 
             "n_E_bins": 1000, 
             "n_z_bins": 1000, 
-            "n_mw_paths": 6, 
-            "n_earth_chords": 3, 
-            "N_steps_MW": 100, 
+            "n_mw_paths": 6,
+            "n_earth_chords": 3,
+            "N_steps_MW": 100,
+            "N_steps_earth": 500,
             "r_start_kpc": 100.0
         },
         "output": {
@@ -1298,6 +1370,7 @@ if __name__ == "__main__":
     if args.n_mw_paths is not None: config["grid"]["n_mw_paths"] = args.n_mw_paths
     if args.n_earth_chords is not None: config["grid"]["n_earth_chords"] = args.n_earth_chords
     if args.N_steps_MW is not None: config["grid"]["N_steps_MW"] = args.N_steps_MW
+    if args.N_steps_earth is not None: config["grid"]["N_steps_earth"] = args.N_steps_earth
     if args.r_start_kpc is not None: config["grid"]["r_start_kpc"] = args.r_start_kpc
 
     if args.flux_filename is not None: config["output"]["flux_filename"] = args.flux_filename

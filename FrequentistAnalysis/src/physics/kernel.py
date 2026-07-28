@@ -26,7 +26,8 @@ if dark_portal_dir not in sys.path:
 # Import external physics engines. construct_PMNS/get_mass_eigenvalues are the single
 # canonical implementations (also used by dark_portal_solver.py itself); importing them
 # rather than keeping a local copy avoids the two drifting out of sync.
-from dark_portal_solver import propagate_spectrum, construct_PMNS, get_mass_eigenvalues
+from dark_portal_solver import (propagate_spectrum, construct_PMNS, get_mass_eigenvalues,
+                                compute_gamma_grid_inputs, precompute_all_thermal_rates)
 from dark_portal_scanner import compute_energy_averaged_ratios
 
 # Updated LaTeX labels mapping both dark portal and cosmo-physical parameter space
@@ -82,13 +83,17 @@ def compute_user_model_single(params, static_data):
     Standard Python wrapper. Evaluates the dark portal propagation by calling 
     external solvers and returns the predicted flavor fractions at Earth.
     """
-    # Unpack the immutable data tuple (Expanded to 26 elements)
-    (obs_f_e, obs_f_mu, obs_err_e, obs_err_mu, 
-     E_bins, z_bins, rho_src, H0, Omega_m, Omega_L, 
-     U_pmns, M_sq, m_nu_bg_arr, n_n0, T_nu0, eta_bg, 
+    # Unpack the immutable data tuple (expanded to 27 elements; N_steps_earth defaults to
+    # 500 -- the only value validated against resonance-crossing sensitivity, see
+    # propagate_earth_spatial's docstring in dark_portal_solver.py -- for any caller still
+    # passing the older 26-element tuple without it).
+    (obs_f_e, obs_f_mu, obs_err_e, obs_err_mu,
+     E_bins, z_bins, rho_src, H0, Omega_m, Omega_L,
+     U_pmns, M_sq, m_nu_bg_arr, n_n0, T_nu0, eta_bg,
      detector_depth_km, is_antineutrino, p_index, rho_evol, Phi_0,
-     nubar_to_nu_ratio, n_mw_paths, n_earth_chords, 
-     N_steps_MW, r_start_kpc) = static_data
+     nubar_to_nu_ratio, n_mw_paths, n_earth_chords,
+     N_steps_MW, r_start_kpc) = static_data[:26]
+    N_steps_earth = static_data[26] if len(static_data) > 26 else 500
      
     # 1. Unpack scanning parameters from the generic Minuit engine wrapper.
     #    Handles backwards compatibility if passed as a positional array.
@@ -160,6 +165,7 @@ def compute_user_model_single(params, static_data):
     n_mw_paths = int(n_mw_paths)
     n_earth_chords = int(n_earth_chords)
     N_steps_MW = int(N_steps_MW)
+    N_steps_earth = int(N_steps_earth)
     r_start_kpc = float(r_start_kpc)
     
     # Rebuild physics meshes if they are mock scalars
@@ -213,6 +219,15 @@ def compute_user_model_single(params, static_data):
     # 3. Propagate the spectrum through the cosmological and spatial boundaries
     flag_val = str(is_antineutrino).strip().lower()
 
+    # The thermal-rate grid (precompute_all_thermal_rates) depends only on |U_pmns| and
+    # |u_arr| magnitudes, which conjugation never changes -- so it is identical for the
+    # neutrino and antineutrino calls below. compute_user_model_single runs on every single
+    # Minuit/MCMC/scan evaluation, so computing this grid once and sharing it (instead of
+    # letting each flavor call redo this from scratch) matters a lot more here in aggregate
+    # than it does for a single dark_portal_solver.py run.
+    sum_G, sum_G_alpha, eta_mass = compute_gamma_grid_inputs(U_pmns_complex, u_arr_base, g_D, epsilon_prime, eta_bg)
+    Gamma_grid_all = precompute_all_thermal_rates(E_bins, z_bins, sum_G, sum_G_alpha, m_Zd_eV, m_nu_bg_arr, T_nu0, eta_mass)
+
     def run_propagation(is_anti_flag):
         local_U_pmns = np.ascontiguousarray(np.conjugate(U_pmns_complex)) if is_anti_flag else np.ascontiguousarray(U_pmns_complex)
         local_u_arr = np.ascontiguousarray(np.conjugate(u_arr_base)) if is_anti_flag else np.ascontiguousarray(u_arr_base)
@@ -223,7 +238,7 @@ def compute_user_model_single(params, static_data):
             use_debye_screening, detector_depth_km, use_SM_potential, n_e_earth,
             is_anti_flag, p_index, rho_evol, Phi_0, eta_bg,
             n_mw_paths, n_earth_chords, N_steps_MW, r_start_kpc,
-            show_progress, verbose
+            show_progress, verbose, 1, Gamma_grid_all, N_steps_earth
         )
 
     # Evaluate flags to match solver's native worker capabilities

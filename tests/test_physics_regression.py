@@ -316,6 +316,54 @@ def test_n_e_earth_cm3_affects_flux_when_SM_potential_enabled(tmp_path):
     assert not np.allclose(F_lo, F_hi)
 
 
+# =============================================================================
+# 4. Earth-transit step count must not depend on chord length
+# =============================================================================
+
+def test_earth_transit_step_count_is_uniform_across_chords():
+    """propagate_earth_spatial must use the same N_steps_earth for every chord regardless
+    of its (very different) baseline length.
+
+    A tempting-looking optimization -- give every chord the same *physical* km/step as the
+    longest (core-crossing) chord, so much shorter chords (e.g. a grazing costh=0 chord can
+    be ~90x shorter) get proportionally fewer steps -- was tried, and looked safe under a
+    synthetic, purely-diagonal test state (converged to 1e-12 against a 2000-step
+    reference). At production defaults, with the real off-diagonal-coherence state the
+    Milky Way phase actually produces, it silently introduced an energy-localized ~10%
+    error for the shortened chords, concentrated exactly at an MSW-like matter-resonance
+    crossing inside the Earth -- near such a crossing, eigenvectors rotate rapidly with
+    *position*, independent of total path length, so a shorter chord is not entitled to
+    fewer steps. This test inspects the actual step counts propagate_earth_spatial hands to
+    each chord and fails if they are ever allowed to differ by chord again without a
+    resonance-aware justification.
+    """
+    recorded_n_steps = []
+    orig_worker = dps._earth_chord_worker
+
+    def spying_worker(args):
+        recorded_n_steps.append(args[2])  # (costh, baseline_km, N_steps_earth, ...)
+        return orig_worker(args)
+
+    dps._earth_chord_worker = spying_worker
+    try:
+        E_bins = np.logspace(13, 16, 20)
+        F_mass_arrival = np.full((20, 3), 1e20)
+        U_pmns = dps.construct_PMNS(np.radians(33.41), np.radians(8.58), np.radians(49.1), np.radians(132.0))
+        M_sq = np.diag([0.0, 7.41e-5, 2.511e-3]).astype(np.complex128)
+        M_rot = U_pmns @ M_sq @ np.conjugate(U_pmns).T
+        u_arr = np.array([0.5, 0.5, 0.0], dtype=np.complex128)
+
+        dps.propagate_earth_spatial(E_bins, F_mass_arrival, M_rot, u_arr,
+                                    2.0e6, 1e-4, 0.1, 1.95e-4, True, np.ones(3),
+                                    1.5, False, 0.0, False, 1, 6,
+                                    N_steps_MW=2, r_start_kpc=100.0,
+                                    show_progress=False, verbose=0, n_cores=1)
+    finally:
+        dps._earth_chord_worker = orig_worker
+
+    assert len(set(recorded_n_steps)) == 1, f"Earth chords received different step counts: {recorded_n_steps}"
+
+
 if __name__ == "__main__":
     import sys as _sys
     _sys.exit(pytest.main([__file__, "-v"]))
