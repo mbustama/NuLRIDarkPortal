@@ -698,6 +698,76 @@ def test_run_solver_accepts_structure_overrides_in_config(tmp_path):
 
 
 # =============================================================================
+# 7c. Closed-form spatial propagator (regression tests for the eigh replacement)
+# =============================================================================
+
+def _propagator_via_eigh(H, t):
+    """Reference propagator exp(-i H t) via full eigendecomposition -- the construction
+    propagator_3x3 replaced in the spatial hot loops."""
+    evals, evecs = np.linalg.eigh(H)
+    return (evecs * np.exp(-1j * evals * t)) @ np.conjugate(evecs).T
+
+
+def test_propagator_3x3_matches_eigh_at_physics_scales():
+    """propagator_3x3 (closed-form trigonometric eigenvalues + Lagrange spectral
+    interpolation) must agree with the eigh construction to fp noise across random
+    Hermitian Hamiltonians at the magnitudes and step lengths the spatial transit
+    actually uses (|H| ~ 1e-20..1e-12 eV, dr ~ 1e8..1e13 eV^-1), and must stay unitary."""
+    rng = np.random.default_rng(7)
+    out = np.zeros((3, 3), dtype=np.complex128)
+    worst = 0.0
+    worst_unitarity = 0.0
+    for _ in range(500):
+        scale = 10.0 ** rng.uniform(-20, -12)
+        A = rng.normal(size=(3, 3)) + 1j * rng.normal(size=(3, 3))
+        H = np.ascontiguousarray((A + A.conj().T) / 2 * scale)
+        t = 10.0 ** rng.uniform(8, 13)
+        dps.propagator_3x3(H, t, out)
+        worst = max(worst, float(np.max(np.abs(out - _propagator_via_eigh(H, t)))))
+        worst_unitarity = max(worst_unitarity, float(np.max(np.abs(out @ out.conj().T - np.eye(3)))))
+    assert worst < 1e-12
+    assert worst_unitarity < 1e-12
+
+
+def test_propagator_3x3_near_degenerate_fallback():
+    """Near-degenerate spectra are exactly what an MSW-like matter resonance produces --
+    the regime of the documented N_steps_earth near-miss -- and the closed form's Lagrange
+    denominators lose precision there, so propagator_3x3 must remain accurate through its
+    eigh fallback across gaps from harmless (1e-4 relative) down to essentially exact
+    degeneracy (1e-14)."""
+    rng = np.random.default_rng(11)
+    out = np.zeros((3, 3), dtype=np.complex128)
+    worst = 0.0
+    for _ in range(500):
+        gap = 10.0 ** rng.uniform(-14, -4)
+        lam = np.array([1.0, 1.0 + gap, 2.0]) * 1e-16
+        Q = np.linalg.qr(rng.normal(size=(3, 3)) + 1j * rng.normal(size=(3, 3)))[0]
+        H = Q @ np.diag(lam) @ Q.conj().T
+        H = np.ascontiguousarray((H + H.conj().T) / 2)
+        t = 1e11
+        dps.propagator_3x3(H, t, out)
+        worst = max(worst, float(np.max(np.abs(out - _propagator_via_eigh(H, t)))))
+    assert worst < 1e-9
+
+
+def test_mw_density_finite_on_galactic_center_line():
+    """calc_MW_neutron_density previously crashed (ZeroDivisionError) or returned NaN when
+    evaluated on the exact line through the galactic center (r ~ R_0 = 8.33 kpc along
+    theta = pi/2, phi = 0 -- the trajectory of one of the six default Milky Way paths):
+    catastrophic cancellation in the law-of-cosines argument went a hair negative under
+    fastmath, sqrt produced NaN, and the bulge term's power turned that into an
+    exception. The argument is now clamped to zero (any negative value is pure
+    rounding). The density there must be finite, positive, and continuous with the
+    immediate neighborhood."""
+    v_center = dps.calc_MW_neutron_density(8.33, np.pi / 2.0, 0.0)
+    v_near = dps.calc_MW_neutron_density(8.33 + 1e-10, np.pi / 2.0, 0.0)
+    v_off = dps.calc_MW_neutron_density(8.32, np.pi / 2.0, 0.0)
+    assert np.isfinite(v_center) and v_center > 0
+    assert np.isclose(v_center, v_near, rtol=1e-6)
+    assert np.isfinite(v_off) and v_off > 0
+
+
+# =============================================================================
 # 8. MainProcess-adaptive n_cores (regression test for the fix)
 # =============================================================================
 
