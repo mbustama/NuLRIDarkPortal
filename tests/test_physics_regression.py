@@ -364,6 +364,93 @@ def test_earth_transit_step_count_is_uniform_across_chords():
     assert len(set(recorded_n_steps)) == 1, f"Earth chords received different step counts: {recorded_n_steps}"
 
 
+# =============================================================================
+# 5. init_mw_density_matrix redundant-computation hoist (regression test for the fix)
+# =============================================================================
+
+def test_init_mw_density_matrix_matches_reimplementation():
+    """init_mw_density_matrix's total ambient number density (n_tot_edge, from the Milky
+    Way/Sun/Moon/Earth-point-source terms) depends only on r_start_kpc/theta/phi/m_eff --
+    never on the energy bin -- so it was hoisted out of the per-energy-bin loop (it was
+    previously being recomputed, identically, on every iteration; the sibling
+    step_mw_approach/step_earth_transit functions already did this hoist correctly and this
+    was the one place it was missed). An independent, hand-transcribed reimplementation
+    (not sharing the hoisted code path) pins down both the hoist and the physics it must
+    reproduce."""
+    N_E = 12
+    E_bins = np.logspace(13, 16, N_E)
+    rng = np.random.default_rng(0)
+    F_mass_arrival = rng.uniform(1e18, 1e22, size=(N_E, 3))
+
+    U_pmns = dps.construct_PMNS(np.radians(33.41), np.radians(8.58), np.radians(49.1), np.radians(132.0))
+    M_sq = np.diag([0.0, 7.41e-5, 2.511e-3]).astype(np.complex128)
+    M_rot = np.ascontiguousarray(U_pmns @ M_sq @ np.conjugate(U_pmns).T)
+
+    r_start_kpc, theta, phi = 100.0, np.pi / 3.0, 1.1
+    m_eff, Coef = 5.0e5, 3.7e-19
+    u_arr = np.array([0.5, 0.3 * np.exp(1j * 0.4), 0.2], dtype=np.complex128)
+    U_LRI_struct = np.outer(u_arr, np.conjugate(u_arr))
+
+    rho_f = dps.init_mw_density_matrix(r_start_kpc, theta, phi, E_bins, F_mass_arrival,
+                                       M_rot, m_eff, Coef, U_LRI_struct)
+
+    # Independent reimplementation: recompute n_tot_edge directly from the physical formula
+    # (not via any dps internals beyond the plain helper calc_MW_neutron_density), then build
+    # H_arr and rho_f per-bin from scratch using plain numpy.
+    n_n_MW_edge = dps.calc_MW_neutron_density(r_start_kpc, theta, phi) * dps.cm_inv3_to_eV3
+    r_eV = r_start_kpc * 3.08567758e16 * 1e3 * dps.m_to_eV_inv
+    r_sun_eV = np.sqrt(r_eV**2 + dps.d_sun_eV_inv**2)
+    r_moon_eV = np.sqrt(r_eV**2 + dps.d_moon_eV_inv**2)
+    n_sun_eV3 = dps.N_n_sun * (m_eff**2) / (4.0 * np.pi * r_sun_eV) * np.exp(-m_eff * r_sun_eV)
+    n_moon_eV3 = dps.N_n_moon * (m_eff**2) / (4.0 * np.pi * r_moon_eV) * np.exp(-m_eff * r_moon_eV)
+    n_earth_eV3 = dps.N_n_earth * (m_eff**2) / (4.0 * np.pi * r_eV) * np.exp(-m_eff * r_eV)
+    n_tot_edge = n_n_MW_edge + n_sun_eV3 + n_moon_eV3 + n_earth_eV3
+
+    rho_f_expected = np.zeros((N_E, 3, 3), dtype=np.complex128)
+    for i in range(N_E):
+        H_vac = (1.0 / (2.0 * E_bins[i])) * M_rot
+        H_arr = H_vac + (Coef * n_tot_edge) * U_LRI_struct
+        evals, evecs = np.linalg.eigh(H_arr)
+        rho_f_expected[i] = evecs @ np.diag(F_mass_arrival[i]) @ np.conjugate(evecs).T
+
+    np.testing.assert_allclose(rho_f, rho_f_expected, rtol=1e-10, atol=1e-30)
+
+
+# =============================================================================
+# 6. Shared dE helper (regression test for the DRY refactor)
+# =============================================================================
+
+def test_compute_dE_geometric_matches_independent_formula():
+    """compute_dE_geometric (the single implementation shared by propagate_spectrum here
+    and compute_energy_averaged_ratios in dark_portal_scanner.py) must reproduce the
+    geometric-midpoint bin width computed directly from the log-spaced grid."""
+    E_bins = np.logspace(13, 16, 37)
+    dE = dps.compute_dE_geometric(E_bins)
+
+    half_ratio = np.sqrt(E_bins[1] / E_bins[0])
+    expected = E_bins * half_ratio - E_bins / half_ratio
+
+    np.testing.assert_allclose(dE, expected, rtol=1e-12)
+
+
+def test_scanner_uses_shared_dE_helper():
+    """dark_portal_scanner.py's compute_energy_averaged_ratios must call the same
+    dark_portal_solver.compute_dE_geometric used by propagate_spectrum, not a separate
+    copy-pasted formula -- regression test for the DRY refactor that replaced the
+    scanner's independent (previously identical, but separately maintained) dE computation
+    with this shared, imported helper."""
+    import dark_portal_scanner as dpsc
+    assert dpsc.dps.compute_dE_geometric is dps.compute_dE_geometric
+
+    E_bins = np.logspace(13, 16, 25)
+    dE = dps.compute_dE_geometric(E_bins)
+    Flux_array = np.zeros((25, 3))
+    Flux_array[:, 0] = 1.0 / dE
+    Flux_array[:, 1] = 2.0 / dE
+    ratios = dpsc.compute_energy_averaged_ratios(E_bins, Flux_array)
+    np.testing.assert_allclose(ratios, [1.0 / 3.0, 2.0 / 3.0, 0.0], rtol=1e-9)
+
+
 if __name__ == "__main__":
     import sys as _sys
     _sys.exit(pytest.main([__file__, "-v"]))

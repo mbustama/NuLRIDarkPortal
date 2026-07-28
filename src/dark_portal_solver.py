@@ -414,22 +414,29 @@ def init_mw_density_matrix(r_start_kpc: float, theta: float, phi: float, E_bins:
     """
     N_E = len(E_bins)
     rho_f = np.zeros((N_E, 3, 3), dtype=np.complex128)
+
+    # n_tot_edge depends only on r_start_kpc/theta/phi/m_eff, all fixed for this whole call,
+    # never on the energy bin i -- hoisted out of the loop below (matches the pattern already
+    # used correctly in the sibling step_mw_approach/step_earth_transit functions; this was
+    # the one place in the spatial handover where it was still being recomputed per-bin).
+    n_n_MW_edge = calc_MW_neutron_density(r_start_kpc, theta, phi) * cm_inv3_to_eV3
+    r_eV = r_start_kpc * 3.08567758e16 * 1e3 * m_to_eV_inv
+
+    r_sun_eV = np.sqrt(r_eV**2 + d_sun_eV_inv**2)
+    r_moon_eV = np.sqrt(r_eV**2 + d_moon_eV_inv**2)
+
+    n_sun_eV3, n_moon_eV3, n_earth_eV3 = 0.0, 0.0, 0.0
+    if m_eff > 0:
+        n_sun_eV3 = N_n_sun * (m_eff**2) / (4.0 * np.pi * r_sun_eV) * np.exp(-m_eff * r_sun_eV)
+        n_moon_eV3 = N_n_moon * (m_eff**2) / (4.0 * np.pi * r_moon_eV) * np.exp(-m_eff * r_moon_eV)
+        n_earth_eV3 = N_n_earth * (m_eff**2) / (4.0 * np.pi * r_eV) * np.exp(-m_eff * r_eV)
+
+    n_tot_edge = n_n_MW_edge + n_sun_eV3 + n_moon_eV3 + n_earth_eV3
+    V_LRI_edge = (Coef * n_tot_edge) * U_LRI_struct
+
     for i in range(N_E):
         H_vac = (1.0 / (2.0 * E_bins[i])) * M_rot
-        n_n_MW_edge = calc_MW_neutron_density(r_start_kpc, theta, phi) * cm_inv3_to_eV3
-        r_eV = r_start_kpc * 3.08567758e16 * 1e3 * m_to_eV_inv
-        
-        r_sun_eV = np.sqrt(r_eV**2 + d_sun_eV_inv**2)
-        r_moon_eV = np.sqrt(r_eV**2 + d_moon_eV_inv**2)
-        
-        n_sun_eV3, n_moon_eV3, n_earth_eV3 = 0.0, 0.0, 0.0
-        if m_eff > 0:
-            n_sun_eV3 = N_n_sun * (m_eff**2) / (4.0 * np.pi * r_sun_eV) * np.exp(-m_eff * r_sun_eV)
-            n_moon_eV3 = N_n_moon * (m_eff**2) / (4.0 * np.pi * r_moon_eV) * np.exp(-m_eff * r_moon_eV)
-            n_earth_eV3 = N_n_earth * (m_eff**2) / (4.0 * np.pi * r_eV) * np.exp(-m_eff * r_eV)
-            
-        n_tot_edge = n_n_MW_edge + n_sun_eV3 + n_moon_eV3 + n_earth_eV3
-        H_arr = H_vac + (Coef * n_tot_edge) * U_LRI_struct
+        H_arr = H_vac + V_LRI_edge
         evals_a, evecs_a = np.linalg.eigh(H_arr)
         
         for a in range(3):
@@ -705,6 +712,29 @@ def compute_gamma_grid_inputs(U_pmns: np.ndarray, u_arr: np.ndarray, g_D: float,
 
     return sum_G, sum_G_alpha, eta_mass
 
+@njit(fastmath=True, cache=True)
+def compute_dE_geometric(E_bins: np.ndarray) -> np.ndarray:
+    """Computes per-bin energy widths from the geometric midpoints of a log-spaced E_bins grid.
+
+    Single canonical implementation shared by propagate_spectrum here and
+    compute_energy_averaged_ratios in dark_portal_scanner.py -- both need the exact same
+    per-bin dE to stay consistent with the cascading integral's energy-conservation weights,
+    so this is centralized rather than kept as two copies that could silently drift apart
+    (the same DRY concern that motivated centralizing construct_PMNS/get_mass_eigenvalues).
+    """
+    N_E = len(E_bins)
+    dE = np.zeros(N_E, dtype=np.float64)
+    if N_E > 1:
+        bin_ratio = E_bins[1] / E_bins[0]
+        half_ratio = np.sqrt(bin_ratio)
+        for i in range(N_E):
+            E_lower = E_bins[i] / half_ratio
+            E_upper = E_bins[i] * half_ratio
+            dE[i] = E_upper - E_lower
+    elif N_E == 1:
+        dE[0] = 0.0
+    return dE
+
 def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarray,
                        H0: float, Omega_m: float, Omega_L: float,
                        U_pmns: np.ndarray, M_sq: np.ndarray,
@@ -757,16 +787,7 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
     if sum_G > 0:
         BR = sum_G_alpha / sum_G
 
-    dE = np.zeros(N_E, dtype=np.float64)
-    if N_E > 1:
-        bin_ratio = E_bins[1] / E_bins[0]
-        half_ratio = np.sqrt(bin_ratio)
-        for i in range(N_E):
-            E_lower = E_bins[i] / half_ratio
-            E_upper = E_bins[i] * half_ratio
-            dE[i] = E_upper - E_lower
-    elif N_E == 1:
-        dE[0] = 0.0
+    dE = compute_dE_geometric(E_bins)
 
     # The cascading integral's kernel dE[j]/E_bins[j]^3 depends only on the (fixed) energy
     # grid, never on i or z, but was previously recomputed inside the O(N_E^2) inner loop of

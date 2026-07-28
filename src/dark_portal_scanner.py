@@ -57,17 +57,10 @@ def compute_energy_averaged_ratios(E_bins: np.ndarray, Flux_array: np.ndarray) -
     Computes the energy-averaged flavor ratios over the fully integrated spectrum.
     Utilizes exact geometric midpoints to perfectly match the cascading energy conservation weights.
     """
-    N_E = len(E_bins)
-    dE = np.zeros(N_E, dtype=np.float64)
-    if N_E > 1:
-        bin_ratio = E_bins[1] / E_bins[0]
-        half_ratio = np.sqrt(bin_ratio)
-        for i in range(N_E):
-            E_lower = E_bins[i] / half_ratio
-            E_upper = E_bins[i] * half_ratio
-            dE[i] = E_upper - E_lower
-    elif N_E == 1:
-        dE[0] = 0.0
+    # dps.compute_dE_geometric is the single canonical implementation (also used by
+    # dark_portal_solver.py's own propagate_spectrum); importing it rather than keeping a
+    # separate copy here avoids the two silently drifting out of sync.
+    dE = dps.compute_dE_geometric(E_bins)
 
     flux_e = Flux_array[:, 0]
     flux_mu = Flux_array[:, 1]
@@ -113,9 +106,17 @@ def scan_worker(args: Tuple[str, float, Dict]) -> Tuple[float, np.ndarray]:
 def run_parameter_scan(param_name: str, param_values: np.ndarray, base_config: Dict, output_file: str):
     """
     Orchestrates a parallel 1D parameter scan across the provided grid values.
+
+    The pool size is driven by base_config['execution']['n_cores'] (falling back to
+    cpu_count()-1 if unset), clamped to the cores actually available. Previously this
+    function always recomputed its own hardcoded cpu_count()-1 pool size regardless of
+    what base_config['execution']['n_cores'] said, so that config field was silently
+    dropped -- setting it in __main__ had no effect on the actual scan parallelism.
     """
-    n_cores = multiprocessing.cpu_count() - 1 if multiprocessing.cpu_count() > 1 else 1
-    
+    available_cores = multiprocessing.cpu_count()
+    requested_cores = int(base_config.get('execution', {}).get('n_cores', available_cores - 1 if available_cores > 1 else 1))
+    n_cores = max(1, min(requested_cores, available_cores))
+
     tasks = [(param_name, val, base_config) for val in param_values]
     results_val = []
     results_ratios = []
@@ -279,7 +280,7 @@ if __name__ == "__main__":
     warmup_config['grid']['n_z_bins'] = 200
     warmup_config['grid']['n_mw_paths'] = 100
     warmup_config['grid']['n_earth_chords'] = 100
-    warmup_config['execution']['n_cores'] = 11
+    warmup_config['execution']['n_cores'] = multiprocessing.cpu_count() - 1 if multiprocessing.cpu_count() > 1 else 1
     warmup_config['execution']['verbose'] = 0
     
     import sys, io
@@ -302,7 +303,9 @@ if __name__ == "__main__":
     base_config['grid']['n_earth_chords'] = 100
     base_config["grid"]['N_steps_MW'] = 100
     base_config["grid"]['r_start_kpc'] = 100.0
-    base_config['execution']['n_cores'] = 11
+    # This now actually drives run_parameter_scan's pool size (see its docstring) instead of
+    # being silently dropped in favor of a hardcoded value there.
+    base_config['execution']['n_cores'] = multiprocessing.cpu_count() - 1 if multiprocessing.cpu_count() > 1 else 1
 
     # Define high-resolution evaluation grids
     m_Zd_range = np.logspace(-10, 10, 100)      # Mediator mass scan from 0.1 neV to 10 GeV
