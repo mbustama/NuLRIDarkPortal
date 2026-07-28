@@ -1,0 +1,64 @@
+{
+    "cosmology": {
+        "H0_km_s_Mpc": 67.4,
+        "Omega_m": 0.315,
+        "Omega_L": 0.685,
+        "T_nu0_eV": 0.000195,
+        "n_n0_cm3": 2.5e-07,
+        "m_lightest_eV": 0.01,
+        "mass_ordering": "normal",
+        "eta_e": 1.0,
+        "eta_mu": 1.0,
+        "eta_tau": 1.0
+    },
+    "standard_mixing": {
+        "dm21_sq": 7.41e-05,
+        "dm31_sq": 0.002511,
+        "th12_deg": 33.41,
+        "th13_deg": 8.58,
+        "th23_deg": 49.1,
+        "d_cp_deg": 132.0,
+        "use_SM_potential": false,
+        "n_e_earth_cm3": 1.5e+24,
+        "detector_depth_km": 1.5
+    },
+    "dark_portal": {
+        "u_e": 0.5,
+        "u_mu": 0.5,
+        "u_tau": 0.0,
+        "m_Zd_eV": 2000000.0,
+        "g_D": 0.0001,
+        "epsilon_prime": 0.1,
+        "use_debye_screening": true
+    },
+    "source": {
+        "p_index": 2.5,
+        "Phi_0": 1.0,
+        "z_max": 4.0,
+        "rho_evol": 0.0,
+        "f_e_S": 0.333333,
+        "f_mu_S": 0.666667,
+        "f_tau_S": 0.0,
+        "is_antineutrino": "sum",
+        "nubar_to_nu_ratio": 1.0
+    },
+    "grid": {
+        "E_min_eV": 10000000000000.0,
+        "E_max_eV": 3e+16,
+        "n_E_bins": 1000,
+        "n_z_bins": 1000,
+        "n_mw_paths": 6,
+        "n_earth_chords": 3,
+        "N_steps_MW": 100,
+        "N_steps_earth": 500,
+        "r_start_kpc": 100.0
+    },
+    "output": {
+        "flux_filename": "../output/data/output_flux.txt",
+        "plot_filename": "../output/plots/flux_plot.png"
+    },
+    "execution": {
+        "n_cores": 11,
+        "verbose": 1
+    }
+}

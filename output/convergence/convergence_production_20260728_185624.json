@@ -1,0 +1,767 @@
+{
+  "profile": "production",
+  "baseline": {
+    "n_E_bins": 1000,
+    "n_z_bins": 1000,
+    "n_mw_paths": 6,
+    "n_earth_chords": 3,
+    "N_steps_MW": 100,
+    "N_steps_earth": 500
+  },
+  "tolerance": 0.001,
+  "ratio_tolerance": 0.0001,
+  "param_points": [
+    {
+      "label": "resonance_below_band",
+      "m_Zd_eV": 300000.0,
+      "g_D": 0.0001,
+      "epsilon_prime": 0.1
+    },
+    {
+      "label": "resonance_in_band",
+      "m_Zd_eV": 2000000.0,
+      "g_D": 0.0001,
+      "epsilon_prime": 0.1
+    },
+    {
+      "label": "resonance_high_strong_coupling",
+      "m_Zd_eV": 20000000.0,
+      "g_D": 0.01,
+      "epsilon_prime": 0.1
+    }
+  ],
+  "axes": {
+    "n_z_bins": {
+      "results": [
+        {
+          "axis": "n_z_bins",
+          "param_point": {
+            "label": "resonance_below_band",
+            "m_Zd_eV": 300000.0,
+            "g_D": 0.0001,
+            "epsilon_prime": 0.1
+          },
+          "reference": 1500,
+          "rungs": [
+            {
+              "value": 100,
+              "max_rel_flux": 1.0,
+              "max_abs_ratio_diff": 0.009093393697597651,
+              "runtime_s": 7.858677153009921
+            },
+            {
+              "value": 200,
+              "max_rel_flux": 0.99999999997403,
+              "max_abs_ratio_diff": 0.010884848410070869,
+              "runtime_s": 9.698362370021641
+            },
+            {
+              "value": 400,
+              "max_rel_flux": 0.9999970655286126,
+              "max_abs_ratio_diff": 0.015185442219066203,
+              "runtime_s": 8.911913925898261
+            },
+            {
+              "value": 700,
+              "max_rel_flux": 0.997446125039628,
+              "max_abs_ratio_diff": 0.010006700654037082,
+              "runtime_s": 11.75336212606635
+            },
+            {
+              "value": 1000,
+              "max_rel_flux": 0.9365448550856755,
+              "max_abs_ratio_diff": 0.004709898198144824,
+              "runtime_s": 14.520779408048838
+            }
+          ]
+        },
+        {
+          "axis": "n_z_bins",
+          "param_point": {
+            "label": "resonance_in_band",
+            "m_Zd_eV": 2000000.0,
+            "g_D": 0.0001,
+            "epsilon_prime": 0.1
+          },
+          "reference": 1500,
+          "rungs": [
+            {
+              "value": 100,
+              "max_rel_flux": 0.9999999999999986,
+              "max_abs_ratio_diff": 0.008211887483060731,
+              "runtime_s": 7.697182043921202
+            },
+            {
+              "value": 200,
+              "max_rel_flux": 0.999999998832349,
+              "max_abs_ratio_diff": 0.01145138425389114,
+              "runtime_s": 8.574670142959803
+            },
+            {
+              "value": 400,
+              "max_rel_flux": 0.9999868606940457,
+              "max_abs_ratio_diff": 0.014882704203049157,
+              "runtime_s": 10.487072082934901
+            },
+            {
+              "value": 700,
+              "max_rel_flux": 0.995221272422846,
+              "max_abs_ratio_diff": 0.009717148483006477,
+              "runtime_s": 15.28086868301034
+            },
+            {
+              "value": 1000,
+              "max_rel_flux": 0.9150525886550882,
+              "max_abs_ratio_diff": 0.00527694914328819,
+              "runtime_s": 20.57120732590556
+            }
+          ]
+        },
+        {
+          "axis": "n_z_bins",
+          "param_point": {
+            "label": "resonance_high_strong_coupling",
+            "m_Zd_eV": 20000000.0,
+            "g_D": 0.01,
+            "epsilon_prime": 0.1
+          },
+          "reference": 1500,
+          "rungs": [
+            {
+              "value": 100,
+              "max_rel_flux": 439.23061961707657,
+              "max_abs_ratio_diff": 5.748035714070454e-09,
+              "runtime_s": 12.840496247983538
+            },
+            {
+              "value": 200,
+              "max_rel_flux": 19.792146857825518,
+              "max_abs_ratio_diff": 3.640974077789849e-09,
+              "runtime_s": 13.335585061926395
+            },
+            {
+              "value": 400,
+              "max_rel_flux": 1.3770757796872,
+              "max_abs_ratio_diff": 2.134756038607577e-09,
+              "runtime_s": 21.544860727037303
+            },
+            {
+              "value": 700,
+              "max_rel_flux": 0.548841571630731,
+              "max_abs_ratio_diff": 8.730302591963834e-10,
+              "runtime_s": 13.025254637934268
+            },
+            {
+              "value": 1000,
+              "max_rel_flux": 0.316925737196896,
+              "max_abs_ratio_diff": 5.022622318051617e-10,
+              "runtime_s": 18.054219944984652
+            }
+          ]
+        }
+      ],
+      "recommended": null
+    },
+    "n_E_bins": {
+      "results": [
+        {
+          "axis": "n_E_bins",
+          "param_point": {
+            "label": "resonance_below_band",
+            "m_Zd_eV": 300000.0,
+            "g_D": 0.0001,
+            "epsilon_prime": 0.1
+          },
+          "reference": 1500,
+          "rungs": [
+            {
+              "value": 100,
+              "max_rel_flux": 2.1097067757752327e+22,
+              "max_abs_ratio_diff": 0.011104885745983784,
+              "runtime_s": 2.7033803350059316
+            },
+            {
+              "value": 200,
+              "max_rel_flux": 5171872429.912145,
+              "max_abs_ratio_diff": 0.0047149893238495055,
+              "runtime_s": 4.31880469492171
+            },
+            {
+              "value": 400,
+              "max_rel_flux": 8897.659305787303,
+              "max_abs_ratio_diff": 0.0022911661012909312,
+              "runtime_s": 7.165784794953652
+            },
+            {
+              "value": 700,
+              "max_rel_flux": 42.84931180384672,
+              "max_abs_ratio_diff": 0.0007330594637656174,
+              "runtime_s": 14.077297665993683
+            },
+            {
+              "value": 1000,
+              "max_rel_flux": 4.483361185212691,
+              "max_abs_ratio_diff": 0.0008043427311020812,
+              "runtime_s": 20.98364484589547
+            }
+          ]
+        },
+        {
+          "axis": "n_E_bins",
+          "param_point": {
+            "label": "resonance_in_band",
+            "m_Zd_eV": 2000000.0,
+            "g_D": 0.0001,
+            "epsilon_prime": 0.1
+          },
+          "reference": 1500,
+          "rungs": [
+            {
+              "value": 100,
+              "max_rel_flux": 3.980892996855936e+22,
+              "max_abs_ratio_diff": 0.026499795985126418,
+              "runtime_s": 1.841638785903342
+            },
+            {
+              "value": 200,
+              "max_rel_flux": 6431920554.321651,
+              "max_abs_ratio_diff": 0.0061227350516084855,
+              "runtime_s": 3.3627248090924695
+            },
+            {
+              "value": 400,
+              "max_rel_flux": 9334.370614724883,
+              "max_abs_ratio_diff": 0.0019326321305463412,
+              "runtime_s": 9.123536697006784
+            },
+            {
+              "value": 700,
+              "max_rel_flux": 43.6828408562205,
+              "max_abs_ratio_diff": 0.00099899607050008,
+              "runtime_s": 14.528907360043377
+            },
+            {
+              "value": 1000,
+              "max_rel_flux": 5.025750371639617,
+              "max_abs_ratio_diff": 0.00038839288610104106,
+              "runtime_s": 20.1836853249697
+            }
+          ]
+        },
+        {
+          "axis": "n_E_bins",
+          "param_point": {
+            "label": "resonance_high_strong_coupling",
+            "m_Zd_eV": 20000000.0,
+            "g_D": 0.01,
+            "epsilon_prime": 0.1
+          },
+          "reference": 1500,
+          "rungs": [
+            {
+              "value": 100,
+              "max_rel_flux": 50368.41792592061,
+              "max_abs_ratio_diff": 5.9408564179186385e-09,
+              "runtime_s": 2.1115366159938276
+            },
+            {
+              "value": 200,
+              "max_rel_flux": 69.62699643071542,
+              "max_abs_ratio_diff": 1.6155523030469965e-09,
+              "runtime_s": 3.649300892953761
+            },
+            {
+              "value": 400,
+              "max_rel_flux": 4.244735713395856,
+              "max_abs_ratio_diff": 3.5968428235833017e-10,
+              "runtime_s": 6.452695667045191
+            },
+            {
+              "value": 700,
+              "max_rel_flux": 0.943332004951896,
+              "max_abs_ratio_diff": 1.1250600451262471e-10,
+              "runtime_s": 10.966177375987172
+            },
+            {
+              "value": 1000,
+              "max_rel_flux": 0.333505577729261,
+              "max_abs_ratio_diff": 2.4941326781657835e-11,
+              "runtime_s": 12.630837004049681
+            }
+          ]
+        }
+      ],
+      "recommended": null
+    },
+    "N_steps_MW": {
+      "results": [
+        {
+          "axis": "N_steps_MW",
+          "param_point": {
+            "label": "resonance_below_band",
+            "m_Zd_eV": 300000.0,
+            "g_D": 0.0001,
+            "epsilon_prime": 0.1
+          },
+          "reference": 400,
+          "rungs": [
+            {
+              "value": 25,
+              "max_rel_flux": 1.715272429448891e-10,
+              "max_abs_ratio_diff": 3.788080960021034e-13,
+              "runtime_s": 12.991338222054765
+            },
+            {
+              "value": 50,
+              "max_rel_flux": 1.8296677868819657e-10,
+              "max_abs_ratio_diff": 4.801714581503802e-13,
+              "runtime_s": 12.296643490088172
+            },
+            {
+              "value": 100,
+              "max_rel_flux": 1.6623425518568296e-10,
+              "max_abs_ratio_diff": 5.045408535409024e-13,
+              "runtime_s": 13.640448187012225
+            },
+            {
+              "value": 200,
+              "max_rel_flux": 1.1928603552644814e-10,
+              "max_abs_ratio_diff": 3.364530876126537e-13,
+              "runtime_s": 16.41762027097866
+            }
+          ]
+        },
+        {
+          "axis": "N_steps_MW",
+          "param_point": {
+            "label": "resonance_in_band",
+            "m_Zd_eV": 2000000.0,
+            "g_D": 0.0001,
+            "epsilon_prime": 0.1
+          },
+          "reference": 400,
+          "rungs": [
+            {
+              "value": 25,
+              "max_rel_flux": 2.606969046453818e-12,
+              "max_abs_ratio_diff": 8.271161533457416e-15,
+              "runtime_s": 13.070005877991207
+            },
+            {
+              "value": 50,
+              "max_rel_flux": 2.642374138284385e-12,
+              "max_abs_ratio_diff": 3.6637359812630166e-15,
+              "runtime_s": 14.556843238999136
+            },
+            {
+              "value": 100,
+              "max_rel_flux": 2.4006817869851403e-12,
+              "max_abs_ratio_diff": 6.494804694057166e-15,
+              "runtime_s": 14.31649300805293
+            },
+            {
+              "value": 200,
+              "max_rel_flux": 1.7624738545113884e-12,
+              "max_abs_ratio_diff": 6.938893903907228e-15,
+              "runtime_s": 15.303810029057786
+            }
+          ]
+        },
+        {
+          "axis": "N_steps_MW",
+          "param_point": {
+            "label": "resonance_high_strong_coupling",
+            "m_Zd_eV": 20000000.0,
+            "g_D": 0.01,
+            "epsilon_prime": 0.1
+          },
+          "reference": 400,
+          "rungs": [
+            {
+              "value": 25,
+              "max_rel_flux": 3.2277699216149932e-12,
+              "max_abs_ratio_diff": 1.865174681370263e-14,
+              "runtime_s": 15.694453242002055
+            },
+            {
+              "value": 50,
+              "max_rel_flux": 3.6748892001817716e-12,
+              "max_abs_ratio_diff": 1.7430501486614958e-14,
+              "runtime_s": 19.62502499402035
+            },
+            {
+              "value": 100,
+              "max_rel_flux": 3.3430417541507528e-12,
+              "max_abs_ratio_diff": 1.4876988529977098e-14,
+              "runtime_s": 14.018761522020213
+            },
+            {
+              "value": 200,
+              "max_rel_flux": 2.5710752964368348e-12,
+              "max_abs_ratio_diff": 9.71445146547012e-15,
+              "runtime_s": 15.983651602989994
+            }
+          ]
+        }
+      ],
+      "recommended": 25
+    },
+    "N_steps_earth": {
+      "results": [
+        {
+          "axis": "N_steps_earth",
+          "param_point": {
+            "label": "resonance_below_band",
+            "m_Zd_eV": 300000.0,
+            "g_D": 0.0001,
+            "epsilon_prime": 0.1
+          },
+          "reference": 2000,
+          "rungs": [
+            {
+              "value": 125,
+              "max_rel_flux": 0.6961693403255692,
+              "max_abs_ratio_diff": 0.07292669265485918,
+              "runtime_s": 9.640782308997586
+            },
+            {
+              "value": 250,
+              "max_rel_flux": 0.2014867601167087,
+              "max_abs_ratio_diff": 0.017791021786849326,
+              "runtime_s": 11.356926789972931
+            },
+            {
+              "value": 500,
+              "max_rel_flux": 0.12121848074984058,
+              "max_abs_ratio_diff": 0.012188371595691028,
+              "runtime_s": 23.163483801996335
+            },
+            {
+              "value": 1000,
+              "max_rel_flux": 0.21428188270698376,
+              "max_abs_ratio_diff": 0.021602259949009883,
+              "runtime_s": 26.706780722015537
+            }
+          ]
+        },
+        {
+          "axis": "N_steps_earth",
+          "param_point": {
+            "label": "resonance_in_band",
+            "m_Zd_eV": 2000000.0,
+            "g_D": 0.0001,
+            "epsilon_prime": 0.1
+          },
+          "reference": 2000,
+          "rungs": [
+            {
+              "value": 125,
+              "max_rel_flux": 0.10126682286505083,
+              "max_abs_ratio_diff": 0.011327345750733964,
+              "runtime_s": 19.752065830980428
+            },
+            {
+              "value": 250,
+              "max_rel_flux": 0.31927557596654516,
+              "max_abs_ratio_diff": 0.03658251922318584,
+              "runtime_s": 14.22155592602212
+            },
+            {
+              "value": 500,
+              "max_rel_flux": 0.1964057388994497,
+              "max_abs_ratio_diff": 0.016059163537626986,
+              "runtime_s": 13.626505792024545
+            },
+            {
+              "value": 1000,
+              "max_rel_flux": 0.6256248920892109,
+              "max_abs_ratio_diff": 0.062660003801282,
+              "runtime_s": 21.14282033906784
+            }
+          ]
+        },
+        {
+          "axis": "N_steps_earth",
+          "param_point": {
+            "label": "resonance_high_strong_coupling",
+            "m_Zd_eV": 20000000.0,
+            "g_D": 0.01,
+            "epsilon_prime": 0.1
+          },
+          "reference": 2000,
+          "rungs": [
+            {
+              "value": 125,
+              "max_rel_flux": 0.12099886854488132,
+              "max_abs_ratio_diff": 0.003871395866934413,
+              "runtime_s": 16.847325767972507
+            },
+            {
+              "value": 250,
+              "max_rel_flux": 0.3816084020653386,
+              "max_abs_ratio_diff": 0.012575258219286234,
+              "runtime_s": 14.292543350020424
+            },
+            {
+              "value": 500,
+              "max_rel_flux": 0.233851074932477,
+              "max_abs_ratio_diff": 0.0049972782202183375,
+              "runtime_s": 14.99458345794119
+            },
+            {
+              "value": 1000,
+              "max_rel_flux": 0.746507679525685,
+              "max_abs_ratio_diff": 0.02080696967827217,
+              "runtime_s": 22.850652091088705
+            }
+          ]
+        }
+      ],
+      "recommended": null
+    },
+    "n_mw_paths": {
+      "results": [
+        {
+          "axis": "n_mw_paths",
+          "param_point": {
+            "label": "resonance_below_band",
+            "m_Zd_eV": 300000.0,
+            "g_D": 0.0001,
+            "epsilon_prime": 0.1
+          },
+          "reference": 100,
+          "rungs": [
+            {
+              "value": 6,
+              "max_rel_flux": 2.7867773888940544e-11,
+              "max_abs_ratio_diff": 2.2598589666245061e-13,
+              "runtime_s": 13.333131624967791
+            },
+            {
+              "value": 12,
+              "max_rel_flux": 1.1179189121125348e-13,
+              "max_abs_ratio_diff": 5.551115123125783e-16,
+              "runtime_s": 17.113054546061903
+            },
+            {
+              "value": 25,
+              "max_rel_flux": 5.412147114195605e-14,
+              "max_abs_ratio_diff": 1.6653345369377348e-16,
+              "runtime_s": 19.646174460067414
+            },
+            {
+              "value": 50,
+              "max_rel_flux": 5.548622309733629e-14,
+              "max_abs_ratio_diff": 2.7755575615628914e-16,
+              "runtime_s": 28.190271022962406
+            }
+          ]
+        },
+        {
+          "axis": "n_mw_paths",
+          "param_point": {
+            "label": "resonance_in_band",
+            "m_Zd_eV": 2000000.0,
+            "g_D": 0.0001,
+            "epsilon_prime": 0.1
+          },
+          "reference": 100,
+          "rungs": [
+            {
+              "value": 6,
+              "max_rel_flux": 4.239877915693793e-13,
+              "max_abs_ratio_diff": 3.885780586188048e-16,
+              "runtime_s": 15.519054887001403
+            },
+            {
+              "value": 12,
+              "max_rel_flux": 3.972071276466254e-15,
+              "max_abs_ratio_diff": 5.551115123125783e-17,
+              "runtime_s": 15.830463366000913
+            },
+            {
+              "value": 25,
+              "max_rel_flux": 4.0429349350026974e-15,
+              "max_abs_ratio_diff": 1.6653345369377348e-16,
+              "runtime_s": 29.872075176914223
+            },
+            {
+              "value": 50,
+              "max_rel_flux": 3.9008721437482594e-15,
+              "max_abs_ratio_diff": 5.551115123125783e-17,
+              "runtime_s": 29.669876548927277
+            }
+          ]
+        },
+        {
+          "axis": "n_mw_paths",
+          "param_point": {
+            "label": "resonance_high_strong_coupling",
+            "m_Zd_eV": 20000000.0,
+            "g_D": 0.01,
+            "epsilon_prime": 0.1
+          },
+          "reference": 100,
+          "rungs": [
+            {
+              "value": 6,
+              "max_rel_flux": 6.84796284664418e-13,
+              "max_abs_ratio_diff": 5.551115123125783e-17,
+              "runtime_s": 13.641006020014174
+            },
+            {
+              "value": 12,
+              "max_rel_flux": 3.696192528035368e-15,
+              "max_abs_ratio_diff": 0.0,
+              "runtime_s": 15.63552760798484
+            },
+            {
+              "value": 25,
+              "max_rel_flux": 4.1754263137102794e-15,
+              "max_abs_ratio_diff": 0.0,
+              "runtime_s": 18.49898894294165
+            },
+            {
+              "value": 50,
+              "max_rel_flux": 4.4417129068719965e-15,
+              "max_abs_ratio_diff": 5.551115123125783e-17,
+              "runtime_s": 24.86944527295418
+            }
+          ]
+        }
+      ],
+      "recommended": 6
+    },
+    "n_earth_chords": {
+      "results": [
+        {
+          "axis": "n_earth_chords",
+          "param_point": {
+            "label": "resonance_below_band",
+            "m_Zd_eV": 300000.0,
+            "g_D": 0.0001,
+            "epsilon_prime": 0.1
+          },
+          "reference": 100,
+          "rungs": [
+            {
+              "value": 3,
+              "max_rel_flux": 0.3501084323509705,
+              "max_abs_ratio_diff": 0.04404807917146819,
+              "runtime_s": 14.136128870071843
+            },
+            {
+              "value": 6,
+              "max_rel_flux": 0.28919932296227907,
+              "max_abs_ratio_diff": 0.03517728246956231,
+              "runtime_s": 16.85825998603832
+            },
+            {
+              "value": 12,
+              "max_rel_flux": 0.1056732534139485,
+              "max_abs_ratio_diff": 0.012407556557593347,
+              "runtime_s": 24.61582016898319
+            },
+            {
+              "value": 25,
+              "max_rel_flux": 0.17205434742159892,
+              "max_abs_ratio_diff": 0.02061788969286482,
+              "runtime_s": 41.983345489017665
+            },
+            {
+              "value": 50,
+              "max_rel_flux": 0.09237888406838832,
+              "max_abs_ratio_diff": 0.011121382604334595,
+              "runtime_s": 67.45035653701052
+            }
+          ]
+        },
+        {
+          "axis": "n_earth_chords",
+          "param_point": {
+            "label": "resonance_in_band",
+            "m_Zd_eV": 2000000.0,
+            "g_D": 0.0001,
+            "epsilon_prime": 0.1
+          },
+          "reference": 100,
+          "rungs": [
+            {
+              "value": 3,
+              "max_rel_flux": 0.39011700891485007,
+              "max_abs_ratio_diff": 0.04941425505599806,
+              "runtime_s": 13.240676942979917
+            },
+            {
+              "value": 6,
+              "max_rel_flux": 0.12558380116054407,
+              "max_abs_ratio_diff": 0.018426016720223815,
+              "runtime_s": 17.177735469071195
+            },
+            {
+              "value": 12,
+              "max_rel_flux": 0.05324988505964761,
+              "max_abs_ratio_diff": 0.0067513173178374575,
+              "runtime_s": 24.058441092958674
+            },
+            {
+              "value": 25,
+              "max_rel_flux": 0.1691766193477511,
+              "max_abs_ratio_diff": 0.021670051400890566,
+              "runtime_s": 40.07846516300924
+            },
+            {
+              "value": 50,
+              "max_rel_flux": 0.020940365656031946,
+              "max_abs_ratio_diff": 0.0021372301172434827,
+              "runtime_s": 68.10053414292634
+            }
+          ]
+        },
+        {
+          "axis": "n_earth_chords",
+          "param_point": {
+            "label": "resonance_high_strong_coupling",
+            "m_Zd_eV": 20000000.0,
+            "g_D": 0.01,
+            "epsilon_prime": 0.1
+          },
+          "reference": 100,
+          "rungs": [
+            {
+              "value": 3,
+              "max_rel_flux": 0.44450006943318987,
+              "max_abs_ratio_diff": 0.016216543004610617,
+              "runtime_s": 14.928310316987336
+            },
+            {
+              "value": 6,
+              "max_rel_flux": 0.1433452821819397,
+              "max_abs_ratio_diff": 0.006290636682138195,
+              "runtime_s": 21.35324043093715
+            },
+            {
+              "value": 12,
+              "max_rel_flux": 0.0606736698336406,
+              "max_abs_ratio_diff": 0.0022162392380709606,
+              "runtime_s": 22.997036304906942
+            },
+            {
+              "value": 25,
+              "max_rel_flux": 0.1927845749741037,
+              "max_abs_ratio_diff": 0.007134909508881515,
+              "runtime_s": 39.79683625895996
+            },
+            {
+              "value": 50,
+              "max_rel_flux": 0.02380736762735135,
+              "max_abs_ratio_diff": 0.0006515491724707334,
+              "runtime_s": 84.20600917900447
+            }
+          ]
+        }
+      ],
+      "recommended": null
+    }
+  }
+}
