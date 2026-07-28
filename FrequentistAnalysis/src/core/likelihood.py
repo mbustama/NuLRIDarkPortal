@@ -6,6 +6,7 @@ evaluation caching and automated empirical prior spline construction.
 """
 
 import os
+import sys
 import traceback
 import numpy as np
 from scipy.interpolate import RegularGridInterpolator, interp1d, PchipInterpolator
@@ -13,6 +14,15 @@ from scipy.interpolate import RegularGridInterpolator, interp1d, PchipInterpolat
 # Import internal physics and external detector likelihood module
 from src.physics.kernel import compute_user_model_single
 from src.core.detector_flavor_likelihood import detector_flavor_log_likelihood_wrapper
+
+# construct_PMNS/get_mass_eigenvalues are the single canonical implementations, defined
+# once in dark_portal_solver.py and imported everywhere else (kernel.py does the same),
+# rather than kept as separate local copies that can silently drift out of sync.
+_current_dir = os.path.dirname(os.path.abspath(__file__))
+_dark_portal_dir = os.path.abspath(os.path.join(_current_dir, "../../../src/"))
+if _dark_portal_dir not in sys.path:
+    sys.path.insert(0, _dark_portal_dir)
+from dark_portal_solver import construct_PMNS, get_mass_eigenvalues
 
 def load_and_grid_2d(filename):
     """
@@ -54,45 +64,6 @@ class PchipBoundsWrapper:
         val = self.pchip(x)
         if np.isnan(val): raise ValueError("Out of bounds")
         return val
-
-def construct_PMNS(th12: float, th13: float, th23: float, d_cp: float) -> np.ndarray:
-    """Constructs the standard 3x3 unitary PMNS neutrino mixing matrix."""
-    c12, s12 = np.cos(th12), np.sin(th12)
-    c13, s13 = np.cos(th13), np.sin(th13)
-    c23, s23 = np.cos(th23), np.sin(th23)
-    
-    phase = np.exp(1j * d_cp)
-    phase_conj = np.exp(-1j * d_cp)
-    
-    R12 = np.zeros((3, 3), dtype=np.complex128)
-    R12[0, 0] = c12;  R12[0, 1] = s12
-    R12[1, 0] = -s12; R12[1, 1] = c12
-    R12[2, 2] = 1.0
-    
-    R13 = np.zeros((3, 3), dtype=np.complex128)
-    R13[0, 0] = c13;  R13[0, 2] = s13 * phase_conj
-    R13[1, 1] = 1.0
-    R13[2, 0] = -s13 * phase; R13[2, 2] = c13
-    
-    R23 = np.zeros((3, 3), dtype=np.complex128)
-    R23[0, 0] = 1.0
-    R23[1, 1] = c23;  R23[1, 2] = s23
-    R23[2, 1] = -s23; R23[2, 2] = c23
-    
-    return R23 @ R13 @ R12
-
-def get_mass_eigenvalues(m_lightest: float, dm21_sq: float, dm31_sq: float, ordering: str) -> np.ndarray:
-    """Calculates the three absolute mass eigenvalues based on the lightest mass and ordering hierarchy."""
-    masses = np.zeros(3, dtype=np.float64)
-    if ordering.lower().strip() == "inverted":
-        masses[2] = m_lightest
-        masses[1] = np.sqrt(masses[2]**2 + dm31_sq)
-        masses[0] = np.sqrt(masses[1]**2 - dm21_sq)
-    else:
-        masses[0] = m_lightest
-        masses[1] = np.sqrt(masses[0]**2 + dm21_sq)
-        masses[2] = np.sqrt(masses[0]**2 + dm31_sq)
-    return masses
 
 class GenericLikelihoodWrapper:
     """

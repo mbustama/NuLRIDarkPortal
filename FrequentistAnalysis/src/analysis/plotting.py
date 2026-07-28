@@ -60,7 +60,8 @@ def plot_2d_analysis(output_dir, param_names, confidence_cfg, global_min_chi2, s
     os.makedirs(plot_dir, exist_ok=True)
         
     freq_results = json.load(open(os.path.join(info_dir, 'frequentist_results.json'))) if os.path.exists(os.path.join(info_dir, 'frequentist_results.json')) else {}
-            
+    log_params = scan_settings.get("log_scan_parameters", [])
+
     fig_corner, axes_corner = plt.subplots(n_params, n_params, figsize=(3*n_params, 3*n_params))
     if n_params == 1: axes_corner = np.array([[axes_corner]])
         

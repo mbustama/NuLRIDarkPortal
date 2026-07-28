@@ -23,8 +23,10 @@ dark_portal_dir = os.path.abspath(os.path.join(current_dir, relative_path_to_dar
 if dark_portal_dir not in sys.path:
     sys.path.insert(0, dark_portal_dir)
 
-# Import external physics engines
-from dark_portal_solver import propagate_spectrum
+# Import external physics engines. construct_PMNS/get_mass_eigenvalues are the single
+# canonical implementations (also used by dark_portal_solver.py itself); importing them
+# rather than keeping a local copy avoids the two drifting out of sync.
+from dark_portal_solver import propagate_spectrum, construct_PMNS, get_mass_eigenvalues
 from dark_portal_scanner import compute_energy_averaged_ratios
 
 # Updated LaTeX labels mapping both dark portal and cosmo-physical parameter space
@@ -44,40 +46,6 @@ LATEX_LABELS = {
     "dm21_sq": r"\Delta m^2_{21}",
     "dm31_sq": r"\Delta m^2_{31}",
 }
-
-def construct_PMNS_kernel(th12: float, th13: float, th23: float, d_cp: float) -> np.ndarray:
-    """Internal kernel rebuild mechanism for standard 3x3 unitary PMNS mixing."""
-    c12, s12 = np.cos(th12), np.sin(th12)
-    c13, s13 = np.cos(th13), np.sin(th13)
-    c23, s23 = np.cos(th23), np.sin(th23)
-    phase = np.exp(1j * d_cp)
-    phase_conj = np.exp(-1j * d_cp)
-    R12 = np.zeros((3, 3), dtype=np.complex128)
-    R12[0, 0] = c12;  R12[0, 1] = s12
-    R12[1, 0] = -s12; R12[1, 1] = c12
-    R12[2, 2] = 1.0
-    R13 = np.zeros((3, 3), dtype=np.complex128)
-    R13[0, 0] = c13;  R13[0, 2] = s13 * phase_conj
-    R13[1, 1] = 1.0
-    R13[2, 0] = -s13 * phase; R13[2, 2] = c13
-    R23 = np.zeros((3, 3), dtype=np.complex128)
-    R23[0, 0] = 1.0
-    R23[1, 1] = c23;  R23[1, 2] = s23
-    R23[2, 1] = -s23; R23[2, 2] = c23
-    return R23 @ R13 @ R12
-
-def get_mass_eigenvalues_kernel(m_lightest: float, dm21_sq: float, dm31_sq: float, ordering: str) -> np.ndarray:
-    """Internal kernel rebuild mechanism for absolute mass mapping."""
-    masses = np.zeros(3, dtype=np.float64)
-    if str(ordering).lower().strip() == "inverted":
-        masses[2] = m_lightest
-        masses[1] = np.sqrt(masses[2]**2 + dm31_sq)
-        masses[0] = np.sqrt(masses[1]**2 - dm21_sq)
-    else:
-        masses[0] = m_lightest
-        masses[1] = np.sqrt(masses[0]**2 + dm21_sq)
-        masses[2] = np.sqrt(masses[0]**2 + dm31_sq)
-    return masses
 
 def get_label(param):
     """
@@ -151,7 +119,7 @@ def compute_user_model_single(params, static_data):
             t13 = np.radians(params.get('th13_deg', 8.58))
             t23 = np.radians(params.get('th23_deg', 49.1))
             dcp = np.radians(params.get('d_cp_deg', 132.0))
-            U_pmns = construct_PMNS_kernel(t12, t13, t23, dcp)
+            U_pmns = construct_PMNS(t12, t13, t23, dcp)
 
         if any(k in params for k in ('dm21_sq', 'dm31_sq', 'm_lightest_eV', 'mass_ordering')):
             d21 = params.get('dm21_sq', 7.41e-5)
@@ -161,7 +129,7 @@ def compute_user_model_single(params, static_data):
             
             dm31_sq_signed = -d31 if str(mo).lower().strip() == "inverted" else d31
             M_sq = np.ascontiguousarray(np.diag([0.0, d21, dm31_sq_signed]).astype(np.complex128))
-            m_nu_bg_arr = get_mass_eigenvalues_kernel(ml, d21, d31, mo)
+            m_nu_bg_arr = get_mass_eigenvalues(ml, d21, d31, mo)
     else:
         # Fallback for raw arrays 
         m_Zd_eV       = params[0]

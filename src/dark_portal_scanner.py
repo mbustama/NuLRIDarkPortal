@@ -1,4 +1,15 @@
 import os
+
+# Must run before numpy/BLAS is imported -- see the matching guard and full explanation
+# in dark_portal_solver.py. This scanner already parallelizes across parameter configs via
+# multiprocessing, so each worker's BLAS backend must be pinned to a single thread or the
+# per-worker thread pools oversubscribe every core.
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "1")
+os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+
 import copy
 import json
 import multiprocessing

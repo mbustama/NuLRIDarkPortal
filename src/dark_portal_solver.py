@@ -1,4 +1,23 @@
 import os
+
+# =============================================================================
+# THREAD-OVERSUBSCRIPTION GUARD (must run before numpy/BLAS is imported)
+# =============================================================================
+# Every linear-algebra call in this solver diagonalizes a fixed 3x3 Hamiltonian, far too
+# small to benefit from a multi-threaded BLAS/LAPACK backend (MKL, OpenBLAS). Left at
+# their defaults, these libraries spin up one thread pool per *process*, and since this
+# solver's own parallelism comes from numba (prange, scaled via numba.set_num_threads in
+# propagate_spectrum) and from multiprocessing (across independent MW paths/Earth chords,
+# and across parameter configs in dark_portal_scanner.py / Minuit workers in
+# FrequentistAnalysis), an unconstrained BLAS thread pool multiplies against every one of
+# those layers and can *slow down* a parallel run by 3-5x. Pinning BLAS to a single thread
+# here removes that hazard everywhere this module is imported.
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "1")
+os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+
 import json
 import argparse
 import multiprocessing
@@ -16,7 +35,8 @@ except ImportError:
     print("Warning: 'matplotlib' not found. Plotting will be disabled.")
 
 try:
-    from numba import njit
+    import numba
+    from numba import njit, prange
     HAS_NUMBA = True
 except ImportError:
     HAS_NUMBA = False
@@ -27,6 +47,7 @@ except ImportError:
         if len(args) == 1 and callable(args[0]): return args[0]
         if len(args) == 1 and isinstance(args[0], str): return decorator
         return decorator
+    prange = range
 
 try:
     from tqdm import tqdm
@@ -213,19 +234,29 @@ def thermal_averaged_rates_flavor(E0: float, z: float, sum_G: float, sum_G_alpha
     return rates
 
 @njit(cache=True)
-def get_adiabatic_mixing_cosmo(E0: float, z: float, U_pmns: np.ndarray, M_sq: np.ndarray,
+def get_adiabatic_mixing_cosmo(E0: float, z: float, M_rot: np.ndarray,
                                u_arr: np.ndarray, m_Zd: float, g_D: float, eps_prime: float,
                                n_n0: float, T_nu0: float, use_debye_screening: bool,
                                is_antineutrino: bool, eta_bg: np.ndarray) -> np.ndarray:
-    """Computes the instantaneous mass eigenstates (eigenvectors) of the total effective Hamiltonian."""
+    """Computes the instantaneous mass eigenstates (eigenvectors) of the total effective Hamiltonian.
+
+    M_rot = U_pmns @ M_sq @ conj(U_pmns).T is fixed for an entire propagate_spectrum call (U_pmns
+    and M_sq never change within it), so callers precompute it once and pass it in here rather
+    than recomputing the same two 3x3 matrix products on every single (E, z) evaluation.
+    """
     E_z = E0 * (1.0 + z)
-    H_vac = (1.0 / (2.0 * E_z)) * (U_pmns @ M_sq @ np.ascontiguousarray(np.conjugate(U_pmns).T))
-    
+    H_vac = (1.0 / (2.0 * E_z)) * M_rot
+
     V_LRI = calc_V_LRI_cosmo(z, u_arr, m_Zd, g_D, eps_prime, n_n0, T_nu0, use_debye_screening, eta_bg)
-        
+
     if is_antineutrino:
-        V_LRI = -np.conjugate(V_LRI)
-            
+        # Callers already pass in a pre-conjugated u_arr for antineutrinos (see propagation_worker),
+        # so V_LRI here is already built from conj(u_arr); only the sign needs flipping. Conjugating
+        # again would double-apply the transform and corrupt off-diagonal phases whenever the
+        # sterile mixing elements are complex (CP-violating textures). Must match the single-transform
+        # convention used in the spatial handover (propagate_earth_spatial's Coef sign flip).
+        V_LRI = -V_LRI
+
     H_tot = H_vac + V_LRI
     evals, evecs = np.linalg.eigh(H_tot)
     return evecs
@@ -278,71 +309,78 @@ def get_baseline_earth(d_km: float, costh: float) -> float:
 # EXTRACTED NUMBA KERNELS FOR PROGRESS TRACKING
 # =============================================================================
 
-@njit(fastmath=True, cache=True)
-def precompute_all_thermal_rates(E_bins: np.ndarray, z_bins: np.ndarray, sum_G: float, 
-                                 sum_G_alpha: np.ndarray, m_Zd: float, m_nu_bg_arr: np.ndarray, 
+@njit(fastmath=True, cache=True, parallel=True)
+def precompute_all_thermal_rates(E_bins: np.ndarray, z_bins: np.ndarray, sum_G: float,
+                                 sum_G_alpha: np.ndarray, m_Zd: float, m_nu_bg_arr: np.ndarray,
                                  T_nu0: float, eta_mass: np.ndarray) -> np.ndarray:
-    """Pre-computes the thermal attenuation rates for the entire energy and redshift grid."""
+    """Pre-computes the thermal attenuation rates for the entire energy and redshift grid.
+
+    Every (k, i) redshift/energy pair is an independent evaluation writing to a disjoint
+    Gamma_grid[k, i, :] slice, so the outer loop is parallelized across threads via prange.
+    """
     N_E = len(E_bins)
     N_z = len(z_bins)
     Gamma_grid = np.zeros((N_z, N_E, 3), dtype=np.float64)
-    for k in range(N_z):
+    for k in prange(N_z):
         for i in range(N_E):
             Gamma_grid[k, i, :] = thermal_averaged_rates_flavor(E_bins[i], z_bins[k], sum_G, sum_G_alpha, m_Zd, m_nu_bg_arr, T_nu0, eta_mass)
     return Gamma_grid
     
-@njit(fastmath=True, cache=True)
-def step_cosmological_propagation(z: float, dt: float, R_z: float, E_bins: np.ndarray, 
-                                  F_mass: np.ndarray, rho_src: np.ndarray, 
-                                  U_pmns: np.ndarray, M_sq: np.ndarray,
+@njit(fastmath=True, cache=True, parallel=True)
+def step_cosmological_propagation(z: float, dt: float, R_z: float, E_bins: np.ndarray,
+                                  F_mass: np.ndarray, rho_src: np.ndarray,
+                                  M_rot: np.ndarray,
                                   u_arr: np.ndarray, m_Zd: float, g_D: float, eps_prime: float,
                                   n_n0: float, T_nu0: float,
                                   use_debye_screening: bool, is_antineutrino: bool,
                                   p_index: float, Phi_0: float, eta_bg: np.ndarray,
-                                  BR: np.ndarray, dE: np.ndarray, 
-                                  F_flavor: np.ndarray, Gamma_flavor: np.ndarray, 
-                                  dF_casc_flavor: np.ndarray, U_z_all: np.ndarray, 
+                                  BR: np.ndarray, dE: np.ndarray,
+                                  F_flavor: np.ndarray, Gamma_flavor: np.ndarray,
+                                  dF_casc_flavor: np.ndarray, U_z_all: np.ndarray,
                                   rate_F_sum_arr: np.ndarray, precomputed_Gamma_flavor: np.ndarray):
-    """Executes a single cosmological integration step using pre-allocated buffers and pre-computed rates."""
+    """Executes a single cosmological integration step using pre-allocated buffers and pre-computed rates.
+
+    Each of the four loops below only ever reads state fully computed by the *previous*
+    loop and writes to a disjoint per-i (or per-j) slice of its own output buffer, so each
+    loop is independently safe to parallelize across energy bins via prange -- there is no
+    dependency across bins within a single z-step (the physical z-recursion itself, across
+    calls to this function, remains sequential).
+    """
     N_E = len(E_bins)
-    
+
     # Zero out buffers at start of step
     F_flavor.fill(0.0)
     Gamma_flavor.fill(0.0)
     dF_casc_flavor.fill(0.0)
     rate_F_sum_arr.fill(0.0)
-    # F_flavor[:] = 0.0
-    # Gamma_flavor[:] = 0.0
-    # dF_casc_flavor[:] = 0.0
-    # rate_F_sum_arr[:] = 0.0
 
     # First loop: Calculate flavor composition and assign pre-computed interaction rates
-    for i in range(N_E):
-        U_z = get_adiabatic_mixing_cosmo(E_bins[i], z, U_pmns, M_sq, u_arr, m_Zd, g_D, eps_prime, 
+    for i in prange(N_E):
+        U_z = get_adiabatic_mixing_cosmo(E_bins[i], z, M_rot, u_arr, m_Zd, g_D, eps_prime,
                                          n_n0, T_nu0, use_debye_screening, is_antineutrino, eta_bg)
         U_z_all[i] = U_z
         for a in range(3):
             F_flavor[i, a] = np.sum(np.abs(U_z[a, :])**2 * F_mass[i, :])
-        
+
         # Use the pre-computed grid values instead of the thermal kernel
         Gamma_flavor[i, :] = precomputed_Gamma_flavor[i, :]
-        
+
     # Second loop: Pre-calculate the redundant interaction rate sum per energy bin
     for j in range(N_E):
         for b in range(3):
             rate_F_sum_arr[j] += Gamma_flavor[j, b] * F_flavor[j, b]
-        
-    # Third loop: Energy cascading integral
-    for i in range(N_E):
+
+    # Third loop: Energy cascading integral (O(N_E^2) -- the dominant cost of this step)
+    for i in prange(N_E):
         integral = 0.0
         for j in range(i, N_E):
             E_prime = E_bins[j]
             integral += 1.0 * (rate_F_sum_arr[j] * 3.0 * (E_bins[i]**2) / (E_prime**3)) * dE[j]
         for a in range(3):
             dF_casc_flavor[i, a] = BR[a] * integral
-            
+
     # Fourth loop: Update mass eigenstate flux with decay and injection
-    for i in range(N_E):
+    for i in prange(N_E):
         U_z = U_z_all[i]
         E_z = E_bins[i] * (1.0 + z)
         inj_spectrum = Phi_0 * (E_z**(-p_index))
@@ -363,12 +401,16 @@ def step_cosmological_propagation(z: float, dt: float, R_z: float, E_bins: np.nd
 
 @njit(fastmath=True, cache=True)
 def init_mw_density_matrix(r_start_kpc: float, theta: float, phi: float, E_bins: np.ndarray, F_mass_arrival: np.ndarray,
-                           U_pmns: np.ndarray, M_sq: np.ndarray, m_eff: float, Coef: float, U_LRI_struct: np.ndarray) -> np.ndarray:
-    """Calculates the initial density matrix mapping at the 30 kpc galactic edge."""
+                           M_rot: np.ndarray, m_eff: float, Coef: float, U_LRI_struct: np.ndarray) -> np.ndarray:
+    """Calculates the initial density matrix mapping at the 30 kpc galactic edge.
+
+    M_rot = U_pmns @ M_sq @ conj(U_pmns).T is precomputed once by the caller (see
+    get_adiabatic_mixing_cosmo's docstring) since it never changes within a run.
+    """
     N_E = len(E_bins)
     rho_f = np.zeros((N_E, 3, 3), dtype=np.complex128)
     for i in range(N_E):
-        H_vac = (1.0 / (2.0 * E_bins[i])) * (U_pmns @ M_sq @ np.ascontiguousarray(np.conjugate(U_pmns).T))
+        H_vac = (1.0 / (2.0 * E_bins[i])) * M_rot
         n_n_MW_edge = calc_MW_neutron_density(r_start_kpc, theta, phi) * cm_inv3_to_eV3
         r_eV = r_start_kpc * 3.08567758e16 * 1e3 * m_to_eV_inv
         
@@ -393,7 +435,7 @@ def init_mw_density_matrix(r_start_kpc: float, theta: float, phi: float, E_bins:
 
 @njit(fastmath=True, cache=True)
 def step_mw_approach(r_current_kpc: float, theta: float, phi: float, dr_MW_eV_inv: float,
-                     E_bins: np.ndarray, rho_f: np.ndarray, U_pmns: np.ndarray, M_sq: np.ndarray,
+                     E_bins: np.ndarray, rho_f: np.ndarray, M_rot: np.ndarray,
                      m_eff: float, Coef: float, U_LRI_struct: np.ndarray, U_step_buffer: np.ndarray):
     """Executes a single path-length step through the Milky Way using pre-allocated contiguous matrix buffers."""
     N_E = len(E_bins)
@@ -413,80 +455,132 @@ def step_mw_approach(r_current_kpc: float, theta: float, phi: float, dr_MW_eV_in
     V_LRI = (Coef * n_tot) * U_LRI_struct
     
     for i in range(N_E):
-        H_vac = (1.0 / (2.0 * E_bins[i])) * (U_pmns @ M_sq @ np.ascontiguousarray(np.conjugate(U_pmns).T))
+        H_vac = (1.0 / (2.0 * E_bins[i])) * M_rot
         H_local = H_vac + V_LRI
         evals, evecs = np.linalg.eigh(H_local)
-        
-        # U_step_buffer[:] = 0.0
+
         U_step_buffer.fill(0.0 + 0.0j)
         for a in range(3):
             for b in range(3):
                 for k in range(3):
                     U_step_buffer[a,b] += evecs[a,k] * np.exp(-1j * evals[k] * dr_MW_eV_inv) * np.conjugate(evecs[b,k])
-        
-        # rho_f[i] = U_step_buffer @ rho_f[i] @ np.ascontiguousarray(np.conjugate(U_step_buffer).T)
+
         rho_f[i] = np.ascontiguousarray(U_step_buffer @ rho_f[i] @ np.ascontiguousarray(np.conjugate(U_step_buffer).T))
 
 @njit(fastmath=True, cache=True)
 def step_earth_transit(l_km: float, baseline_km: float, costh: float, dr_earth_eV_inv: float,
-                       E_bins: np.ndarray, rho_earth: np.ndarray, U_pmns: np.ndarray, M_sq: np.ndarray,
+                       E_bins: np.ndarray, rho_earth: np.ndarray, M_rot: np.ndarray,
                        n_n_amb_eV3: float, Coef: float, U_LRI_struct: np.ndarray,
-                       use_SM_potential: bool, is_antineutrino: bool, detector_depth_km: float, U_step_buffer: np.ndarray):
+                       use_SM_potential: bool, is_antineutrino: bool, detector_depth_km: float,
+                       n_e_earth_eV3: float, U_step_buffer: np.ndarray):
     """Executes a single path-length step through the Earth interior using pre-allocated contiguous matrix buffers."""
     N_E = len(E_bins)
     f1 = baseline_km - l_km
     f2 = 6371.0 - detector_depth_km
     r_center_km = np.sqrt(f1**2 + f2**2 + 2.0 * f1 * f2 * costh)
-    
+
     rho_earth_g = calc_earth_density(r_center_km)
     n_n_earth_cm3 = rho_earth_g * 3.011e23
-    n_e_earth_cm3 = n_n_earth_cm3
-    
+
     n_tot_eV3 = n_n_amb_eV3 + n_n_earth_cm3 * cm_inv3_to_eV3
     V_LRI = (Coef * n_tot_eV3) * U_LRI_struct
-    
+
     V_SM = np.zeros((3,3), dtype=np.complex128)
     if use_SM_potential:
-        V_SM_val = np.sqrt(2.0) * G_F * (n_e_earth_cm3 * cm_inv3_to_eV3)
+        # Uses the user-configured electron density (n_e_earth_cm3), not the PREM-derived
+        # neutron density above: V_SM is the SM charged-current potential, which depends on
+        # electron number density specifically, not the LRI potential's neutron density.
+        V_SM_val = np.sqrt(2.0) * G_F * n_e_earth_eV3
         if is_antineutrino:
             V_SM_val = -V_SM_val
         V_SM[0,0] = V_SM_val
         
     for i in range(N_E):
-        H_vac = (1.0 / (2.0 * E_bins[i])) * (U_pmns @ M_sq @ np.ascontiguousarray(np.conjugate(U_pmns).T))
+        H_vac = (1.0 / (2.0 * E_bins[i])) * M_rot
         H_local = H_vac + V_LRI + V_SM
         evals, evecs = np.linalg.eigh(H_local)
         
-        # U_step_buffer[:] = 0.0
         U_step_buffer.fill(0.0 + 0.0j)
         for a in range(3):
             for b in range(3):
                 for k in range(3):
                     U_step_buffer[a,b] += evecs[a,k] * np.exp(-1j * evals[k] * dr_earth_eV_inv) * np.conjugate(evecs[b,k])
-        
-        # rho_earth[i] = U_step_buffer @ rho_earth[i] @ np.ascontiguousarray(np.conjugate(U_step_buffer).T)
+
         rho_earth[i] = np.ascontiguousarray(U_step_buffer @ rho_earth[i] @ np.ascontiguousarray(np.conjugate(U_step_buffer).T))
 
 # =============================================================================
 # REVISED SOLVERS WITH VERBOSE PROGRESS TRACKING
 # =============================================================================
 
-def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray, 
-                            U_pmns: np.ndarray, M_sq: np.ndarray,
+def _mw_path_worker(args) -> np.ndarray:
+    """Propagates a single Milky Way trajectory (one theta/phi direction) end-to-end.
+
+    Module-level (picklable) so it can be dispatched to a multiprocessing pool: each
+    trajectory is fully independent of the others, so this is the unit of parallel work
+    for the Milky Way phase of the spatial handover.
+    """
+    (theta, phi, r_start_kpc, dr_kpc, dr_MW_eV_inv, N_steps_MW, E_bins, F_mass_arrival,
+     M_rot, m_eff, Coef, U_LRI_struct) = args
+
+    rho_f = init_mw_density_matrix(r_start_kpc, theta, phi, E_bins, F_mass_arrival, M_rot, m_eff, Coef, U_LRI_struct)
+    U_step_buffer = np.zeros((3, 3), dtype=np.complex128)
+    for step in range(N_steps_MW):
+        r_current_kpc = r_start_kpc - step * dr_kpc
+        step_mw_approach(r_current_kpc, theta, phi, dr_MW_eV_inv, E_bins, rho_f, M_rot, m_eff, Coef, U_LRI_struct, U_step_buffer)
+    return rho_f
+
+def _earth_chord_worker(args) -> np.ndarray:
+    """Propagates a single Earth chord (one zenith angle) end-to-end to the detector.
+
+    Module-level (picklable) so it can be dispatched to a multiprocessing pool: each
+    chord is fully independent of the others, so this is the unit of parallel work for
+    the Earth phase of the spatial handover.
+    """
+    (costh, baseline_km, N_steps_earth, E_bins, rho_surf_avg, M_rot, n_n_amb_eV3, Coef,
+     U_LRI_struct, use_SM_potential, is_antineutrino, detector_depth_km, n_e_earth_eV3) = args
+
+    dr_earth_km = baseline_km / N_steps_earth
+    dr_earth_eV_inv = dr_earth_km * 1e3 * m_to_eV_inv
+    rho_earth = rho_surf_avg.copy()
+    U_step_buffer = np.zeros((3, 3), dtype=np.complex128)
+    for step in range(N_steps_earth):
+        l_km = step * dr_earth_km
+        step_earth_transit(l_km, baseline_km, costh, dr_earth_eV_inv, E_bins, rho_earth, M_rot,
+                           n_n_amb_eV3, Coef, U_LRI_struct, use_SM_potential, is_antineutrino,
+                           detector_depth_km, n_e_earth_eV3, U_step_buffer)
+    return rho_earth
+
+def _run_spatial_tasks(worker_fn, tasks, desc, n_workers, show_progress):
+    """Dispatches independent spatial-handover tasks (MW paths / Earth chords) either
+    sequentially or across a multiprocessing pool, depending on n_workers."""
+    if n_workers > 1 and len(tasks) > 1:
+        with multiprocessing.Pool(processes=min(n_workers, len(tasks))) as pool:
+            iterator = pool.imap(worker_fn, tasks)
+            if HAS_TQDM and show_progress:
+                iterator = tqdm(iterator, total=len(tasks), desc=desc, leave=False)
+            results = list(iterator)
+    else:
+        iterator = tqdm(tasks, desc=desc, leave=False) if (HAS_TQDM and show_progress) else tasks
+        results = [worker_fn(t) for t in iterator]
+    return results
+
+def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
+                            M_rot: np.ndarray,
                             u_arr: np.ndarray, m_Zd: float, g_D: float, eps_prime: float,
-                            T_nu0: float, use_debye_screening: bool, eta_bg: np.ndarray, 
-                            detector_depth_km: float, use_SM_potential: bool, 
-                            is_antineutrino: bool, n_mw_paths: int, n_earth_chords: int, 
+                            T_nu0: float, use_debye_screening: bool, eta_bg: np.ndarray,
+                            detector_depth_km: float, use_SM_potential: bool, n_e_earth_eV3: float,
+                            is_antineutrino: bool, n_mw_paths: int, n_earth_chords: int,
                             N_steps_MW: int = 100, r_start_kpc: float = 100.0,
-                            show_progress: bool = True, verbose: int = 1) -> np.ndarray:
+                            show_progress: bool = True, verbose: int = 1, n_cores: int = 1) -> np.ndarray:
     """
     Executes pure spatial ODE through Milky Way and Earth with active tracking.
-    Added dynamic array generation for arbitrary spatial integration paths.
-    Parameters N_steps_MW and r_start_kpc are now dynamically configurable.
+    Milky Way trajectories and Earth chords are mutually independent, so when n_cores > 1
+    each set is distributed across a multiprocessing pool instead of being run sequentially.
     """
     N_E = len(E_bins)
     lbl = "Anti-Nu" if is_antineutrino else "Nu"
-    
+    n_workers = max(1, min(int(n_cores), multiprocessing.cpu_count()))
+
     # --- Dynamic Earth Chords ---
     if n_earth_chords <= 1:
         earth_costh = np.array([-1.0])
@@ -507,101 +601,58 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
         indices = np.arange(0, n_mw_paths, dtype=np.float64)
         mw_phi = (np.pi * (1.0 + np.sqrt(5.0)) * indices) % (2 * np.pi)
         mw_theta = np.arccos(1.0 - 2.0 * (indices + 0.5) / n_mw_paths)
-        
+
     m_D_sq = calc_debye_mass_sq(g_D, u_arr, T_nu0, eta_bg) if use_debye_screening else 0.0
     m_eff = np.sqrt(m_Zd**2 + m_D_sq)
-    
+
     c_W = 0.88
     m_Z = 91.18 * GeV
     g_weak = 0.65
     Coef = (g_D * eps_prime) / (m_Zd**2 + m_D_sq) * (4.0 * c_W * m_Z**2 / g_weak) * (np.sqrt(2.0)/2.0 * G_F)
     if is_antineutrino:
         Coef = -Coef
-        
+
     U_LRI_struct = np.zeros((3, 3), dtype=np.complex128)
     for i in range(3):
         for j in range(3):
             U_LRI_struct[i, j] = u_arr[i] * np.conjugate(u_arr[j])
 
-    # Shared pre-allocated buffer for stepping operators to avoid N_E allocations per distance step
-    U_step_buffer = np.zeros((3, 3), dtype=np.complex128)
-
     # PHASE 1: Milky Way & Solar System Approach
-    rho_surf_avg = np.zeros((N_E, 3, 3), dtype=np.complex128)
-    r_end_kpc = 6371.0 / 3.08567758e16 
+    r_end_kpc = 6371.0 / 3.08567758e16
     dr_kpc = (r_start_kpc - r_end_kpc) / N_steps_MW
     dr_MW_eV_inv = dr_kpc * 3.08567758e16 * 1e3 * m_to_eV_inv
-    mw_print_mod = max(1, N_steps_MW // 10)
-    
+
     if verbose == 2:
         safe_print(f"\n--- Spatial Handover Commencing ({lbl}) ---")
-        safe_print(f"Entering Milky Way geometry at r = {r_start_kpc:.1f} kpc from Earth...")
-    
-    for dir_idx in range(len(mw_theta)):
-        theta = mw_theta[dir_idx]
-        phi = mw_phi[dir_idx]
-        
-        rho_f = init_mw_density_matrix(r_start_kpc, theta, phi, E_bins, F_mass_arrival, U_pmns, M_sq, m_eff, Coef, U_LRI_struct)
-        
-        desc_mw = f"MW ({lbl}) Path {dir_idx+1}/{len(mw_theta)}"
-        mw_iter = tqdm(range(N_steps_MW), desc=desc_mw, leave=False) if (HAS_TQDM and show_progress) else range(N_steps_MW)
-        
-        for step in mw_iter:
-            r_current_kpc = r_start_kpc - step * dr_kpc
-            
-            if verbose == 2 and dir_idx == 0 and step % mw_print_mod == 0:
-                safe_print(f"   MW Transit [Path 1]: Instantaneous distance to Earth r = {r_current_kpc:.3f} kpc")
-                
-            step_mw_approach(r_current_kpc, theta, phi, dr_MW_eV_inv, E_bins, rho_f, U_pmns, M_sq, m_eff, Coef, U_LRI_struct, U_step_buffer)
-            
-        for i in range(N_E):
-            for a in range(3):
-                for b in range(3):
-                    rho_surf_avg[i, a, b] += rho_f[i, a, b] / len(mw_theta)
+        safe_print(f"Entering Milky Way geometry at r = {r_start_kpc:.1f} kpc from Earth ({len(mw_theta)} path(s), {n_workers} worker(s))...")
+
+    mw_tasks = [(mw_theta[k], mw_phi[k], r_start_kpc, dr_kpc, dr_MW_eV_inv, N_steps_MW, E_bins,
+                 F_mass_arrival, M_rot, m_eff, Coef, U_LRI_struct) for k in range(len(mw_theta))]
+    mw_results = _run_spatial_tasks(_mw_path_worker, mw_tasks, f"MW paths ({lbl})", n_workers, show_progress)
+    rho_surf_avg = np.mean(np.stack(mw_results, axis=0), axis=0)
 
     # PHASE 2: Earth Transit (PREM Layers)
     if verbose == 2:
-        safe_print(f"Milky Way transit complete. Initiating Solar System point-source locks and Earth PREM transit...")
-        
-    F_earth = np.zeros((N_E, 3), dtype=np.float64)
+        safe_print(f"Milky Way transit complete. Initiating Solar System point-source locks and Earth PREM transit ({len(earth_costh)} chord(s))...")
+
     n_sun_eV3, n_moon_eV3 = 0.0, 0.0
     if m_eff > 0:
-        n_sun_eV3 = N_n_sun * (m_eff**2) / (4.0 * np.pi * d_sun_eV_inv) * np.exp(-m_eff * d_sun_eV_inv) 
-        n_moon_eV3 = N_n_moon * (m_eff**2) / (4.0 * np.pi * d_moon_eV_inv) * np.exp(-m_eff * d_moon_eV_inv) 
+        n_sun_eV3 = N_n_sun * (m_eff**2) / (4.0 * np.pi * d_sun_eV_inv) * np.exp(-m_eff * d_sun_eV_inv)
+        n_moon_eV3 = N_n_moon * (m_eff**2) / (4.0 * np.pi * d_moon_eV_inv) * np.exp(-m_eff * d_moon_eV_inv)
     n_n_amb_eV3 = calc_MW_neutron_density(0.0, 0.0, 0.0) * cm_inv3_to_eV3 + n_sun_eV3 + n_moon_eV3
-    
+
     N_steps_earth = 500
-    earth_print_mod = max(1, N_steps_earth // 10)
-    
-    for costh_idx, costh in enumerate(earth_costh):
-        baseline_km = get_baseline_earth(detector_depth_km, costh)
-        dr_earth_km = baseline_km / N_steps_earth
-        dr_earth_eV_inv = dr_earth_km * 1e3 * m_to_eV_inv
-        
-        rho_earth = np.zeros((N_E, 3, 3), dtype=np.complex128)
-        for i in range(N_E):
-            for a in range(3):
-                for b in range(3):
-                    rho_earth[i, a, b] = rho_surf_avg[i, a, b]
-                    
-        desc_earth = f"Earth ({lbl}) Chord {costh_idx+1}/{len(earth_costh)}"
-        earth_iter = tqdm(range(N_steps_earth), desc=desc_earth, leave=False) if (HAS_TQDM and show_progress) else range(N_steps_earth)
-        
-        for step in earth_iter:
-            l_km = step * dr_earth_km
-            
-            if verbose == 2 and costh_idx == 0 and step % earth_print_mod == 0:
-                safe_print(f"   Earth Transit [Chord 1]: Subterranean depth traversed = {l_km:.2f} km")
-                
-            step_earth_transit(l_km, baseline_km, costh, dr_earth_eV_inv, E_bins, rho_earth, U_pmns, M_sq, n_n_amb_eV3, Coef, U_LRI_struct, use_SM_potential, is_antineutrino, detector_depth_km, U_step_buffer)
-            
-        for i in range(N_E):
-            for a in range(3):
-                F_earth[i, a] += np.real(rho_earth[i, a, a]) / len(earth_costh)
-                
+
+    earth_tasks = [(costh, get_baseline_earth(detector_depth_km, costh), N_steps_earth, E_bins, rho_surf_avg,
+                    M_rot, n_n_amb_eV3, Coef, U_LRI_struct, use_SM_potential, is_antineutrino,
+                    detector_depth_km, n_e_earth_eV3) for costh in earth_costh]
+    earth_results = _run_spatial_tasks(_earth_chord_worker, earth_tasks, f"Earth chords ({lbl})", n_workers, show_progress)
+    rho_earth_avg = np.mean(np.stack(earth_results, axis=0), axis=0)
+    F_earth = np.real(np.diagonal(rho_earth_avg, axis1=1, axis2=2)).copy()
+
     if verbose == 2:
         safe_print(f"Spatial propagation finished ({lbl}). Flux density matrix mapped to detector depth.")
-                
+
     return F_earth
 
 
@@ -613,21 +664,35 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                        use_debye_screening: bool, detector_depth_km: float,
                        use_SM_potential: bool, n_e_earth: float,
                        is_antineutrino: bool, p_index: float, rho_evol: float,
-                       Phi_0: float, eta_bg: np.ndarray, n_mw_paths: int, n_earth_chords: int, 
+                       Phi_0: float, eta_bg: np.ndarray, n_mw_paths: int, n_earth_chords: int,
                        N_steps_MW: int = 100, r_start_kpc: float = 100.0,
-                       show_progress: bool = True, verbose: int = 1) -> np.ndarray:
+                       show_progress: bool = True, verbose: int = 1, n_cores: int = 1) -> np.ndarray:
     """
     Executes the complete spectrum integration, driving the underlying JIT kernels.
     Includes verbose level 2 for periodic redshift status updates.
     """
+    if HAS_NUMBA:
+        # The cosmological step below is parallelized internally via numba prange; cap its
+        # thread pool to n_cores so a caller that already parallelizes across many processes
+        # at a higher level (dark_portal_scanner.py, FrequentistAnalysis's Minuit/emcee
+        # workers -- both of which pass n_cores=1 here) doesn't also oversubscribe every core
+        # from inside each of its own worker processes.
+        numba.set_num_threads(max(1, int(n_cores)))
+
     N_E = len(E_bins)
-    dz = z_bins[0] - z_bins[1] 
+    dz = z_bins[0] - z_bins[1]
     lbl = "Anti-Nu" if is_antineutrino else "Nu"
-    
+
+    # U_pmns and M_sq never change within this call, so the vacuum-oscillation matrix product
+    # U_pmns @ M_sq @ conj(U_pmns).T is precomputed exactly once here instead of being
+    # recomputed (identically) on every single (E, z) evaluation downstream -- see
+    # get_adiabatic_mixing_cosmo's docstring for where this is consumed.
+    M_rot = np.ascontiguousarray(U_pmns @ M_sq @ np.ascontiguousarray(np.conjugate(U_pmns).T))
+
     eta_mass = np.zeros(3, dtype=np.float64)
     for i in range(3):
         eta_mass[i] = np.sum(np.abs(U_pmns[:, i])**2 * eta_bg)
-    
+
     F_mass = np.zeros((N_E, 3), dtype=np.float64)
             
     u_mag = np.abs(u_arr)
@@ -677,53 +742,25 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         z = z_bins[k]
         dt = dz / (calc_H_Hubble(z, H0, Omega_m, Omega_L) * (1.0 + z))
         R_z = calc_R_source(z, rho_evol)
-        
-        # if k % z_print_mod == 0:
-        #     print(f"\n[DEBUG] Redshift z={z:.4f} | dt={dt:.4e} | R_z={R_z:.4e}")
-        #     print(f"  -> U_pmns norms: {np.linalg.norm(U_pmns):.4f}")
-        #     print(f"  -> u_arr: {u_arr}")
-        #     print(f"  -> Gamma_grid_all min/max: {np.min(Gamma_grid_all[k]):.4e}, {np.max(Gamma_grid_all[k]):.4e}")
-            
+
         if verbose == 2 and k % z_print_mod == 0:
             safe_print(f"Cosmological propagation: currently integrating at redshift z = {z:.4f}")
-        
-        # Insert right before line 690
-        # import numba
-        # print("--- Numba JIT Type Signatures before line 690 ---")
-        # print("z:       ", numba.typeof(z))
-        # print("dt:      ", numba.typeof(dt))
-        # print("F_mass:  ", numba.typeof(F_mass))
-        # print("rho_src: ", numba.typeof(rho_src))
-        # print("U_pmns:  ", numba.typeof(U_pmns))
-        # print("M_sq:    ", numba.typeof(M_sq))
-        # print("u_arr:   ", numba.typeof(u_arr))
-        # print("eta_bg:  ", numba.typeof(eta_bg))
-        # print("--- Array Shapes ---")
-        # print("F_mass: ", F_mass.shape)
-        # print("rho_src:", rho_src.shape)
-        # print("U_pmns: ", U_pmns.shape)
-        # print("u_arr:  ", u_arr.shape)
-        # print("eta_bg: ", eta_bg.shape)
-        # print("E_bins: ", E_bins.shape)
-        # if isinstance(R_z, np.ndarray): 
-        #     print("R_z:    ", R_z.shape)
-        # print("-------------------------------------------------")
 
-        step_cosmological_propagation(z, dt, R_z, E_bins, F_mass, rho_src, U_pmns, M_sq, u_arr, 
-                                      m_Zd, g_D, eps_prime, n_n0, T_nu0, 
-                                      use_debye_screening, is_antineutrino, p_index, Phi_0, 
+        step_cosmological_propagation(z, dt, R_z, E_bins, F_mass, rho_src, M_rot, u_arr,
+                                      m_Zd, g_D, eps_prime, n_n0, T_nu0,
+                                      use_debye_screening, is_antineutrino, p_index, Phi_0,
                                       eta_bg, BR, dE,
                                       F_flavor, Gamma_flavor, dF_casc_flavor, U_z_all, rate_F_sum_arr,
                                       Gamma_grid_all[k, :, :])
-                
+
     if verbose == 2:
         safe_print(f"Cosmological baseline finished at z = {z_bins[-1]:.4f}.")
 
-    F_earth = propagate_earth_spatial(E_bins, F_mass, U_pmns, M_sq, u_arr, m_Zd, g_D, eps_prime, 
-                                      T_nu0, use_debye_screening, eta_bg, detector_depth_km, 
-                                      use_SM_potential, is_antineutrino, n_mw_paths, n_earth_chords, 
+    F_earth = propagate_earth_spatial(E_bins, F_mass, M_rot, u_arr, m_Zd, g_D, eps_prime,
+                                      T_nu0, use_debye_screening, eta_bg, detector_depth_km,
+                                      use_SM_potential, n_e_earth, is_antineutrino, n_mw_paths, n_earth_chords,
                                       N_steps_MW=N_steps_MW, r_start_kpc=r_start_kpc,
-                                      show_progress=show_progress, verbose=verbose)
+                                      show_progress=show_progress, verbose=verbose, n_cores=n_cores)
             
     return F_earth
 
@@ -792,7 +829,7 @@ def propagation_worker(args) -> Tuple[np.ndarray, np.ndarray]:
             is_anti, params['p_index'], params['rho_evol'], params['Phi_0'], eta_bg, 
             params['n_mw_paths'], params['n_earth_chords'],
             params['N_steps_MW'], params['r_start_kpc'],
-            show_progress=show_progress, verbose=verbose
+            show_progress=show_progress, verbose=verbose, n_cores=params.get('n_cores', 1)
         )
     
     flag_val = str(params.get('is_antineutrino', 'sum')).strip().lower()
@@ -913,35 +950,25 @@ def run_solver(config: Dict) -> Tuple[np.ndarray, np.ndarray]:
                          np.log10(config['grid']['E_max_eV']), 
                          int(config['grid']['n_E_bins']))
     
-    n_cores = int(config['execution'].get('n_cores', 1))
-    
-    tasks = [(E_bins, params)]
-    
-    if len(tasks) == 1:
-        n_cores = 1
-    
-    params['show_progress'] = (n_cores == 1)
+    # A single call to run_solver always evaluates exactly one physics configuration, so
+    # there is nothing to parallelize at the config level (unlike dark_portal_scanner.py,
+    # which parallelizes across many configs). Instead, n_cores drives genuine intra-run
+    # parallelism across the independent Milky Way paths / Earth chords in the spatial
+    # handover (see propagate_earth_spatial), which is where a single run actually has
+    # independent work to distribute.
+    n_cores = max(1, int(config['execution'].get('n_cores', 1)))
+    params['n_cores'] = n_cores
+    params['show_progress'] = True
     params['verbose'] = int(config['execution'].get('verbose', 1))
-    
+
     safe_print(f"Initializing solver across {len(E_bins)} coupled energy bins...")
-    results = []
-    
     if n_cores > 1:
-        safe_print(f"Deploying {n_cores} multiprocessing workers.")
-        with multiprocessing.Pool(processes=n_cores) as pool:
-            if HAS_TQDM:
-                for res in tqdm(pool.imap(propagation_worker, tasks), total=len(tasks), desc="Evaluating Configurations"):
-                    results.append(res)
-            else:
-                results = pool.map(propagation_worker, tasks)
+        safe_print(f"Using up to {n_cores} core(s) to parallelize the Milky Way / Earth spatial handover.")
     else:
         safe_print("Deploying single-core worker.")
-        for task in tasks:
-            results.append(propagation_worker(task))
-            
-    E_out = results[0][0]
-    Flux_out = results[0][1]
-    
+
+    E_out, Flux_out = propagation_worker((E_bins, params))
+
     return E_out, Flux_out
 
 def plot_flavor_fluxes(E_array: np.ndarray, Flux_array: np.ndarray, p_index: float, is_antineutrino_flag: str, output_filename: str = "../output/plots/flux_plot.png"):
@@ -982,7 +1009,7 @@ def plot_flavor_fluxes(E_array: np.ndarray, Flux_array: np.ndarray, p_index: flo
     
     ax1.set_xscale('log')
     ax1.set_yscale('log')
-    ax1.set_ylabel(f'Scaled Flux $E_0^2 \Phi$ [Arb. Units]', fontsize=14)
+    ax1.set_ylabel(r'Scaled Flux $E_0^2 \Phi$ [Arb. Units]', fontsize=14)
     ax1.set_title('Astrophysical Neutrino Diffuse Flux at Earth', fontsize=15, pad=15)
     ax1.grid(True, which="both", ls="--", alpha=0.4)
     ax1.legend(fontsize=12, loc='lower right')
