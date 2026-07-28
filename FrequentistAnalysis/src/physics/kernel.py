@@ -31,7 +31,11 @@ if dark_portal_dir not in sys.path:
 from dark_portal_solver import (propagate_spectrum, construct_PMNS, get_mass_eigenvalues,
                                 compute_gamma_grid_inputs, precompute_all_thermal_rates,
                                 cm_inv3_to_eV3)
-from dark_portal_scanner import compute_energy_averaged_ratios
+# Imported from flux_postprocessing (not dark_portal_scanner, its previous home):
+# importing the scanner has side effects -- it globally sets
+# dark_portal_solver.HAS_TQDM = False and imports matplotlib -- that this kernel
+# never wanted.
+from flux_postprocessing import compute_energy_averaged_ratios
 
 # Updated LaTeX labels mapping both dark portal and cosmo-physical parameter space
 LATEX_LABELS = {

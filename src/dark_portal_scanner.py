@@ -24,19 +24,6 @@ except ImportError:
     print("Warning: 'matplotlib' not found. Plotting will be disabled.")
 
 try:
-    from numba import njit
-    HAS_NUMBA = True
-except ImportError:
-    HAS_NUMBA = False
-    print("Warning: 'numba' not found. Falling back to pure Python (will be significantly slower).")
-    def njit(*args, **kwargs):
-        """Dummy decorator if numba is unavailable or string signatures are passed."""
-        def decorator(func): return func
-        if len(args) == 1 and callable(args[0]): return args[0]
-        if len(args) == 1 and isinstance(args[0], str): return decorator
-        return decorator
-
-try:
     from tqdm import tqdm
     HAS_TQDM = True
 except ImportError:
@@ -51,31 +38,10 @@ try:
 except ImportError:
     raise ImportError("Could not find 'dark_portal_solver.py'. Ensure this script is in the same directory.")
 
-@njit("float64[:](float64[:], float64[:,:])", fastmath=True, cache=True)
-def compute_energy_averaged_ratios(E_bins: np.ndarray, Flux_array: np.ndarray) -> np.ndarray:
-    """
-    Computes the energy-averaged flavor ratios over the fully integrated spectrum.
-    Utilizes exact geometric midpoints to perfectly match the cascading energy conservation weights.
-    """
-    # dps.compute_dE_geometric is the single canonical implementation (also used by
-    # dark_portal_solver.py's own propagate_spectrum); importing it rather than keeping a
-    # separate copy here avoids the two silently drifting out of sync.
-    dE = dps.compute_dE_geometric(E_bins)
-
-    flux_e = Flux_array[:, 0]
-    flux_mu = Flux_array[:, 1]
-    flux_tau = Flux_array[:, 2]
-    
-    int_e = np.sum(flux_e * dE)
-    int_mu = np.sum(flux_mu * dE)
-    int_tau = np.sum(flux_tau * dE)
-    int_total = int_e + int_mu + int_tau
-    
-    # Fallback to standard 1:1:1 if the entire spectrum is catastrophically attenuated
-    if int_total > 1e-100:
-        return np.array([int_e / int_total, int_mu / int_total, int_tau / int_total])
-    else:
-        return np.array([1.0/3.0, 1.0/3.0, 1.0/3.0])
+# compute_energy_averaged_ratios now lives in flux_postprocessing.py (it is flux
+# post-processing, not a scanning routine); re-exported here so existing code that
+# imports it from this module keeps working.
+from flux_postprocessing import compute_energy_averaged_ratios  # noqa: F401
 
 def scan_worker(args: Tuple[str, float, Dict]) -> Tuple[float, np.ndarray]:
     """

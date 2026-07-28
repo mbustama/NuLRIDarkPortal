@@ -438,21 +438,24 @@ def test_compute_dE_geometric_matches_independent_formula():
     np.testing.assert_allclose(dE, expected, rtol=1e-12)
 
 
-def test_scanner_uses_shared_dE_helper():
-    """dark_portal_scanner.py's compute_energy_averaged_ratios must call the same
+def test_energy_averaged_ratios_uses_shared_dE_helper():
+    """flux_postprocessing.compute_energy_averaged_ratios must be built on the same
     dark_portal_solver.compute_dE_geometric used by propagate_spectrum, not a separate
     copy-pasted formula -- regression test for the DRY refactor that replaced the
-    scanner's independent (previously identical, but separately maintained) dE computation
-    with this shared, imported helper."""
+    previously duplicated dE computation with this shared, imported helper. Also checks
+    the function's move out of dark_portal_scanner.py into flux_postprocessing.py: the
+    scanner must still re-export it (backward compatibility), and both names must be the
+    same object."""
+    import flux_postprocessing as fpp
     import dark_portal_scanner as dpsc
-    assert dpsc.dps.compute_dE_geometric is dps.compute_dE_geometric
+    assert dpsc.compute_energy_averaged_ratios is fpp.compute_energy_averaged_ratios
 
     E_bins = np.logspace(13, 16, 25)
     dE = dps.compute_dE_geometric(E_bins)
     Flux_array = np.zeros((25, 3))
     Flux_array[:, 0] = 1.0 / dE
     Flux_array[:, 1] = 2.0 / dE
-    ratios = dpsc.compute_energy_averaged_ratios(E_bins, Flux_array)
+    ratios = fpp.compute_energy_averaged_ratios(E_bins, Flux_array)
     np.testing.assert_allclose(ratios, [1.0 / 3.0, 2.0 / 3.0, 0.0], rtol=1e-9)
 
 
