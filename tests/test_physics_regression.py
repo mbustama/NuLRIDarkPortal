@@ -33,6 +33,10 @@ _SRC_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
 if _SRC_DIR not in sys.path:
     sys.path.insert(0, _SRC_DIR)
 
+_FREQ_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "FrequentistAnalysis"))
+if _FREQ_DIR not in sys.path:
+    sys.path.insert(0, _FREQ_DIR)
+
 import dark_portal_solver as dps  # noqa: E402
 
 
@@ -449,6 +453,127 @@ def test_scanner_uses_shared_dE_helper():
     Flux_array[:, 1] = 2.0 / dE
     ratios = dpsc.compute_energy_averaged_ratios(E_bins, Flux_array)
     np.testing.assert_allclose(ratios, [1.0 / 3.0, 2.0 / 3.0, 0.0], rtol=1e-9)
+
+
+# =============================================================================
+# 7. FrequentistAnalysis static_data wiring (regression test for the fixed dead-parameter bugs)
+# =============================================================================
+
+def _make_frequentist_config(**physics_overrides):
+    """Minimal physics_constants block sized for fast tests, with production-representative
+    defaults for everything compute_user_model_single needs to run end-to-end."""
+    physics_constants = {
+        "H0_km_s_Mpc": 67.4, "Omega_m": 0.315, "Omega_L": 0.685,
+        "T_nu0_eV": 1.95e-4, "n_n0_cm3": 0.25e-6, "m_lightest_eV": 0.01,
+        "mass_ordering": "normal", "eta_e": 1.0, "eta_mu": 1.0, "eta_tau": 1.0,
+        "detector_depth_km": 1.5, "p_index": 2.5, "Phi_0": 1.0, "z_max": 4.0,
+        "rho_evol": 0.0, "f_e_S": 0.333333, "f_mu_S": 0.666667, "f_tau_S": 0.0,
+        "is_antineutrino": "sum", "E_min_eV": 1e13, "E_max_eV": 3e16,
+        "n_E_bins": 15, "n_z_bins": 15, "n_mw_paths": 1, "n_earth_chords": 1,
+        "N_steps_MW": 5, "N_steps_earth": 5,
+    }
+    physics_constants.update(physics_overrides)
+    return {"experiment": "test", "physics_constants": physics_constants}
+
+
+def _default_dark_portal_params():
+    return {"m_Zd_eV": 2.0e6, "g_D": 1e-4, "epsilon_prime": 0.1, "u_e": 0.5, "u_mu": 0.5, "u_tau": 0.0}
+
+
+def test_frequentist_static_data_wires_use_SM_potential_and_n_e_earth():
+    """FrequentistAnalysis's GenericLikelihoodWrapper must actually read use_SM_potential and
+    n_e_earth_cm3 from physics_constants into static_data, and kernel.py's
+    compute_user_model_single must actually use them -- previously both were hardcoded
+    (use_SM_potential=False, n_e_earth=0.0) regardless of the config, silently dropping the
+    same way n_e_earth_cm3 was previously dropped in dark_portal_solver.py's own run_solver
+    (see test_n_e_earth_cm3_affects_flux_when_SM_potential_enabled above)."""
+    from src.core.likelihood import GenericLikelihoodWrapper
+    from src.physics.kernel import compute_user_model_single
+
+    # n_e_earth_cm3 values chosen so the effect is comfortably above float noise: this
+    # dark-portal configuration's LRI potential dominates over the standard MSW potential by
+    # several orders of magnitude (as expected -- the whole point of the model is that the
+    # new force dominates), so use_SM_potential's effect on the output, while real and
+    # non-zero at any n_e_earth_cm3, only clears typical float-comparison tolerances once
+    # n_e_earth_cm3 is large enough (empirically checked to give a ~1e-4-level relative
+    # effect at 5e24 cm^-3, vs ~1e-16 machine noise when the parameter is dead/dropped).
+    cfg_off = _make_frequentist_config(use_SM_potential=False, n_e_earth_cm3=5.0e24)
+    cfg_lo = _make_frequentist_config(use_SM_potential=True, n_e_earth_cm3=1.0e23)
+    cfg_hi = _make_frequentist_config(use_SM_potential=True, n_e_earth_cm3=5.0e24)
+
+    func_off = GenericLikelihoodWrapper(cfg_off, [])
+    func_lo = GenericLikelihoodWrapper(cfg_lo, [])
+    func_hi = GenericLikelihoodWrapper(cfg_hi, [])
+
+    assert len(func_off.static_data) == 30
+    assert func_off.static_data[27] is False or func_off.static_data[27] == False  # noqa: E712
+    assert func_lo.static_data[27] is True or func_lo.static_data[27] == True  # noqa: E712
+    assert func_lo.static_data[28] != func_hi.static_data[28]
+
+    params = _default_dark_portal_params()
+    result_off = compute_user_model_single(params, func_off.static_data)
+    result_lo = compute_user_model_single(params, func_lo.static_data)
+    result_hi = compute_user_model_single(params, func_hi.static_data)
+
+    # Turning on use_SM_potential (with n_e_earth actually wired through) must change the
+    # output, and different n_e_earth_cm3 values must give different outputs from each other.
+    assert not np.allclose(result_off, result_hi, rtol=1e-6, atol=0.0)
+    assert not np.allclose(result_lo, result_hi, rtol=1e-6, atol=0.0)
+
+
+def test_frequentist_static_data_wires_use_debye_screening():
+    """use_debye_screening is present in every shipped physics_constants block's spirit
+    (dark_portal_solver.py's own config exposes it under dark_portal.use_debye_screening)
+    but was hardcoded to True in kernel.py regardless of config. Regression test that it is
+    now read from static_data and actually changes the propagated flux when toggled."""
+    from src.core.likelihood import GenericLikelihoodWrapper
+    from src.physics.kernel import compute_user_model_single
+
+    cfg_on = _make_frequentist_config(use_debye_screening=True)
+    cfg_off = _make_frequentist_config(use_debye_screening=False)
+
+    func_on = GenericLikelihoodWrapper(cfg_on, [])
+    func_off = GenericLikelihoodWrapper(cfg_off, [])
+
+    assert func_on.static_data[29] is True or func_on.static_data[29] == True  # noqa: E712
+    assert func_off.static_data[29] is False or func_off.static_data[29] == False  # noqa: E712
+
+    # A large g_D (strong dark coupling) makes the Debye screening mass non-negligible
+    # relative to m_Zd, so toggling it should visibly change the propagated flux.
+    params = dict(_default_dark_portal_params())
+    params["m_Zd_eV"] = 1.0e3
+    params["g_D"] = 1.0
+
+    result_on = compute_user_model_single(params, func_on.static_data)
+    result_off = compute_user_model_single(params, func_off.static_data)
+
+    assert not np.allclose(result_on, result_off)
+
+
+def test_frequentist_static_data_backward_compatible_with_shorter_tuples():
+    """compute_user_model_single must still work, with safe defaults, given an older
+    26-element static_data tuple that predates N_steps_earth/use_SM_potential/n_e_earth/
+    use_debye_screening -- these were all added as tuple extensions specifically to avoid
+    breaking any caller still constructing the older, shorter form."""
+    from src.physics.kernel import compute_user_model_single
+
+    old_static_data = (
+        0.33, 0.33, 0.05, 0.05,
+        np.logspace(13, 16, 10), np.linspace(4.0, 0.0, 10),
+        np.array([0.333333, 0.666667, 0.0]),
+        67.4 * dps.km_per_s / dps.Mpc_to_eV_inv, 0.315, 0.685,
+        np.eye(3, dtype=np.complex128),
+        np.diag([0.0, 7.41e-5, 2.511e-3]).astype(np.complex128),
+        np.array([0.0, 8.6e-3, 5.01e-2]),
+        0.25e-6 * dps.cm_inv3_to_eV3, 1.95e-4, np.ones(3, dtype=np.float64),
+        1.5, "sum", 2.5, 0.0, 1.0,
+        1.0, 1, 1, 5, 100.0,
+    )
+    assert len(old_static_data) == 26
+
+    result = compute_user_model_single(_default_dark_portal_params(), old_static_data)
+    assert len(result) == 3
+    assert all(np.isfinite(result))
 
 
 if __name__ == "__main__":

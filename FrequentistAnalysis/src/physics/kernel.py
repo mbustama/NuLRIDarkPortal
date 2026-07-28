@@ -27,7 +27,8 @@ if dark_portal_dir not in sys.path:
 # canonical implementations (also used by dark_portal_solver.py itself); importing them
 # rather than keeping a local copy avoids the two drifting out of sync.
 from dark_portal_solver import (propagate_spectrum, construct_PMNS, get_mass_eigenvalues,
-                                compute_gamma_grid_inputs, precompute_all_thermal_rates)
+                                compute_gamma_grid_inputs, precompute_all_thermal_rates,
+                                cm_inv3_to_eV3)
 from dark_portal_scanner import compute_energy_averaged_ratios
 
 # Updated LaTeX labels mapping both dark portal and cosmo-physical parameter space
@@ -83,10 +84,11 @@ def compute_user_model_single(params, static_data):
     Standard Python wrapper. Evaluates the dark portal propagation by calling 
     external solvers and returns the predicted flavor fractions at Earth.
     """
-    # Unpack the immutable data tuple (expanded to 27 elements; N_steps_earth defaults to
-    # 500 -- the only value validated against resonance-crossing sensitivity, see
-    # propagate_earth_spatial's docstring in dark_portal_solver.py -- for any caller still
-    # passing the older 26-element tuple without it).
+    # Unpack the immutable data tuple (expanded to 30 elements; N_steps_earth,
+    # use_SM_potential, n_e_earth, and use_debye_screening all default to their
+    # dark_portal_solver.py defaults for any caller still passing an older, shorter tuple.
+    # N_steps_earth=500 is the only value validated against resonance-crossing sensitivity,
+    # see propagate_earth_spatial's docstring in dark_portal_solver.py).
     (obs_f_e, obs_f_mu, obs_err_e, obs_err_mu,
      E_bins, z_bins, rho_src, H0, Omega_m, Omega_L,
      U_pmns, M_sq, m_nu_bg_arr, n_n0, T_nu0, eta_bg,
@@ -94,7 +96,16 @@ def compute_user_model_single(params, static_data):
      nubar_to_nu_ratio, n_mw_paths, n_earth_chords,
      N_steps_MW, r_start_kpc) = static_data[:26]
     N_steps_earth = static_data[26] if len(static_data) > 26 else 500
-     
+    # use_SM_potential/n_e_earth_cm3/use_debye_screening are present in every shipped
+    # physics_constants block but were previously hardcoded here (False/0.0/True)
+    # regardless of what the config said -- dormant since every shipped config wants
+    # use_SM_potential=false anyway, but silently dropped the config value the moment
+    # anyone flipped it (same bug class as the already-fixed n_e_earth_cm3 disconnect in
+    # dark_portal_solver.py's own run_solver).
+    use_SM_potential = bool(static_data[27]) if len(static_data) > 27 else False
+    n_e_earth = float(static_data[28]) if len(static_data) > 28 else 1.5e24 * cm_inv3_to_eV3
+    use_debye_screening = bool(static_data[29]) if len(static_data) > 29 else True
+
     # 1. Unpack scanning parameters from the generic Minuit engine wrapper.
     #    Handles backwards compatibility if passed as a positional array.
     if isinstance(params, dict):
@@ -209,10 +220,7 @@ def compute_user_model_single(params, static_data):
     M_sq_complex = np.ascontiguousarray(M_sq_complex)
     # ---------------------------------------------------------
 
-    # Hardcoded structural booleans and integers required by the solver signature
-    use_debye_screening = True
-    use_SM_potential = False
-    n_e_earth = 0.0 # Bypassed if use_SM_potential is False
+    # use_debye_screening/use_SM_potential/n_e_earth were unpacked from static_data above.
     show_progress = False
     verbose = 0
     
