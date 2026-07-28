@@ -18,6 +18,7 @@ os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "1")
 os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
 
+import copy
 import json
 import argparse
 import multiprocessing
@@ -605,7 +606,7 @@ def step_cosmological_propagation(z: float, dt: float, R_z: float, E_bins: np.nd
                                   p_index: float, Phi_0: float, eta_bg: np.ndarray,
                                   BR: np.ndarray, W_kernel: np.ndarray,
                                   F_flavor: np.ndarray, Gamma_flavor: np.ndarray,
-                                  dF_casc_flavor: np.ndarray, U_z_all: np.ndarray,
+                                  dF_casc_flavor: np.ndarray, P_all: np.ndarray,
                                   rate_F_sum_arr: np.ndarray, precomputed_Gamma_flavor: np.ndarray):
     """Executes a single cosmological integration step using pre-allocated buffers and pre-computed rates.
 
@@ -623,13 +624,21 @@ def step_cosmological_propagation(z: float, dt: float, R_z: float, E_bins: np.nd
     dF_casc_flavor.fill(0.0)
     rate_F_sum_arr.fill(0.0)
 
-    # First loop: Calculate flavor composition and assign pre-computed interaction rates
+    # First loop: Calculate flavor composition and assign pre-computed interaction rates.
+    # Only the projection probabilities |U|^2 are ever consumed downstream (here and in
+    # the fourth loop), so they are computed once per (i, z) into the P_all buffer
+    # instead of storing the complex mixing matrix and re-deriving |U|^2 element-wise in
+    # both loops as before. np.abs(.)**2 is kept verbatim so the stored values are
+    # bit-identical to the previous inline computation.
     for i in prange(N_E):
         U_z = get_adiabatic_mixing_cosmo(E_bins[i], z, M_rot, u_arr, U_LRI_struct, m_Zd, g_D, eps_prime,
                                          n_n0, T_nu0, use_debye_screening, is_antineutrino, eta_bg)
-        U_z_all[i] = U_z
         for a in range(3):
-            F_flavor[i, a] = np.sum(np.abs(U_z[a, :])**2 * F_mass[i, :])
+            for k in range(3):
+                P_all[i, a, k] = np.abs(U_z[a, k])**2
+            F_flavor[i, a] = (P_all[i, a, 0] * F_mass[i, 0]
+                              + P_all[i, a, 1] * F_mass[i, 1]
+                              + P_all[i, a, 2] * F_mass[i, 2])
 
         # Use the pre-computed grid values instead of the thermal kernel
         Gamma_flavor[i, :] = precomputed_Gamma_flavor[i, :]
@@ -658,15 +667,22 @@ def step_cosmological_propagation(z: float, dt: float, R_z: float, E_bins: np.nd
         for a in range(3):
             dF_casc_flavor[i, a] = BR[a] * casc_i
 
-    # Fourth loop: Update mass eigenstate flux with decay and injection
+    # Fourth loop: Update mass eigenstate flux with decay and injection (projections
+    # read from the P_all buffer filled in the first loop; summation order over flavors
+    # is unchanged, so the arithmetic is identical).
     for i in prange(N_E):
-        U_z = U_z_all[i]
         E_z = E_bins[i] * (1.0 + z)
         inj_spectrum = Phi_0 * (E_z**(-p_index))
         for a in range(3):
-            Gamma_mass_a = np.sum(np.abs(U_z[:, a])**2 * Gamma_flavor[i, :])
-            dF_casc_mass_a = np.sum(np.abs(U_z[:, a])**2 * dF_casc_flavor[i, :])
-            inj_rate_mass_a = np.sum(np.abs(U_z[:, a])**2 * rho_src) * inj_spectrum * R_z
+            Gamma_mass_a = (P_all[i, 0, a] * Gamma_flavor[i, 0]
+                            + P_all[i, 1, a] * Gamma_flavor[i, 1]
+                            + P_all[i, 2, a] * Gamma_flavor[i, 2])
+            dF_casc_mass_a = (P_all[i, 0, a] * dF_casc_flavor[i, 0]
+                              + P_all[i, 1, a] * dF_casc_flavor[i, 1]
+                              + P_all[i, 2, a] * dF_casc_flavor[i, 2])
+            inj_rate_mass_a = (P_all[i, 0, a] * rho_src[0]
+                               + P_all[i, 1, a] * rho_src[1]
+                               + P_all[i, 2, a] * rho_src[2]) * inj_spectrum * R_z
             total_rate = dF_casc_mass_a + inj_rate_mass_a
             
             if Gamma_mass_a > 1e-30:
@@ -1261,7 +1277,7 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
     F_flavor = np.zeros((N_E, 3), dtype=np.float64)
     Gamma_flavor = np.zeros((N_E, 3), dtype=np.float64)
     dF_casc_flavor = np.zeros((N_E, 3), dtype=np.float64)
-    U_z_all = np.zeros((N_E, 3, 3), dtype=np.complex128)
+    P_all = np.zeros((N_E, 3, 3), dtype=np.float64)
     rate_F_sum_arr = np.zeros(N_E, dtype=np.float64)
 
     # Pre-compute the thermal interaction rates for the entire grid before sequential stepping.
@@ -1294,7 +1310,7 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                                       m_Zd, g_D, eps_prime, n_n0, T_nu0,
                                       use_debye_screening, is_antineutrino, p_index, Phi_0,
                                       eta_bg, BR, W_kernel,
-                                      F_flavor, Gamma_flavor, dF_casc_flavor, U_z_all, rate_F_sum_arr,
+                                      F_flavor, Gamma_flavor, dF_casc_flavor, P_all, rate_F_sum_arr,
                                       Gamma_grid_all[k, :, :])
 
     if verbose == 2:
@@ -1314,6 +1330,39 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
 # =============================================================================
 # FILE EXPORT ROUTINE
 # =============================================================================
+
+def write_run_manifest(filename: str, config: Dict, runtime_s: float = None):
+    """Writes a reproducibility manifest (JSON) alongside an output file: the full
+    resolved configuration, the git commit of the code that produced it, package
+    versions, host, timestamp, and runtime. Paper-level numbers should be traceable to
+    an exact code + configuration state; this makes that automatic."""
+    import platform
+    import subprocess
+    import datetime
+
+    git_hash = None
+    try:
+        git_hash = subprocess.run(
+            ["git", "-C", os.path.dirname(os.path.abspath(__file__)), "rev-parse", "HEAD"],
+            capture_output=True, text=True, timeout=5).stdout.strip() or None
+    except Exception:
+        pass
+
+    versions = {"python": platform.python_version(), "numpy": np.__version__}
+    if HAS_NUMBA:
+        versions["numba"] = numba.__version__
+
+    manifest = {
+        "timestamp_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "git_commit": git_hash,
+        "hostname": platform.node(),
+        "versions": versions,
+        "runtime_s": runtime_s,
+        "config": config,
+    }
+    with open(filename, "w") as f:
+        json.dump(manifest, f, indent=2, default=str)
+    safe_print(f"Run manifest saved to: {os.path.abspath(filename)}")
 
 def save_flux_to_file(E_array: np.ndarray, Flux_array: np.ndarray, filename: str = "../output/data/output_flux.txt"):
     """Saves the generated flux components (Energy, nue, numu, nutau) to an external text file."""
@@ -1441,9 +1490,17 @@ def propagation_worker(args) -> Tuple[np.ndarray, np.ndarray]:
     
     if flag_val in ['sum', 'both']:
         ratio = params.get('nubar_to_nu_ratio', 1.0)
-        w_nu = 1.0 / (1.0 + ratio)
-        w_nubar = ratio / (1.0 + ratio)
-        flux_at_earth = w_nu * compute_flux(False) + w_nubar * compute_flux(True)
+        # Degenerate weights: skip the propagation whose weight is exactly zero instead
+        # of computing a full spectrum and multiplying it away -- a free 2x for
+        # nu-only/nubar-only studies configured through the ratio.
+        if ratio == 0.0:
+            flux_at_earth = compute_flux(False)
+        elif not np.isfinite(ratio):
+            flux_at_earth = compute_flux(True)
+        else:
+            w_nu = 1.0 / (1.0 + ratio)
+            w_nubar = ratio / (1.0 + ratio)
+            flux_at_earth = w_nu * compute_flux(False) + w_nubar * compute_flux(True)
     elif flag_val in ['true', 'antineutrino', 'antinu', 'nubar']:
         flux_at_earth = compute_flux(True)
     else:
@@ -1452,22 +1509,28 @@ def propagation_worker(args) -> Tuple[np.ndarray, np.ndarray]:
     return E_bins, flux_at_earth
 
 def run_solver(config: Dict) -> Tuple[np.ndarray, np.ndarray]:
-    """Orchestrates configuration and parallelization."""
+    """Orchestrates configuration and parallelization.
+
+    The incoming config is first overlaid onto DEFAULT_CONFIG with unknown-key
+    rejection (see merge_config_with_defaults), so every read below can index
+    directly -- no per-call fallback literals to drift out of sync.
+    """
+    config = merge_config_with_defaults(config)
     params = {}
     params['H0_eV'] = float((config['cosmology']['H0_km_s_Mpc'] * km_per_s) / Mpc_to_eV_inv)
     params['Omega_m'] = float(config['cosmology']['Omega_m'])
     params['Omega_L'] = float(config['cosmology']['Omega_L'])
     params['T_nu0_eV'] = float(config['cosmology']['T_nu0_eV'])
     params['n_n0_eV3'] = float(config['cosmology']['n_n0_cm3'] * cm_inv3_to_eV3)
-    params['mass_ordering'] = config['cosmology'].get('mass_ordering', 'normal')
-    mo = str(config['cosmology'].get('mass_ordering', 'normal')).strip().lower()
+    params['mass_ordering'] = config['cosmology']['mass_ordering']
+    mo = str(config['cosmology']['mass_ordering']).strip().lower()
     if mo not in ['normal', 'inverted']:
         raise ValueError(f"mass_ordering must be strictly 'normal' or 'inverted'. Received: {mo}")
     
     params['eta_bg'] = np.array([
-        float(config['cosmology'].get('eta_e', 1.0)),
-        float(config['cosmology'].get('eta_mu', 1.0)),
-        float(config['cosmology'].get('eta_tau', 1.0))
+        float(config['cosmology']['eta_e']),
+        float(config['cosmology']['eta_mu']),
+        float(config['cosmology']['eta_tau'])
     ], dtype=np.float64)
     if config['cosmology']['eta_e'] < 0 or config['cosmology']['eta_mu'] < 0 or config['cosmology']['eta_tau'] < 0:
         raise ValueError("CnuB flavor asymmetries (eta) must be >= 0 to avoid complex Debye screening masses.")
@@ -1478,20 +1541,20 @@ def run_solver(config: Dict) -> Tuple[np.ndarray, np.ndarray]:
     params['th13'] = float(np.radians(config['standard_mixing']['th13_deg']))
     params['th23'] = float(np.radians(config['standard_mixing']['th23_deg']))
     params['d_cp'] = float(np.radians(config['standard_mixing']['d_cp_deg']))
-    params['use_SM_potential'] = config['standard_mixing'].get('use_SM_potential', False)
-    params['n_e_earth_eV3'] = float(config['standard_mixing'].get('n_e_earth_cm3', 1.5e24) * cm_inv3_to_eV3)
+    params['use_SM_potential'] = config['standard_mixing']['use_SM_potential']
+    params['n_e_earth_eV3'] = float(config['standard_mixing']['n_e_earth_cm3'] * cm_inv3_to_eV3)
     # Optional flavor-structure overrides for the coherent forward-scattering potentials
     # (neutrino convention; antineutrino conjugation is applied centrally in
     # propagate_spectrum). See parse_structure_matrix_3x3 for the accepted JSON format.
     params['V_SM_struct'] = None
-    if config['standard_mixing'].get('V_SM_struct', None) is not None:
+    if config['standard_mixing']['V_SM_struct'] is not None:
         params['V_SM_struct'] = parse_structure_matrix_3x3(
             config['standard_mixing']['V_SM_struct'], "standard_mixing.V_SM_struct")
     params['U_LRI_struct'] = None
-    if config['dark_portal'].get('U_LRI_struct', None) is not None:
+    if config['dark_portal']['U_LRI_struct'] is not None:
         params['U_LRI_struct'] = parse_structure_matrix_3x3(
             config['dark_portal']['U_LRI_struct'], "dark_portal.U_LRI_struct")
-    params['detector_depth_km'] = float(config['standard_mixing'].get('detector_depth_km', 1.5))
+    params['detector_depth_km'] = float(config['standard_mixing']['detector_depth_km'])
     depth_km = float(config['standard_mixing']['detector_depth_km'])
     if depth_km < 0.0 or depth_km > 6371.0:
         raise ValueError(f"detector_depth_km ({depth_km}) must be between 0 and the Earth's radius (6371.0 km).")
@@ -1521,12 +1584,12 @@ def run_solver(config: Dict) -> Tuple[np.ndarray, np.ndarray]:
         raise ValueError(f"Dark gauge coupling g_D ({params['g_D']:.2f}) exceeds the perturbativity bound (sqrt(4*pi)).")
     if params['epsilon_prime'] <= 0:
         raise ValueError("Kinetic mixing epsilon_prime must be strictly positive.")
-    params['use_debye_screening'] = config['dark_portal'].get('use_debye_screening', True)
+    params['use_debye_screening'] = config['dark_portal']['use_debye_screening']
     
     params['p_index'] = float(config['source']['p_index'])
     if config['source']['p_index'] <= 0:
         raise ValueError("p_index should be positive. The solver assumes a spectrum proportional to E^(-p_index).")
-    params['Phi_0'] = float(config['source'].get('Phi_0', 1.0))
+    params['Phi_0'] = float(config['source']['Phi_0'])
     if config['source']['Phi_0'] <= 0:
         raise ValueError("Flux normalization Phi_0 should be strictly positive.")
     params['z_max'] = float(config['source']['z_max'])
@@ -1541,11 +1604,11 @@ def run_solver(config: Dict) -> Tuple[np.ndarray, np.ndarray]:
         raise ValueError(f"Source flavor ratios must sum to 1.0. Current sum: {flavor_sum}")
     if params['f_e_S'] < 0 or params['f_mu_S'] < 0 or params['f_tau_S'] < 0:
         raise ValueError("Source flavor fractions must be strictly >= 0. Negative flux injection is unphysical.")
-    params['is_antineutrino'] = config['source'].get('is_antineutrino', 'sum')
-    params['nubar_to_nu_ratio'] = config['source'].get('nubar_to_nu_ratio', 1.0)
+    params['is_antineutrino'] = config['source']['is_antineutrino']
+    params['nubar_to_nu_ratio'] = config['source']['nubar_to_nu_ratio']
     
     params['n_z_bins'] = int(config['grid']['n_z_bins'])
-    params['n_mw_paths'] = int(config['grid'].get('n_mw_paths', 6))
+    params['n_mw_paths'] = int(config['grid']['n_mw_paths'])
     # Defaults set by the production convergence study (tools/convergence_study.py,
     # report in output/convergence/): n_earth_chords=3 (the old default) carried
     # 1.6-4.9e-2 absolute flavor-ratio error against a 100-chord reference at every
@@ -1553,12 +1616,12 @@ def run_solver(config: Dict) -> Tuple[np.ndarray, np.ndarray]:
     # -- while 12 chords bring it to ~1e-2 (percent level). N_steps_MW=25 already agrees
     # with a 400-step reference to ~1e-10 everywhere (the Milky Way transit is deeply
     # adiabatic), so the old default of 100 was pure surplus.
-    params['n_earth_chords'] = int(config['grid'].get('n_earth_chords', 12))
-    params['N_steps_MW'] = int(config['grid'].get('N_steps_MW', 25))
+    params['n_earth_chords'] = int(config['grid']['n_earth_chords'])
+    params['N_steps_MW'] = int(config['grid']['N_steps_MW'])
     # Coarse z-sampling of the thermal-rate grid (0 disables interpolation -- exact grid).
-    params['n_z_thermal'] = int(config['grid'].get('n_z_thermal', 0))
-    params['N_steps_earth'] = int(config['grid'].get('N_steps_earth', 500))
-    params['r_start_kpc'] = float(config['grid'].get('r_start_kpc', 100.0))
+    params['n_z_thermal'] = int(config['grid']['n_z_thermal'])
+    params['N_steps_earth'] = int(config['grid']['N_steps_earth'])
+    params['r_start_kpc'] = float(config['grid']['r_start_kpc'])
     paths_mw = config['grid']['n_mw_paths']
     chords_earth = config['grid']['n_earth_chords']
     if not isinstance(paths_mw, int) or paths_mw < 1:
@@ -1582,13 +1645,13 @@ def run_solver(config: Dict) -> Tuple[np.ndarray, np.ndarray]:
     # parallelism across the independent Milky Way paths / Earth chords in the spatial
     # handover (see propagate_earth_spatial), which is where a single run actually has
     # independent work to distribute.
-    n_cores = max(1, int(config['execution'].get('n_cores', 1)))
+    n_cores = max(1, int(config['execution']['n_cores']))
     params['n_cores'] = n_cores
     # Optional CUDA spatial handover (requires cupy + a CUDA device; silently falls back
     # to the CPU path with a warning when unavailable -- see gpu_spatial.py).
-    params['use_gpu'] = bool(config['execution'].get('use_gpu', False))
+    params['use_gpu'] = bool(config['execution']['use_gpu'])
     params['show_progress'] = True
-    params['verbose'] = int(config['execution'].get('verbose', 1))
+    params['verbose'] = int(config['execution']['verbose'])
 
     safe_print(f"Initializing solver across {len(E_bins)} coupled energy bins...")
     if n_cores > 1:
@@ -1658,12 +1721,15 @@ def plot_flavor_fluxes(E_array: np.ndarray, Flux_array: np.ndarray, p_index: flo
     plt.show()
 
 # =============================================================================
-# ENTRY POINT & CONFIGURATION GENERATION
+# CANONICAL CONFIGURATION DEFAULTS
 # =============================================================================
-
-def create_default_config(filename: str = "../config/config_dark_portal.json") -> Dict:
-    """Generates a strictly formatted default JSON configuration block structure."""
-    default_config = {
+# Single source of truth for every configuration default. create_default_config, the
+# CLI baseline in __main__, run_solver's normalization, and FrequentistAnalysis's
+# physics_constants fallbacks all read from THIS dict -- defaults previously lived in
+# four separately-maintained copies, and keeping them synchronized by hand produced
+# exactly the class of silent drift this codebase's audits kept finding.
+def _build_default_config() -> Dict:
+    return {
         "cosmology": {
             "H0_km_s_Mpc": 67.4,
             "Omega_m": 0.315,
@@ -1685,7 +1751,8 @@ def create_default_config(filename: str = "../config/config_dark_portal.json") -
             "d_cp_deg": 132.0,
             "use_SM_potential": False,
             "n_e_earth_cm3": 1.5e24,
-            "detector_depth_km": 1.5
+            "detector_depth_km": 1.5,
+            "V_SM_struct": None
         },
         "dark_portal": {
             "u_e": 0.5,
@@ -1694,11 +1761,12 @@ def create_default_config(filename: str = "../config/config_dark_portal.json") -
             "m_Zd_eV": 2.0e6,
             "g_D": 1.e-4,
             "epsilon_prime": 1e-1,
-            "use_debye_screening": True
+            "use_debye_screening": True,
+            "U_LRI_struct": None
         },
         "source": {
             "p_index": 2.5,
-            "Phi_0": 1.0, 
+            "Phi_0": 1.0,
             "z_max": 4.0,
             "rho_evol": 0.0,
             "f_e_S": 0.333333,
@@ -1729,6 +1797,48 @@ def create_default_config(filename: str = "../config/config_dark_portal.json") -
             "use_gpu": False
         }
     }
+
+DEFAULT_CONFIG = _build_default_config()
+
+def merge_config_with_defaults(config: Dict) -> Dict:
+    """Overlays a (possibly partial) user config onto the canonical defaults, REJECTING
+    unknown sections and keys.
+
+    The rejection matters as much as the merging: a typo like 'n_eart_chords' previously
+    fell through every .get() fallback and silently did nothing -- the same
+    parsed-but-dropped failure mode behind several bugs fixed in past audits
+    (n_e_earth_cm3, use_SM_potential, execution.n_cores). Keys and sections whose names
+    begin with '_comment' are ignored, matching the FrequentistAnalysis convention.
+    """
+    merged = copy.deepcopy(DEFAULT_CONFIG)
+    for section, entries in config.items():
+        if section.startswith("_comment"):
+            continue
+        if section not in merged:
+            raise ValueError(f"Unknown config section '{section}'. Valid sections: {sorted(merged)}")
+        if not isinstance(entries, dict):
+            raise ValueError(f"Config section '{section}' must be a dict of settings.")
+        for key, value in entries.items():
+            if key.startswith("_comment"):
+                continue
+            if key not in merged[section]:
+                raise ValueError(
+                    f"Unknown config key '{section}.{key}'. Valid keys for [{section}]: "
+                    f"{sorted(merged[section])}")
+            merged[section][key] = value
+    return merged
+
+# =============================================================================
+# ENTRY POINT & CONFIGURATION GENERATION
+# =============================================================================
+
+def create_default_config(filename: str = "../config/config_dark_portal.json") -> Dict:
+    """Writes (and returns) the canonical default configuration -- see DEFAULT_CONFIG."""
+    default_config = copy.deepcopy(DEFAULT_CONFIG)
+    # The optional structure-matrix overrides default to None; omit them from the
+    # generated JSON so the file shows only actively-used settings.
+    default_config["standard_mixing"].pop("V_SM_struct", None)
+    default_config["dark_portal"].pop("U_LRI_struct", None)
     os.makedirs(os.path.dirname(os.path.abspath(filename)), exist_ok=True)
     with open(filename, 'w') as f:
         json.dump(default_config, f, indent=4)
@@ -1806,82 +1916,23 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
 
-    # Establish immutable master dictionary structure baseline defaults
-    config = {
-        "cosmology": {
-            "H0_km_s_Mpc": 67.4, 
-            "Omega_m": 0.315, 
-            "Omega_L": 0.685, 
-            "T_nu0_eV": 1.95e-4, 
-            "n_n0_cm3": 0.25e-6, 
-            "m_lightest_eV": 0.01, 
-            "mass_ordering": "normal", 
-            "eta_e": 1.0, 
-            "eta_mu": 1.0, 
-            "eta_tau": 1.0
-        },
-        "standard_mixing": {
-            "dm21_sq": 7.41e-5, 
-            "dm31_sq": 2.511e-3, 
-            "th12_deg": 33.41, 
-            "th13_deg": 8.58, 
-            "th23_deg": 49.1, 
-            "d_cp_deg": 132.0, 
-            "use_SM_potential": False, 
-            "n_e_earth_cm3": 1.5e24, 
-            "detector_depth_km": 1.5
-        },
-        "dark_portal": {
-            "u_e": 0.5, 
-            "u_mu": 0.5, 
-            "u_tau": 0.0, 
-            "m_Zd_eV": 2.0e6, 
-            "g_D": 1.e-4, 
-            "epsilon_prime": 1e-1, 
-            "use_debye_screening": True
-        },
-        "source": {
-            "p_index": 2.5, 
-            "Phi_0": 1.0, 
-            "z_max": 4.0, 
-            "rho_evol": 0.0, 
-            "f_e_S": 0.333333, 
-            "f_mu_S": 0.666667, 
-            "f_tau_S": 0.0, 
-            "is_antineutrino": "sum",
-            "nubar_to_nu_ratio": 1.0
-        },
-        "grid": {
-            "E_min_eV": 1e13, 
-            "E_max_eV": 3e16, 
-            "n_E_bins": 1000, 
-            "n_z_bins": 1000, 
-            "n_mw_paths": 6,
-            "n_earth_chords": 12,
-            "N_steps_MW": 25,
-            "n_z_thermal": 0,
-            "N_steps_earth": 500,
-            "r_start_kpc": 100.0
-        },
-        "output": {
-            "flux_filename": "../output/data/output_flux.txt", 
-            "plot_filename": "../output/plots/flux_plot.png"
-        },
-        "execution": {
-            "n_cores": multiprocessing.cpu_count() - 1 if multiprocessing.cpu_count() > 1 else 1, 
-            "verbose": 1,
-            "use_gpu": False
-        }
-    }
-    
+    # Baseline defaults come from the single canonical DEFAULT_CONFIG (no more
+    # separately-maintained copy here).
+    config = copy.deepcopy(DEFAULT_CONFIG)
+
     # Precedence Step 2: Overlay values from JSON file if one exists
     if os.path.exists(args.config):
         print(f"Loading configuration from {args.config}")
         with open(args.config, 'r') as f:
             file_config = json.load(f)
-            for section in config:
-                if section in file_config:
-                    config[section].update(file_config[section])
+            for section, entries in file_config.items():
+                if section in config and isinstance(entries, dict):
+                    config[section].update(entries)
+                else:
+                    # Unknown section (or malformed entry): pass through untouched so
+                    # run_solver's merge_config_with_defaults rejects it with a clear
+                    # error, rather than silently dropping it here.
+                    config[section] = entries
     else:
         print(f"Config file {args.config} not found. Running under strict system defaults.")
 
@@ -1947,14 +1998,18 @@ if __name__ == "__main__":
     if args.use_gpu is not None: config["execution"]["use_gpu"] = str_to_bool(args.use_gpu)
     if args.verbose is not None: config["execution"]["verbose"] = args.verbose
             
+    import time as _time
+    _t0 = _time.perf_counter()
     E_array, Flux_array = run_solver(config)
-    
+    _runtime = _time.perf_counter() - _t0
+
     output_cfg = config.get("output", {})
     flux_filename = output_cfg.get("flux_filename", "../output/data/output_flux.txt")
     plot_filename = output_cfg.get("plot_filename", "../output/plots/flux_plot.png")
-    
+
     os.makedirs(os.path.dirname(os.path.abspath(flux_filename)), exist_ok=True)
     save_flux_to_file(E_array, Flux_array, filename=flux_filename)
+    write_run_manifest(flux_filename + ".manifest.json", config, runtime_s=_runtime)
     
     Flux_array = np.clip(Flux_array, 1e-50, None) 
     Total_Flux = np.sum(Flux_array, axis=1)

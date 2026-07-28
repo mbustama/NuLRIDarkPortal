@@ -116,6 +116,10 @@ def extract_column_limits(y_grid, dchi2_column, threshold):
     for i in range(len(y_grid) - 1):
         if not (np.isfinite(d[i]) and np.isfinite(d[i + 1])):
             continue
+        # Failed grid points carry a 1e9 sentinel; a crossing against a sentinel is an
+        # artifact of the failure, not a limit. Only bracket between evaluated points.
+        if dchi2_column[i] > 1e5 or dchi2_column[i + 1] > 1e5:
+            continue
         if d[i] * d[i + 1] < 0:
             frac = d[i] / (d[i] - d[i + 1])
             crossings.append(float(10 ** (logy[i] + frac * (logy[i + 1] - logy[i]))))
@@ -310,6 +314,13 @@ def main():
             payloads.append(run_pair(config, pair, ls, output_dir, pool, num_cores, repair_cfg))
 
     plot_summary(payloads, output_dir)
+
+    # Reproducibility manifest: exact config + code state that produced these limits.
+    try:
+        from dark_portal_solver import write_run_manifest
+        write_run_manifest(os.path.join(output_dir, "limits_manifest.json"), config)
+    except Exception as e:
+        print(f"[Warning] Could not write run manifest: {e}")
 
 
 if __name__ == "__main__":

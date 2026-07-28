@@ -44,10 +44,15 @@ def validate_config(config):
     
     target_1d = scan_settings.get("target_subset_1d", [])
     log_params = scan_settings.get("log_scan_parameters", [])
-    
+    # 2D pairs must be checked too: a pair member locked in fixed_params never enters
+    # param_names, so Minuit doesn't know it, minimize_point_2d raises KeyError on every
+    # grid point, the blanket exception handler swallows it, and the whole 2D surface
+    # comes back infinite -- a silent total failure rather than a visible error.
+    target_2d_flat = [p for pair in scan_settings.get("target_subset_2d", []) for p in pair]
+
     # Identify parameters asked to be scanned/logged but also locked
-    conflicts = list(set([p for p in target_1d + log_params if p in fixed_params]))
-    
+    conflicts = list(set([p for p in target_1d + log_params + target_2d_flat if p in fixed_params]))
+
     if conflicts:
         print("\n" + "="*60)
         print(" [CONFIGURATION ERROR] Conflicting Directives Detected")
@@ -57,7 +62,8 @@ def validate_config(config):
         print("\n However, they are strictly locked in 'fixed_params'.")
         print(" Minuit cannot calculate gradients for frozen variables.")
         print("\n -> FIX: To scan them, remove them from 'fixed_params'.")
-        print(" -> FIX: To keep them locked, remove them from 'target_subset_1d' and 'log_scan_parameters'.")
+        print(" -> FIX: To keep them locked, remove them from 'target_subset_1d',")
+        print("    'target_subset_2d' and 'log_scan_parameters'.")
         print(" Exiting gracefully...\n")
         sys.exit(1)
 

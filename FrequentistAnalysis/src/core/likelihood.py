@@ -23,7 +23,21 @@ _current_dir = os.path.dirname(os.path.abspath(__file__))
 _dark_portal_dir = os.path.abspath(os.path.join(_current_dir, "../../../src/"))
 if _dark_portal_dir not in sys.path:
     sys.path.insert(0, _dark_portal_dir)
-from dark_portal_solver import construct_PMNS, get_mass_eigenvalues, cm_inv3_to_eV3, parse_structure_matrix_3x3
+from dark_portal_solver import (construct_PMNS, get_mass_eigenvalues, parse_structure_matrix_3x3,
+                                cm_inv3_to_eV3, m_to_eV_inv, Mpc_to_eV_inv, km_per_s,
+                                DEFAULT_CONFIG)
+
+# Flat fallback map for physics_constants keys, sourced from the solver's canonical
+# DEFAULT_CONFIG -- these fallbacks previously repeated the literals by hand (a
+# synchronized-by-luck fourth copy of the defaults). Doubles as the known-key set
+# for the unknown-key warning below.
+_PC_DEFAULTS = {}
+for _sec in ("cosmology", "standard_mixing", "source", "grid"):
+    _PC_DEFAULTS.update(DEFAULT_CONFIG[_sec])
+_PC_DEFAULTS["use_debye_screening"] = DEFAULT_CONFIG["dark_portal"]["use_debye_screening"]
+_PC_DEFAULTS["U_LRI_struct"] = None
+_PC_DEFAULTS["V_SM_struct"] = None
+
 
 def load_and_grid_2d(filename):
     """
@@ -116,7 +130,22 @@ class GenericLikelihoodWrapper:
             print(" 'start_values'. Please check how src.main extracts target parameters.")
             print("!"*70 + "\n")
         # ==========================================================
-        
+
+        # A parameter listed in BOTH the floating set and fixed_params would be floated
+        # by Minuit yet silently overridden by the fixed value inside every evaluation
+        # (fixed_params is applied last in __call__): the fit would report a spurious
+        # flat direction. main.py's validate_config catches the scan-target cases; this
+        # catches every other constructor.
+        _overlap = sorted(set(self.param_names) & set(self.fixed_params_cfg))
+        if _overlap:
+            print("\n" + "!"*70)
+            print(" [WARNING] Parameters both floating AND in fixed_params:")
+            print(f"   {_overlap}")
+            print(" The fixed value silently wins inside every likelihood evaluation,")
+            print(" so Minuit will see an exactly flat direction. Remove them from one")
+            print(" of the two lists.")
+            print("!"*70 + "\n")
+
         # MCMC Memory Guard Toggle
         self._cache = {}
         self._cache_enabled = True
@@ -129,37 +158,42 @@ class GenericLikelihoodWrapper:
             try:
                 # Direct read from the flat physics_constants dict in the active frequentist config
                 pc = self.config.get("physics_constants", {})
+                _unknown = sorted(k for k in pc
+                                  if not k.startswith("_comment") and k not in _PC_DEFAULTS)
+                if _unknown:
+                    print("\n" + "!"*70)
+                    print(" [WARNING] Unrecognized physics_constants keys (typos silently do")
+                    print(f" nothing -- check them): {_unknown}")
+                    print("!"*70 + "\n")
                 
-                # Physical constants and conversion factors
-                eV = 1.0
-                m_to_eV_inv = 5.0677e6
-                cm_inv3_to_eV3 = 1.0 / ((m_to_eV_inv * 1e-2)**3)
-                Mpc_to_eV_inv = 3.08567758e22 * m_to_eV_inv
-                km_per_s = 1.0 / 299792.458
-                
+                # Physical constants and unit conversions come from dark_portal_solver
+                # (module-level imports above) -- previously redefined locally here with
+                # identical values, a silent-drift risk of the same class as the
+                # construct_PMNS duplication that was centralized earlier.
+
                 # Cosmology
-                H0_eV = float((pc.get("H0_km_s_Mpc", 67.4) * km_per_s) / Mpc_to_eV_inv)
-                Omega_m = float(pc.get("Omega_m", 0.315))
-                Omega_L = float(pc.get("Omega_L", 0.685))
-                T_nu0_eV = float(pc.get("T_nu0_eV", 0.000195))
-                n_n0_eV3 = float(pc.get("n_n0_cm3", 2.5e-07) * cm_inv3_to_eV3)
-                m_lightest_eV = float(pc.get("m_lightest_eV", 0.01))
-                mass_ordering = pc.get("mass_ordering", "normal")
+                H0_eV = float((pc.get("H0_km_s_Mpc", _PC_DEFAULTS["H0_km_s_Mpc"]) * km_per_s) / Mpc_to_eV_inv)
+                Omega_m = float(pc.get("Omega_m", _PC_DEFAULTS["Omega_m"]))
+                Omega_L = float(pc.get("Omega_L", _PC_DEFAULTS["Omega_L"]))
+                T_nu0_eV = float(pc.get("T_nu0_eV", _PC_DEFAULTS["T_nu0_eV"]))
+                n_n0_eV3 = float(pc.get("n_n0_cm3", _PC_DEFAULTS["n_n0_cm3"]) * cm_inv3_to_eV3)
+                m_lightest_eV = float(pc.get("m_lightest_eV", _PC_DEFAULTS["m_lightest_eV"]))
+                mass_ordering = pc.get("mass_ordering", _PC_DEFAULTS["mass_ordering"])
                 
                 # Formulated as a NumPy array for Numba compatibility
-                eta_e = float(pc.get("eta_e", 1.0))
-                eta_mu = float(pc.get("eta_mu", 1.0))
-                eta_tau = float(pc.get("eta_tau", 1.0))
+                eta_e = float(pc.get("eta_e", _PC_DEFAULTS["eta_e"]))
+                eta_mu = float(pc.get("eta_mu", _PC_DEFAULTS["eta_mu"]))
+                eta_tau = float(pc.get("eta_tau", _PC_DEFAULTS["eta_tau"]))
                 eta_bg_arr = np.array([eta_e, eta_mu, eta_tau], dtype=np.float64)
                 
                 # Standard Mixing
-                dm21_sq = float(pc.get("dm21_sq", 7.41e-05))
-                dm31_sq = float(pc.get("dm31_sq", 0.002511))
-                th12 = float(np.radians(pc.get("th12_deg", 33.41)))
-                th13 = float(np.radians(pc.get("th13_deg", 8.58)))
-                th23 = float(np.radians(pc.get("th23_deg", 49.1)))
-                d_cp = float(np.radians(pc.get("d_cp_deg", 132.0)))
-                detector_depth_km = float(pc.get("detector_depth_km", 1.5))
+                dm21_sq = float(pc.get("dm21_sq", _PC_DEFAULTS["dm21_sq"]))
+                dm31_sq = float(pc.get("dm31_sq", _PC_DEFAULTS["dm31_sq"]))
+                th12 = float(np.radians(pc.get("th12_deg", _PC_DEFAULTS["th12_deg"])))
+                th13 = float(np.radians(pc.get("th13_deg", _PC_DEFAULTS["th13_deg"])))
+                th23 = float(np.radians(pc.get("th23_deg", _PC_DEFAULTS["th23_deg"])))
+                d_cp = float(np.radians(pc.get("d_cp_deg", _PC_DEFAULTS["d_cp_deg"])))
+                detector_depth_km = float(pc.get("detector_depth_km", _PC_DEFAULTS["detector_depth_km"]))
 
                 # Standard-model MSW potential and Debye screening toggle: these are present
                 # in every shipped physics_constants block but were never actually read here
@@ -168,9 +202,9 @@ class GenericLikelihoodWrapper:
                 # dormant since every shipped config wants use_SM_potential=false anyway, but
                 # silently dropped a config value exactly like the (already-fixed)
                 # n_e_earth_cm3 disconnect in dark_portal_solver.py's own run_solver.
-                use_SM_potential = bool(pc.get("use_SM_potential", False))
-                n_e_earth_eV3 = float(pc.get("n_e_earth_cm3", 1.5e24) * cm_inv3_to_eV3)
-                use_debye_screening = bool(pc.get("use_debye_screening", True))
+                use_SM_potential = bool(pc.get("use_SM_potential", _PC_DEFAULTS["use_SM_potential"]))
+                n_e_earth_eV3 = float(pc.get("n_e_earth_cm3", _PC_DEFAULTS["n_e_earth_cm3"]) * cm_inv3_to_eV3)
+                use_debye_screening = bool(pc.get("use_debye_screening", _PC_DEFAULTS["use_debye_screening"]))
 
                 # Optional flavor-structure overrides for the coherent forward-scattering
                 # potentials (neutrino convention; propagate_spectrum conjugates for
@@ -181,10 +215,10 @@ class GenericLikelihoodWrapper:
                 # the attenuation/regeneration rates and Debye mass, not the potential;
                 # a warning is printed for that combination below.
                 V_SM_struct = None
-                if pc.get("V_SM_struct", None) is not None:
+                if pc.get("V_SM_struct", _PC_DEFAULTS["V_SM_struct"]) is not None:
                     V_SM_struct = parse_structure_matrix_3x3(pc["V_SM_struct"], "physics_constants.V_SM_struct")
                 U_LRI_struct = None
-                if pc.get("U_LRI_struct", None) is not None:
+                if pc.get("U_LRI_struct", _PC_DEFAULTS["U_LRI_struct"]) is not None:
                     U_LRI_struct = parse_structure_matrix_3x3(pc["U_LRI_struct"], "physics_constants.U_LRI_struct")
                     scanned_u = [p for p in self.param_names if p in ("u_e", "u_mu", "u_tau")]
                     if scanned_u:
@@ -197,37 +231,37 @@ class GenericLikelihoodWrapper:
                         print("!"*70 + "\n")
 
                 # Source
-                p_index = float(pc.get("p_index", 2.5))
-                Phi_0 = float(pc.get("Phi_0", 1.0))
-                z_max = float(pc.get("z_max", 4.0))
-                rho_evol = float(pc.get("rho_evol", 0.0))
-                f_e_S = float(pc.get("f_e_S", 0.333333))
-                f_mu_S = float(pc.get("f_mu_S", 0.666667))
-                f_tau_S = float(pc.get("f_tau_S", 0.0))
-                is_antineutrino = pc.get("is_antineutrino", "sum")
-                nubar_to_nu_ratio = float(pc.get("nubar_to_nu_ratio", 1.0))
+                p_index = float(pc.get("p_index", _PC_DEFAULTS["p_index"]))
+                Phi_0 = float(pc.get("Phi_0", _PC_DEFAULTS["Phi_0"]))
+                z_max = float(pc.get("z_max", _PC_DEFAULTS["z_max"]))
+                rho_evol = float(pc.get("rho_evol", _PC_DEFAULTS["rho_evol"]))
+                f_e_S = float(pc.get("f_e_S", _PC_DEFAULTS["f_e_S"]))
+                f_mu_S = float(pc.get("f_mu_S", _PC_DEFAULTS["f_mu_S"]))
+                f_tau_S = float(pc.get("f_tau_S", _PC_DEFAULTS["f_tau_S"]))
+                is_antineutrino = pc.get("is_antineutrino", _PC_DEFAULTS["is_antineutrino"])
+                nubar_to_nu_ratio = float(pc.get("nubar_to_nu_ratio", _PC_DEFAULTS["nubar_to_nu_ratio"]))
                 
                 # Grid & Interpolation parameters
-                E_min_eV = float(pc.get("E_min_eV", 1e13))
-                E_max_eV = float(pc.get("E_max_eV", 3e16))
-                n_E_bins = int(pc.get("n_E_bins", 1000))
-                n_z_bins = int(pc.get("n_z_bins", 1000))
+                E_min_eV = float(pc.get("E_min_eV", _PC_DEFAULTS["E_min_eV"]))
+                E_max_eV = float(pc.get("E_max_eV", _PC_DEFAULTS["E_max_eV"]))
+                n_E_bins = int(pc.get("n_E_bins", _PC_DEFAULTS["n_E_bins"]))
+                n_z_bins = int(pc.get("n_z_bins", _PC_DEFAULTS["n_z_bins"]))
                 
                 # Extracted grid spatial tracking overrides. Fallback defaults follow the
                 # production convergence study (output/convergence/): 12 chords for
                 # percent-level flavor-ratio accuracy (3 carried 1.6-4.9e-2 absolute
                 # error), 25 MW steps (converged to ~1e-10; 100 was pure surplus).
-                n_mw_paths = int(pc.get("n_mw_paths", 6))
-                n_earth_chords = int(pc.get("n_earth_chords", 12))
-                N_steps_MW = int(pc.get("N_steps_MW", 25))
+                n_mw_paths = int(pc.get("n_mw_paths", _PC_DEFAULTS["n_mw_paths"]))
+                n_earth_chords = int(pc.get("n_earth_chords", _PC_DEFAULTS["n_earth_chords"]))
+                N_steps_MW = int(pc.get("N_steps_MW", _PC_DEFAULTS["N_steps_MW"]))
                 # N_steps_earth defaults to 500, the only value validated against
                 # resonance-crossing sensitivity -- see propagate_earth_spatial's docstring
                 # in dark_portal_solver.py before lowering it for a resonance-scanning fit.
-                N_steps_earth = int(pc.get("N_steps_earth", 500))
-                r_start_kpc = float(pc.get("r_start_kpc", 100.0))
+                N_steps_earth = int(pc.get("N_steps_earth", _PC_DEFAULTS["N_steps_earth"]))
+                r_start_kpc = float(pc.get("r_start_kpc", _PC_DEFAULTS["r_start_kpc"]))
                 # Coarse z-sampling of the thermal-rate grid (0 = exact grid; see
                 # dark_portal_solver.build_thermal_grid).
-                n_z_thermal = int(pc.get("n_z_thermal", 0))
+                n_z_thermal = int(pc.get("n_z_thermal", _PC_DEFAULTS["n_z_thermal"]))
                 
                 # Computed structures
                 E_bins = np.logspace(np.log10(E_min_eV), np.log10(E_max_eV), n_E_bins)

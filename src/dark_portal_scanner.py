@@ -229,76 +229,101 @@ def plot_parameter_scans(m_Zd_file: str, g_D_file: str, u_e_file: str, u_mu_file
     plt.show()
 
 if __name__ == "__main__":
-    # Generate the baseline configuration using the solver's native builder
-    config_file = "../config/config_dark_portal.json"
-    if not os.path.exists(config_file):
-        base_config = dps.create_default_config(config_file)
+    import argparse
+
+    SCANNABLE = ["m_Zd_eV", "g_D", "u_e", "u_mu"]
+    DEFAULT_RANGES = {
+        "m_Zd_eV": (1e-10, 1e10),   # 0.1 neV to 10 GeV
+        "g_D":     (1e-10, 1e-1),
+        "u_e":     (1e-5, 1.0),
+        "u_mu":    (1e-5, 1.0),
+    }
+
+    parser = argparse.ArgumentParser(
+        description="1D dark-portal parameter scans (energy-averaged flavor ratios per grid "
+                    "point) with a 2x2 summary figure. Grids are logarithmic.")
+    parser.add_argument("--config", type=str, default="../config/config_dark_portal.json",
+                        help="Base solver config JSON (created with defaults if missing).")
+    parser.add_argument("--params", nargs="*", default=SCANNABLE, choices=SCANNABLE,
+                        help="Which parameters to scan (default: all four).")
+    parser.add_argument("--n_points", type=int, default=100, help="Grid points per scan.")
+    for _p in SCANNABLE:
+        lo, hi = DEFAULT_RANGES[_p]
+        parser.add_argument(f"--{_p}_min", type=float, default=lo)
+        parser.add_argument(f"--{_p}_max", type=float, default=hi)
+    parser.add_argument("--n_E_bins", type=int, default=200,
+                        help="Energy bins during scans (reduced from the solver default for speed).")
+    parser.add_argument("--n_z_bins", type=int, default=200)
+    parser.add_argument("--n_mw_paths", type=int, default=100)
+    parser.add_argument("--n_earth_chords", type=int, default=100)
+    parser.add_argument("--N_steps_MW", type=int, default=25,
+                        help="25 agrees with a 400-step reference to ~1e-10 (tools/convergence_study.py).")
+    parser.add_argument("--n_cores", type=int,
+                        default=multiprocessing.cpu_count() - 1 if multiprocessing.cpu_count() > 1 else 1)
+    parser.add_argument("--output_dir", type=str, default="../output",
+                        help="Scan data goes to <output_dir>/data/, the figure to <output_dir>/plots/.")
+    parser.add_argument("--no_plot", action="store_true", help="Skip the 2x2 summary figure.")
+    args = parser.parse_args()
+
+    if not os.path.exists(args.config):
+        base_config = dps.create_default_config(args.config)
     else:
-        with open(config_file, 'r') as f:
+        with open(args.config, 'r') as f:
             base_config = json.load(f)
 
-    # Compile Numba kernels in advance using a lightweight dummy execution.
-    # This prevents all independent multiprocessing workers from attempting to JIT-compile 
-    # simultaneously on the first iteration, which risks bottlenecking the LLVM cache.
+    # Scan-resolution overrides (CLI-controlled; previously hardcoded here)
+    base_config.setdefault('grid', {})
+    base_config['grid']['n_E_bins'] = args.n_E_bins
+    base_config['grid']['n_z_bins'] = args.n_z_bins
+    base_config['grid']['n_mw_paths'] = args.n_mw_paths
+    base_config['grid']['n_earth_chords'] = args.n_earth_chords
+    base_config['grid']['N_steps_MW'] = args.N_steps_MW
+    base_config.setdefault('execution', {})
+    # Drives run_parameter_scan's pool size (see its docstring).
+    base_config['execution']['n_cores'] = args.n_cores
+
+    # Compile Numba kernels in advance using a lightweight dummy execution: prevents all
+    # independent pool workers from JIT-compiling simultaneously on their first task.
     print("Initiating Numba compiler cache warm-up...")
     warmup_config = copy.deepcopy(base_config)
-    warmup_config['grid']['n_E_bins'] = 200
-    warmup_config['grid']['n_z_bins'] = 200
-    warmup_config['grid']['n_mw_paths'] = 100
-    warmup_config['grid']['n_earth_chords'] = 100
-    warmup_config['execution']['n_cores'] = multiprocessing.cpu_count() - 1 if multiprocessing.cpu_count() > 1 else 1
     warmup_config['execution']['verbose'] = 0
-    
+
     import sys, io
     old_stdout = sys.stdout
     sys.stdout = io.StringIO()
     try:
         _ = dps.run_solver(warmup_config)
-        # Warm up the newly decorated ratio compiler
-        dummy_E = np.logspace(13, 16, 200)
-        dummy_Flux = np.zeros((200, 3))
+        dummy_E = np.logspace(13, 16, args.n_E_bins)
+        dummy_Flux = np.zeros((args.n_E_bins, 3))
         _ = compute_energy_averaged_ratios(dummy_E, dummy_Flux)
     finally:
         sys.stdout = old_stdout
     print("Warm-up complete. Numba kernels mapped to physical disk cache.")
 
-    # Lowering the integration grid resolution to speed up 1D parameter scans
-    base_config['grid']['n_E_bins'] = 200
-    base_config['grid']['n_z_bins'] = 200
-    base_config['grid']['n_mw_paths'] = 100
-    base_config['grid']['n_earth_chords'] = 100
-    # 25 MW steps agree with a 400-step reference to ~1e-10 at every parameter point
-    # tested by tools/convergence_study.py -- the old 100 was pure surplus.
-    base_config["grid"]['N_steps_MW'] = 25
-    base_config["grid"]['r_start_kpc'] = 100.0
-    # This now actually drives run_parameter_scan's pool size (see its docstring) instead of
-    # being silently dropped in favor of a hardcoded value there.
-    base_config['execution']['n_cores'] = multiprocessing.cpu_count() - 1 if multiprocessing.cpu_count() > 1 else 1
+    grids = {p_: np.logspace(np.log10(getattr(args, f"{p_}_min")),
+                             np.log10(getattr(args, f"{p_}_max")), args.n_points)
+             for p_ in args.params}
+    outputs = {p_: os.path.join(args.output_dir, "data", f"scan_{p_.replace('_eV', '')}.txt")
+               for p_ in args.params}
 
-    # Define high-resolution evaluation grids
-    m_Zd_range = np.logspace(-10, 10, 100)      # Mediator mass scan from 0.1 neV to 10 GeV
-    g_D_range = np.logspace(-10, -1, 100)       # Gauge coupling scan from 10^-10 to 10^-1
-    u_e_range = np.logspace(-5, 0, 100)         # Sterile electron mixing evaluation space (log scale)
-    u_mu_range = np.logspace(-5, 0, 100)        # Sterile muon mixing evaluation space (log scale)
-    
-    # Establish output directory paths
-    m_Zd_output = "../output/data/scan_m_Zd.txt"
-    g_D_output = "../output/data/scan_g_D.txt"
-    u_e_output = "../output/data/scan_u_e.txt"
-    u_mu_output = "../output/data/scan_u_mu.txt"
-    plot_output = "../output/plots/parameter_scan_plot.png"
+    for p_ in args.params:
+        # The sterile-mixing scans zero out the *other* mixing element, matching the
+        # panel labels in plot_parameter_scans.
+        saved = {}
+        if p_ == "u_e":
+            saved["u_mu"] = base_config['dark_portal']['u_mu']
+            base_config['dark_portal']['u_mu'] = 0.0
+        elif p_ == "u_mu":
+            saved["u_e"] = base_config['dark_portal']['u_e']
+            base_config['dark_portal']['u_e'] = 0.0
+        run_parameter_scan(p_, grids[p_], base_config, outputs[p_])
+        for k, v in saved.items():
+            base_config['dark_portal'][k] = v
 
-    # Execute decoupled configuration mappings
-    run_parameter_scan('m_Zd_eV', m_Zd_range, base_config, m_Zd_output)
-    run_parameter_scan('g_D', g_D_range, base_config, g_D_output)
-    u_e_base  = base_config['dark_portal']['u_e']
-    u_mu_base  = base_config['dark_portal']['u_mu']
-    base_config['dark_portal']['u_mu'] = 0.0
-    run_parameter_scan('u_e', u_e_range, base_config, u_e_output)
-    base_config['dark_portal']['u_mu'] = u_mu_base
-    base_config['dark_portal']['u_e'] = 0.0
-    run_parameter_scan('u_mu', u_mu_range, base_config, u_mu_output)
-    base_config['dark_portal']['u_e'] = u_e_base
-
-    # Invoke 2x2 dual-panel Matplotlib rendering
-    plot_parameter_scans(m_Zd_output, g_D_output, u_e_output, u_mu_output, base_config, output_filename=plot_output)
+    if not args.no_plot:
+        if set(args.params) == set(SCANNABLE):
+            plot_parameter_scans(outputs["m_Zd_eV"], outputs["g_D"], outputs["u_e"], outputs["u_mu"],
+                                 base_config,
+                                 output_filename=os.path.join(args.output_dir, "plots", "parameter_scan_plot.png"))
+        else:
+            print("Summary figure requires all four scans; skipping (ran a subset).")

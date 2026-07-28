@@ -30,7 +30,7 @@ if dark_portal_dir not in sys.path:
 # rather than keeping a local copy avoids the two drifting out of sync.
 from dark_portal_solver import (propagate_spectrum, construct_PMNS, get_mass_eigenvalues,
                                 compute_gamma_grid_inputs, build_thermal_grid,
-                                cm_inv3_to_eV3)
+                                cm_inv3_to_eV3, DEFAULT_CONFIG as _DC)
 # Imported from flux_postprocessing (not dark_portal_scanner, its previous home):
 # importing the scanner has side effects -- it globally sets
 # dark_portal_solver.HAS_TQDM = False and imports matplotlib -- that this kernel
@@ -140,23 +140,23 @@ def compute_user_model_single(params, static_data):
      detector_depth_km, is_antineutrino, p_index, rho_evol, Phi_0,
      nubar_to_nu_ratio, n_mw_paths, n_earth_chords,
      N_steps_MW, r_start_kpc) = static_data[:26]
-    N_steps_earth = static_data[26] if len(static_data) > 26 else 500
+    N_steps_earth = static_data[26] if len(static_data) > 26 else _DC['grid']['N_steps_earth']
     # use_SM_potential/n_e_earth_cm3/use_debye_screening are present in every shipped
     # physics_constants block but were previously hardcoded here (False/0.0/True)
     # regardless of what the config said -- dormant since every shipped config wants
     # use_SM_potential=false anyway, but silently dropped the config value the moment
     # anyone flipped it (same bug class as the already-fixed n_e_earth_cm3 disconnect in
     # dark_portal_solver.py's own run_solver).
-    use_SM_potential = bool(static_data[27]) if len(static_data) > 27 else False
-    n_e_earth = float(static_data[28]) if len(static_data) > 28 else 1.5e24 * cm_inv3_to_eV3
-    use_debye_screening = bool(static_data[29]) if len(static_data) > 29 else True
+    use_SM_potential = bool(static_data[27]) if len(static_data) > 27 else _DC['standard_mixing']['use_SM_potential']
+    n_e_earth = float(static_data[28]) if len(static_data) > 28 else _DC['standard_mixing']['n_e_earth_cm3'] * cm_inv3_to_eV3
+    use_debye_screening = bool(static_data[29]) if len(static_data) > 29 else _DC['dark_portal']['use_debye_screening']
     n_cores_standalone = int(static_data[30]) if len(static_data) > 30 else 1
     # Optional flavor-structure overrides (neutrino convention; propagate_spectrum applies
     # the antineutrino conjugation centrally). None means the built-in defaults.
     V_SM_struct = static_data[31] if len(static_data) > 31 else None
     U_LRI_struct = static_data[32] if len(static_data) > 32 else None
     # Coarse z-sampling of the thermal-rate grid (0 = exact); see build_thermal_grid.
-    n_z_thermal = int(static_data[33]) if len(static_data) > 33 else 0
+    n_z_thermal = int(static_data[33]) if len(static_data) > 33 else _DC['grid']['n_z_thermal']
 
     # 1. Unpack scanning parameters from the generic Minuit engine wrapper.
     #    Handles backwards compatibility if passed as a positional array.
@@ -341,9 +341,16 @@ def compute_user_model_single(params, static_data):
 
     # Evaluate flags to match solver's native worker capabilities
     if flag_val in ['sum', 'both']:
-        w_nu = 1.0 / (1.0 + nubar_to_nu_ratio)
-        w_nubar = nubar_to_nu_ratio / (1.0 + nubar_to_nu_ratio)
-        Flux_array = w_nu * run_propagation(False) + w_nubar * run_propagation(True)
+        # Degenerate weights: skip the propagation whose weight is exactly zero (free 2x
+        # for nu-only/nubar-only studies configured through the ratio).
+        if nubar_to_nu_ratio == 0.0:
+            Flux_array = run_propagation(False)
+        elif not np.isfinite(nubar_to_nu_ratio):
+            Flux_array = run_propagation(True)
+        else:
+            w_nu = 1.0 / (1.0 + nubar_to_nu_ratio)
+            w_nubar = nubar_to_nu_ratio / (1.0 + nubar_to_nu_ratio)
+            Flux_array = w_nu * run_propagation(False) + w_nubar * run_propagation(True)
     elif flag_val in ['true', 'antineutrino', 'antinu', 'nubar']:
         Flux_array = run_propagation(True)
     else:

@@ -810,12 +810,12 @@ def test_cascade_suffix_sum_matches_bruteforce():
     Gamma_pre = rng.uniform(1e-20, 1e-18, size=(N_E, 3))
 
     F_flavor = np.zeros((N_E, 3)); Gamma_flavor = np.zeros((N_E, 3))
-    dF_casc = np.zeros((N_E, 3)); U_z_all = np.zeros((N_E, 3, 3), dtype=np.complex128)
+    dF_casc = np.zeros((N_E, 3)); P_all = np.zeros((N_E, 3, 3))
     rate_buf = np.zeros(N_E)
     dps.step_cosmological_propagation(0.5, 1.0, 1.0, E_bins, F_mass.copy(), rho_src, M_rot,
                                       u_arr, S, 2.0e6, 1e-4, 0.1, 2.5e-13, 1.95e-4,
                                       True, False, 2.5, 1.0, eta_bg, BR, W_kernel,
-                                      F_flavor, Gamma_flavor, dF_casc, U_z_all, rate_buf, Gamma_pre)
+                                      F_flavor, Gamma_flavor, dF_casc, P_all, rate_buf, Gamma_pre)
 
     # Brute-force reference from the buffers the kernel itself filled
     expected = np.zeros((N_E, 3))
@@ -1072,6 +1072,77 @@ print("OK")
     assert pool_count_lines, f"missing pool count marker in output: {result.stdout}"
     pool_constructions = int(pool_count_lines[0].split("=")[1])
     assert pool_constructions == 1, f"expected exactly 1 Pool construction reused across 3 calls, got {pool_constructions}"
+
+
+# =============================================================================
+# 9. Config normalization, ratio-skip, sentinel-safe intervals
+# =============================================================================
+
+def test_run_solver_rejects_unknown_config_keys(tmp_path):
+    """merge_config_with_defaults must reject typo'd sections/keys loudly: a misspelled
+    key previously fell through every .get() fallback and silently did nothing -- the
+    parsed-but-dropped failure mode behind several past bugs (n_e_earth_cm3,
+    use_SM_potential, execution.n_cores)."""
+    import copy
+    cfg = dps.create_default_config(str(tmp_path / "cfg.json"))
+    cfg["grid"].update(dict(n_E_bins=10, n_z_bins=10, n_mw_paths=1, n_earth_chords=1,
+                            N_steps_MW=3, N_steps_earth=3))
+    cfg["execution"].update(dict(n_cores=1, verbose=0))
+
+    bad = copy.deepcopy(cfg)
+    bad["grid"]["n_eart_chords"] = 5  # typo
+    with pytest.raises(ValueError, match="n_eart_chords"):
+        dps.run_solver(bad)
+
+    bad2 = copy.deepcopy(cfg)
+    bad2["gird"] = {"n_E_bins": 10}  # typo'd section
+    with pytest.raises(ValueError, match="gird"):
+        dps.run_solver(bad2)
+
+    # _comment keys are the accepted annotation convention and must pass through
+    ok = copy.deepcopy(cfg)
+    ok["grid"]["_comment_note"] = "annotation"
+    E, F = dps.run_solver(ok)
+    assert np.all(np.isfinite(F))
+
+
+def test_nubar_ratio_zero_skips_antineutrino_propagation(tmp_path):
+    """In 'sum' mode with nubar_to_nu_ratio = 0 the antineutrino propagation carries
+    exactly zero weight and must be skipped entirely -- the result must equal the
+    explicit neutrino-only mode bit for bit."""
+    import copy
+    cfg = dps.create_default_config(str(tmp_path / "cfg.json"))
+    cfg["grid"].update(dict(n_E_bins=10, n_z_bins=10, n_mw_paths=1, n_earth_chords=1,
+                            N_steps_MW=3, N_steps_earth=3))
+    cfg["execution"].update(dict(n_cores=1, verbose=0))
+
+    cfg_sum0 = copy.deepcopy(cfg)
+    cfg_sum0["source"]["is_antineutrino"] = "sum"
+    cfg_sum0["source"]["nubar_to_nu_ratio"] = 0.0
+    cfg_nu = copy.deepcopy(cfg)
+    cfg_nu["source"]["is_antineutrino"] = "false"
+
+    _, F_sum0 = dps.run_solver(cfg_sum0)
+    _, F_nu = dps.run_solver(cfg_nu)
+    np.testing.assert_array_equal(F_sum0, F_nu)
+
+
+def test_calculate_intervals_ignores_sentinel_boundaries():
+    """A failed grid point (1e9 sentinel) adjacent to a valid sub-threshold point must
+    not fabricate a threshold crossing at the failure boundary."""
+    from src.analysis.statistics import calculate_intervals
+
+    x = np.linspace(0.0, 1.0, 11)
+    d = np.full(11, 0.5)          # everywhere comfortably below a 2.71 threshold
+    d[5] = 1e9                    # one failed point mid-scan
+    res = calculate_intervals(x, d, "p", {"90": 2.71}, merge_gaps=False)
+    intervals = res["90"]
+    assert intervals is not None
+    # Every crossing-derived boundary except the scan edges would be spurious here:
+    # the entire valid curve sits below threshold, so the allowed region must span the
+    # full scan without interior breakpoints from the sentinel.
+    assert len(intervals) == 1
+    assert intervals[0][0] == pytest.approx(0.0) and intervals[0][1] == pytest.approx(1.0)
 
 
 if __name__ == "__main__":

@@ -19,11 +19,15 @@ def calculate_intervals(x_scan, dchi2, name, thresholds, merge_gaps=True, gap_to
     results = {}
     valid_mask = dchi2 < 1e5
     if np.sum(valid_mask) < 2: return {"best_fit": float(x_scan[np.argmin(dchi2)])}
-    
+
     x_valid = x_scan[valid_mask]
     y_valid = dchi2[valid_mask]
-    
-    spline = UnivariateSpline(x_valid, y_valid, s=0, k=1, ext=0)
+
+    # ext=3 (clamp to boundary values) rather than ext=0 (extrapolate): interval-validity
+    # midpoints can fall outside the valid-point range when scan edges failed, and linear
+    # extrapolation there can fabricate below-threshold values that validate intervals no
+    # data supports.
+    spline = UnivariateSpline(x_valid, y_valid, s=0, k=1, ext=3)
     results['best_fit'] = float(x_scan[np.argmin(dchi2)])
     scan_min, scan_max = x_scan[0], x_scan[-1]
 
@@ -31,8 +35,13 @@ def calculate_intervals(x_scan, dchi2, name, thresholds, merge_gaps=True, gap_to
         if "2d" in label.lower(): continue
         roots = []
         for i in range(len(x_scan) - 1):
+            # Failed points carry a 1e9 sentinel (nan_to_num upstream): a valid
+            # sub-threshold point next to a failed one would otherwise register a sign
+            # change and fabricate a threshold crossing at the failure boundary. Roots
+            # are only meaningful between two genuinely evaluated points.
+            if not (valid_mask[i] and valid_mask[i+1]): continue
             y1, y2 = dchi2[i] - thresh, dchi2[i+1] - thresh
-            if (y1 * y2 <= 0) and (y1 != y2): 
+            if (y1 * y2 <= 0) and (y1 != y2):
                 roots.append(x_scan[i] - y1 * (x_scan[i+1] - x_scan[i]) / (y2 - y1))
         
         boundaries = [scan_min] + sorted(roots) + [scan_max]
