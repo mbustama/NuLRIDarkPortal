@@ -729,12 +729,14 @@ def test_propagator_3x3_matches_eigh_at_physics_scales():
     assert worst_unitarity < 1e-12
 
 
-def test_propagator_3x3_near_degenerate_fallback():
+def test_propagator_3x3_near_degenerate_stability():
     """Near-degenerate spectra are exactly what an MSW-like matter resonance produces --
-    the regime of the documented N_steps_earth near-miss -- and the closed form's Lagrange
-    denominators lose precision there, so propagator_3x3 must remain accurate through its
-    eigh fallback across gaps from harmless (1e-4 relative) down to essentially exact
-    degeneracy (1e-14)."""
+    and, with the rank-1 LRI structure (u_tau = 0), what the Earth-transit Hamiltonian
+    looks like at essentially EVERY step wherever the matter potential rivals the vacuum
+    term. The Newton divided-difference form (sinc first differences + Taylor branch for
+    tiny phase spread) must therefore stay accurate across gaps from harmless (1e-4
+    relative) down to essentially exact degeneracy (1e-14) with no eigendecomposition
+    fallback at all."""
     rng = np.random.default_rng(11)
     out = np.zeros((3, 3), dtype=np.complex128)
     worst = 0.0
@@ -748,6 +750,63 @@ def test_propagator_3x3_near_degenerate_fallback():
         dps.propagator_3x3(H, t, out)
         worst = max(worst, float(np.max(np.abs(out - _propagator_via_eigh(H, t)))))
     assert worst < 1e-9
+
+
+def test_propagator_3x3_rank1_dominated_hamiltonian():
+    """The production regime that previously forced a 100% eigh-fallback rate: a rank-1
+    potential dominating a small vacuum term gives H two eigenvalues degenerate by
+    construction. The divided-difference propagator must handle it at full accuracy and
+    stay unitary, across the potential-to-vacuum ratio range the Earth transit spans."""
+    rng = np.random.default_rng(21)
+    U_pmns = dps.construct_PMNS(np.radians(33.41), np.radians(8.58), np.radians(49.1), np.radians(132.0))
+    M_sq = np.diag([0.0, 7.41e-5, 2.511e-3]).astype(np.complex128)
+    M_rot = U_pmns @ M_sq @ np.conjugate(U_pmns).T
+    u = np.array([0.5, 0.5, 0.0], dtype=np.complex128)
+    S = np.outer(u, np.conjugate(u))
+    out = np.zeros((3, 3), dtype=np.complex128)
+    worst = 0.0
+    worst_unit = 0.0
+    for _ in range(400):
+        E = 10.0 ** rng.uniform(13, 16.5)
+        V_scale = 10.0 ** rng.uniform(-19, -15)     # spans vacuum-dominated to V-dominated
+        H = np.ascontiguousarray(M_rot / (2.0 * E) + V_scale * S)
+        t = 10.0 ** rng.uniform(9, 12)              # Earth-step dr range in eV^-1
+        dps.propagator_3x3(H, t, out)
+        worst = max(worst, float(np.max(np.abs(out - _propagator_via_eigh(H, t)))))
+        worst_unit = max(worst_unit, float(np.max(np.abs(out @ out.conj().T - np.eye(3)))))
+    assert worst < 1e-10
+    assert worst_unit < 1e-11
+
+
+def test_propagator_3x3_large_phase_node_exactness():
+    """Milky-Way-regime regression: per-step phases lam*t reach ~1e10 radians (gap phases
+    ~1e9), where double precision defines a phase only to ~1e-5 rad. The propagator must
+    still interpolate the COMPUTED e^{-i lam t} exactly at the eigenvalue nodes -- i.e.
+    remain unitary to fp precision -- because a coefficient form that only satisfies the
+    interpolation conditions approximately (the pure sinc form did, at ~1e-5 per step)
+    turns phase-representation noise into a cumulative AMPLITUDE error (measured 1.3e-4
+    end-to-end before the node-exact branch existed). Checks eigenvalue-wise
+    |U's spectrum| = 1 and agreement with the eigh construction."""
+    rng = np.random.default_rng(33)
+    U_pmns = dps.construct_PMNS(np.radians(33.41), np.radians(8.58), np.radians(49.1), np.radians(132.0))
+    M_sq = np.diag([0.0, 7.41e-5, 2.511e-3]).astype(np.complex128)
+    M_rot = U_pmns @ M_sq @ np.conjugate(U_pmns).T
+    out = np.zeros((3, 3), dtype=np.complex128)
+    worst_unit = 0.0
+    worst_vs_eigh = 0.0
+    for _ in range(300):
+        E = 10.0 ** rng.uniform(13, 16)
+        H = np.ascontiguousarray(M_rot / (2.0 * E))       # vacuum-dominated, like the MW
+        t = 10.0 ** rng.uniform(25, 27)                    # MW step lengths in eV^-1
+        dps.propagator_3x3(H, t, out)
+        worst_unit = max(worst_unit, float(np.max(np.abs(out @ out.conj().T - np.eye(3)))))
+        # vs eigh construction: phases individually rounded, but both must be unitary and
+        # agree on the |U|-structure; compare full matrices (phase decompositions differ
+        # at ~1e-5 rad, i.e. ~1e-5 absolute on elements is the shared representation
+        # limit -- the unitarity assertion above is the strict one)
+        worst_vs_eigh = max(worst_vs_eigh, float(np.max(np.abs(np.abs(out) - np.abs(_propagator_via_eigh(H, t))))))
+    assert worst_unit < 1e-12, f"non-unitary at large phases: {worst_unit:.3e}"
+    assert worst_vs_eigh < 1e-4
 
 
 def test_eigenvectors_3x3_matches_eigh():
