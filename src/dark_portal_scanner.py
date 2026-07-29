@@ -1,7 +1,7 @@
 import os
 
 # Must run before numpy/BLAS is imported -- see the matching guard and full explanation
-# in dark_portal_solver.py. This scanner already parallelizes across parameter configs via
+# in dp_core.py (the import-order-sensitive setup module behind the solver facade). This scanner already parallelizes across parameter configs via
 # multiprocessing, so each worker's BLAS backend must be pinned to a single thread or the
 # per-worker thread pools oversubscribe every core.
 os.environ.setdefault("OMP_NUM_THREADS", "1")
@@ -24,19 +24,6 @@ except ImportError:
     print("Warning: 'matplotlib' not found. Plotting will be disabled.")
 
 try:
-    from numba import njit
-    HAS_NUMBA = True
-except ImportError:
-    HAS_NUMBA = False
-    print("Warning: 'numba' not found. Falling back to pure Python (will be significantly slower).")
-    def njit(*args, **kwargs):
-        """Dummy decorator if numba is unavailable or string signatures are passed."""
-        def decorator(func): return func
-        if len(args) == 1 and callable(args[0]): return args[0]
-        if len(args) == 1 and isinstance(args[0], str): return decorator
-        return decorator
-
-try:
     from tqdm import tqdm
     HAS_TQDM = True
 except ImportError:
@@ -47,42 +34,17 @@ except ImportError:
 # Import the core physics solver from the adjacent module
 try:
     import dark_portal_solver as dps
-    dps.HAS_TQDM = False  # Suppresses all internal progress bars from the solver
+    import dp_core
+    dp_core.HAS_TQDM = False  # Suppresses all internal progress bars from the solver
+    # (the flag lives in dp_core since the 2026-07 module split; writing
+    # dps.HAS_TQDM would only shadow the facade's read-through)
 except ImportError:
     raise ImportError("Could not find 'dark_portal_solver.py'. Ensure this script is in the same directory.")
 
-@njit("float64[:](float64[:], float64[:,:])", fastmath=True, cache=True)
-def compute_energy_averaged_ratios(E_bins: np.ndarray, Flux_array: np.ndarray) -> np.ndarray:
-    """
-    Computes the energy-averaged flavor ratios over the fully integrated spectrum.
-    Utilizes exact geometric midpoints to perfectly match the cascading energy conservation weights.
-    """
-    N_E = len(E_bins)
-    dE = np.zeros(N_E, dtype=np.float64)
-    if N_E > 1:
-        bin_ratio = E_bins[1] / E_bins[0]
-        half_ratio = np.sqrt(bin_ratio)
-        for i in range(N_E):
-            E_lower = E_bins[i] / half_ratio
-            E_upper = E_bins[i] * half_ratio
-            dE[i] = E_upper - E_lower
-    elif N_E == 1:
-        dE[0] = 0.0
-
-    flux_e = Flux_array[:, 0]
-    flux_mu = Flux_array[:, 1]
-    flux_tau = Flux_array[:, 2]
-    
-    int_e = np.sum(flux_e * dE)
-    int_mu = np.sum(flux_mu * dE)
-    int_tau = np.sum(flux_tau * dE)
-    int_total = int_e + int_mu + int_tau
-    
-    # Fallback to standard 1:1:1 if the entire spectrum is catastrophically attenuated
-    if int_total > 1e-100:
-        return np.array([int_e / int_total, int_mu / int_total, int_tau / int_total])
-    else:
-        return np.array([1.0/3.0, 1.0/3.0, 1.0/3.0])
+# compute_energy_averaged_ratios now lives in flux_postprocessing.py (it is flux
+# post-processing, not a scanning routine); re-exported here so existing code that
+# imports it from this module keeps working.
+from flux_postprocessing import compute_energy_averaged_ratios  # noqa: F401
 
 def scan_worker(args: Tuple[str, float, Dict]) -> Tuple[float, np.ndarray]:
     """
@@ -110,12 +72,42 @@ def scan_worker(args: Tuple[str, float, Dict]) -> Tuple[float, np.ndarray]:
     ratios = compute_energy_averaged_ratios(E_bins, Flux_array)
     return param_val, ratios
 
+def _pool_warmup_worker():
+    """Pool initializer: warms a worker process's numba JIT caches with one tiny solver
+    run before any real scan task lands. Under Linux's default 'fork' start method the
+    workers inherit the parent's already-warm JIT state and this returns in milliseconds;
+    under 'spawn' (macOS/Windows default, or callers forcing it) each worker is a fresh
+    interpreter that would otherwise load/compile every kernel on its first real task --
+    a simultaneous cold-start stampede at high worker counts. Best-effort: a failure here
+    must never kill the pool."""
+    import sys as _sys, io as _io
+    old_stdout = _sys.stdout
+    _sys.stdout = _io.StringIO()
+    try:
+        dps.run_solver({
+            "grid": {"n_E_bins": 8, "n_z_bins": 8, "n_mw_paths": 1, "n_earth_chords": 1,
+                     "N_steps_MW": 2, "N_steps_earth": 2},
+            "execution": {"n_cores": 1, "verbose": 0},
+        })
+    except Exception:
+        pass
+    finally:
+        _sys.stdout = old_stdout
+
 def run_parameter_scan(param_name: str, param_values: np.ndarray, base_config: Dict, output_file: str):
     """
     Orchestrates a parallel 1D parameter scan across the provided grid values.
+
+    The pool size is driven by base_config['execution']['n_cores'] (falling back to
+    cpu_count()-1 if unset), clamped to the cores actually available. Previously this
+    function always recomputed its own hardcoded cpu_count()-1 pool size regardless of
+    what base_config['execution']['n_cores'] said, so that config field was silently
+    dropped -- setting it in __main__ had no effect on the actual scan parallelism.
     """
-    n_cores = multiprocessing.cpu_count() - 1 if multiprocessing.cpu_count() > 1 else 1
-    
+    available_cores = multiprocessing.cpu_count()
+    requested_cores = int(base_config.get('execution', {}).get('n_cores', available_cores - 1 if available_cores > 1 else 1))
+    n_cores = max(1, min(requested_cores, available_cores))
+
     tasks = [(param_name, val, base_config) for val in param_values]
     results_val = []
     results_ratios = []
@@ -126,7 +118,7 @@ def run_parameter_scan(param_name: str, param_values: np.ndarray, base_config: D
         print(f"\n--- Scanning {param_name} across {len(param_values)} grid points ---")
 
     if n_cores > 1:
-        with multiprocessing.Pool(processes=n_cores) as pool:
+        with multiprocessing.Pool(processes=n_cores, initializer=_pool_warmup_worker) as pool:
             if HAS_TQDM:
                 for res in tqdm(pool.imap(scan_worker, tasks), total=len(tasks), desc=f"Optimizing {param_name}"):
                     results_val.append(res[0])
@@ -262,72 +254,109 @@ def plot_parameter_scans(m_Zd_file: str, g_D_file: str, u_e_file: str, u_mu_file
     plt.show()
 
 if __name__ == "__main__":
-    # Generate the baseline configuration using the solver's native builder
-    config_file = "../config/config_dark_portal.json"
-    if not os.path.exists(config_file):
-        base_config = dps.create_default_config(config_file)
+    import argparse
+
+    SCANNABLE = ["m_Zd_eV", "g_D", "u_e", "u_mu"]
+    DEFAULT_RANGES = {
+        "m_Zd_eV": (1e-10, 1e10),   # 0.1 neV to 10 GeV
+        "g_D":     (1e-10, 1e-1),
+        "u_e":     (1e-5, 1.0),
+        "u_mu":    (1e-5, 1.0),
+    }
+
+    parser = argparse.ArgumentParser(
+        description="1D dark-portal parameter scans (energy-averaged flavor ratios per grid "
+                    "point) with a 2x2 summary figure. Grids are logarithmic.")
+    parser.add_argument("--config", type=str, default="../config/config_dark_portal.json",
+                        help="Base solver config JSON (created with defaults if missing).")
+    parser.add_argument("--params", nargs="*", default=SCANNABLE, choices=SCANNABLE,
+                        help="Which parameters to scan (default: all four).")
+    parser.add_argument("--n_points", type=int, default=100, help="Grid points per scan.")
+    for _p in SCANNABLE:
+        lo, hi = DEFAULT_RANGES[_p]
+        parser.add_argument(f"--{_p}_min", type=float, default=lo)
+        parser.add_argument(f"--{_p}_max", type=float, default=hi)
+    parser.add_argument("--n_E_bins", type=int, default=200,
+                        help="Energy bins during scans (reduced from the solver default for speed).")
+    parser.add_argument("--n_z_bins", type=int, default=200)
+    parser.add_argument("--n_mw_paths", type=int, default=12,
+                        help="Milky Way trajectories per point (default 12; the convergence study "
+                             "in output/convergence/ found >= 6 sufficient at the studied points, "
+                             "but raise this and re-run tools/convergence_study.py when exploring "
+                             "very small m_Zd, where the unscreened galactic potential makes the "
+                             "solid-angle average anisotropic).")
+    parser.add_argument("--n_earth_chords", type=int, default=50,
+                        help="Earth chords per point (default 50: the sub-percent knee of the "
+                             "convergence study in output/convergence/; 12 suffices for "
+                             "percent-level ratios).")
+    parser.add_argument("--N_steps_MW", type=int, default=25,
+                        help="25 agrees with a 400-step reference to ~1e-10 (tools/convergence_study.py).")
+    parser.add_argument("--n_cores", type=int,
+                        default=multiprocessing.cpu_count() - 1 if multiprocessing.cpu_count() > 1 else 1)
+    parser.add_argument("--output_dir", type=str, default="../output",
+                        help="Scan data goes to <output_dir>/data/, the figure to <output_dir>/plots/.")
+    parser.add_argument("--no_plot", action="store_true", help="Skip the 2x2 summary figure.")
+    args = parser.parse_args()
+
+    if not os.path.exists(args.config):
+        base_config = dps.create_default_config(args.config)
     else:
-        with open(config_file, 'r') as f:
+        with open(args.config, 'r') as f:
             base_config = json.load(f)
 
-    # Compile Numba kernels in advance using a lightweight dummy execution.
-    # This prevents all independent multiprocessing workers from attempting to JIT-compile 
-    # simultaneously on the first iteration, which risks bottlenecking the LLVM cache.
+    # Scan-resolution overrides (CLI-controlled; previously hardcoded here)
+    base_config.setdefault('grid', {})
+    base_config['grid']['n_E_bins'] = args.n_E_bins
+    base_config['grid']['n_z_bins'] = args.n_z_bins
+    base_config['grid']['n_mw_paths'] = args.n_mw_paths
+    base_config['grid']['n_earth_chords'] = args.n_earth_chords
+    base_config['grid']['N_steps_MW'] = args.N_steps_MW
+    base_config.setdefault('execution', {})
+    # Drives run_parameter_scan's pool size (see its docstring).
+    base_config['execution']['n_cores'] = args.n_cores
+
+    # Compile Numba kernels in advance using a lightweight dummy execution: prevents all
+    # independent pool workers from JIT-compiling simultaneously on their first task.
     print("Initiating Numba compiler cache warm-up...")
     warmup_config = copy.deepcopy(base_config)
-    warmup_config['grid']['n_E_bins'] = 200
-    warmup_config['grid']['n_z_bins'] = 200
-    warmup_config['grid']['n_mw_paths'] = 100
-    warmup_config['grid']['n_earth_chords'] = 100
-    warmup_config['execution']['n_cores'] = 11
     warmup_config['execution']['verbose'] = 0
-    
+
     import sys, io
     old_stdout = sys.stdout
     sys.stdout = io.StringIO()
     try:
         _ = dps.run_solver(warmup_config)
-        # Warm up the newly decorated ratio compiler
-        dummy_E = np.logspace(13, 16, 200)
-        dummy_Flux = np.zeros((200, 3))
+        dummy_E = np.logspace(13, 16, args.n_E_bins)
+        dummy_Flux = np.zeros((args.n_E_bins, 3))
         _ = compute_energy_averaged_ratios(dummy_E, dummy_Flux)
     finally:
         sys.stdout = old_stdout
     print("Warm-up complete. Numba kernels mapped to physical disk cache.")
 
-    # Lowering the integration grid resolution to speed up 1D parameter scans
-    base_config['grid']['n_E_bins'] = 200
-    base_config['grid']['n_z_bins'] = 200
-    base_config['grid']['n_mw_paths'] = 100
-    base_config['grid']['n_earth_chords'] = 100
-    base_config["grid"]['N_steps_MW'] = 100
-    base_config["grid"]['r_start_kpc'] = 100.0
-    base_config['execution']['n_cores'] = 11
+    grids = {p_: np.logspace(np.log10(getattr(args, f"{p_}_min")),
+                             np.log10(getattr(args, f"{p_}_max")), args.n_points)
+             for p_ in args.params}
+    outputs = {p_: os.path.join(args.output_dir, "data", f"scan_{p_.replace('_eV', '')}.txt")
+               for p_ in args.params}
 
-    # Define high-resolution evaluation grids
-    m_Zd_range = np.logspace(-10, 10, 100)      # Mediator mass scan from 0.1 neV to 10 GeV
-    g_D_range = np.logspace(-10, -1, 100)       # Gauge coupling scan from 10^-10 to 10^-1
-    u_e_range = np.logspace(-5, 0, 100)         # Sterile electron mixing evaluation space (log scale)
-    u_mu_range = np.logspace(-5, 0, 100)        # Sterile muon mixing evaluation space (log scale)
-    
-    # Establish output directory paths
-    m_Zd_output = "../output/data/scan_m_Zd.txt"
-    g_D_output = "../output/data/scan_g_D.txt"
-    u_e_output = "../output/data/scan_u_e.txt"
-    u_mu_output = "../output/data/scan_u_mu.txt"
-    plot_output = "../output/plots/parameter_scan_plot.png"
+    for p_ in args.params:
+        # The sterile-mixing scans zero out the *other* mixing element, matching the
+        # panel labels in plot_parameter_scans.
+        saved = {}
+        if p_ == "u_e":
+            saved["u_mu"] = base_config['dark_portal']['u_mu']
+            base_config['dark_portal']['u_mu'] = 0.0
+        elif p_ == "u_mu":
+            saved["u_e"] = base_config['dark_portal']['u_e']
+            base_config['dark_portal']['u_e'] = 0.0
+        run_parameter_scan(p_, grids[p_], base_config, outputs[p_])
+        for k, v in saved.items():
+            base_config['dark_portal'][k] = v
 
-    # Execute decoupled configuration mappings
-    run_parameter_scan('m_Zd_eV', m_Zd_range, base_config, m_Zd_output)
-    run_parameter_scan('g_D', g_D_range, base_config, g_D_output)
-    u_e_base  = base_config['dark_portal']['u_e']
-    u_mu_base  = base_config['dark_portal']['u_mu']
-    base_config['dark_portal']['u_mu'] = 0.0
-    run_parameter_scan('u_e', u_e_range, base_config, u_e_output)
-    base_config['dark_portal']['u_mu'] = u_mu_base
-    base_config['dark_portal']['u_e'] = 0.0
-    run_parameter_scan('u_mu', u_mu_range, base_config, u_mu_output)
-    base_config['dark_portal']['u_e'] = u_e_base
-
-    # Invoke 2x2 dual-panel Matplotlib rendering
-    plot_parameter_scans(m_Zd_output, g_D_output, u_e_output, u_mu_output, base_config, output_filename=plot_output)
+    if not args.no_plot:
+        if set(args.params) == set(SCANNABLE):
+            plot_parameter_scans(outputs["m_Zd_eV"], outputs["g_D"], outputs["u_e"], outputs["u_mu"],
+                                 base_config,
+                                 output_filename=os.path.join(args.output_dir, "plots", "parameter_scan_plot.png"))
+        else:
+            print("Summary figure requires all four scans; skipping (ran a subset).")

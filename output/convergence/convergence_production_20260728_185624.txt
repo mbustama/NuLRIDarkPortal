@@ -1,0 +1,138 @@
+Convergence study: profile=production, axes=['n_z_bins', 'n_E_bins', 'N_steps_MW', 'N_steps_earth', 'n_mw_paths', 'n_earth_chords'], tolerance=0.001 (flux) / 0.0001 (ratios), n_cores=8
+Baseline resolutions while scanning each axis: {'n_E_bins': 1000, 'n_z_bins': 1000, 'n_mw_paths': 6, 'n_earth_chords': 3, 'N_steps_MW': 100, 'N_steps_earth': 500}
+Parameter points: ['resonance_below_band', 'resonance_in_band', 'resonance_high_strong_coupling']
+
+=== Axis: n_z_bins (reference 1500) ===
+  Parameter point: resonance_below_band
+    reference n_z_bins=1500: 21.5s
+    n_z_bins=100: max_rel_flux=1.000e+00, max_abs_ratio_diff=9.093e-03 (7.9s)
+    n_z_bins=200: max_rel_flux=1.000e+00, max_abs_ratio_diff=1.088e-02 (9.7s)
+    n_z_bins=400: max_rel_flux=1.000e+00, max_abs_ratio_diff=1.519e-02 (8.9s)
+    n_z_bins=700: max_rel_flux=9.974e-01, max_abs_ratio_diff=1.001e-02 (11.8s)
+    n_z_bins=1000: max_rel_flux=9.365e-01, max_abs_ratio_diff=4.710e-03 (14.5s)
+  Parameter point: resonance_in_band
+    reference n_z_bins=1500: 16.8s
+    n_z_bins=100: max_rel_flux=1.000e+00, max_abs_ratio_diff=8.212e-03 (7.7s)
+    n_z_bins=200: max_rel_flux=1.000e+00, max_abs_ratio_diff=1.145e-02 (8.6s)
+    n_z_bins=400: max_rel_flux=1.000e+00, max_abs_ratio_diff=1.488e-02 (10.5s)
+    n_z_bins=700: max_rel_flux=9.952e-01, max_abs_ratio_diff=9.717e-03 (15.3s)
+    n_z_bins=1000: max_rel_flux=9.151e-01, max_abs_ratio_diff=5.277e-03 (20.6s)
+  Parameter point: resonance_high_strong_coupling
+    reference n_z_bins=1500: 22.1s
+    n_z_bins=100: max_rel_flux=4.392e+02, max_abs_ratio_diff=5.748e-09 (12.8s)
+    n_z_bins=200: max_rel_flux=1.979e+01, max_abs_ratio_diff=3.641e-09 (13.3s)
+    n_z_bins=400: max_rel_flux=1.377e+00, max_abs_ratio_diff=2.135e-09 (21.5s)
+    n_z_bins=700: max_rel_flux=5.488e-01, max_abs_ratio_diff=8.730e-10 (13.0s)
+    n_z_bins=1000: max_rel_flux=3.169e-01, max_abs_ratio_diff=5.023e-10 (18.1s)
+  -> NO tested value of n_z_bins met the tolerances at every parameter point; use the reference value 1500 or extend the ladder.
+
+=== Axis: n_E_bins (reference 1500) ===
+  Parameter point: resonance_below_band
+    reference n_E_bins=1500: 29.9s
+    n_E_bins=100: max_rel_flux=2.110e+22, max_abs_ratio_diff=1.110e-02 (2.7s)
+    n_E_bins=200: max_rel_flux=5.172e+09, max_abs_ratio_diff=4.715e-03 (4.3s)
+    n_E_bins=400: max_rel_flux=8.898e+03, max_abs_ratio_diff=2.291e-03 (7.2s)
+    n_E_bins=700: max_rel_flux=4.285e+01, max_abs_ratio_diff=7.331e-04 (14.1s)
+    n_E_bins=1000: max_rel_flux=4.483e+00, max_abs_ratio_diff=8.043e-04 (21.0s)
+  Parameter point: resonance_in_band
+    reference n_E_bins=1500: 28.3s
+    n_E_bins=100: max_rel_flux=3.981e+22, max_abs_ratio_diff=2.650e-02 (1.8s)
+    n_E_bins=200: max_rel_flux=6.432e+09, max_abs_ratio_diff=6.123e-03 (3.4s)
+    n_E_bins=400: max_rel_flux=9.334e+03, max_abs_ratio_diff=1.933e-03 (9.1s)
+    n_E_bins=700: max_rel_flux=4.368e+01, max_abs_ratio_diff=9.990e-04 (14.5s)
+    n_E_bins=1000: max_rel_flux=5.026e+00, max_abs_ratio_diff=3.884e-04 (20.2s)
+  Parameter point: resonance_high_strong_coupling
+    reference n_E_bins=1500: 21.0s
+    n_E_bins=100: max_rel_flux=5.037e+04, max_abs_ratio_diff=5.941e-09 (2.1s)
+    n_E_bins=200: max_rel_flux=6.963e+01, max_abs_ratio_diff=1.616e-09 (3.6s)
+    n_E_bins=400: max_rel_flux=4.245e+00, max_abs_ratio_diff=3.597e-10 (6.5s)
+    n_E_bins=700: max_rel_flux=9.433e-01, max_abs_ratio_diff=1.125e-10 (11.0s)
+    n_E_bins=1000: max_rel_flux=3.335e-01, max_abs_ratio_diff=2.494e-11 (12.6s)
+  -> NO tested value of n_E_bins met the tolerances at every parameter point; use the reference value 1500 or extend the ladder.
+
+=== Axis: N_steps_MW (reference 400) ===
+  Parameter point: resonance_below_band
+    reference N_steps_MW=400: 19.5s
+    N_steps_MW=25: max_rel_flux=1.715e-10, max_abs_ratio_diff=3.788e-13 (13.0s)
+    N_steps_MW=50: max_rel_flux=1.830e-10, max_abs_ratio_diff=4.802e-13 (12.3s)
+    N_steps_MW=100: max_rel_flux=1.662e-10, max_abs_ratio_diff=5.045e-13 (13.6s)
+    N_steps_MW=200: max_rel_flux=1.193e-10, max_abs_ratio_diff=3.365e-13 (16.4s)
+  Parameter point: resonance_in_band
+    reference N_steps_MW=400: 19.1s
+    N_steps_MW=25: max_rel_flux=2.607e-12, max_abs_ratio_diff=8.271e-15 (13.1s)
+    N_steps_MW=50: max_rel_flux=2.642e-12, max_abs_ratio_diff=3.664e-15 (14.6s)
+    N_steps_MW=100: max_rel_flux=2.401e-12, max_abs_ratio_diff=6.495e-15 (14.3s)
+    N_steps_MW=200: max_rel_flux=1.762e-12, max_abs_ratio_diff=6.939e-15 (15.3s)
+  Parameter point: resonance_high_strong_coupling
+    reference N_steps_MW=400: 19.7s
+    N_steps_MW=25: max_rel_flux=3.228e-12, max_abs_ratio_diff=1.865e-14 (15.7s)
+    N_steps_MW=50: max_rel_flux=3.675e-12, max_abs_ratio_diff=1.743e-14 (19.6s)
+    N_steps_MW=100: max_rel_flux=3.343e-12, max_abs_ratio_diff=1.488e-14 (14.0s)
+    N_steps_MW=200: max_rel_flux=2.571e-12, max_abs_ratio_diff=9.714e-15 (16.0s)
+  -> RECOMMENDED N_steps_MW >= 25 (worst case across parameter points, max_rel_flux < 0.001 and ratio diff < 0.0001)
+
+=== Axis: N_steps_earth (reference 2000) ===
+  Parameter point: resonance_below_band
+    reference N_steps_earth=2000: 28.2s
+    N_steps_earth=125: max_rel_flux=6.962e-01, max_abs_ratio_diff=7.293e-02 (9.6s)
+    N_steps_earth=250: max_rel_flux=2.015e-01, max_abs_ratio_diff=1.779e-02 (11.4s)
+    N_steps_earth=500: max_rel_flux=1.212e-01, max_abs_ratio_diff=1.219e-02 (23.2s)
+    N_steps_earth=1000: max_rel_flux=2.143e-01, max_abs_ratio_diff=2.160e-02 (26.7s)
+  Parameter point: resonance_in_band
+    reference N_steps_earth=2000: 32.0s
+    N_steps_earth=125: max_rel_flux=1.013e-01, max_abs_ratio_diff=1.133e-02 (19.8s)
+    N_steps_earth=250: max_rel_flux=3.193e-01, max_abs_ratio_diff=3.658e-02 (14.2s)
+    N_steps_earth=500: max_rel_flux=1.964e-01, max_abs_ratio_diff=1.606e-02 (13.6s)
+    N_steps_earth=1000: max_rel_flux=6.256e-01, max_abs_ratio_diff=6.266e-02 (21.1s)
+  Parameter point: resonance_high_strong_coupling
+    reference N_steps_earth=2000: 43.1s
+    N_steps_earth=125: max_rel_flux=1.210e-01, max_abs_ratio_diff=3.871e-03 (16.8s)
+    N_steps_earth=250: max_rel_flux=3.816e-01, max_abs_ratio_diff=1.258e-02 (14.3s)
+    N_steps_earth=500: max_rel_flux=2.339e-01, max_abs_ratio_diff=4.997e-03 (15.0s)
+    N_steps_earth=1000: max_rel_flux=7.465e-01, max_abs_ratio_diff=2.081e-02 (22.9s)
+  -> NO tested value of N_steps_earth met the tolerances at every parameter point; use the reference value 2000 or extend the ladder.
+
+=== Axis: n_mw_paths (reference 100) ===
+  Parameter point: resonance_below_band
+    reference n_mw_paths=100: 47.5s
+    n_mw_paths=6: max_rel_flux=2.787e-11, max_abs_ratio_diff=2.260e-13 (13.3s)
+    n_mw_paths=12: max_rel_flux=1.118e-13, max_abs_ratio_diff=5.551e-16 (17.1s)
+    n_mw_paths=25: max_rel_flux=5.412e-14, max_abs_ratio_diff=1.665e-16 (19.6s)
+    n_mw_paths=50: max_rel_flux=5.549e-14, max_abs_ratio_diff=2.776e-16 (28.2s)
+  Parameter point: resonance_in_band
+    reference n_mw_paths=100: 48.2s
+    n_mw_paths=6: max_rel_flux=4.240e-13, max_abs_ratio_diff=3.886e-16 (15.5s)
+    n_mw_paths=12: max_rel_flux=3.972e-15, max_abs_ratio_diff=5.551e-17 (15.8s)
+    n_mw_paths=25: max_rel_flux=4.043e-15, max_abs_ratio_diff=1.665e-16 (29.9s)
+    n_mw_paths=50: max_rel_flux=3.901e-15, max_abs_ratio_diff=5.551e-17 (29.7s)
+  Parameter point: resonance_high_strong_coupling
+    reference n_mw_paths=100: 41.4s
+    n_mw_paths=6: max_rel_flux=6.848e-13, max_abs_ratio_diff=5.551e-17 (13.6s)
+    n_mw_paths=12: max_rel_flux=3.696e-15, max_abs_ratio_diff=0.000e+00 (15.6s)
+    n_mw_paths=25: max_rel_flux=4.175e-15, max_abs_ratio_diff=0.000e+00 (18.5s)
+    n_mw_paths=50: max_rel_flux=4.442e-15, max_abs_ratio_diff=5.551e-17 (24.9s)
+  -> RECOMMENDED n_mw_paths >= 6 (worst case across parameter points, max_rel_flux < 0.001 and ratio diff < 0.0001)
+
+=== Axis: n_earth_chords (reference 100) ===
+  Parameter point: resonance_below_band
+    reference n_earth_chords=100: 123.0s
+    n_earth_chords=3: max_rel_flux=3.501e-01, max_abs_ratio_diff=4.405e-02 (14.1s)
+    n_earth_chords=6: max_rel_flux=2.892e-01, max_abs_ratio_diff=3.518e-02 (16.9s)
+    n_earth_chords=12: max_rel_flux=1.057e-01, max_abs_ratio_diff=1.241e-02 (24.6s)
+    n_earth_chords=25: max_rel_flux=1.721e-01, max_abs_ratio_diff=2.062e-02 (42.0s)
+    n_earth_chords=50: max_rel_flux=9.238e-02, max_abs_ratio_diff=1.112e-02 (67.5s)
+  Parameter point: resonance_in_band
+    reference n_earth_chords=100: 128.0s
+    n_earth_chords=3: max_rel_flux=3.901e-01, max_abs_ratio_diff=4.941e-02 (13.2s)
+    n_earth_chords=6: max_rel_flux=1.256e-01, max_abs_ratio_diff=1.843e-02 (17.2s)
+    n_earth_chords=12: max_rel_flux=5.325e-02, max_abs_ratio_diff=6.751e-03 (24.1s)
+    n_earth_chords=25: max_rel_flux=1.692e-01, max_abs_ratio_diff=2.167e-02 (40.1s)
+    n_earth_chords=50: max_rel_flux=2.094e-02, max_abs_ratio_diff=2.137e-03 (68.1s)
+  Parameter point: resonance_high_strong_coupling
+    reference n_earth_chords=100: 132.3s
+    n_earth_chords=3: max_rel_flux=4.445e-01, max_abs_ratio_diff=1.622e-02 (14.9s)
+    n_earth_chords=6: max_rel_flux=1.433e-01, max_abs_ratio_diff=6.291e-03 (21.4s)
+    n_earth_chords=12: max_rel_flux=6.067e-02, max_abs_ratio_diff=2.216e-03 (23.0s)
+    n_earth_chords=25: max_rel_flux=1.928e-01, max_abs_ratio_diff=7.135e-03 (39.8s)
+    n_earth_chords=50: max_rel_flux=2.381e-02, max_abs_ratio_diff=6.515e-04 (84.2s)
+  -> NO tested value of n_earth_chords met the tolerances at every parameter point; use the reference value 100 or extend the ladder.

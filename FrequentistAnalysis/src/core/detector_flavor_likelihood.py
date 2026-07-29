@@ -269,8 +269,10 @@ def detector_flavor_log_likelihood_wrapper(
         return detector_flavor_log_likelihood(fEe, fEmu, 
             params_detector_flavor_likelihood.params_likelihood_index[experiment])
     else:
-        print("detector_flavor_log_likelihood_wrapper: Experiment "+experiment+ " unknown")
-        quit()
+        # Raise instead of quit(): this runs inside Minuit evaluations and pool workers,
+        # where killing the interpreter silently tears down the whole scan; an exception
+        # is caught by GenericLikelihoodWrapper's error path and reported.
+        raise ValueError(f"detector_flavor_log_likelihood_wrapper: experiment '{experiment}' unknown")
 
 def detector_flavor_log_likelihood_from_q(
     Q: np.ndarray, 

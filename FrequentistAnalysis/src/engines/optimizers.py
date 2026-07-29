@@ -85,18 +85,9 @@ def run_mcmc_warm_start(func, param_names, start_values, limits_dict, pool=None)
         pos.append(p_pos)
         
     sampler = emcee.EnsembleSampler(n_walkers, ndim, log_prob_func, pool=pool)
-    
-    # Actively bypass evaluation caching during high-iteration continuous random generation
-    # to safeguard computational node limits from RAM leaks.
-    print("  [MCMC] Disabling internal wrapper cache to prevent RAM exhaustion...")
-    func._cache_enabled = False
-    
+
     sampler.run_mcmc(pos, n_steps, progress=True)
-    
-    # Ensure memory traces are entirely scrubbed before enabling component scanning.
-    func._cache.clear()
-    func._cache_enabled = True
-    
+
     flat_samples = sampler.get_chain(flat=True)
     best_idx = np.argmax(sampler.get_log_prob(flat=True))
     return {param_names[i]: flat_samples[best_idx][i] for i in range(ndim)}
@@ -145,10 +136,16 @@ def perform_sanity_check(func, m):
         for fp in failed_params: print(f"  - {fp}")
     else: print("All parameters are connected. Proceeding to Scan.\n")
 
-def minimize_point(val, param_name, global_start_values, global_errors, func, limits, param_names, use_simplex=False, minuit_retries=3):
+def minimize_point(val, param_name, global_start_values, global_errors, func, limits, param_names, use_simplex=False, minuit_retries=3, minuit_strategy=0):
     """
-    Executes an isolated 1D profile sequence locking the specific parameter array slice, 
+    Executes an isolated 1D profile sequence locking the specific parameter array slice,
     permitting gradients to optimize secondary components dynamically.
+
+    minuit_strategy (scan_settings.minuit_strategy, default 0): Minuit's strategy knob
+    for these INNER profiled fits only (the global fit keeps iminuit's default, 1).
+    Strategy >= 1 spends extra likelihood evaluations refining the error matrix --
+    information nobody consumes mid-scan, at ~6 s per evaluation for the production
+    physics kernel; the repair passes already catch any resulting quality regressions.
     """
     np.random.seed(int.from_bytes(os.urandom(4), byteorder='little'))
     final_best_fval = np.inf
@@ -157,7 +154,8 @@ def minimize_point(val, param_name, global_start_values, global_errors, func, li
     try:
         m_scan = Minuit(func, name=param_names, **global_start_values)
         m_scan.errordef = Minuit.LEAST_SQUARES
-        m_scan.tol = 0.1 
+        m_scan.strategy = int(minuit_strategy)
+        m_scan.tol = 0.1
         for p, lim in limits.items(): m_scan.limits[p] = lim
         for p, err in global_errors.items(): 
             if err > 0: m_scan.errors[p] = err
@@ -192,19 +190,22 @@ def minimize_point(val, param_name, global_start_values, global_errors, func, li
     except Exception: pass
     return (final_best_fval, final_best_params) if final_best_fval < np.inf else (np.inf, {})
 
-def minimize_point_2d(val_pair, name_pair, global_start_values, global_errors, func, limits, param_names, use_simplex=False, minuit_retries=3):
-    """Executes isolated parameter minimization pinning exactly two structural array dimensions."""
+def minimize_point_2d(val_pair, name_pair, global_start_values, global_errors, func, limits, param_names, use_simplex=False, minuit_retries=3, minuit_strategy=0):
+    """Executes isolated parameter minimization pinning exactly two structural array dimensions.
+
+    minuit_strategy: see minimize_point -- same inner-profiled-fit knob (default 0)."""
     np.random.seed(int.from_bytes(os.urandom(4), byteorder='little'))
     val_x, val_y = val_pair
     name_x, name_y = name_pair
-    
+
     final_best_fval = np.inf
     final_best_params = {}
-    
+
     for attempt in range(2):
         try:
             m_scan = Minuit(func, name=param_names, **global_start_values)
             m_scan.errordef = Minuit.LEAST_SQUARES
+            m_scan.strategy = int(minuit_strategy)
             m_scan.tol = 0.1
             for p, lim in limits.items(): m_scan.limits[p] = lim
             for p, err in global_errors.items(): 
