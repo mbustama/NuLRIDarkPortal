@@ -99,6 +99,7 @@
     },
     "_comment_limits": "Hard mathematical walls Minuit cannot cross based on physical bounds.",
     "parameter_limits": {
+        "_comment_limits": "m_Zd_eV's window [1e-30, 1e10] deliberately spans ~25 decades of the phase-noise domain: below m_Zd ~ sqrt(3e6 * g_D * epsilon_prime) eV (roughly 5-30 eV at these couplings) the 1/m_Zd^2-enhanced Earth potential exceeds what double precision can phase-track. Since the 2026-07 propagator phase-noise guard the solver returns finite, unitary, DECOHERENCE-AVERAGED fluxes there (historically: all-NaN -> the 1e9 sentinel). Keep the window if decoherence-limit physics is wanted; narrow the lower bound to ~10 eV to stop spending scan points where oscillation phases carry no information. A startup warning in GenericLikelihoodWrapper flags the overlap.",
         "s12sq": [
             0.01,
             1.0

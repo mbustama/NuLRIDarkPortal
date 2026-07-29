@@ -24,6 +24,7 @@ DEFAULT_SCAN_SETTINGS = {
     "scan_range_sigma_2d": 3.5,
     "use_explicit_step_sizes": True,
     "use_warm_start": True,
+    "minuit_strategy": 0,
     "use_linear_interp": False,
     "clip_contour_smearing": False,
     "smooth_marginalized_1d": False,

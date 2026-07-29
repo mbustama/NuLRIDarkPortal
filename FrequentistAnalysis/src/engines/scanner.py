@@ -24,12 +24,13 @@ def _segment_scan_worker_1d(task_args):
     """Minimizes a contiguous segment of 1D grid points in one worker, optionally
     warm-starting each point from the previous point's profiled solution."""
     (vals, param_name, global_start_values, global_errors, func, limits, param_names,
-     use_simplex, minuit_retries, warm_start) = task_args
+     use_simplex, minuit_retries, warm_start, minuit_strategy) = task_args
     out = []
     start = dict(global_start_values)
     for v in vals:
         fval, params = minimize_point(v, param_name, start, global_errors, func, limits,
-                                      param_names, use_simplex, minuit_retries)
+                                      param_names, use_simplex, minuit_retries,
+                                      minuit_strategy)
         out.append((fval, params))
         if warm_start and params and np.isfinite(fval):
             start = {**global_start_values, **params}
@@ -42,12 +43,13 @@ def _segment_scan_worker_2d(task_args):
     """Minimizes a contiguous (same-row) segment of 2D grid points in one worker,
     optionally warm-starting each point from the previous point's profiled solution."""
     (pairs, name_pair, global_start_values, global_errors, func, limits, param_names,
-     use_simplex, minuit_retries, warm_start) = task_args
+     use_simplex, minuit_retries, warm_start, minuit_strategy) = task_args
     out = []
     start = dict(global_start_values)
     for pair in pairs:
         fval, params = minimize_point_2d(pair, name_pair, start, global_errors, func,
-                                         limits, param_names, use_simplex, minuit_retries)
+                                         limits, param_names, use_simplex, minuit_retries,
+                                         minuit_strategy)
         out.append((fval, params))
         if warm_start and params and np.isfinite(fval):
             start = {**global_start_values, **params}
@@ -81,7 +83,7 @@ def _run_segments(worker_fn, segments, pool, desc):
 def scan_parameter_parallel(m_global, param_name, start_val, sigma_guess, func, limits, param_names, output_dir,
                             n_steps=40, use_n_points_internal=False, n_points_internal=100, scan_range_sigma=4.0,
                             minuit_retries=3, use_log_scan=False, force_rigid_bounds=False, pool=None, num_cores=1,
-                            use_warm_start=True):
+                            use_warm_start=True, minuit_strategy=0):
     """
     Constructs distributed HPC tasks dynamically iterating bounds constraints and returns
     synthesized 1D profiling vectors. Features intelligent mesh refinements.
@@ -114,7 +116,8 @@ def scan_parameter_parallel(m_global, param_name, start_val, sigma_guess, func, 
     else:
         segments = _split_segments(list(exec_grid), num_cores)
     seg_tasks = [(seg, param_name, global_start_values, global_errors, func, limits,
-                  param_names, False, minuit_retries, use_warm_start) for seg in segments]
+                  param_names, False, minuit_retries, use_warm_start, minuit_strategy)
+                 for seg in segments]
     results = _run_segments(_segment_scan_worker_1d, seg_tasks,
                             None if pool is None else pool, "  Progress")
 
@@ -135,7 +138,7 @@ def scan_parameter_parallel(m_global, param_name, start_val, sigma_guess, func, 
 
 def scan_pair_parallel(m_global, param_x, param_y, limits, func, param_names, n_steps=20,
                        scan_range_sigma=3.5, minuit_retries=3, force_rigid_bounds=False, pool=None, num_cores=1,
-                       use_log_x=False, use_log_y=False, use_warm_start=True):
+                       use_log_x=False, use_log_y=False, use_warm_start=True, minuit_strategy=0):
     """Iterates a distributed two-dimensional mesh matrix computing profile isolines contour projections.
 
     use_log_x / use_log_y switch the corresponding grid to geometric (logarithmic)
@@ -196,7 +199,8 @@ def scan_pair_parallel(m_global, param_x, param_y, limits, func, param_names, n_
 
     n_tasks = n_steps * n_steps
     seg_tasks = [(seg, (param_x, param_y), global_vals, global_errs, func, limits,
-                  param_names, True, minuit_retries, use_warm_start) for seg in segments]
+                  param_names, True, minuit_retries, use_warm_start, minuit_strategy)
+                 for seg in segments]
     results = _run_segments(_segment_scan_worker_2d, seg_tasks,
                             None if (pool is None or n_tasks < 5) else pool,
                             f"  2D Grid ({n_steps}x{n_steps})")

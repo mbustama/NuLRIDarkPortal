@@ -69,6 +69,28 @@ def scan_worker(args: Tuple[str, float, Dict]) -> Tuple[float, np.ndarray]:
     ratios = compute_energy_averaged_ratios(E_bins, Flux_array)
     return param_val, ratios
 
+def _pool_warmup_worker():
+    """Pool initializer: warms a worker process's numba JIT caches with one tiny solver
+    run before any real scan task lands. Under Linux's default 'fork' start method the
+    workers inherit the parent's already-warm JIT state and this returns in milliseconds;
+    under 'spawn' (macOS/Windows default, or callers forcing it) each worker is a fresh
+    interpreter that would otherwise load/compile every kernel on its first real task --
+    a simultaneous cold-start stampede at high worker counts. Best-effort: a failure here
+    must never kill the pool."""
+    import sys as _sys, io as _io
+    old_stdout = _sys.stdout
+    _sys.stdout = _io.StringIO()
+    try:
+        dps.run_solver({
+            "grid": {"n_E_bins": 8, "n_z_bins": 8, "n_mw_paths": 1, "n_earth_chords": 1,
+                     "N_steps_MW": 2, "N_steps_earth": 2},
+            "execution": {"n_cores": 1, "verbose": 0},
+        })
+    except Exception:
+        pass
+    finally:
+        _sys.stdout = old_stdout
+
 def run_parameter_scan(param_name: str, param_values: np.ndarray, base_config: Dict, output_file: str):
     """
     Orchestrates a parallel 1D parameter scan across the provided grid values.
@@ -93,7 +115,7 @@ def run_parameter_scan(param_name: str, param_values: np.ndarray, base_config: D
         print(f"\n--- Scanning {param_name} across {len(param_values)} grid points ---")
 
     if n_cores > 1:
-        with multiprocessing.Pool(processes=n_cores) as pool:
+        with multiprocessing.Pool(processes=n_cores, initializer=_pool_warmup_worker) as pool:
             if HAS_TQDM:
                 for res in tqdm(pool.imap(scan_worker, tasks), total=len(tasks), desc=f"Optimizing {param_name}"):
                     results_val.append(res[0])

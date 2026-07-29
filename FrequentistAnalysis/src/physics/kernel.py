@@ -123,6 +123,39 @@ def _get_persistent_pool(n_cores):
         _persistent_pool_atexit_registered = True
     return _persistent_pool
 
+def prewarm_worker():
+    """Pool initializer: warms a fresh worker process's numba JIT caches with one tiny
+    end-to-end kernel evaluation BEFORE any real task lands.
+
+    Under the 'spawn' start method (forced by main.py/run_limits.py) every worker is a
+    fresh interpreter: without this, each worker lazily imports and loads/compiles every
+    numba kernel on its FIRST real task -- at HPC scale (up to ~200 workers) that is a
+    simultaneous cold-start stampede serialized against real work. The evaluation below
+    uses a 10-bin grid with minimal spatial settings (~0.1 s warm) and touches the whole
+    compiled path: thermal grid, sigma table, cosmological stepper, spatial handover,
+    propagator. Best-effort by design -- a failure here must never kill the pool; real
+    tasks will surface real errors."""
+    try:
+        E_bins = np.geomspace(1e13, 3e16, 10)
+        z_bins = np.linspace(4.0, 0.0, 10)
+        static = (
+            0.33, 0.33, 0.05, 0.05, E_bins, z_bins,
+            np.array([0.333333, 0.666667, 0.0]),
+            1.4374e-33, 0.315, 0.685,
+            construct_PMNS(0.5831, 0.1498, 0.8570, 2.3038),
+            np.ascontiguousarray(np.diag([0.0, 7.41e-5, 2.511e-3]).astype(np.complex128)),
+            get_mass_eigenvalues(0.01, 7.41e-5, 2.511e-3, "normal"),
+            _DC['cosmology']['n_n0_cm3'] * cm_inv3_to_eV3, 1.95e-4,
+            np.ones(3, dtype=np.float64),
+            1.5, False, 2.5, 0.0, 1.0, 1.0,
+            1, 1, 2, 100.0, 2,          # n_mw_paths, n_earth_chords, N_steps_MW, r_start_kpc, N_steps_earth
+            False, 0.0, True, 1,        # use_SM_potential, n_e_earth, use_debye_screening, n_cores_standalone
+            None, None, 0)              # V_SM_struct, U_LRI_struct, n_z_thermal
+        compute_user_model_single({"m_Zd_eV": 2.0e6, "g_D": 1e-4, "epsilon_prime": 0.1}, static)
+    except Exception:
+        pass
+
+
 def compute_user_model_single(params, static_data):
     """
     Standard Python wrapper. Evaluates the dark portal propagation by calling 

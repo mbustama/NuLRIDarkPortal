@@ -312,6 +312,8 @@ Here is the baseline structure of the JSON payload (`myconfig.json`). Every feat
         "scan_range_sigma_2d": 3.5,
         "_comment_use_explicit_step_sizes": "If true, Minuit uses the 'step_sizes' block to initialize gradient derivatives.",
         "use_explicit_step_sizes": true,
+        "_comment_minuit_strategy": "Minuit strategy for the INNER profiled fits of 1D/2D scans, repairs and limits (default 0: skip the mid-scan error-matrix refinements nobody consumes; the repair passes catch quality regressions). The initial global fit always keeps iminuit's default strategy 1.",
+        "minuit_strategy": 0,
         "_comment_use_linear_interp": "If true, uses linear interpolation for 1D prior files instead of PCHIP cubic splines.",
         "use_linear_interp": false,
         "_comment_log_scan_parameters": "List of variables that should use geometric (logarithmic) spacing during 1D scans to resolve bounds near 0.",

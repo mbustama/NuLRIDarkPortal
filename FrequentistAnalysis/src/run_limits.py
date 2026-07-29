@@ -169,12 +169,14 @@ def run_pair(base_config, pair, ls, output_dir, pool, num_cores, repair_cfg):
     scan_limits[param_y] = tuple(y_range)
 
     n_steps = int(ls.get("n_steps", 20))
+    _strategy = base_config.get("scan_settings", {}).get("minuit_strategy", 0)
     x_grid, y_grid, Z_chi2, param_grid = scan_pair_parallel(
         m, param_x, param_y, scan_limits, func, param_names,
         n_steps=n_steps, minuit_retries=repair_cfg.get("minuit_retries", 3),
         force_rigid_bounds=True, pool=pool, num_cores=num_cores,
         use_log_x=True, use_log_y=True,
-        use_warm_start=base_config.get("scan_settings", {}).get("use_warm_start", True))
+        use_warm_start=base_config.get("scan_settings", {}).get("use_warm_start", True),
+        minuit_strategy=_strategy)
 
     if not repair_cfg.get("disable_outlier_repair", False):
         x_grid, y_grid, Z_chi2 = repair_2d_scan_outliers(
@@ -184,7 +186,8 @@ def run_pair(base_config, pair, ls, output_dir, pool, num_cores, repair_cfg):
             threshold=repair_cfg.get("spike_threshold", 0.2),
             max_passes=repair_cfg.get("max_repair_passes", 3),
             minuit_retries=repair_cfg.get("minuit_retries", 3),
-            pool=pool, num_cores=num_cores)
+            pool=pool, num_cores=num_cores,
+            minuit_strategy=_strategy)
 
     baseline = min(global_min_chi2, float(np.nanmin(Z_chi2)))
     dchi2 = np.nan_to_num(Z_chi2 - baseline, nan=1e9)
@@ -299,8 +302,11 @@ def main():
     repair_cfg = config.get("repair_settings", {})
     use_checkpointing = (not args.no_checkpointing) and ls.get("use_checkpointing", True)
 
+    # Same worker JIT prewarm as main.py's scan pool (see src.physics.kernel.prewarm_worker).
+    from src.physics.kernel import prewarm_worker
+
     payloads = []
-    with Pool(processes=num_cores) as pool:
+    with Pool(processes=num_cores, initializer=prewarm_worker) as pool:
         for pair in pairs:
             json_path = os.path.join(output_dir, f"limits_2d_{pair[1]}_vs_{pair[0]}.json")
             if use_checkpointing and os.path.exists(json_path):

@@ -338,6 +338,43 @@ class GenericLikelihoodWrapper:
                 None, None, 0
             )
 
+        # PHASE-NOISE DOMAIN ADVISORY (from the task-#3 diagnosis in
+        # dark_portal_solver.propagator_3x3): below m_Zd ~ sqrt(3e6 * g_D * eps') eV the
+        # 1/m_Zd^2-enhanced Earth potential accrues more phase per spatial step than
+        # double precision can represent. Since the propagator's phase-noise guard the
+        # solver returns finite, unitary fluxes there -- but they are decoherence-
+        # averaged only (oscillation phases are machine noise; historically this domain
+        # produced all-NaN fluxes -> the 1e9 sentinel). Warn once at startup when the
+        # configured scan window overlaps that domain, using the largest coupling
+        # product the scan can reach (upper limits for floating parameters).
+        _plim = self.config.get("parameter_limits", {})
+
+        def _coupling_reach(name, default):
+            if name in self.param_names:
+                lim = _plim.get(name)
+                if lim and len(lim) == 2 and lim[1] is not None:
+                    return abs(float(lim[1]))
+            v = self.fixed_params_cfg.get(name, self.config.get("start_values", {}).get(name, default))
+            try:
+                return abs(float(v))
+            except (TypeError, ValueError):
+                return default
+
+        _mzd_lim = _plim.get("m_Zd_eV")
+        if "m_Zd_eV" in self.param_names and _mzd_lim and len(_mzd_lim) == 2 and _mzd_lim[0] is not None:
+            _m_bad = (3e6 * _coupling_reach("g_D", 1e-4) * _coupling_reach("epsilon_prime", 0.1)) ** 0.5
+            if float(_mzd_lim[0]) < _m_bad:
+                print("\n" + "!"*70)
+                print(" [WARNING] The m_Zd_eV scan window overlaps the phase-noise domain:")
+                print(f"   lower limit {float(_mzd_lim[0]):.3g} eV < ~{_m_bad:.3g} eV"
+                      f" (= sqrt(3e6 * g_D * epsilon_prime) at the scan's largest couplings).")
+                print(" Below that scale the 1/m_Zd^2-enhanced Earth potential exceeds what")
+                print(" double precision can phase-track: fluxes are finite and unitary (the")
+                print(" propagator's phase-noise guard) but DECOHERENCE-AVERAGED ONLY --")
+                print(" oscillation phases carry no information there. Narrow the window,")
+                print(" or interpret those rows as decoherence-limit physics.")
+                print("!"*70 + "\n")
+
         if self.asimov:
             print("  [Asimov] Mode activated. Generating mock expected data...")
             asimov_injections = self.config.get("asimov_injections", {})
