@@ -314,6 +314,8 @@ Here is the baseline structure of the JSON payload (`myconfig.json`). Every feat
         "scan_range_sigma_2d": 3.5,
         "_comment_use_explicit_step_sizes": "If true, Minuit uses the 'step_sizes' block to initialize gradient derivatives.",
         "use_explicit_step_sizes": true,
+        "_comment_use_warm_start": "If true (default), each 1D/2D scan segment seeds a grid point's inner fit from the PREVIOUS point's profiled solution instead of the global start values -- adjacent grid points have nearly identical minima, so this cuts Migrad's iteration count substantially (measured: warm-started points ~30% fewer evaluations than a segment's cold-started first point). See scan_settings.min_segment_length for the HPC caveat (warm-start chains die if segments shrink to one point).",
+        "use_warm_start": true,
         "_comment_minuit_strategy": "Minuit strategy for the INNER profiled fits of 1D/2D scans, repairs and limits (default 0: skip the mid-scan error-matrix refinements nobody consumes; the repair passes catch quality regressions). The initial global fit always keeps iminuit's default strategy 1.",
         "minuit_strategy": 0,
         "_comment_retry_seed": "Stalled-fit retry jitter seeding for the inner profiled fits. -1 (default) keeps the historical behavior: a fresh os.urandom seed per fit, so retry paths differ run to run. >= 0 derives a deterministic per-(parameter, grid value) seed from this base value, making an identical re-run reproduce every retry path exactly while distinct grid points still jitter independently.",
