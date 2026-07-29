@@ -11,6 +11,7 @@ os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "1")
 os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
 
 import copy
+import hashlib
 import json
 import multiprocessing
 import numpy as np
@@ -94,6 +95,37 @@ def _pool_warmup_worker():
     finally:
         _sys.stdout = old_stdout
 
+def _scan_checkpoint_header(param_name: str, base_config: Dict) -> Dict:
+    """Identity of a scan for checkpoint validity: same parameter and an identical base
+    config. Any config change invalidates saved points (they were computed under
+    different physics), so the hash covers the whole resolved config."""
+    cfg_hash = hashlib.sha256(
+        json.dumps(base_config, sort_keys=True, default=str).encode()).hexdigest()
+    return {"param_name": param_name, "config_sha256": cfg_hash}
+
+
+def _load_scan_checkpoint(checkpoint_file: str, header: Dict) -> Dict[str, Tuple[float, np.ndarray]]:
+    """Returns {val_hex: (val, ratios)} for completed points recorded under a matching
+    header, or {} when the file is absent, unreadable, or was written for a different
+    scan/config (stale checkpoints are ignored, never trusted)."""
+    if not os.path.exists(checkpoint_file):
+        return {}
+    done = {}
+    try:
+        with open(checkpoint_file, 'r') as f:
+            first = f.readline()
+            if not first or json.loads(first) != header:
+                return {}
+            for line in f:
+                rec = json.loads(line)
+                done[rec["val_hex"]] = (rec["val"], np.array(rec["ratios"], dtype=np.float64))
+    except (json.JSONDecodeError, KeyError, ValueError):
+        # A truncated final line (killed mid-write) invalidates only what follows it;
+        # everything parsed so far is complete and usable.
+        pass
+    return done
+
+
 def run_parameter_scan(param_name: str, param_values: np.ndarray, base_config: Dict, output_file: str):
     """
     Orchestrates a parallel 1D parameter scan across the provided grid values.
@@ -103,53 +135,84 @@ def run_parameter_scan(param_name: str, param_values: np.ndarray, base_config: D
     function always recomputed its own hardcoded cpu_count()-1 pool size regardless of
     what base_config['execution']['n_cores'] said, so that config field was silently
     dropped -- setting it in __main__ had no effect on the actual scan parallelism.
+
+    Checkpointing: every completed point is appended to <output_file>.partial.jsonl as
+    it arrives, so a killed scan resumes from what it finished instead of losing every
+    point. The checkpoint is keyed to the exact parameter and config (see
+    _scan_checkpoint_header); grid values are matched bit-exactly via float.hex(), so a
+    changed grid simply recomputes the points that differ. The file is removed after
+    the final sorted output is written.
     """
     available_cores = multiprocessing.cpu_count()
     requested_cores = int(base_config.get('execution', {}).get('n_cores', available_cores - 1 if available_cores > 1 else 1))
     n_cores = max(1, min(requested_cores, available_cores))
 
-    tasks = [(param_name, val, base_config) for val in param_values]
+    header = _scan_checkpoint_header(param_name, base_config)
+    checkpoint_file = output_file + ".partial.jsonl"
+    done = _load_scan_checkpoint(checkpoint_file, header)
+
     results_val = []
     results_ratios = []
+    tasks = []
+    for val in param_values:
+        rec = done.get(float(val).hex())
+        if rec is not None:
+            results_val.append(rec[0])
+            results_ratios.append(rec[1])
+        else:
+            tasks.append((param_name, val, base_config))
 
-    if HAS_TQDM and hasattr(tqdm, 'write'):
-        tqdm.write(f"\n--- Scanning {param_name} across {len(param_values)} grid points ---")
-    else:
-        print(f"\n--- Scanning {param_name} across {len(param_values)} grid points ---")
+    def _announce(msg):
+        if HAS_TQDM and hasattr(tqdm, 'write'):
+            tqdm.write(msg)
+        else:
+            print(msg)
 
-    if n_cores > 1:
-        with multiprocessing.Pool(processes=n_cores, initializer=_pool_warmup_worker) as pool:
-            if HAS_TQDM:
-                for res in tqdm(pool.imap(scan_worker, tasks), total=len(tasks), desc=f"Optimizing {param_name}"):
-                    results_val.append(res[0])
-                    results_ratios.append(res[1])
-            else:
-                for res in pool.imap(scan_worker, tasks):
-                    results_val.append(res[0])
-                    results_ratios.append(res[1])
-    else:
-        for task in (tqdm(tasks, desc=f"Optimizing {param_name}") if HAS_TQDM else tasks):
-            res = scan_worker(task)
-            results_val.append(res[0])
-            results_ratios.append(res[1])
-            
+    _announce(f"\n--- Scanning {param_name} across {len(param_values)} grid points ---")
+    if results_val:
+        _announce(f"Checkpoint: {len(results_val)} completed point(s) loaded from {checkpoint_file}; "
+                  f"{len(tasks)} remaining.")
+
+    os.makedirs(os.path.dirname(os.path.abspath(output_file)), exist_ok=True)
+    ckpt_mode = 'a' if results_val else 'w'
+    with open(checkpoint_file, ckpt_mode) as ckpt:
+        if ckpt_mode == 'w':
+            ckpt.write(json.dumps(header) + "\n")
+            ckpt.flush()
+
+        def _record(res):
+            val, ratios = res
+            results_val.append(val)
+            results_ratios.append(ratios)
+            ckpt.write(json.dumps({"val_hex": float(val).hex(), "val": float(val),
+                                   "ratios": [float(r) for r in ratios]}) + "\n")
+            ckpt.flush()
+
+        if not tasks:
+            pass
+        elif n_cores > 1:
+            with multiprocessing.Pool(processes=n_cores, initializer=_pool_warmup_worker) as pool:
+                it = pool.imap(scan_worker, tasks)
+                for res in (tqdm(it, total=len(tasks), desc=f"Optimizing {param_name}") if HAS_TQDM else it):
+                    _record(res)
+        else:
+            for task in (tqdm(tasks, desc=f"Optimizing {param_name}") if HAS_TQDM else tasks):
+                _record(scan_worker(task))
+
     # Sort results mathematically to guarantee cleanly ordered output files
     results_val = np.array(results_val)
     results_ratios = np.array(results_ratios)
     sort_idx = np.argsort(results_val)
-    
+
     sorted_vals = results_val[sort_idx]
     sorted_ratios = results_ratios[sort_idx]
-    
-    os.makedirs(os.path.dirname(os.path.abspath(output_file)), exist_ok=True)
-    header = f"{param_name}    f_e    f_mu    f_tau"
+
+    header_txt = f"{param_name}    f_e    f_mu    f_tau"
     data = np.column_stack((sorted_vals, sorted_ratios))
-    np.savetxt(output_file, data, header=header, fmt="%.6e")
-    
-    if HAS_TQDM and hasattr(tqdm, 'write'):
-        tqdm.write(f"Scan data successfully saved to: {os.path.abspath(output_file)}")
-    else:
-        print(f"Scan data successfully saved to: {os.path.abspath(output_file)}")
+    np.savetxt(output_file, data, header=header_txt, fmt="%.6e")
+    os.remove(checkpoint_file)
+
+    _announce(f"Scan data successfully saved to: {os.path.abspath(output_file)}")
 
 def plot_parameter_scans(m_Zd_file: str, g_D_file: str, u_e_file: str, u_mu_file: str, base_config: Dict, output_filename: str = "../output/plots/parameter_scan_plot.png"):
     """
@@ -256,12 +319,18 @@ def plot_parameter_scans(m_Zd_file: str, g_D_file: str, u_e_file: str, u_mu_file
 if __name__ == "__main__":
     import argparse
 
-    SCANNABLE = ["m_Zd_eV", "g_D", "u_e", "u_mu"]
+    # All scannable dark_portal parameters. PLOT_PARAMS is the classic four whose scans
+    # feed the 2x2 summary figure (and the default scan set); epsilon_prime and u_tau
+    # are scanned on top of the base config as-is (no cross-parameter zeroing).
+    PLOT_PARAMS = ["m_Zd_eV", "g_D", "u_e", "u_mu"]
+    SCANNABLE = PLOT_PARAMS + ["epsilon_prime", "u_tau"]
     DEFAULT_RANGES = {
         "m_Zd_eV": (1e-10, 1e10),   # 0.1 neV to 10 GeV
         "g_D":     (1e-10, 1e-1),
         "u_e":     (1e-5, 1.0),
         "u_mu":    (1e-5, 1.0),
+        "epsilon_prime": (1e-10, 1.0),
+        "u_tau":   (1e-5, 1.0),
     }
 
     parser = argparse.ArgumentParser(
@@ -269,8 +338,9 @@ if __name__ == "__main__":
                     "point) with a 2x2 summary figure. Grids are logarithmic.")
     parser.add_argument("--config", type=str, default="../config/config_dark_portal.json",
                         help="Base solver config JSON (created with defaults if missing).")
-    parser.add_argument("--params", nargs="*", default=SCANNABLE, choices=SCANNABLE,
-                        help="Which parameters to scan (default: all four).")
+    parser.add_argument("--params", nargs="*", default=PLOT_PARAMS, choices=SCANNABLE,
+                        help="Which parameters to scan (default: the four summary-figure "
+                             "parameters; epsilon_prime and u_tau are also available).")
     parser.add_argument("--n_points", type=int, default=100, help="Grid points per scan.")
     for _p in SCANNABLE:
         lo, hi = DEFAULT_RANGES[_p]
@@ -339,6 +409,7 @@ if __name__ == "__main__":
     outputs = {p_: os.path.join(args.output_dir, "data", f"scan_{p_.replace('_eV', '')}.txt")
                for p_ in args.params}
 
+    import time as _time
     for p_ in args.params:
         # The sterile-mixing scans zero out the *other* mixing element, matching the
         # panel labels in plot_parameter_scans.
@@ -349,14 +420,21 @@ if __name__ == "__main__":
         elif p_ == "u_mu":
             saved["u_e"] = base_config['dark_portal']['u_e']
             base_config['dark_portal']['u_e'] = 0.0
+        _t0 = _time.time()
         run_parameter_scan(p_, grids[p_], base_config, outputs[p_])
+        # Reproducibility manifest per scan output: exact config + code state + grid.
+        manifest_config = copy.deepcopy(base_config)
+        manifest_config["_scan"] = {"param": p_, "n_points": args.n_points,
+                                    "min": float(grids[p_][0]), "max": float(grids[p_][-1])}
+        dps.write_run_manifest(os.path.splitext(outputs[p_])[0] + ".manifest.json",
+                               manifest_config, runtime_s=_time.time() - _t0)
         for k, v in saved.items():
             base_config['dark_portal'][k] = v
 
     if not args.no_plot:
-        if set(args.params) == set(SCANNABLE):
+        if set(PLOT_PARAMS).issubset(set(args.params)):
             plot_parameter_scans(outputs["m_Zd_eV"], outputs["g_D"], outputs["u_e"], outputs["u_mu"],
                                  base_config,
                                  output_filename=os.path.join(args.output_dir, "plots", "parameter_scan_plot.png"))
         else:
-            print("Summary figure requires all four scans; skipping (ran a subset).")
+            print("Summary figure requires the m_Zd_eV/g_D/u_e/u_mu scans; skipping (ran a subset).")
