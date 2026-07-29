@@ -25,7 +25,6 @@ DEFAULT_SCAN_SETTINGS = {
     "use_explicit_step_sizes": True,
     "use_warm_start": True,
     "use_linear_interp": False,
-    "use_fuzzy_cache": False,
     "clip_contour_smearing": False,
     "smooth_marginalized_1d": False,
     "save_nuisance_evolution": False,

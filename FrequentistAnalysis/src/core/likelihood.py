@@ -103,7 +103,6 @@ class GenericLikelihoodWrapper:
         
         self.asimov = asimov
         self.fixed_params_cfg = config.get('fixed_params', {})
-        self.use_fuzzy_cache = config.get("scan_settings", {}).get("use_fuzzy_cache", False)
 
         # Cores available for the physics kernel to use *internally* (via propagate_spectrum's
         # own n_cores, distributing the Milky Way/Earth spatial handover) when a call is not
@@ -146,9 +145,13 @@ class GenericLikelihoodWrapper:
             print(" of the two lists.")
             print("!"*70 + "\n")
 
-        # MCMC Memory Guard Toggle
-        self._cache = {}
-        self._cache_enabled = True
+        # NOTE: this wrapper used to keep a per-instance evaluation cache
+        # (_cache/_cache_enabled/use_fuzzy_cache). Measured on real scans it hit only
+        # 9.3% in-process and ~0% across processes (every pool task pickles a fresh
+        # wrapper), while costing a dict insert per evaluation and an unbounded memory
+        # footprint that the MCMC path had to special-case around. Removed outright; no
+        # caller relies on repeat-evaluation identity (perform_sanity_check compares
+        # against Minuit's stored fval, and the emcee wrapper re-evaluates by design).
 
         # Ensure the tuple expects 34 elements now (spatial tracking overrides plus
         # use_SM_potential/n_e_earth/use_debye_screening/n_cores_standalone/
@@ -469,10 +472,6 @@ class GenericLikelihoodWrapper:
         The objective function invoked directly by Minuit gradient algorithms and MCMC samplers.
         Evaluates the physics kernel and processes the external detector likelihood.
         """
-        if self.use_fuzzy_cache: cache_key = tuple(round(x, 5) for x in args)
-        else: cache_key = tuple(args)
-            
-        if self._cache_enabled and cache_key in self._cache: return self._cache[cache_key]
         vals = dict(zip(self.param_names, args))
         
         # Build comprehensive dictionary
@@ -555,7 +554,4 @@ class GenericLikelihoodWrapper:
         if np.isnan(chi2_data) or np.isinf(chi2_data): chi2_data = 1e9
 
         chi2_prior = self._compute_prior_penalty(vals)
-        total_chi2 = chi2_data + chi2_prior
-        
-        if self._cache_enabled: self._cache[cache_key] = total_chi2
-        return total_chi2
+        return chi2_data + chi2_prior

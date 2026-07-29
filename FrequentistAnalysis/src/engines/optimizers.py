@@ -85,18 +85,9 @@ def run_mcmc_warm_start(func, param_names, start_values, limits_dict, pool=None)
         pos.append(p_pos)
         
     sampler = emcee.EnsembleSampler(n_walkers, ndim, log_prob_func, pool=pool)
-    
-    # Actively bypass evaluation caching during high-iteration continuous random generation
-    # to safeguard computational node limits from RAM leaks.
-    print("  [MCMC] Disabling internal wrapper cache to prevent RAM exhaustion...")
-    func._cache_enabled = False
-    
+
     sampler.run_mcmc(pos, n_steps, progress=True)
-    
-    # Ensure memory traces are entirely scrubbed before enabling component scanning.
-    func._cache.clear()
-    func._cache_enabled = True
-    
+
     flat_samples = sampler.get_chain(flat=True)
     best_idx = np.argmax(sampler.get_log_prob(flat=True))
     return {param_names[i]: flat_samples[best_idx][i] for i in range(ndim)}

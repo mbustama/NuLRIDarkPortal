@@ -54,7 +54,6 @@
         "scan_range_sigma_2d": 3.5,
         "use_explicit_step_sizes": true,
         "use_linear_interp": false,
-        "use_fuzzy_cache": false,
         "log_scan_parameters": [
             "g_D",
             "u_e",
