@@ -35,6 +35,32 @@ except ImportError:
     HAS_MATPLOTLIB = False
     print("Warning: 'matplotlib' not found. Plotting will be disabled.")
 
+# TBB THREADING LAYER (when available): numba's default workqueue layer is not
+# fork/spawn-safe -- a prange kernel followed by multiprocessing pool use in the same
+# process deadlocked the forced-'spawn' persistent-pool combination during the
+# (since-reverted) threads-mode spatial experiments, and the same hazard class applies
+# in principle to the thermal-grid prange kernels running alongside the scan pools.
+# TBB coexists safely with fork and spawn (verified by the prange->spawn-pool stress
+# test in the suite). Selected at import time, before any parallel kernel compiles,
+# and only when the runtime is actually loadable -- machines without libtbb keep the
+# default layer and identical behavior to before.
+_TBB_LAYER = False
+try:
+    # numba's compiled tbb layer links libtbb directly: this import succeeds exactly
+    # when both numba's tbbpool extension and a loadable libtbb runtime are present
+    # (pip package 'tbb' ships the runtime without any importable python module).
+    from numba.np.ufunc import tbbpool as _tbbpool  # noqa: F401
+    import numba as _numba_cfg
+    os.environ.setdefault("NUMBA_THREADING_LAYER", "tbb")   # inherited by pool children
+    if os.environ["NUMBA_THREADING_LAYER"] == "tbb":
+        # the tbbpool import above already imported numba, whose config snapshot of the
+        # env predates our setdefault -- set the live config attribute too (it is read
+        # at layer-load time, i.e. at the first parallel kernel launch)
+        _numba_cfg.config.THREADING_LAYER = "tbb"
+        _TBB_LAYER = True
+except ImportError:
+    pass
+
 try:
     import numba
     from numba import njit, prange
@@ -1411,6 +1437,48 @@ def _split_E_blocks(N_E: int, n_units: int, n_workers: int):
     return [(int(edges[b]), int(edges[b + 1])) for b in range(blocks_per_unit)
             if edges[b + 1] > edges[b]]
 
+# =============================================================================
+# PERSISTENT SPATIAL POOL (standalone-solver side)
+# =============================================================================
+# A single run_solver call previously created and destroyed FOUR multiprocessing
+# pools (MW + Earth phase, neutrino + antineutrino pass), and a scan re-pays that
+# per point. This module-level pool mirrors the persistent pool already used by
+# FrequentistAnalysis/src/physics/kernel.py: created lazily at first use, resized
+# only when the requested worker count changes, torn down at exit. It is only ever
+# touched from processes that call the spatial handover with n_cores > 1 and no
+# caller-managed external_pool -- scanner/analysis pool workers run with n_cores=1
+# and never reach it (no nested pools).
+_spatial_pool = None
+_spatial_pool_size = None
+_spatial_pool_atexit = False
+
+
+def _close_spatial_pool():
+    global _spatial_pool
+    if _spatial_pool is not None:
+        _spatial_pool.terminate()
+        _spatial_pool.join()
+        _spatial_pool = None
+
+
+def _get_spatial_pool(n_workers: int):
+    """Returns the persistent spatial pool with exactly n_workers processes (creating
+    or resizing it as needed), or None for n_workers <= 1."""
+    global _spatial_pool, _spatial_pool_size, _spatial_pool_atexit
+    if n_workers <= 1:
+        return None
+    if _spatial_pool is not None and _spatial_pool_size == n_workers:
+        return _spatial_pool
+    _close_spatial_pool()
+    _spatial_pool = multiprocessing.Pool(processes=n_workers)
+    _spatial_pool_size = n_workers
+    if not _spatial_pool_atexit:
+        import atexit
+        atexit.register(_close_spatial_pool)
+        _spatial_pool_atexit = True
+    return _spatial_pool
+
+
 def _run_spatial_tasks(worker_fn, tasks, desc, n_workers, show_progress, external_pool=None):
     """Dispatches independent spatial-handover tasks (MW paths / Earth chords) either
     sequentially, across a freshly-created multiprocessing pool, or across a caller-managed
@@ -1423,12 +1491,15 @@ def _run_spatial_tasks(worker_fn, tasks, desc, n_workers, show_progress, externa
     'fork' start method (a copy-on-write process clone) but expensive under 'spawn' (a full
     interpreter relaunch plus reimport per worker) -- and FrequentistAnalysis's main.py forces
     'spawn'. Without reuse, using more than one core here made every single Migrad evaluation
-    roughly 10x *slower*, not faster (measured directly). Passing None here (the default)
-    preserves the exact original per-call pool creation behavior for every existing caller.
+    roughly 10x *slower*, not faster (measured directly). With external_pool=None (the
+    default), the module-level persistent pool (_get_spatial_pool) is used instead of the
+    historical per-call Pool creation -- a single run previously built and tore down four
+    pools (MW/Earth x nu/nubar), and scans re-paid that per point.
     """
     if n_workers > 1 and len(tasks) > 1:
-        if external_pool is not None:
-            iterator = external_pool.imap(worker_fn, tasks)
+        pool = external_pool if external_pool is not None else _get_spatial_pool(n_workers)
+        if pool is not None:
+            iterator = pool.imap(worker_fn, tasks)
             if HAS_TQDM and show_progress:
                 iterator = tqdm(iterator, total=len(tasks), desc=desc, leave=False)
             results = list(iterator)

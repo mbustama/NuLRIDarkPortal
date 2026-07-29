@@ -1180,6 +1180,63 @@ print("OK")
     assert pool_constructions == 1, f"expected exactly 1 Pool construction reused across 3 calls, got {pool_constructions}"
 
 
+def test_threads_mode_prange_then_spawn_pool_same_process():
+    """The TBB gate for the threads-based spatial mode: run the parallel prange spatial
+    kernel (multi-threaded), then create AND use a spawn multiprocessing Pool in the
+    same process, then run the parallel kernel again. With numba's default workqueue
+    threading layer this combination deadlocked (420 s hang) and once segfaulted --
+    the reason the first threads-mode attempt was reverted. Under the TBB layer it
+    must complete. Skipped when the tbb runtime is unavailable (threads mode is then
+    disabled and the hazard cannot arise). Isolated subprocess: the start method is
+    process-global."""
+    if not dps._TBB_LAYER:
+        pytest.skip("tbb runtime not available; threads mode disabled")
+    script = f'''
+import sys, multiprocessing
+sys.path.insert(0, {_SRC_DIR!r})
+import numpy as np
+
+def pool_task(seed):
+    # each spawn worker runs a real (single-threaded) solver evaluation
+    import dark_portal_solver as dps
+    cfg = {{"grid": {{"n_E_bins": 10, "n_z_bins": 10, "n_mw_paths": 1, "n_earth_chords": 1,
+                      "N_steps_MW": 2, "N_steps_earth": 2}},
+            "execution": {{"n_cores": 1, "verbose": 0}}}}
+    E, F = dps.run_solver(cfg)
+    return float(F.sum())
+
+if __name__ == "__main__":
+    multiprocessing.set_start_method("spawn", force=True)
+    import numba
+    import dark_portal_solver as dps
+    assert dps._TBB_LAYER, "tbb layer not active in subprocess"
+
+    cfg = {{"grid": {{"n_E_bins": 40, "n_z_bins": 20, "n_mw_paths": 2, "n_earth_chords": 2,
+                      "N_steps_MW": 5, "N_steps_earth": 20}},
+            "execution": {{"n_cores": 4, "verbose": 0}}}}
+    E, F1 = dps.run_solver(cfg)              # threads-mode parallel kernel
+    assert numba.threading_layer() == "tbb", numba.threading_layer()
+
+    with multiprocessing.Pool(processes=2) as pool:
+        out = pool.map(pool_task, [0, 1])    # spawn pool AFTER the parallel kernel
+    assert all(np.isfinite(v) for v in out)
+
+    E, F2 = dps.run_solver(cfg)              # parallel kernel again after the pool
+    assert np.array_equal(F1, F2), "threads-mode result changed across pool cycle"
+    print("OK")
+'''
+    import tempfile
+    with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as f:
+        f.write(script)
+        path = f.name
+    try:
+        result = subprocess.run([sys.executable, path], capture_output=True, text=True, timeout=420)
+    finally:
+        os.unlink(path)
+    assert result.returncode == 0, f"subprocess failed:\nstdout={result.stdout}\nstderr={result.stderr}"
+    assert "OK" in result.stdout, f"stdout={result.stdout}\nstderr={result.stderr}"
+
+
 # =============================================================================
 # 9. Config normalization, ratio-skip, sentinel-safe intervals
 # =============================================================================
