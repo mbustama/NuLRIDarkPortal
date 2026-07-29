@@ -343,6 +343,16 @@ def propagator_3x3(H: np.ndarray, t: float, out: np.ndarray):
        ~1e9 rad) only the direct form keeps the polynomial interpolating the COMPUTED
        exponentials exactly, which is what keeps the propagator unitary. A second-order
        Taylor branch handles total phase spreads below 1.2e-4 (truncation < 3e-13).
+    4. PHASE-NOISE GUARD. Within the deflation branch only: when the pair splitting is
+       at the cancellation floor AND the amplification factor eps * spread * min(|t|,
+       1/delta) reaches O(0.1) -- e.g. the 1/m_Zd^2-enhanced Earth potential at
+       m_Zd ~ 1e-6 eV, where spread*t ~ 1e27 rad -- polynomial evaluation at the
+       noise-limited nodes is non-unitary by many orders (measured singular values
+       ~5e11; 500 steps overflowed rho to NaN, the pre-2026-07 all-NaN flux bug at
+       extreme mediator masses). The propagator then switches to the exactly-unitary
+       spectral-projector form built from the stable far eigenvector, dropping the
+       (machine-noise) pair-splitting phase. Outside the deflation branch this hazard
+       is unreachable (gap >= 1e-4 * spread bounds the amplification at ~2e-12).
 
     NOTE: deliberately compiled WITHOUT fastmath -- its approximate-function flag
     degrades sin/cos/exp at these argument sizes.
@@ -509,6 +519,37 @@ def propagator_3x3(H: np.ndarray, t: float, out: np.ndarray):
         mean_b = 0.5 * (b11_ + b22_)
         half_diff = 0.5 * (b11_ - b22_)
         delta = np.sqrt(half_diff * half_diff + b12_.real**2 + b12_.imag**2)
+
+        # PHASE-NOISE GUARD (piece 4 of the docstring). Every quantity above carries an
+        # absolute cancellation floor ~ eps * spread from arithmetic on O(spread) matrix
+        # entries. Evaluating the interpolating polynomial at D's true eigenvalues (which
+        # sit within that floor of the nodes) amplifies by ~ node_error * |p'|, with
+        # |p'| ~ |t| on the sinc branch (pair phase < O(1)) and ~ 1/delta on the direct-
+        # quotient branch. When eps * spread * min(|t|, 1/delta) reaches O(0.1), NO
+        # polynomial in D can remain unitary -- measured 5e11 singular values at
+        # m_Zd = 1e-6 eV, where the 1/m_Zd^2-enhanced Earth potential reaches ~1e17 eV
+        # and spread*t ~ 6e27 rad; 500 such steps overflow rho to Inf/NaN. In that
+        # regime the pair-splitting phase is machine noise whatever we do, so the only
+        # meaningful propagator is the exactly-unitary projector form
+        #     U = e^{-iqt} [ f_c v0 v0^dag + f_pair (I - v0 v0^dag) ],
+        # which drops the sub-noise splitting but preserves unitarity exactly (the flux
+        # then carries decoherence-averaged information, the best double precision can
+        # represent there). The far eigenvector v0 is already computed stably above.
+        slope = np.abs(t)
+        if delta > 0.0 and delta * slope > 1.0:
+            slope = 1.0 / delta
+        if 2.2e-16 * spread * slope > 0.1:
+            f_c = np.exp(-1j * c_ * t)
+            f_p = np.exp(-1j * mean_b * t)
+            df = f_c - f_p
+            for a in range(3):
+                for b in range(3):
+                    val = df * (v0[a] * np.conjugate(v0[b]))
+                    if a == b:
+                        val += f_p
+                    out[a, b] = global_phase * val
+            return
+
         a_ = mean_b + delta
         b_ = mean_b - delta
 
@@ -1217,6 +1258,24 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
         V_SM = V_SM_scale * S_SM
     V_SM = np.ascontiguousarray(V_SM)
 
+    # PHASE-NOISE ADVISORY: when the LRI potential is so large (1/m_Zd^2-enhanced at tiny
+    # mediator masses) that a single Earth step accrues more phase than double precision
+    # can represent (eps * spread * dr > 0.1 rad of pure node noise), propagator_3x3's
+    # projector guard keeps the evolution unitary but the oscillation phases carry no
+    # information -- the returned fluxes are decoherence-averaged only. Estimated here
+    # with the PREM-core density (the worst case along any chord).
+    if verbose >= 1:
+        s_lri = float(np.max(np.abs(np.linalg.eigvalsh(U_LRI_struct))))
+        n_core_eV3 = 13.0885 * 3.011e23 * cm_inv3_to_eV3
+        dr_core_eV_inv = (get_baseline_earth(detector_depth_km, -1.0) / N_steps_earth) * 1e3 * m_to_eV_inv
+        if 2.2e-16 * abs(Coef) * n_core_eV3 * s_lri * dr_core_eV_inv > 0.1:
+            safe_print(
+                f"[WARNING] LRI potential scale (|Coef|*n_core ~ {abs(Coef) * n_core_eV3 * s_lri:.2e} eV) "
+                f"is phase-noise-dominated for the Earth transit at these parameters "
+                f"(m_Zd_eV={m_Zd:.3g}, g_D={g_D:.3g}, epsilon_prime={eps_prime:.3g}): "
+                f"per-step phases exceed double precision. Fluxes are unitary but "
+                f"decoherence-averaged only (see propagator_3x3's phase-noise guard).")
+
     # PHASE 1: Milky Way & Solar System Approach
     r_end_kpc = 6371.0 / 3.08567758e16
     dr_kpc = (r_start_kpc - r_end_kpc) / N_steps_MW
@@ -1491,6 +1550,15 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         Gamma_grid_all = build_thermal_grid(E_bins, z_bins, sum_G, sum_G_alpha, m_Zd, m_nu_bg_arr, T_nu0, eta_mass,
                                             n_z_thermal=n_z_thermal)
 
+    # DOMAIN CHECK: a non-finite rate grid would propagate NaN silently through the whole
+    # z-loop and out of the final flux (historically: an all-NaN spectrum with no hint of
+    # which parameter was responsible). Fail loudly, naming the offending values instead.
+    if not np.isfinite(Gamma_grid_all).all():
+        raise ValueError(
+            f"Non-finite thermal-rate grid (Gamma) at m_Zd_eV={m_Zd:.6g}, g_D={g_D:.6g}, "
+            f"epsilon_prime={eps_prime:.6g}: these dark-portal parameter values are outside "
+            f"the numerically supported domain of thermal_averaged_rates_flavor.")
+
     # SIGMA-TABLE for the cosmological mixing (see _build_sigma_projection_table):
     # the |U|^2 projections at any (E, z) depend only on sigma = E * c_z with
     # c_z = +/- 2 (1+z) A_LRI(z) (sign carries the antineutrino V -> -V transform,
@@ -1553,7 +1621,18 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                                       N_steps_earth=N_steps_earth, external_pool=external_pool,
                                       U_LRI_struct=U_LRI_struct_eff, V_SM_struct=V_SM_struct_eff,
                                       use_gpu=use_gpu)
-            
+
+    # DOMAIN CHECK: same contract as the thermal-grid check above -- never return NaN
+    # silently. (The known non-finite mechanism here, unitarity loss of the spatial
+    # propagator in the phase-noise regime, is guarded inside propagator_3x3 itself; this
+    # is the safety net for anything not yet diagnosed.)
+    if not np.isfinite(F_earth).all():
+        raise ValueError(
+            f"Non-finite flux out of the spatial handover at m_Zd_eV={m_Zd:.6g}, "
+            f"g_D={g_D:.6g}, epsilon_prime={eps_prime:.6g} "
+            f"({'antineutrino' if is_antineutrino else 'neutrino'} pass): these dark-portal "
+            f"parameter values are outside the numerically supported domain.")
+
     return F_earth
 
 # =============================================================================

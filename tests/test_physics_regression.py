@@ -1245,6 +1245,113 @@ def test_calculate_intervals_ignores_sentinel_boundaries():
     assert intervals[0][0] == pytest.approx(0.0) and intervals[0][1] == pytest.approx(1.0)
 
 
+# =============================================================================
+# Extreme-mediator-mass domain: phase-noise guard + loud NaN contract (task #3)
+# =============================================================================
+
+def test_propagator_3x3_phase_noise_regime_stays_unitary():
+    """The all-NaN-flux bug at extreme mediator masses (m_Zd ~ 1e-6 eV): the
+    1/m_Zd^2-enhanced Earth potential reaches ~1e17 eV, the rank-1 LRI texture makes the
+    Hamiltonian doubly degenerate, and per-step phases spread*t reach ~1e27 rad -- far
+    beyond the ~1/eps radians double precision can represent. The deflation branch's
+    polynomial coefficients are then evaluated at cancellation-noise-limited nodes and
+    the propagator came out non-unitary by ~11 orders of magnitude (measured singular
+    values ~5e11); 500 such steps overflowed rho to Inf/NaN. The phase-noise guard must
+    keep U exactly unitary across the whole potential ladder, at both Earth- and
+    Milky-Way-scale step lengths, and must preserve the far eigenvector's ray."""
+    U_pmns = dps.construct_PMNS(np.radians(33.41), np.radians(8.58), np.radians(49.1), np.radians(132.0))
+    M_sq = np.diag([0.0, 7.41e-5, 2.511e-3]).astype(np.complex128)
+    M_rot = U_pmns @ M_sq @ np.conjugate(U_pmns).T
+    u = np.array([0.5, 0.5, 0.0], dtype=np.complex128)
+    S = np.outer(u, np.conjugate(u))
+    v_far = (u / np.linalg.norm(u)).reshape(3)
+    out = np.zeros((3, 3), dtype=np.complex128)
+
+    worst_unit = 0.0
+    worst_ray = 0.0
+    # V ladders start where the phase-noise guard governs (eps * spread * t > 0.1);
+    # below that the pre-existing (unguarded) deflation path applies, whose small
+    # non-unitarity band is pinned as-is by the pipeline validation, not by this test.
+    for t, logV_min in ((1.29e11, 6), (6.25e32, 2)):    # Earth step / Milky Way step
+        for logV in range(logV_min, 23, 2):
+            for E in (1e13, 3e16):
+                V_scale = 10.0 ** logV
+                H = np.ascontiguousarray(M_rot / (2.0 * E) + V_scale * S)
+                dps.propagator_3x3(H, t, out)
+                assert np.isfinite(out).all(), f"non-finite U at V={V_scale:.0e}, t={t:.2e}"
+                worst_unit = max(worst_unit, float(np.max(np.abs(out @ out.conj().T - np.eye(3)))))
+                # the far (rank-1) eigenvector must map to itself up to a phase
+                w = out @ v_far
+                worst_ray = max(worst_ray, abs(1.0 - abs(np.vdot(v_far, w))))
+    assert worst_unit < 1e-12, f"non-unitary in phase-noise regime: {worst_unit:.3e}"
+    assert worst_ray < 1e-10, f"far-eigenvector ray not preserved: {worst_ray:.3e}"
+
+
+def test_extreme_mediator_mass_flux_is_finite(tmp_path):
+    """End-to-end contract for the formerly all-NaN domain: m_Zd_eV = 1e-6 (g_D = 1e-4,
+    epsilon_prime = 0.1) with the full 500 Earth steps (the NaN trigger -- repeated
+    application of the non-unitary propagator needed a few hundred steps to overflow)
+    must now return an all-finite, non-negative-total flux."""
+    cfg = dps.create_default_config(str(tmp_path / "cfg.json"))
+    cfg["dark_portal"].update(dict(m_Zd_eV=1e-6, g_D=1e-4, epsilon_prime=0.1))
+    cfg["grid"].update(dict(n_E_bins=20, n_z_bins=20, n_mw_paths=2, n_earth_chords=2,
+                            N_steps_MW=25, N_steps_earth=500))
+    cfg["execution"].update(dict(n_cores=1, verbose=0))
+    E, F = dps.run_solver(cfg)
+    assert np.isfinite(F).all()
+    assert float(np.sum(F)) > 0.0
+
+
+def test_propagate_spectrum_raises_on_nonfinite_gamma_grid():
+    """The loud-NaN contract: a non-finite thermal-rate grid must raise a ValueError
+    naming the dark-portal parameters instead of silently propagating NaN into the
+    returned spectrum (the historical failure mode)."""
+    E_bins = np.logspace(13, 16, 8)
+    z_bins = np.linspace(4.0, 0.0, 8)
+    U_pmns = dps.construct_PMNS(np.radians(33.41), np.radians(8.58), np.radians(49.1), np.radians(132.0))
+    M_sq = np.ascontiguousarray(np.diag([0.0, 7.41e-5, 2.511e-3]).astype(np.complex128))
+    u_arr = np.ascontiguousarray(np.array([0.5, 0.5, 0.0], dtype=np.complex128))
+    m_nu_bg = dps.get_mass_eigenvalues(0.01, 7.41e-5, 2.511e-3, "normal")
+    bad_grid = np.zeros((8, 8, 3))
+    bad_grid[3, 4, 1] = np.nan
+
+    with pytest.raises(ValueError, match="thermal-rate grid.*m_Zd_eV=2e"):
+        dps.propagate_spectrum(
+            E_bins, z_bins, np.array([0.33, 0.67, 0.0]),
+            1.5e-33, 0.315, 0.685, np.ascontiguousarray(U_pmns), M_sq,
+            u_arr, 2.0e6, 1e-4, 0.1, m_nu_bg, 2.5e-13, 1.95e-4,
+            True, 1.5, False, 0.0, False, 2.5, 0.0, 1.0, np.ones(3),
+            1, 1, N_steps_MW=3, show_progress=False, verbose=0, n_cores=1,
+            precomputed_Gamma_grid_all=bad_grid, N_steps_earth=3)
+
+
+def test_frequentist_wrapper_returns_sentinel_on_kernel_failure(monkeypatch, tmp_path):
+    """GenericLikelihoodWrapper must convert BOTH kernel failure modes established by the
+    task-#3 contract into the 1e9 sentinel: a raised ValueError (the new loud domain
+    check in propagate_spectrum) and a NaN chi2 (e.g. NaN flavor fractions reaching the
+    detector likelihood). Uses a tiny mock grid so no real physics runs."""
+    import src.core.likelihood as lk
+
+    config = {
+        "experiment": "icecube_mese_2025",
+        "physics_constants": {"n_E_bins": 8, "n_z_bins": 8, "n_mw_paths": 1,
+                              "n_earth_chords": 1, "N_steps_MW": 2, "N_steps_earth": 2},
+        "start_values": {"m_Zd_eV": 1e-6, "g_D": 1e-4, "epsilon_prime": 0.1},
+        "scan_settings": {"num_cores": 1},
+    }
+    wrapper = lk.GenericLikelihoodWrapper(config, ["m_Zd_eV"])
+
+    def raise_domain_error(params, static_data):
+        raise ValueError("Non-finite thermal-rate grid (Gamma) at m_Zd_eV=1e-06 ...")
+
+    monkeypatch.setattr(lk, "compute_user_model_single", raise_domain_error)
+    assert wrapper(1e-6) == 1e9
+
+    monkeypatch.setattr(lk, "compute_user_model_single",
+                        lambda params, static_data: (np.nan, np.nan, np.nan))
+    assert wrapper(2e-6) == 1e9
+
+
 if __name__ == "__main__":
     import sys as _sys
     _sys.exit(pytest.main([__file__, "-v"]))
