@@ -113,10 +113,16 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
     since it is identical for both (see compute_gamma_grid_inputs).
 
     N_steps_earth controls the number of path-length steps per Earth chord (analogous to
-    N_steps_MW for the Milky Way phase). The 500 default is the only value validated against
-    resonance-crossing sensitivity (see propagate_earth_spatial's docstring) -- lowering it
-    trades away exactly the resolution that protects against silently wrong results near a
-    matter resonance; verify convergence for your own m_Zd range before trusting a lower value.
+    N_steps_MW for the Milky Way phase), and earth_step_scheme selects the potential
+    discretization ('avg' = exact step-averaged potential, 'left' = historical
+    left-endpoint sampling). Under 'avg' -- the CONFIG default -- the accumulated LRI
+    phase is step-count-independent and results carry a convergence certificate
+    (N = 8..1000 agree to <= 5e-9 at the standard validation points; DEFAULT_CONFIG
+    therefore ships N_steps_earth = 100). Under 'left', results scatter at the ~1e-2
+    level with ANY step-count change (fringe re-aliasing) and 500 was the pinned
+    historical value. NOTE the function-signature defaults here (500, 'left')
+    deliberately preserve the historical behavior for direct callers that omit these
+    kwargs; run_solver and the analysis pipeline always pass the config values.
     """
     if HAS_NUMBA:
         # The cosmological step below is parallelized internally via numba prange; cap its
@@ -680,11 +686,11 @@ if __name__ == "__main__":
     parser.add_argument("--n_z_bins", type=int, default=None)
     parser.add_argument("--n_z_thermal", type=int, default=None, help="Coarse z-samples for the thermal-rate grid (default 0 = exact, no interpolation; see build_thermal_grid before enabling)")
     parser.add_argument("--thermal_analytic", type=str, default=None, help="Set to 'false' to use the 100-point midpoint reference kernel for the thermal rates instead of the semi-analytic default (see build_thermal_grid)")
-    parser.add_argument("--earth_step_scheme", type=str, default=None, help="Earth-transit potential discretization: 'left' (historical default) or 'avg' (exact step-averaged potential; step-count-independent LRI phase -- see _earth_chord_worker)")
+    parser.add_argument("--earth_step_scheme", type=str, default=None, help="Earth-transit potential discretization: 'avg' (default: exact step-averaged potential, step-count-independent LRI phase -- see dp_spatial._earth_chord_worker) or 'left' (historical left-endpoint sampling, kept for reproducing pre-2026-07 results)")
     parser.add_argument("--n_mw_paths", type=int, default=None, help="Number of Milky Way trajectories for solid-angle average")
     parser.add_argument("--n_earth_chords", type=int, default=None, help="Number of Earth chords for PREM evaluation")
     parser.add_argument("--N_steps_MW", type=int, default=None, help="Number of spatial integration steps in the Milky Way")
-    parser.add_argument("--N_steps_earth", type=int, default=None, help="Number of spatial integration steps per Earth chord (default 500; only validated at the default -- see propagate_earth_spatial's docstring before lowering it for a resonance-scanning fit)")
+    parser.add_argument("--N_steps_earth", type=int, default=None, help="Number of spatial integration steps per Earth chord (default 100 under the 'avg' step scheme, whose results are certified step-count-independent; under the legacy 'left' scheme results scatter ~1e-2 with any step-count change and 500 was the pinned value)")
     parser.add_argument("--r_start_kpc", type=float, default=None, help="Starting distance for Milky Way integration in kpc")
     
     # Export Slated Locations Overrides

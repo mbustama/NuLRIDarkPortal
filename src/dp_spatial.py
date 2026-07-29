@@ -476,6 +476,13 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
     matrices there, not here. The overrides affect only the coherent forward-scattering
     potentials; the Debye screening mass (and, upstream, the thermal attenuation and
     regeneration rates) remain tied to the u_e/u_mu/u_tau mixing amplitudes.
+
+    earth_step_scheme: 'avg' (exact step-averaged potential; step-count-independent
+    LRI phase, certified converged -- the config default) or 'left' (historical
+    left-endpoint sampling). The function-signature defaults (N_steps_earth=500,
+    earth_step_scheme='left') preserve historical behavior for direct callers;
+    run_solver / the analysis pipeline always pass the DEFAULT_CONFIG values
+    ('avg', 100). See _earth_chord_worker and the scheme NOTE below.
     """
     N_E = len(E_bins)
     lbl = "Anti-Nu" if is_antineutrino else "Nu"
@@ -670,7 +677,8 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
     # near-degenerate (MSW-like) eigenvalue crossing -- near such a crossing, eigenvectors
     # rotate rapidly with position *independent of total path length*, so "shorter chord
     # needs fewer steps" is the wrong criterion. Fixed step count for every chord (now
-    # caller-configurable via N_steps_earth, default 500 -- unchanged from before) until a
+    # caller-configurable via N_steps_earth; 500 was the pinned value throughout the
+    # 'left'-scheme era, lowered to 100 once the 'avg' scheme's certificate landed) until a
     # scheme that actually tracks local eigenvalue splitting is worth the complexity.
     # WARNING: reducing N_steps_earth trades away exactly the resolution that protects
     # against the failure mode above. It has NOT been validated as safe at any value below

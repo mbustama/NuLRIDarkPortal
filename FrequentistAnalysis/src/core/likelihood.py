@@ -17,8 +17,9 @@ from src.physics.kernel import compute_user_model_single
 from src.core.detector_flavor_likelihood import detector_flavor_log_likelihood_wrapper
 
 # construct_PMNS/get_mass_eigenvalues are the single canonical implementations, defined
-# once in dark_portal_solver.py and imported everywhere else (kernel.py does the same),
-# rather than kept as separate local copies that can silently drift out of sync.
+# once in the dp_* solver modules and re-exported through the dark_portal_solver facade
+# (kernel.py imports the same way), rather than kept as separate local copies that can
+# silently drift out of sync.
 _current_dir = os.path.dirname(os.path.abspath(__file__))
 _dark_portal_dir = os.path.abspath(os.path.join(_current_dir, "../../../src/"))
 if _dark_portal_dir not in sys.path:
@@ -257,13 +258,14 @@ class GenericLikelihoodWrapper:
                 n_mw_paths = int(pc.get("n_mw_paths", _PC_DEFAULTS["n_mw_paths"]))
                 n_earth_chords = int(pc.get("n_earth_chords", _PC_DEFAULTS["n_earth_chords"]))
                 N_steps_MW = int(pc.get("N_steps_MW", _PC_DEFAULTS["N_steps_MW"]))
-                # N_steps_earth defaults to 500, the only value validated against
-                # resonance-crossing sensitivity -- see propagate_earth_spatial's docstring
-                # in dark_portal_solver.py before lowering it for a resonance-scanning fit.
+                # N_steps_earth defaults to the solver's DEFAULT_CONFIG value (100 under
+                # the 'avg' step scheme, whose results are certified step-count-
+                # independent; the historical 'left' scheme needed the pinned 500 --
+                # see propagate_earth_spatial's docstring in dp_spatial.py).
                 N_steps_earth = int(pc.get("N_steps_earth", _PC_DEFAULTS["N_steps_earth"]))
                 r_start_kpc = float(pc.get("r_start_kpc", _PC_DEFAULTS["r_start_kpc"]))
                 # Coarse z-sampling of the thermal-rate grid (0 = exact grid; see
-                # dark_portal_solver.build_thermal_grid).
+                # dp_thermal.build_thermal_grid, re-exported by dark_portal_solver).
                 n_z_thermal = int(pc.get("n_z_thermal", _PC_DEFAULTS["n_z_thermal"]))
                 # Semi-analytic momentum integration of the thermal rates (default
                 # True; False = midpoint reference kernel).
@@ -285,7 +287,7 @@ class GenericLikelihoodWrapper:
                 
                 m_nu_bg_arr = np.ascontiguousarray(get_mass_eigenvalues(m_lightest_eV, dm21_sq, dm31_sq, mass_ordering), dtype=np.float64)
                 
-                # Construct expanded 34-element static_data tuple
+                # Construct expanded 36-element static_data tuple
                 self.static_data = (
                     0.33,                           # 0. obs_f_e (not used)
                     0.33,                           # 1. obs_f_mu (not used)
@@ -348,7 +350,7 @@ class GenericLikelihoodWrapper:
             )
 
         # PHASE-NOISE DOMAIN ADVISORY (from the task-#3 diagnosis in
-        # dark_portal_solver.propagator_3x3): below m_Zd ~ sqrt(3e6 * g_D * eps') eV the
+        # dp_propagator.propagator_3x3): below m_Zd ~ sqrt(3e6 * g_D * eps') eV the
         # 1/m_Zd^2-enhanced Earth potential accrues more phase per spatial step than
         # double precision can represent. Since the propagator's phase-noise guard the
         # solver returns finite, unitary fluxes there -- but they are decoherence-

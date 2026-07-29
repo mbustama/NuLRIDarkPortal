@@ -1,7 +1,9 @@
 """
 test_physics_regression.py
 
-Regression tests for the physics kernels in src/dark_portal_solver.py.
+Regression tests for the dark-portal physics kernels (src/dp_*.py, re-exported
+through the src/dark_portal_solver.py facade -- tests access everything as dps.<name>;
+NOTE monkeypatches must target the OWNER module, e.g. dp_spatial, not the facade).
 
 These pin down two things that are easy to silently break in a future refactor and hard
 to notice from the final flux plots alone:
@@ -1105,7 +1107,7 @@ def test_frequentist_kernel_uses_n_cores_standalone_only_in_main_process():
     any scan/repair Pool worker ever touches this function), but must force n_cores back
     to 1 whenever called from inside an actual multiprocessing.Pool worker -- otherwise a
     worker would itself spin up a nested pool and oversubscribe every core (the same
-    hazard the BLAS/numba thread-pinning guards in dark_portal_solver.py exist to avoid).
+    hazard the BLAS/numba thread-pinning guards in dp_core.py exist to avoid).
     Both must produce the exact same physics result regardless of core count."""
     from src.core.likelihood import GenericLikelihoodWrapper
     import multiprocessing as _mp

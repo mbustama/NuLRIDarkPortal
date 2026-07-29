@@ -2,7 +2,8 @@
 gpu_spatial.py
 
 Optional CUDA (cupy) implementation of the spatial handover -- the Milky Way and Earth
-transit phases of dark_portal_solver.propagate_earth_spatial -- evolving every
+transit phases of dp_spatial.propagate_earth_spatial (re-exported by the
+dark_portal_solver facade) -- evolving every
 (trajectory-or-chord, energy-bin) density matrix as one batched GPU workload instead of
 distributing units across a CPU multiprocessing pool.
 
@@ -204,8 +205,10 @@ def run_spatial_handover_gpu(E_bins, rho0_units_host, n_tot_seq_host, dr_units_h
     Inputs are host-side numpy arrays prepared by propagate_earth_spatial:
       E_bins            (N_E,)            energy grid
       rho0_units_host   (U, N_E, 3, 3)    initial density matrices per unit
-      n_tot_seq_host    (U, N_steps)      total density per unit per step (from the
-                                          shared spatial_total_density_* helpers)
+      n_tot_seq_host    (U, N_steps)      total density per unit per step, built by the
+                                          caller under the active earth_step_scheme
+                                          ('avg': exact step averages; 'left': left-
+                                          endpoint samples of spatial_total_density_*)
       dr_units_host     (U,)              step length per unit in eV^-1
       M_rot             (3, 3)            vacuum mass matrix rotated to flavor basis
       Coef              scalar            LRI coefficient (antineutrino sign included)

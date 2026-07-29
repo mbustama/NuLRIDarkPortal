@@ -23,17 +23,22 @@ notes for the expected style).
   `FrequentistAnalysis/src/core/likelihood.py` (`GenericLikelihoodWrapper`) →
   `src/physics/kernel.py` (`compute_user_model_single`) → `propagate_spectrum`.
   Configuration flows from `DEFAULT_CONFIG` (solver) with unknown-key rejection;
-  the analysis mirrors it through a **35-element `static_data` tuple** built in
-  `likelihood.py` (element 34 is `thermal_analytic`; extend the tuple for new
-  flags, with the established `len(static_data) > N` backward-compat unpack
-  pattern in `kernel.py`).
-* Test suite: `python3 -m pytest tests/test_physics_regression.py` — 53 passed +
+  the analysis mirrors it through a **36-element `static_data` tuple** built in
+  `likelihood.py` (element 34 is `thermal_analytic`, element 35 is
+  `earth_step_scheme`; extend the tuple for new flags, with the established
+  `len(static_data) > N` backward-compat unpack pattern in `kernel.py`). The
+  solver itself was split (2026-07) into `dp_core/dp_propagator/dp_thermal/
+  dp_cosmo/dp_spatial/dp_config` behind the `dark_portal_solver` facade —
+  import through the facade, but read implementation in the dp_* modules.
+* Test suite: `python3 -m pytest tests/test_physics_regression.py` — 60 passed +
   1 skipped (GPU device test) at the time of writing. Must stay green throughout,
   including when JAX is **not** installed (skip pattern: see
   `test_gpu_spatial_matches_cpu` / `test_use_gpu_falls_back_to_cpu_without_cuda`).
 * Validation discipline (non-negotiable, same as every round): production-settings
   runs (`n_E_bins=1000, n_z_bins=1000, n_mw_paths=6, n_earth_chords=12,
-  N_steps_MW=25, N_steps_earth=500, n_cores=4, verbose=0`) at four parameter
+  N_steps_MW=25, N_steps_earth=100, earth_step_scheme="avg", n_cores=4,
+  verbose=0` — the certified step-count-independent defaults; historical rounds
+  used `left`/500) at four parameter
   points, reference and candidate in **separate processes**:
   - `below`:  `m_Zd_eV=3.0e5, g_D=1e-4, epsilon_prime=0.1`
   - `inband`: `m_Zd_eV=2.0e6, g_D=1e-4, epsilon_prime=0.1`
@@ -64,7 +69,7 @@ notes for the expected style).
    A JAX port is nearly a transliteration: `cp` → `jnp`, in-place writes → chained
    `jnp.where`. All masks (pure-phase, Taylor, deflation, phase-noise projector)
    are already mask-form.
-2. **The semi-analytic thermal kernel** (`thermal_averaged_rates_flavor_analytic`)
+2. **The semi-analytic thermal kernel** (`dp_thermal.thermal_averaged_rates_flavor_analytic`)
    — closed-form window edge `p_edge = |m² − δ²|/(2δ)`, `δ = (M2 − m²)/(2x)`,
    `|u'(p_edge)| = 2xδ/E_bg(p_edge)`; geometric shells `p_edge ± {3,30,…,3e4}·MG/|u'|`
    with GL-16 per panel; exact polynomial×atan / polynomial×log antiderivatives
@@ -87,8 +92,8 @@ Mirror the existing `use_gpu` pattern exactly:
   plus x64 check) and the forward entry point. `propagation_worker` routes to it
   when `use_jax` is set, **falling back to the numba path with a one-line warning**
   when JAX is unavailable (same courtesy as the GPU path).
-* FrequentistAnalysis: extend `static_data` to 36 elements
-  (`use_jax` at index 35), read from `physics_constants.use_jax` in
+* FrequentistAnalysis: extend `static_data` to 37 elements
+  (`use_jax` at index 36), read from `physics_constants.use_jax` in
   `likelihood.py` with `_PC_DEFAULTS` fallback; `kernel.compute_user_model_single`
   routes. Gradient wiring (phase c) adds a `value_and_grad` method on the wrapper —
   do NOT change `__call__`'s signature (iminuit and the pool workers depend on it).
@@ -115,7 +120,7 @@ its numba counterpart before moving on):
    invariance directly per (E, z) under `vmap`, dropping the interpolation table:
    tables with parameter-dependent nodes are awkward under JIT and the table was
    only ever a CPU-cost optimization).
-4. **Spatial transit**: `lax.scan` over steps (25 MW / 500 Earth), `vmap` over
+4. **Spatial transit**: `lax.scan` over steps (25 MW / 100 Earth at current defaults), `vmap` over
    (bins × units). PREM density: `jnp.select` over the 10 polynomial layers.
    Densities per step can be precomputed per unit as arrays (they depend only on
    geometry + m_eff) — mirror round 7's `V_seq` idea, which is the natural
@@ -123,8 +128,9 @@ its numba counterpart before moving on):
 5. **Ratios + detector likelihood**: `compute_energy_averaged_ratios` is a
    weighted sum (trivial); the detector likelihood in
    `core/detector_flavor_likelihood.py` is vectorized numpy — port or wrap.
-6. **`jax.checkpoint` on the Earth-transit scan body.** Reverse-mode through a
-   500-step scan stores every intermediate ρ — tens of GB at production shapes.
+6. **`jax.checkpoint` on the Earth-transit scan body.** Reverse-mode through the
+   Earth scan stores every intermediate ρ per step — many GB at production shapes
+   even at the current 100-step default.
    Rematerialization brings memory to O(segment) at ~2× forward FLOPs. This is
    the single most important structural decision; do it from the start, not as a
    retrofit.

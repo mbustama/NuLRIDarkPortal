@@ -1,7 +1,7 @@
 import os
 
 # Must run before numpy/BLAS is imported -- see the matching guard and full explanation
-# in dark_portal_solver.py. This scanner already parallelizes across parameter configs via
+# in dp_core.py (the import-order-sensitive setup module behind the solver facade). This scanner already parallelizes across parameter configs via
 # multiprocessing, so each worker's BLAS backend must be pinned to a single thread or the
 # per-worker thread pools oversubscribe every core.
 os.environ.setdefault("OMP_NUM_THREADS", "1")

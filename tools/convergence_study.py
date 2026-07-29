@@ -6,7 +6,11 @@ Finds the coarsest safe values of the solver's resolution parameters:
     n_z_bins        redshift steps of the cosmological integration
     n_E_bins        energy bins (also the cascading integral's resolution)
     N_steps_MW      path-length steps per Milky Way trajectory
-    N_steps_earth   path-length steps per Earth chord
+    N_steps_earth   path-length steps per Earth chord (NOTE: under the default
+                    earth_step_scheme='avg' this axis is certified step-count-
+                    independent -- N = 8..1000 agree to <= 5e-9 at the standard
+                    validation points -- so ladders on it mainly diagnose the
+                    legacy 'left' scheme; the chord-count axis still matters)
     n_mw_paths      Milky Way trajectories in the solid-angle average
     n_earth_chords  Earth chords in the zenith average
 

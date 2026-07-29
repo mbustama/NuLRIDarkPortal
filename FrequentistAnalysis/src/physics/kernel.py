@@ -167,8 +167,9 @@ def compute_user_model_single(params, static_data):
     # n_cores_standalone, V_SM_struct, U_LRI_struct, n_z_thermal, thermal_analytic,
     # earth_step_scheme --
     # defaults to a safe value for any caller still passing an older, shorter tuple.
-    # N_steps_earth=500 is the only value validated against resonance-crossing
-    # sensitivity, see propagate_earth_spatial's docstring in dark_portal_solver.py).
+    # N_steps_earth defaults to 100 under the certified step-count-independent 'avg'
+    # scheme; the historical 'left' scheme needed the pinned 500 -- see
+    # propagate_earth_spatial's docstring in dp_spatial.py).
     (obs_f_e, obs_f_mu, obs_err_e, obs_err_mu,
      E_bins, z_bins, rho_src, H0, Omega_m, Omega_L,
      U_pmns, M_sq, m_nu_bg_arr, n_n0, T_nu0, eta_bg,
@@ -364,7 +365,7 @@ def compute_user_model_single(params, static_data):
     sum_G, sum_G_alpha, eta_mass = compute_gamma_grid_inputs(U_pmns_complex, u_arr_base, g_D, epsilon_prime, eta_bg)
     # thermal_grid_cached: the two-component coupling cache -- profiled fits and
     # coupling scans at fixed m_Zd reuse a verified I_A + I_B/sum_G surrogate after
-    # their first ~3 evaluations (see the cache NOTE in dark_portal_solver.py);
+    # their first ~3 evaluations (see the cache NOTE in dp_thermal.py);
     # m_Zd-scan evaluations pay exactly one exact build per point, as before.
     Gamma_grid_all = thermal_grid_cached(E_bins, z_bins, sum_G, sum_G_alpha, m_Zd_eV, m_nu_bg_arr, T_nu0, eta_mass,
                                          n_z_thermal, thermal_analytic=thermal_analytic)

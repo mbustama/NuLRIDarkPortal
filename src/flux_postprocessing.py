@@ -9,8 +9,9 @@ Extracted from dark_portal_scanner.py so that (a) the scanner holds only routine
 directly related to parameter scanning, and (b) consumers that need only this
 post-processing (e.g. FrequentistAnalysis's kernel.py) no longer have to import the
 whole scanner module -- which has import-time side effects (it globally sets
-dark_portal_solver.HAS_TQDM = False, silencing the solver's progress bars for every
-other user in the same process, and it imports matplotlib).
+dp_core.HAS_TQDM = False -- the flag lives in dp_core since the 2026-07 module
+split -- silencing the solver's progress bars for every other user in the same
+process, and it imports matplotlib).
 """
 
 import numpy as np

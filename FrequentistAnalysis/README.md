@@ -270,6 +270,8 @@ To maximize flexibility and reproducibility, the scanner utilizes a strict casca
 
 ## The Config File
 
+> **`physics_constants`**: this block mirrors the solver's configuration keys (cosmology, mixing, source, grid — see the main repository README, Section 7) and feeds the 36-element `static_data` tuple consumed by the physics kernel; unknown keys trigger a loud warning. Performance/accuracy-relevant keys worth knowing: `n_E_bins`/`n_z_bins` (200×200 shipped), `n_mw_paths`/`n_earth_chords` (50/50 shipped), `N_steps_MW`/`N_steps_earth`, `thermal_analytic` (semi-analytic thermal kernel, default true), `earth_step_scheme` (`"avg"` default — phase-exact, step-count-certified Earth transit; `"left"` = historical), and `n_z_thermal` (coarse-z thermal interpolation, default off). Defaults for anything omitted come from the solver's `DEFAULT_CONFIG`.
+
 ### Contents
 Here is the baseline structure of the JSON payload (`myconfig.json`). Every feature can be toggled here.
 ```json
