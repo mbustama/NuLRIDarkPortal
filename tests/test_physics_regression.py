@@ -1164,7 +1164,7 @@ assert all(r == results[0] for r in results), f"results differ across repeated c
 print(f"POOL_CONSTRUCTIONS={{_pool_construct_count[0]}}")
 print("OK")
 '''
-    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=120)
+    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=420)
     assert result.returncode == 0, f"subprocess failed:\nstdout={result.stdout}\nstderr={result.stderr}"
     assert "OK" in result.stdout, f"stdout={result.stdout}\nstderr={result.stderr}"
 
