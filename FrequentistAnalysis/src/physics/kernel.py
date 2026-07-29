@@ -29,7 +29,8 @@ if dark_portal_dir not in sys.path:
 # canonical implementations (also used by dark_portal_solver.py itself); importing them
 # rather than keeping a local copy avoids the two drifting out of sync.
 from dark_portal_solver import (propagate_spectrum, construct_PMNS, get_mass_eigenvalues,
-                                compute_gamma_grid_inputs, build_thermal_grid,
+                                compute_gamma_grid_inputs, build_thermal_grid,  # noqa: F401
+                                thermal_grid_cached,
                                 cm_inv3_to_eV3, DEFAULT_CONFIG as _DC)
 # Imported from flux_postprocessing (not dark_portal_scanner, its previous home):
 # importing the scanner has side effects -- it globally sets
@@ -357,8 +358,12 @@ def compute_user_model_single(params, static_data):
     # letting each flavor call redo this from scratch) matters a lot more here in aggregate
     # than it does for a single dark_portal_solver.py run.
     sum_G, sum_G_alpha, eta_mass = compute_gamma_grid_inputs(U_pmns_complex, u_arr_base, g_D, epsilon_prime, eta_bg)
-    Gamma_grid_all = build_thermal_grid(E_bins, z_bins, sum_G, sum_G_alpha, m_Zd_eV, m_nu_bg_arr, T_nu0, eta_mass,
-                                        n_z_thermal, thermal_analytic=thermal_analytic)
+    # thermal_grid_cached: the two-component coupling cache -- profiled fits and
+    # coupling scans at fixed m_Zd reuse a verified I_A + I_B/sum_G surrogate after
+    # their first ~3 evaluations (see the cache NOTE in dark_portal_solver.py);
+    # m_Zd-scan evaluations pay exactly one exact build per point, as before.
+    Gamma_grid_all = thermal_grid_cached(E_bins, z_bins, sum_G, sum_G_alpha, m_Zd_eV, m_nu_bg_arr, T_nu0, eta_mass,
+                                         n_z_thermal, thermal_analytic=thermal_analytic)
 
     def run_propagation(is_anti_flag):
         local_U_pmns = np.ascontiguousarray(np.conjugate(U_pmns_complex)) if is_anti_flag else np.ascontiguousarray(U_pmns_complex)

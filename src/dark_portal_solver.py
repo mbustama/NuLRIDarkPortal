@@ -1134,6 +1134,122 @@ def build_thermal_grid(E_bins: np.ndarray, z_bins: np.ndarray, sum_G: float,
     Gamma_sub = _rates_grid(z_sub)
     return _interp_thermal_grid_z(np.ascontiguousarray(Gamma_sub), N_z)
 
+# =============================================================================
+# TWO-COMPONENT THERMAL-GRID CACHE (coupling-sliced reuse)
+# =============================================================================
+# The momentum integral depends on the couplings ONLY through MG = m_Zd^2 sum_G/(12 pi),
+# and its structure is two-component to high accuracy over moderate coupling ranges:
+# off-resonance cells scale linearly with sum_G (whence Gamma/sum_G_alpha is constant),
+# while resonance-window cells carry a narrow-width plateau ~ 1/MG (whence
+# Gamma/sum_G_alpha ~ 1/sum_G). Writing U(s) = Gamma[k,i,:]/sum_G_alpha (the
+# "unit-weight" grid, identical for all three flavors) the model
+#     U(s) ~ I_A + I_B / s
+# was MEASURED to hold to ~7e-8 over 2-decade brackets of s = sum_G at in-band
+# mediator masses (degrading to ~1e-6..8e-4 over 6 decades, and failing over wider
+# spans -- higher-order MG-dependence). The cache below exploits it LAZILY and with a
+# built-in verification gate:
+#   * every exact build stores its unit-weight grid keyed by everything else the grid
+#     depends on (m_Zd, masses, T, eta_mass, grid geometry);
+#   * once two stored points bracket a requested s with a 0.3-2.5 decade log-spread,
+#     the two-point fit is verified against the EXACT grid just built at the interior
+#     point; only if the significant-cell relative error is <= _TC_GATE does the
+#     surrogate activate, valid strictly inside the verified bracket (no
+#     extrapolation ever);
+#   * out-of-bracket or unverified requests pay the normal exact build (which slides
+#     the bracket for later requests); repeated gate failures disable the key.
+# Coupling scans and profiled fits at fixed m_Zd hit the surrogate for all but their
+# first ~3 evaluations; m_Zd scans never pay any overhead (one exact build per point,
+# same as before, since each point is a fresh key). The reference paths
+# (thermal_analytic=False, n_z_thermal >= 2) bypass the cache entirely.
+
+_TC_MAX_KEYS = 4
+_TC_MAX_POINTS = 6
+_TC_GATE = 3e-7          # same accuracy class as the semi-analytic kernel itself
+_TC_MIN_SPREAD_DEX = 0.3
+_TC_MAX_SPREAD_DEX = 2.5
+_TC_MAX_FAILURES = 3
+_tc_cache = {}
+
+
+def _tc_try_fit(state, s_new):
+    """Attempts to activate the two-component surrogate using the freshly built exact
+    point at s_new as the interior verification point of the closest stored bracket."""
+    pts = state["points"]
+    lower = [s for s, _ in pts if s < s_new]
+    upper = [s for s, _ in pts if s > s_new]
+    if not lower or not upper:
+        return
+    s1 = max(lower)
+    s2 = min(upper)
+    spread = np.log10(s2 / s1)
+    if not (_TC_MIN_SPREAD_DEX <= spread <= _TC_MAX_SPREAD_DEX):
+        return
+    U1 = dict(pts)[s1]
+    U2 = dict(pts)[s2]
+    U_new = dict(pts)[s_new]
+    I_B = (U1 - U2) / (1.0 / s1 - 1.0 / s2)
+    I_A = U1 - I_B / s1
+    sur = I_A + I_B / s_new
+    u_max = U_new.max()
+    if u_max <= 0.0:
+        rel = 0.0
+    else:
+        sig = U_new > 1e-3 * u_max
+        rel = float(np.max(np.abs(sur[sig] - U_new[sig]) / U_new[sig]))
+    if rel <= _TC_GATE:
+        state["fit"] = {"I_A": I_A, "I_B": I_B, "s_lo": s1, "s_hi": s2}
+    else:
+        state["failures"] += 1
+        if state["failures"] >= _TC_MAX_FAILURES:
+            state["disabled"] = True
+
+
+def thermal_grid_cached(E_bins: np.ndarray, z_bins: np.ndarray, sum_G: float,
+                        sum_G_alpha: np.ndarray, m_Zd: float, m_nu_bg_arr: np.ndarray,
+                        T_nu0: float, eta_mass: np.ndarray, n_z_thermal: int = 0,
+                        thermal_analytic: bool = True) -> np.ndarray:
+    """build_thermal_grid with the two-component coupling cache in front (see the
+    NOTE above). Exact-path results differ from build_thermal_grid only by the
+    factoring of the sum_G_alpha weights out of the state sum (ulp level)."""
+    if (not thermal_analytic) or int(n_z_thermal) >= 2 or sum_G <= 0.0:
+        return build_thermal_grid(E_bins, z_bins, sum_G, sum_G_alpha, m_Zd,
+                                  m_nu_bg_arr, T_nu0, eta_mass,
+                                  n_z_thermal=n_z_thermal, thermal_analytic=thermal_analytic)
+
+    weights = np.asarray(sum_G_alpha, dtype=np.float64)
+    key = (float(m_Zd), tuple(float(v) for v in m_nu_bg_arr), float(T_nu0),
+           tuple(float(v) for v in eta_mass), len(E_bins), float(E_bins[0]),
+           float(E_bins[-1]), len(z_bins), float(z_bins[0]), float(z_bins[-1]))
+    state = _tc_cache.get(key)
+    if state is None:
+        if len(_tc_cache) >= _TC_MAX_KEYS:
+            _tc_cache.clear()
+        state = {"points": [], "fit": None, "failures": 0, "disabled": False}
+        _tc_cache[key] = state
+
+    s = float(sum_G)
+    fit = state["fit"]
+    if fit is not None and fit["s_lo"] <= s <= fit["s_hi"]:
+        U = fit["I_A"] + fit["I_B"] / s
+        return np.ascontiguousarray(U[:, :, None] * weights[None, None, :])
+
+    # exact unit-weight build (the couplings enter the kernel only through sum_G)
+    U = build_thermal_grid(E_bins, z_bins, s, np.ones(3), m_Zd, m_nu_bg_arr, T_nu0,
+                           eta_mass, thermal_analytic=True)[:, :, 0].copy()
+
+    if not state["disabled"]:
+        pts = [(ps, pu) for (ps, pu) in state["points"] if ps != s]
+        pts.append((s, U))
+        if len(pts) > _TC_MAX_POINTS:
+            pts.sort(key=lambda t: abs(np.log10(t[0] / s)))
+            pts = pts[:_TC_MAX_POINTS]
+        pts.sort(key=lambda t: t[0])
+        state["points"] = pts
+        _tc_try_fit(state, s)
+
+    return np.ascontiguousarray(U[:, :, None] * weights[None, None, :])
+
+
 @njit(fastmath=True, cache=True, parallel=True)
 def _build_sigma_projection_table(M_rot: np.ndarray, S_eff: np.ndarray,
                                   sigma_nodes: np.ndarray) -> np.ndarray:
@@ -2154,9 +2270,9 @@ def propagation_worker(args) -> Tuple[np.ndarray, np.ndarray]:
     # interpolate (grid.n_z_thermal; OFF by default -- see its docstring for the measured
     # error budget before enabling).
     sum_G, sum_G_alpha, eta_mass = compute_gamma_grid_inputs(U_pmns_base, u_arr_base, params['g_D'], params['epsilon_prime'], eta_bg)
-    Gamma_grid_all = build_thermal_grid(E_bins, z_bins, sum_G, sum_G_alpha, params['m_Zd_eV'], params['m_nu_bg_arr'], params['T_nu0_eV'], eta_mass,
-                                        n_z_thermal=params.get('n_z_thermal', 0),
-                                        thermal_analytic=params.get('thermal_analytic', True))
+    Gamma_grid_all = thermal_grid_cached(E_bins, z_bins, sum_G, sum_G_alpha, params['m_Zd_eV'], params['m_nu_bg_arr'], params['T_nu0_eV'], eta_mass,
+                                         n_z_thermal=params.get('n_z_thermal', 0),
+                                         thermal_analytic=params.get('thermal_analytic', True))
 
     def compute_flux(is_anti: bool) -> np.ndarray:
         # Enforce C-contiguous alignment when passing matrices to Numba kernels

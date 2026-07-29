@@ -1563,6 +1563,83 @@ def test_build_thermal_grid_analytic_switch():
 
 
 # =============================================================================
+# Two-component thermal-grid cache
+# =============================================================================
+
+def _tc_setup():
+    U_pmns = dps.construct_PMNS(np.radians(33.41), np.radians(8.58), np.radians(49.1), np.radians(132.0))
+    u_arr = np.array([0.5, 0.5, 0.0], dtype=np.complex128)
+    m_nu = dps.get_mass_eigenvalues(0.01, 7.41e-5, 2.511e-3, "normal")
+    _, _, eta_mass = dps.compute_gamma_grid_inputs(U_pmns, u_arr, 1e-4, 0.1, np.ones(3))
+    E_bins = np.logspace(13, np.log10(3e16), 30)
+    z_bins = np.linspace(4.0, 0.0, 30)
+    return m_nu, eta_mass, E_bins, z_bins
+
+
+def test_thermal_grid_cached_exact_path_matches_plain_build():
+    """A cold-cache call must reproduce build_thermal_grid up to the (ulp-level)
+    factoring of the sum_G_alpha weights out of the state sum, and the reference
+    paths (thermal_analytic=False, n_z_thermal) must bypass the cache bit-exactly."""
+    m_nu, eta_mass, E_bins, z_bins = _tc_setup()
+    dps._tc_cache.clear()
+    sum_G, sum_G_alpha, _ = dps.compute_gamma_grid_inputs(
+        dps.construct_PMNS(0.5831, 0.1498, 0.857, 2.304),
+        np.array([0.5, 0.5, 0.0], dtype=np.complex128), 1e-4, 0.1, np.ones(3))
+    plain = dps.build_thermal_grid(E_bins, z_bins, sum_G, sum_G_alpha, 2e6, m_nu, 1.95e-4, eta_mass)
+    cached = dps.thermal_grid_cached(E_bins, z_bins, sum_G, sum_G_alpha, 2e6, m_nu, 1.95e-4, eta_mass)
+    np.testing.assert_allclose(cached, plain, rtol=1e-12)
+
+    ref = dps.build_thermal_grid(E_bins, z_bins, sum_G, sum_G_alpha, 2e6, m_nu, 1.95e-4,
+                                 eta_mass, thermal_analytic=False)
+    byp = dps.thermal_grid_cached(E_bins, z_bins, sum_G, sum_G_alpha, 2e6, m_nu, 1.95e-4,
+                                  eta_mass, thermal_analytic=False)
+    np.testing.assert_array_equal(byp, ref)
+
+
+def test_thermal_grid_cached_surrogate_verified_and_bracketed():
+    """After exact builds at two bracket points and one interior point (which doubles
+    as the verification sample), the surrogate must activate, agree with a fresh
+    exact build inside the bracket to the gate accuracy, and NEVER be used outside
+    the verified bracket (out-of-range requests fall back to exact builds)."""
+    m_nu, eta_mass, E_bins, z_bins = _tc_setup()
+    dps._tc_cache.clear()
+    ones = np.ones(3)
+    m_Zd = 2e6
+    # bracket 1e-6 .. 1e-5 (~1 decade), interior verification at 3e-6
+    for s in (1e-6, 1e-5, 3.16e-6):
+        dps.thermal_grid_cached(E_bins, z_bins, s, ones, m_Zd, m_nu, 1.95e-4, eta_mass)
+    state = next(iter(dps._tc_cache.values()))
+    assert state["fit"] is not None, "surrogate did not activate after bracketed builds"
+    assert state["fit"]["s_lo"] == 1e-6 and state["fit"]["s_hi"] == 1e-5
+
+    # interior request: surrogate vs an out-of-band exact build
+    s_test = 5e-6
+    sur = dps.thermal_grid_cached(E_bins, z_bins, s_test, ones, m_Zd, m_nu, 1.95e-4, eta_mass)
+    exact = dps.build_thermal_grid(E_bins, z_bins, s_test, ones, m_Zd, m_nu, 1.95e-4, eta_mass)[:, :, 0]
+    sig = exact > 1e-3 * exact.max()
+    rel = np.max(np.abs(sur[:, :, 0][sig] - exact[sig]) / exact[sig])
+    assert rel < 5e-7, f"surrogate off gate inside verified bracket: {rel:.3e}"
+
+    # out-of-range request must NOT use the fit (exact rebuild, point stored)
+    n_pts = len(state["points"])
+    dps.thermal_grid_cached(E_bins, z_bins, 1e-3, ones, m_Zd, m_nu, 1.95e-4, eta_mass)
+    assert len(state["points"]) == n_pts + 1, "out-of-bracket request did not take the exact path"
+
+
+def test_thermal_grid_cached_gate_rejects_wide_bracket():
+    """A bracket wider than the measured validity of the two-component model must be
+    refused by construction (spread cap), so the surrogate never activates from
+    points too far apart to be trustworthy."""
+    m_nu, eta_mass, E_bins, z_bins = _tc_setup()
+    dps._tc_cache.clear()
+    ones = np.ones(3)
+    for s in (1e-9, 1e-2, 1e-5):     # 7-decade bracket, interior third point
+        dps.thermal_grid_cached(E_bins, z_bins, s, ones, 2e6, m_nu, 1.95e-4, eta_mass)
+    state = next(iter(dps._tc_cache.values()))
+    assert state["fit"] is None, "surrogate activated across a bracket beyond the model's validity"
+
+
+# =============================================================================
 # GPU spatial path: v3 propagator port, mathematics validated with numpy backend
 # =============================================================================
 
