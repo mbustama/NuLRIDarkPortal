@@ -258,7 +258,7 @@ class GenericLikelihoodWrapper:
                 n_mw_paths = int(pc.get("n_mw_paths", _PC_DEFAULTS["n_mw_paths"]))
                 n_earth_chords = int(pc.get("n_earth_chords", _PC_DEFAULTS["n_earth_chords"]))
                 N_steps_MW = int(pc.get("N_steps_MW", _PC_DEFAULTS["N_steps_MW"]))
-                # N_steps_earth defaults to the solver's DEFAULT_CONFIG value (100 under
+                # N_steps_earth defaults to the solver's DEFAULT_CONFIG value (25 under
                 # the 'avg' step scheme, whose results are certified step-count-
                 # independent; the historical 'left' scheme needed the pinned 500 --
                 # see propagate_earth_spatial's docstring in dp_spatial.py).
@@ -343,7 +343,7 @@ class GenericLikelihoodWrapper:
                 np.array([0., 0.0086, 0.0501]),
                 112.0, 1.95e-4, np.ones(3, dtype=np.float64),
                 1.5, False, 2.0, 0.0, 1e-18,
-                1.0, 6, 3, 100, 100.0, 500,
+                1.0, 6, 3, 100, 100.0, 25,
                 False, 1.5e24 * cm_inv3_to_eV3, True,
                 self.n_cores_standalone,
                 None, None, 0, True, "avg"

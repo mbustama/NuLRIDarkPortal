@@ -125,7 +125,7 @@ def _build_default_config() -> Dict:
             "n_z_thermal": 0,
             "thermal_analytic": True,
             "earth_step_scheme": "avg",
-            "N_steps_earth": 100,
+            "N_steps_earth": 25,
             "r_start_kpc": 100.0
         },
         "output": {

@@ -465,6 +465,27 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
     Milky Way trajectories and Earth chords are mutually independent, so when n_cores > 1
     each set is distributed across a multiprocessing pool instead of being run sequentially.
 
+    Arguments:
+      E_bins: energy grid (eV).
+      F_mass_arrival: (N_E, 3) mass-basis fluxes arriving from the cosmological phase.
+      M_rot: (3, 3) U_pmns @ M_sq @ conj(U_pmns).T, precomputed once per run.
+      u_arr: (3,) complex sterile mixing amplitudes, pre-conjugated for antineutrinos.
+      m_Zd, g_D, eps_prime: dark mediator mass (eV) and couplings.
+      T_nu0: CnuB temperature (eV); use_debye_screening: thermal Debye mass toggle;
+      eta_bg: (3,) CnuB flavor asymmetries (all three feed the screening mass).
+      detector_depth_km: detector depth below the surface (sets chord geometry).
+      use_SM_potential / n_e_earth_eV3: standard MSW potential inside the Earth.
+      is_antineutrino: flips the potential sign (Coef) for this call.
+      n_mw_paths, n_earth_chords: solid-angle / zenith averaging counts.
+      N_steps_MW, r_start_kpc: Milky Way step count and entry radius (kpc).
+      show_progress, verbose: progress bars / logging.
+      n_cores: pool size for the (path-or-chord, E-block) task distribution.
+      N_steps_earth, earth_step_scheme: Earth-transit resolution and potential
+        discretization -- see the dedicated paragraph below.
+      external_pool, U_LRI_struct, V_SM_struct, use_gpu: see below.
+
+    Returns: (N_E, 3) flavor fluxes at the detector depth.
+
     external_pool, if given, is a caller-managed multiprocessing.Pool reused across many
     calls instead of creating a fresh one each time -- see _run_spatial_tasks's docstring.
 
@@ -482,7 +503,7 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
     left-endpoint sampling). The function-signature defaults (N_steps_earth=500,
     earth_step_scheme='left') preserve historical behavior for direct callers;
     run_solver / the analysis pipeline always pass the DEFAULT_CONFIG values
-    ('avg', 100). See _earth_chord_worker and the scheme NOTE below.
+    ('avg', 25). See _earth_chord_worker and the scheme NOTE below.
     """
     N_E = len(E_bins)
     lbl = "Anti-Nu" if is_antineutrino else "Nu"
@@ -657,8 +678,9 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
     # LRI phase equals Coef * integral(n dl) exactly for ANY step count -- measured at
     # the production validation points (below/inband/strong classes), fluxes at
     # N_steps_earth = 8 and 1000 agree to <= 4.5e-9 with energy-averaged ratios to
-    # <= 6.5e-10, which is what justifies the N_steps_earth = 100 default (a 12.5x
-    # margin over the observed knee). The historical 'left' scheme (V sampled at each
+    # <= 6.5e-10, which is what justifies the N_steps_earth = 25 default (a ~3x
+    # margin over the observed knee; revalidated 100 vs 25 at the four standard
+    # points on adoption). The historical 'left' scheme (V sampled at each
     # step's left endpoint) carries a Riemann-sum phase error of thousands of radians
     # that RE-ALIASES the Earth-transit fringes on every step-count change (500 vs 501
     # measured 1.6-17% pointwise flux / up to 1.7e-2 energy-averaged-ratio scatter);

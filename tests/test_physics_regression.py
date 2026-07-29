@@ -26,6 +26,7 @@ Run with: python3 -m pytest tests/test_physics_regression.py -v
 
 import os
 import sys
+import json
 import subprocess
 
 import numpy as np
@@ -1656,6 +1657,74 @@ def test_thermal_grid_cached_gate_rejects_wide_bracket():
     assert state["fit"] is None, "surrogate activated across a bracket beyond the model's validity"
 
 
+def test_thermal_grid_cached_exact_point_reuse():
+    """A repeat request at an already-built sum_G must be served from the stored
+    exact point (no rebuild) and must return the identical grid -- Minuit re-evaluates
+    its incumbent point several times per profiled fit, so this is a real scan path."""
+    m_nu, eta_mass, E_bins, z_bins = _tc_setup()
+    dps._tc_cache.clear()
+    weights = np.array([0.5, 1.0, 0.25])
+    first = dps.thermal_grid_cached(E_bins, z_bins, 1e-6, weights, 2e6, m_nu, 1.95e-4, eta_mass)
+    state = next(iter(dps._tc_cache.values()))
+    n_pts = len(state["points"])
+    again = dps.thermal_grid_cached(E_bins, z_bins, 1e-6, weights, 2e6, m_nu, 1.95e-4, eta_mass)
+    assert len(state["points"]) == n_pts, "exact repeat rebuilt instead of reusing the stored point"
+    np.testing.assert_array_equal(again, first)
+
+
+def test_thermal_grid_cached_narrow_bracket_activates_within_gate():
+    """Minuit-inner-fit-sized coupling moves (well below the historical 0.3-dex floor)
+    must be able to activate the surrogate, and its output inside the verified bracket
+    must agree with a fresh exact build to the gate accuracy. This is the case the
+    original floor silently excluded: during real profiled scans every evaluation paid
+    the full exact build because inner-fit steps never spanned 0.3 dex."""
+    m_nu, eta_mass, E_bins, z_bins = _tc_setup()
+    dps._tc_cache.clear()
+    ones = np.ones(3)
+    m_Zd = 2e6
+    # ~0.08-dex bracket with an interior verification point: typical inner-fit moves
+    for s in (1.0e-6, 1.2e-6, 1.1e-6):
+        dps.thermal_grid_cached(E_bins, z_bins, s, ones, m_Zd, m_nu, 1.95e-4, eta_mass)
+    state = next(iter(dps._tc_cache.values()))
+    assert state["fit"] is not None, "narrow bracket did not activate the surrogate"
+    assert state["failures"] == 0
+
+    s_test = 1.15e-6
+    sur = dps.thermal_grid_cached(E_bins, z_bins, s_test, ones, m_Zd, m_nu, 1.95e-4, eta_mass)
+    assert len(state["points"]) == 3, "in-bracket request took the exact path"
+    exact = dps.build_thermal_grid(E_bins, z_bins, s_test, ones, m_Zd, m_nu, 1.95e-4, eta_mass)[:, :, 0]
+    sig = exact > 1e-3 * exact.max()
+    rel = np.max(np.abs(sur[:, :, 0][sig] - exact[sig]) / exact[sig])
+    assert rel < 5e-7, f"narrow-bracket surrogate off gate: {rel:.3e}"
+
+
+def test_thermal_grid_cached_narrow_failures_do_not_disable():
+    """Gate failures at sub-0.3-dex spreads must NOT count toward disabling the key:
+    the failure counter exists to detect two-component model breakdown (a wide-bracket
+    phenomenon), and a numerically degenerate narrow fit must not permanently turn the
+    cache off. Exercised directly against _tc_try_fit with a synthetic non-conforming
+    point set."""
+    from dp_thermal import _tc_try_fit, _TC_MAX_FAILURES
+    shape = (4, 4)
+    U1 = np.full(shape, 1.0)
+    U2 = np.full(shape, 1.001)
+    U_bad = np.full(shape, 5.0)      # wildly off any two-component prediction
+    for _ in range(_TC_MAX_FAILURES + 1):
+        state = {"points": [(1.0e-6, U1), (1.05e-6, U_bad), (1.1e-6, U2)],
+                 "fit": None, "failures": 0, "disabled": False}
+        _tc_try_fit(state, 1.05e-6)   # ~0.02-dex bracket: narrow regime
+        assert state["fit"] is None, "non-conforming narrow fit must not activate"
+        assert state["failures"] == 0, "narrow-regime gate failure was counted"
+        assert not state["disabled"]
+
+    # The wide regime still disables after repeated model-breakdown failures.
+    state = {"points": [(1.0e-7, U1), (1.05e-6, U_bad), (1.1e-5, U2)],
+             "fit": None, "failures": 0, "disabled": False}
+    for _ in range(_TC_MAX_FAILURES):
+        _tc_try_fit(state, 1.05e-6)   # 2-dex bracket: wide regime
+    assert state["disabled"], "wide-regime model breakdown must still disable the key"
+
+
 # =============================================================================
 # Earth step-averaged potential scheme (dev-earth)
 # =============================================================================
@@ -1872,6 +1941,221 @@ def test_gpu_batched_propagator_matches_cpu_numpy_backend():
     assert worst_unit < 1e-11, f"batched propagator non-unitary: {worst_unit:.3e}"
     assert worst_abs < 1e-4, f"batched |U| structure off at large phases: {worst_abs:.3e}"
     assert worst_ray < 1e-10, f"batched projector far-ray not preserved: {worst_ray:.3e}"
+
+
+# =============================================================================
+# Scan-infrastructure regression tests (checkpointing + deterministic retry jitter)
+# =============================================================================
+
+def test_run_segments_checkpoint_resume_and_stale_discard(tmp_path):
+    """_run_segments must (a) persist each completed segment, (b) resume by executing
+    ONLY the segments missing from a matching checkpoint, (c) discard a checkpoint
+    whose header (scan identity/grid/segmentation) does not match, and (d) return
+    results identical to an uncheckpointed run in all cases."""
+    from src.engines.scanner import _run_segments
+
+    calls = []
+
+    def worker(seg):
+        calls.append(tuple(seg))
+        return [(float(v), {"p": float(v) * 2}) for v in seg]
+
+    segments = [[1.0, 2.0], [3.0], [4.0, 5.0]]
+    ckpt = str(tmp_path / "seg.jsonl")
+
+    reference = _run_segments(worker, segments, None, "test")
+
+    calls.clear()
+    full = _run_segments(worker, segments, None, "test", checkpoint_path=ckpt, grid_signature="g1")
+    assert [tuple(f) for f in full] == [tuple(r) for r in reference]
+    assert len(calls) == 3
+    assert os.path.exists(ckpt)  # the file is left for the caller to clean up
+
+    # Simulate a crash after two segments: keep header + first two records only
+    lines = open(ckpt).read().splitlines()
+    with open(ckpt, "w") as f:
+        f.write("\n".join(lines[:3]) + "\n")
+    calls.clear()
+    resumed = _run_segments(worker, segments, None, "test", checkpoint_path=ckpt, grid_signature="g1")
+    assert calls == [tuple(segments[2])], "resume re-ran already-completed segments"
+    assert [tuple(r[1].items()) for r in resumed] == [tuple(r[1].items()) for r in reference]
+    assert [r[0] for r in resumed] == [r[0] for r in reference]
+
+    # A different grid signature must invalidate the checkpoint entirely
+    calls.clear()
+    _run_segments(worker, segments, None, "test", checkpoint_path=ckpt, grid_signature="DIFFERENT")
+    assert len(calls) == 3, "stale checkpoint (different grid) was trusted"
+    os.remove(ckpt)
+
+
+def test_scanner_checkpoint_resume(tmp_path, monkeypatch):
+    """dark_portal_scanner.run_parameter_scan must persist completed points and, on
+    resume, recompute ONLY the missing ones; the final output must contain every grid
+    point exactly once, sorted, and the partial file must be removed on success. A
+    stale checkpoint (changed config) must be ignored."""
+    import dark_portal_scanner as scanner
+
+    grid = np.array([1.0, 2.0, 4.0])
+    cfg = {"execution": {"n_cores": 1}}
+    out = str(tmp_path / "scan_test.txt")
+
+    calls = []
+
+    def fake_worker(args):
+        name, val, config = args
+        calls.append(val)
+        return val, np.array([0.1 * val, 0.2 * val, 0.7 * val])
+
+    monkeypatch.setattr(scanner, "scan_worker", fake_worker)
+    monkeypatch.setattr(scanner, "HAS_TQDM", False)
+
+    scanner.run_parameter_scan("g_D", grid, cfg, out)
+    assert len(calls) == 3
+    assert not os.path.exists(out + ".partial.jsonl"), "partial file not cleaned up"
+    data = np.loadtxt(out)
+    np.testing.assert_array_equal(data[:, 0], grid)
+
+    # Pre-seed a partial with the first two points done; only the third must run
+    header = scanner._scan_checkpoint_header("g_D", cfg)
+    with open(out + ".partial.jsonl", "w") as f:
+        f.write(json.dumps(header) + "\n")
+        for v in grid[:2]:
+            f.write(json.dumps({"val_hex": float(v).hex(), "val": float(v),
+                                "ratios": [0.1 * v, 0.2 * v, 0.7 * v]}) + "\n")
+    calls.clear()
+    scanner.run_parameter_scan("g_D", grid, cfg, out)
+    assert calls == [4.0], f"resume recomputed completed points: {calls}"
+    data = np.loadtxt(out)
+    np.testing.assert_array_equal(data[:, 0], grid)
+    np.testing.assert_allclose(data[:, 1], 0.1 * grid, rtol=1e-5)
+
+    # Stale checkpoint: different config hash -> everything recomputed
+    with open(out + ".partial.jsonl", "w") as f:
+        f.write(json.dumps(scanner._scan_checkpoint_header("g_D", {"execution": {"n_cores": 2}})) + "\n")
+        f.write(json.dumps({"val_hex": float(grid[0]).hex(), "val": float(grid[0]),
+                            "ratios": [9.9, 9.9, 9.9]}) + "\n")
+    calls.clear()
+    scanner.run_parameter_scan("g_D", grid, cfg, out)
+    assert len(calls) == 3, "stale (different-config) checkpoint was trusted"
+
+
+def test_global_fit_checkpoint_identity_and_load(tmp_path):
+    """The global-fit checkpoint must load ONLY when the identity hash (floating set,
+    physics, priors, start conditions) matches AND the stored fit was valid; anything
+    else forces a fresh fit. Guards against silently reusing a minimum computed under
+    different physics."""
+    from src.main import global_fit_identity, load_global_fit_checkpoint
+
+    cfg = {"experiment": "x", "physics_constants": {"m_lightest_eV": 0.01},
+           "start_values": {"g_D": 1e-4}, "fixed_params": {}, "parameter_limits": {},
+           "step_sizes": {}}
+    ident = global_fit_identity(cfg, ["g_D"], asimov=False)
+    assert ident == global_fit_identity(dict(cfg), ["g_D"], asimov=False)
+    assert ident != global_fit_identity(cfg, ["g_D", "u_e"], asimov=False)
+    assert ident != global_fit_identity(cfg, ["g_D"], asimov=True)
+    cfg2 = {**cfg, "physics_constants": {"m_lightest_eV": 0.02}}
+    assert ident != global_fit_identity(cfg2, ["g_D"], asimov=False)
+
+    path = str(tmp_path / "global_fit.json")
+    payload = {"identity": ident, "fval": -15.0, "valid": True,
+               "values": {"g_D": 1.3e-4}, "errors": {"g_D": 5e-6}}
+    with open(path, "w") as f:
+        json.dump(payload, f)
+    loaded = load_global_fit_checkpoint(path, ident)
+    assert loaded is not None and loaded["fval"] == -15.0
+
+    assert load_global_fit_checkpoint(path, "different") is None
+    payload["valid"] = False
+    with open(path, "w") as f:
+        json.dump(payload, f)
+    assert load_global_fit_checkpoint(path, ident) is None, "invalid fit was reused"
+    with open(path, "w") as f:
+        f.write("{corrupt")
+    assert load_global_fit_checkpoint(path, ident) is None
+
+
+def test_split_segments_min_length_floor():
+    """min_segment_length must floor the warm-start segment length: at high worker
+    counts the ~3-per-core rule otherwise produces single-point segments and
+    warm-starting silently dies. Default (1) must reproduce the historical split."""
+    from src.engines.scanner import _split_segments
+
+    items = list(range(100))
+    default = _split_segments(items, 200)
+    assert len(default) == 100, "historical high-core split changed"
+    assert _split_segments(items, 200, min_len=1) == default
+
+    floored = _split_segments(items, 200, min_len=4)
+    assert len(floored) == 25
+    assert all(len(s) >= 4 for s in floored)
+    assert [x for s in floored for x in s] == items, "floored split lost or reordered points"
+
+    # floor larger than the grid: one segment, never zero
+    assert _split_segments(items, 200, min_len=1000) == [items]
+
+
+def test_minuit_maxcall_caps_stalled_fits():
+    """minuit_maxcall must bound the per-migrad evaluation count of a hard inner fit
+    (measured on a real scan: one uncapped point burned 870 evaluations against a
+    26-eval median) while still returning a finite result; 0 keeps Minuit's own
+    internal limit (historical behavior)."""
+    from src.engines.optimizers import minimize_point
+
+    calls = {"n": 0}
+
+    def rosenbrock(w, x, y, z):
+        calls["n"] += 1
+        return (100 * (y - x**2)**2 + (1 - x)**2
+                + 100 * (z - y**2)**2 + (1 - y)**2 + (w - 1.0)**2)
+
+    names = ["w", "x", "y", "z"]
+    starts = {"w": 1.0, "x": -1.5, "y": 2.5, "z": -1.5}
+    errors = {p: 0.1 for p in names}
+    limits = {p: (-5.0, 5.0) for p in names}
+
+    calls["n"] = 0
+    fval_uncapped, _ = minimize_point(1.0, "w", starts, errors, rosenbrock, limits,
+                                      names, minuit_retries=1, retry_seed=3)
+    n_uncapped = calls["n"]
+
+    calls["n"] = 0
+    fval_capped, _ = minimize_point(1.0, "w", starts, errors, rosenbrock, limits,
+                                    names, minuit_retries=1, retry_seed=3,
+                                    minuit_maxcall=20)
+    n_capped = calls["n"]
+
+    assert np.isfinite(fval_capped)
+    assert n_capped < n_uncapped, f"cap did not reduce evals ({n_capped} vs {n_uncapped})"
+    # ncall is an approximate per-iteration check, so allow generous overhead
+    assert n_capped < 60, f"capped fit still ran {n_capped} evaluations"
+
+
+def test_retry_seed_deterministic_and_default_preserved():
+    """retry_seed >= 0 must make the retry-jitter RNG stream a pure function of
+    (base seed, parameter, grid value) -- identical across calls and processes --
+    while distinct grid values still get distinct streams. retry_seed < 0 keeps the
+    historical per-call os.urandom seeding (streams differ call to call)."""
+    from src.engines.optimizers import _seed_retry_rng
+
+    _seed_retry_rng(7, "m_Zd_eV", float(1e6).hex())
+    a = np.random.random(4)
+    _seed_retry_rng(7, "m_Zd_eV", float(1e6).hex())
+    b = np.random.random(4)
+    np.testing.assert_array_equal(a, b)
+
+    _seed_retry_rng(7, "m_Zd_eV", float(2e6).hex())
+    c = np.random.random(4)
+    assert not np.array_equal(a, c), "different grid values shared a jitter stream"
+
+    _seed_retry_rng(8, "m_Zd_eV", float(1e6).hex())
+    d = np.random.random(4)
+    assert not np.array_equal(a, d), "different base seeds shared a jitter stream"
+
+    _seed_retry_rng(-1, "m_Zd_eV", float(1e6).hex())
+    e = np.random.random(4)
+    _seed_retry_rng(-1, "m_Zd_eV", float(1e6).hex())
+    f = np.random.random(4)
+    assert not np.array_equal(e, f), "default (-1) unexpectedly deterministic"
 
 
 if __name__ == "__main__":

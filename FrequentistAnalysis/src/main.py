@@ -12,11 +12,41 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import json
+import hashlib
 import argparse
 import multiprocessing
 import numpy as np
 from iminuit import Minuit
 from multiprocessing import Pool, cpu_count
+
+
+def global_fit_identity(config, param_names, asimov=False):
+    """Hash identifying everything the initial global fit's RESULT depends on: the
+    floating set, the physics, the objective's data/priors, and the optimizer's
+    starting conditions. A checkpointed fit is only reused when this matches --
+    any change to these blocks silently changes the minimum, so it must refit."""
+    ident = {"param_names": list(param_names), "asimov": bool(asimov)}
+    for key in ("experiment", "physics_constants", "start_values", "fixed_params",
+                "parameter_limits", "step_sizes", "input_configs", "fallbacks",
+                "asimov_injections", "use_quadratic_fallback"):
+        ident[key] = config.get(key)
+    return hashlib.sha256(json.dumps(ident, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def load_global_fit_checkpoint(path, identity):
+    """Returns the stored {fval, values, errors} dict for a matching, VALID
+    checkpointed global fit, else None (mismatched identity, unreadable file, or a
+    fit that was recorded as invalid all force a fresh fit)."""
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, 'r') as f:
+            data = json.load(f)
+        if data.get("identity") != identity or not data.get("valid", False):
+            return None
+        return data
+    except (json.JSONDecodeError, KeyError, ValueError, OSError):
+        return None
 
 # ==============================================================================
 # 1. HPC CONFIGURATION & DEADLOCK PREVENTION
@@ -99,6 +129,7 @@ def run_2d_analysis(args, m, param_names, limits, func, global_min_chi2, scan_se
                         except OSError: pass
                         
                 if not checkpoint_loaded:
+                    seg_ckpt_path = info_path + ".segments.jsonl"
                     x_grid, y_grid, Z_chi2, param_grid = scan_pair_parallel(
                         m, param_x, param_y, limits, func, param_names,
                         n_steps=scan_settings.get("n_steps_2d", 20), 
@@ -107,7 +138,11 @@ def run_2d_analysis(args, m, param_names, limits, func, global_min_chi2, scan_se
                         force_rigid_bounds=scan_settings.get("force_rigid_bounds", False),
                         pool=pool, num_cores=num_cores,
                         use_warm_start=scan_settings.get("use_warm_start", True),
-                        minuit_strategy=scan_settings.get("minuit_strategy", 0)
+                        minuit_strategy=scan_settings.get("minuit_strategy", 0),
+                        retry_seed=scan_settings.get("retry_seed", -1),
+                        checkpoint_path=seg_ckpt_path if use_checkpointing else None,
+                        minuit_maxcall=scan_settings.get("minuit_maxcall", 0),
+                        min_segment_length=scan_settings.get("min_segment_length", 1)
                     )
 
                     if not repair_settings.get("disable_outlier_repair", False):
@@ -116,7 +151,9 @@ def run_2d_analysis(args, m, param_names, limits, func, global_min_chi2, scan_se
                             use_simplex=repair_settings.get("use_simplex_polish", True), threshold=repair_settings.get("spike_threshold", 0.2),
                             max_passes=repair_settings.get("max_repair_passes", 10), minuit_retries=repair_settings.get("minuit_retries", 3),
                             pool=pool, num_cores=num_cores,
-                            minuit_strategy=scan_settings.get("minuit_strategy", 0)
+                            minuit_strategy=scan_settings.get("minuit_strategy", 0),
+                            retry_seed=scan_settings.get("retry_seed", -1),
+                            minuit_maxcall=scan_settings.get("minuit_maxcall", 0)
                         )
                     
                     os.makedirs(os.path.join(args.output_dir, 'info'), exist_ok=True)
@@ -132,6 +169,8 @@ def run_2d_analysis(args, m, param_names, limits, func, global_min_chi2, scan_se
                         
                     with open(info_path, 'w') as f: 
                         json.dump(json_payload, f, indent=4)
+                    try: os.remove(seg_ckpt_path)
+                    except OSError: pass
 
                 current_scan_min = np.nanmin(Z_chi2)
                 if current_scan_min < 1e5 and current_scan_min < global_min_chi2 - 1e-4:
@@ -267,16 +306,40 @@ def main():
                 if p in config.get("step_sizes", {}): m.errors[p] = config["step_sizes"][p]
                     
         for p, lim in limits.items(): m.limits[p] = lim
-        
-        try:
-            m.simplex(); m.migrad()
-            global_min_chi2 = m.fval
-            # global_min_chi2 = np.inf
-            print(f"Global Best Fit Chi2: {global_min_chi2:.4f}")
-        except Exception as e:
-            print(f"  [WARNING] Initial global minimization failed ({e}). Proceeding to grid scans; repair loops will attempt to find the true minimum organically.")
-            global_min_chi2 = np.inf
-        
+
+        # Global-fit checkpoint: on every resume this simplex+migrad previously re-ran
+        # from scratch (hundreds of pooled evaluations) BEFORE any checkpointed scan
+        # loaded. Persist the fitted state keyed to everything the result depends on
+        # (see global_fit_identity); delete info/global_fit.json to force a refit.
+        gf_path = os.path.join(config["output_dir"], 'info', 'global_fit.json')
+        gf_identity = global_fit_identity(config, param_names, asimov=args.asimov)
+        gf_loaded = None
+        if scan_settings.get("use_checkpointing", True):
+            gf_loaded = load_global_fit_checkpoint(gf_path, gf_identity)
+
+        if gf_loaded is not None:
+            for p, v in gf_loaded["values"].items():
+                m.values[p] = v
+            for p, e in gf_loaded["errors"].items():
+                if e > 0: m.errors[p] = e
+            global_min_chi2 = float(gf_loaded["fval"])
+            print(f"  -> [Checkpoint] Loaded global fit from {gf_path} (chi2 = {global_min_chi2:.4f}).")
+        else:
+            try:
+                m.simplex(); m.migrad()
+                global_min_chi2 = m.fval
+                print(f"Global Best Fit Chi2: {global_min_chi2:.4f}")
+                if scan_settings.get("use_checkpointing", True) and m.valid:
+                    os.makedirs(os.path.dirname(gf_path), exist_ok=True)
+                    with open(gf_path, 'w') as f:
+                        json.dump({"identity": gf_identity, "fval": float(m.fval),
+                                   "valid": bool(m.valid),
+                                   "values": {p: float(m.values[p]) for p in param_names},
+                                   "errors": {p: float(m.errors[p]) for p in param_names}}, f, indent=2)
+            except Exception as e:
+                print(f"  [WARNING] Initial global minimization failed ({e}). Proceeding to grid scans; repair loops will attempt to find the true minimum organically.")
+                global_min_chi2 = np.inf
+
         # =====================================================================
         # PARAMETER STATUS SUMMARY 
         # =====================================================================
@@ -326,7 +389,13 @@ def main():
         # =====================================================================
         
         if not scan_settings.get("skip_sanity_check", False):
-            perform_sanity_check(func, m)
+            if gf_loaded is not None:
+                # perform_sanity_check reads m.fval, which only exists after a fit has
+                # actually run in this process; the connectivity diagnostic already ran
+                # (and passed) in the session that wrote the checkpoint.
+                print("  -> [Checkpoint] Skipping the sanity check (global fit loaded from disk).")
+            else:
+                perform_sanity_check(func, m)
         
         use_checkpointing = scan_settings.get("use_checkpointing", True)
         repair_cfg = config.get("repair_settings", {})
@@ -365,27 +434,34 @@ def main():
                         except OSError: pass
                 
                 if not checkpoint_loaded:
+                    seg_ckpt_path = info_path + ".segments.jsonl"
                     x, y, hist = scan_parameter_parallel(m, p, m.values[p], max(m.errors[p], 0.1), func, limits, param_names, config["output_dir"],
                                                          n_steps=scan_settings.get("n_steps", 40), use_n_points_internal=scan_settings.get("use_n_points_internal", False),
                                                          n_points_internal=scan_settings.get("n_points_internal", 100), scan_range_sigma=scan_settings.get("scan_range_sigma", 4.0),
                                                          use_log_scan=use_log_scan, force_rigid_bounds=scan_settings.get("force_rigid_bounds", False), pool=pool, num_cores=num_cores,
                                                          use_warm_start=scan_settings.get("use_warm_start", True),
-                                                         minuit_strategy=scan_settings.get("minuit_strategy", 0))
+                                                         minuit_strategy=scan_settings.get("minuit_strategy", 0),
+                                                         retry_seed=scan_settings.get("retry_seed", -1),
+                                                         checkpoint_path=seg_ckpt_path if use_checkpointing else None,
+                                                         minuit_maxcall=scan_settings.get("minuit_maxcall", 0),
+                                                         min_segment_length=scan_settings.get("min_segment_length", 1))
 
                     if not repair_cfg.get("disable_outlier_repair", False):
                         _strategy = scan_settings.get("minuit_strategy", 0)
+                        _rseed = scan_settings.get("retry_seed", -1)
+                        _maxcall = scan_settings.get("minuit_maxcall", 0)
                         x, y = repair_scan_outliers(x, y, hist, p, func, limits, param_names, dict(zip(m.parameters, m.errors)),
                                                     threshold=repair_cfg.get("spike_threshold", 0.2), max_passes=repair_cfg.get("max_repair_passes", 10),
                                                     use_simplex=repair_cfg.get("use_simplex_polish", True), minuit_retries=repair_cfg.get("minuit_retries", 3), pool=pool, num_cores=num_cores,
-                                                    minuit_strategy=_strategy)
+                                                    minuit_strategy=_strategy, retry_seed=_rseed, minuit_maxcall=_maxcall)
                         x, y = repair_scan_continuity(x, y, hist, p, func, limits, param_names, dict(zip(m.parameters, m.errors)),
                                                       continuity_threshold=repair_cfg.get("continuity_threshold", 1.0), max_passes=repair_cfg.get("max_repair_passes", 10),
                                                       use_simplex=repair_cfg.get("use_simplex_polish", True), minuit_retries=repair_cfg.get("minuit_retries", 3), pool=pool, num_cores=num_cores,
-                                                      minuit_strategy=_strategy)
+                                                      minuit_strategy=_strategy, retry_seed=_rseed, minuit_maxcall=_maxcall)
                         x, y = repair_steep_gradients(x, y, hist, p, func, limits, param_names, dict(zip(m.parameters, m.errors)),
                                                       threshold=repair_cfg.get("gradient_threshold", 50.0), max_passes=repair_cfg.get("max_repair_passes", 10),
                                                       use_simplex=repair_cfg.get("use_simplex_polish", True), minuit_retries=repair_cfg.get("minuit_retries", 3), pool=pool, num_cores=num_cores,
-                                                      minuit_strategy=_strategy)
+                                                      minuit_strategy=_strategy, retry_seed=_rseed, minuit_maxcall=_maxcall)
                     
                     os.makedirs(os.path.join(config["output_dir"], 'info'), exist_ok=True)
                     
@@ -397,6 +473,8 @@ def main():
                         
                     with open(info_path, 'w') as f: 
                         json.dump(json_payload, f)
+                    try: os.remove(seg_ckpt_path)
+                    except OSError: pass
 
                 current_scan_min = np.nanmin(y)
                 if current_scan_min < 1e5 and current_scan_min < global_min_chi2 - 1e-4:

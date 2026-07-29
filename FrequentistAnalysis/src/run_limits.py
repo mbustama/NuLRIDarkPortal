@@ -130,7 +130,19 @@ def extract_column_limits(y_grid, dchi2_column, threshold):
 
 def run_pair(base_config, pair, ls, output_dir, pool, num_cores, repair_cfg):
     """Runs one (m_Zd, X) plane end to end; returns the payload dict that is also
-    written to disk."""
+    written to disk.
+
+    Arguments:
+      base_config: the loaded analysis config (fixed_params for the pair are lifted
+        in a pair-specific copy -- see build_pair_config).
+      pair: (param_x, param_y) with x = m_Zd_eV and y the coupling being limited.
+      ls: the limits_settings block (n_steps, x_range, y_ranges, thresholds).
+      output_dir: destination for the per-plane json/txt outputs and the
+        per-segment resume file.
+      pool / num_cores: the shared prewarmed worker pool and its size.
+      repair_cfg: the repair_settings block (retries, simplex, spike threshold,
+        pass budget) forwarded to the 2D outlier repair.
+    """
     param_x, param_y = pair          # x = m_Zd_eV, y = the coupling
     cfg, param_names = build_pair_config(base_config, pair)
     start_vals = safe_start_values(param_names, cfg)
@@ -170,13 +182,21 @@ def run_pair(base_config, pair, ls, output_dir, pool, num_cores, repair_cfg):
 
     n_steps = int(ls.get("n_steps", 20))
     _strategy = base_config.get("scan_settings", {}).get("minuit_strategy", 0)
+    _rseed = base_config.get("scan_settings", {}).get("retry_seed", -1)
+    _maxcall = base_config.get("scan_settings", {}).get("minuit_maxcall", 0)
+    _minseg = base_config.get("scan_settings", {}).get("min_segment_length", 1)
+    # Per-segment resume file: a crashed plane previously lost every completed point
+    # (the plane-level checkpoint in main() only kicks in once the whole plane is done).
+    seg_ckpt_path = os.path.join(output_dir, f"limits_2d_{param_y}_vs_{param_x}.segments.jsonl")
     x_grid, y_grid, Z_chi2, param_grid = scan_pair_parallel(
         m, param_x, param_y, scan_limits, func, param_names,
         n_steps=n_steps, minuit_retries=repair_cfg.get("minuit_retries", 3),
         force_rigid_bounds=True, pool=pool, num_cores=num_cores,
         use_log_x=True, use_log_y=True,
         use_warm_start=base_config.get("scan_settings", {}).get("use_warm_start", True),
-        minuit_strategy=_strategy)
+        minuit_strategy=_strategy, retry_seed=_rseed,
+        checkpoint_path=seg_ckpt_path, minuit_maxcall=_maxcall,
+        min_segment_length=_minseg)
 
     if not repair_cfg.get("disable_outlier_repair", False):
         x_grid, y_grid, Z_chi2 = repair_2d_scan_outliers(
@@ -187,7 +207,7 @@ def run_pair(base_config, pair, ls, output_dir, pool, num_cores, repair_cfg):
             max_passes=repair_cfg.get("max_repair_passes", 3),
             minuit_retries=repair_cfg.get("minuit_retries", 3),
             pool=pool, num_cores=num_cores,
-            minuit_strategy=_strategy)
+            minuit_strategy=_strategy, retry_seed=_rseed, minuit_maxcall=_maxcall)
 
     baseline = min(global_min_chi2, float(np.nanmin(Z_chi2)))
     dchi2 = np.nan_to_num(Z_chi2 - baseline, nan=1e9)
@@ -212,6 +232,10 @@ def run_pair(base_config, pair, ls, output_dir, pool, num_cores, repair_cfg):
     json_path = os.path.join(output_dir, f"limits_2d_{param_y}_vs_{param_x}.json")
     with open(json_path, "w") as f:
         json.dump(payload, f, indent=2)
+    try:
+        os.remove(seg_ckpt_path)
+    except OSError:
+        pass
 
     txt_path = os.path.join(output_dir, f"limits_{param_y}_vs_{param_x}.txt")
     with open(txt_path, "w") as f:

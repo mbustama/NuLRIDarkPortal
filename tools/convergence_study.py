@@ -102,11 +102,13 @@ QUICK_LADDERS = {
 # Baseline (held-fixed) resolution while one axis is scanned. The production baseline is
 # the solver's own default grid; the quick baseline is only for smoke-testing the tool.
 # (n_earth_chords=12 / N_steps_MW=25 track the solver defaults adopted from the
-# 2026-07-28 production study in output/convergence/.)
+# 2026-07-28 production study in output/convergence/; N_steps_earth=25 tracks the
+# 2026-07-29 default under the certified step-count-independent 'avg' scheme --
+# holding it higher only slows every rung of the other axes with no accuracy gain.)
 PRODUCTION_BASELINE = {"n_E_bins": 1000, "n_z_bins": 1000, "n_mw_paths": 6,
-                       "n_earth_chords": 12, "N_steps_MW": 25, "N_steps_earth": 500}
+                       "n_earth_chords": 12, "N_steps_MW": 25, "N_steps_earth": 25}
 QUICK_BASELINE = {"n_E_bins": 100, "n_z_bins": 100, "n_mw_paths": 6,
-                  "n_earth_chords": 3, "N_steps_MW": 25, "N_steps_earth": 100}
+                  "n_earth_chords": 3, "N_steps_MW": 25, "N_steps_earth": 25}
 
 # Default dark-portal parameter points: the cosmological absorption resonance sits at
 # E_res ~ m_Zd^2 / (2 m_nu). With m_nu ~ 0.01-0.05 eV and the default energy band
