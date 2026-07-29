@@ -581,26 +581,29 @@ def propagator_3x3(H: np.ndarray, t: float, out: np.ndarray):
     A1 = dd_ab - (a_ + b_) * dd_abc
     A0 = f_a - a_ * dd_ab + a_ * b_ * dd_abc
 
-    # Evaluate on D = H - q I without materializing it
-    for a in range(3):
-        for b in range(3):
-            # D^2 element
-            dd2 = 0.0 + 0.0j
-            for k in range(3):
-                h_ak = H[a, k]
-                h_kb = H[k, b]
-                if a == k:
-                    h_ak -= q
-                if k == b:
-                    h_kb -= q
-                dd2 += h_ak * h_kb
-            d_ab = H[a, b]
-            if a == b:
-                d_ab -= q
-            val = A2 * dd2 + A1 * d_ab
-            if a == b:
-                val += A0
-            out[a, b] = global_phase * val
+    # Evaluate on D = H - q I without materializing it: fully unrolled straight-line
+    # code, operation-for-operation identical to the original a/b/k loop nest (same
+    # products, same summation order -- bit-identical by construction), with the D
+    # entries hoisted into locals once instead of re-read per (a, b) pair.
+    e00 = H[0, 0] - q
+    e11 = H[1, 1] - q
+    e22 = H[2, 2] - q
+    e01 = H[0, 1]
+    e02 = H[0, 2]
+    e12 = H[1, 2]
+    e10 = H[1, 0]
+    e20 = H[2, 0]
+    e21 = H[2, 1]
+
+    out[0, 0] = global_phase * (A2 * (e00 * e00 + e01 * e10 + e02 * e20) + A1 * e00 + A0)
+    out[0, 1] = global_phase * (A2 * (e00 * e01 + e01 * e11 + e02 * e21) + A1 * e01)
+    out[0, 2] = global_phase * (A2 * (e00 * e02 + e01 * e12 + e02 * e22) + A1 * e02)
+    out[1, 0] = global_phase * (A2 * (e10 * e00 + e11 * e10 + e12 * e20) + A1 * e10)
+    out[1, 1] = global_phase * (A2 * (e10 * e01 + e11 * e11 + e12 * e21) + A1 * e11 + A0)
+    out[1, 2] = global_phase * (A2 * (e10 * e02 + e11 * e12 + e12 * e22) + A1 * e12)
+    out[2, 0] = global_phase * (A2 * (e20 * e00 + e21 * e10 + e22 * e20) + A1 * e20)
+    out[2, 1] = global_phase * (A2 * (e20 * e01 + e21 * e11 + e22 * e21) + A1 * e21)
+    out[2, 2] = global_phase * (A2 * (e20 * e02 + e21 * e12 + e22 * e22) + A1 * e22 + A0)
 
 @njit(fastmath=True, cache=True)
 def eigenvectors_3x3(H: np.ndarray) -> np.ndarray:
