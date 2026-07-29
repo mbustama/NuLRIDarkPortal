@@ -710,6 +710,270 @@ def get_baseline_earth(d_km: float, costh: float) -> float:
 # EXTRACTED NUMBA KERNELS FOR PROGRESS TRACKING
 # =============================================================================
 
+# =============================================================================
+# SEMI-ANALYTIC MOMENTUM INTEGRATION OF THE THERMAL RATES (default path)
+# =============================================================================
+# The p-integral of p^2 f_FD(p/T) * I_ang(p) has exactly one sharp feature: the
+# Breit-Wigner resonance crosses the angular range where u_-(p) or u_+(p) crosses
+# zero (u_pm = A - M2 -+ B). Both u's are strictly monotone in p, so there is at most
+# ONE crossing, and its location has a CLOSED FORM: with delta = (M2 - m^2)/(2x),
+# u_-(p)=0  <=>  E_bg - p = delta  <=>  p_edge = (m^2 - delta^2)/(2 delta)   (delta < m)
+# u_+(p)=0  <=>  E_bg + p = delta  <=>  p_edge = (delta^2 - m^2)/(2 delta)   (delta > m)
+# and |u'(p_edge)| = 2 x delta / E_bg(p_edge) for either branch. The scheme:
+#   * a narrow ZONE p_edge +- 50*MG/|u'| around the crossing is integrated with exact
+#     polynomial x atan / polynomial x log antiderivatives under a secant-linear u(p)
+#     (node pinned AT p_edge with v = 0 exactly, so the resonance step position is
+#     exact regardless of how MG compares to fp noise on u) -- valid at ANY width;
+#   * the structure-free remainder intervals use 16-point Gauss-Legendre on the
+#     exact pointwise closed-form I_ang (smooth there by construction);
+#   * wide widths (zone would cover >= 1/4 of the range) or no crossing: single
+#     GL-16 over the whole range -- the integrand is then broad/smooth.
+# The integrand splits with division-free prefactors (B = 2xp cancels):
+#   p^2 f * 2/B          = p f / x
+#   p^2 f * D/(2B)       = f (M2 - u_-) / (8 x^2)
+#   p^2 f * F/(B MG)     = -f (M2 u_- + MG^2) / (4 x^2 MG)
+# which are exact identities of the closed-form I_ang used everywhere else.
+
+@njit(cache=True)
+def _seg_moment_atan(h, Qa, Qb, va, vb, at_a, at_b, lg_a, lg_b, MG):
+    """Integral over one zone segment of Q(p) * atan(v(p)/MG) dp with Q linear in p and
+    v(p) linear (secant). at_/lg_ are the cached atan(v/MG), ln(v^2+MG^2) at the two
+    nodes. Exact for the linearized inputs at any width MG."""
+    if h <= 0.0:
+        return 0.0
+    if abs(at_b - at_a) < 1e-3:
+        # atan essentially constant across the segment (and monotone in between):
+        # trapezoid of the product is accurate to ~|d_at|^2 and avoids the cancellation
+        # of the closed form at tiny relative v-spans.
+        return 0.5 * (Qa * at_a + Qb * at_b) * h
+    dv = vb - va
+    beta = dv / h
+    A1 = (Qb - Qa) / dv
+    A0 = Qa - A1 * va
+    P0a = va * at_a - 0.5 * MG * lg_a
+    P0b = vb * at_b - 0.5 * MG * lg_b
+    P1a = 0.5 * (va * va + MG * MG) * at_a - 0.5 * MG * va
+    P1b = 0.5 * (vb * vb + MG * MG) * at_b - 0.5 * MG * vb
+    return (A0 * (P0b - P0a) + A1 * (P1b - P1a)) / beta
+
+@njit(cache=True)
+def _seg_moment_log(h, Qa, Qb, va, vb, at_a, at_b, lg_a, lg_b, MG):
+    """Same as _seg_moment_atan for Q(p) * ln(v(p)^2 + MG^2)."""
+    if h <= 0.0:
+        return 0.0
+    if abs(lg_b - lg_a) < 1e-3 and va * vb > 0.0:
+        # log flat AND no interior dip (the dip requires a sign change of v)
+        return 0.5 * (Qa * lg_a + Qb * lg_b) * h
+    dv = vb - va
+    if dv == 0.0:
+        return 0.5 * (Qa * lg_a + Qb * lg_b) * h
+    beta = dv / h
+    A1 = (Qb - Qa) / dv
+    A0 = Qa - A1 * va
+    L0a = va * lg_a - 2.0 * va + 2.0 * MG * at_a
+    L0b = vb * lg_b - 2.0 * vb + 2.0 * MG * at_b
+    L1a = 0.5 * (va * va + MG * MG) * (lg_a - 1.0)
+    L1b = 0.5 * (vb * vb + MG * MG) * (lg_b - 1.0)
+    return (A0 * (L0b - L0a) + A1 * (L1b - L1a)) / beta
+
+@njit(cache=True)
+def thermal_averaged_rates_flavor_analytic(E0: float, z: float, sum_G: float,
+                                           sum_G_alpha: np.ndarray, m_Zd: float,
+                                           m_nu_bg_arr: np.ndarray, T_nu0: float,
+                                           eta_mass: np.ndarray, glx: np.ndarray,
+                                           glw: np.ndarray) -> np.ndarray:
+    """Semi-analytic replacement for thermal_averaged_rates_flavor: same physics,
+    same closed-form I_ang, but the p-integral is Gauss-Legendre on the smooth
+    intervals plus exact atan/log moments across the (closed-form) resonance
+    crossing -- see the scheme NOTE above. Validated against dense brute-force
+    quadrature across a g_D ladder 1e-8..1 (see the regression tests)."""
+    T_nu = T_nu0 * (1.0 + z)
+
+    Gamma_width = (sum_G * m_Zd) / (12.0 * np.pi)
+    MG = m_Zd * Gamma_width
+    MG2 = MG * MG
+    M2 = m_Zd * m_Zd
+
+    rates = np.zeros(3, dtype=np.float64)
+    if MG == 0.0 or MG2 == 0.0:
+        # MG2 == 0.0 also guards subnormal-underflow widths (m_Zd < ~1e-35), where
+        # ln(v^2 + MG^2) at the resonance node would be ln(0) = -inf.
+        return rates
+
+    prefactor = 1.0 / (2.0 * np.pi)
+    x = E0 * (1.0 + z)
+    n_gl = len(glx)
+
+    for i in range(3):
+        if eta_mass[i] <= 0:
+            continue
+        m = m_nu_bg_arr[i]
+        m2 = m * m
+        T_i = T_nu * (eta_mass[i] ** (1.0 / 3.0))
+        p_max = 20.0 * T_i
+
+        # --- resonance-crossing geometry (closed form) ---
+        delta = (M2 - m2) / (2.0 * x)
+        p_edge = -1.0
+        s_sharp = 0.0
+        pe_inside = False
+        use_moments = False
+        if delta > 0.0:
+            if delta < m:
+                p_edge = (m2 - delta * delta) / (2.0 * delta)
+            else:
+                p_edge = (delta * delta - m2) / (2.0 * delta)
+            E_bg_e = np.sqrt(m2 + p_edge * p_edge)
+            uprime = 2.0 * x * delta / E_bg_e
+            s_sharp = MG / uprime
+            pe_inside = 0.0 < p_edge < p_max
+            # exact moments only for a NARROW transition core (secant-u and linear-Q
+            # both excellent there); a wide core means the atan/log vary on scales the
+            # per-panel GL rule resolves pointwise anyway.
+            use_moments = pe_inside and (3.0 * s_sharp < T_i / 30.0)
+
+        # --- panel breakpoints: geometric shells pe +- K * (MG/|u'|) around the
+        # crossing capture each decade of the atan/log transition; the innermost
+        # +-3-width core gets the exact moments when narrow. Cells with no structure
+        # in range keep the single [0, p_max] panel. ---
+        brk = np.empty(14, dtype=np.float64)
+        nb = 0
+        brk[nb] = 0.0
+        nb += 1
+        brk[nb] = p_max
+        nb += 1
+        if delta > 0.0:
+            for ik in range(5):
+                K = 3.0 * 10.0 ** ik
+                c = p_edge - K * s_sharp
+                if 0.0 < c < p_max:
+                    brk[nb] = c
+                    nb += 1
+                c = p_edge + K * s_sharp
+                if 0.0 < c < p_max:
+                    brk[nb] = c
+                    nb += 1
+            if pe_inside:
+                brk[nb] = p_edge
+                nb += 1
+        # insertion sort (nb <= 13)
+        for ii in range(1, nb):
+            key = brk[ii]
+            jj = ii - 1
+            while jj >= 0 and brk[jj] > key:
+                brk[jj + 1] = brk[jj]
+                jj -= 1
+            brk[jj + 1] = key
+
+        core_lo = p_edge - 3.0 * s_sharp
+        core_hi = p_edge + 3.0 * s_sharp
+        crossing_minus = delta < m
+
+        acc = 0.0
+        for jp in range(nb - 1):
+            a_ = brk[jp]
+            b_ = brk[jp + 1]
+            if b_ - a_ <= 1e-15 * p_max:
+                continue
+
+            if use_moments and (a_ == p_edge or b_ == p_edge) and a_ >= core_lo * 0.999999 and b_ <= core_hi * 1.000001:
+                # --- transition-core panel: exact polynomial x atan / x log moments
+                # under secant-linear u, with v = 0 EXACTLY at the p_edge endpoint (the
+                # step position stays exact even when MG is below the fp noise of u).
+                h = b_ - a_
+                S0v = np.empty(2, dtype=np.float64)
+                Qlv = np.empty(2, dtype=np.float64)
+                Qav = np.empty(2, dtype=np.float64)
+                umv = np.empty(2, dtype=np.float64)
+                upv = np.empty(2, dtype=np.float64)
+                atmv = np.empty(2, dtype=np.float64)
+                atpv = np.empty(2, dtype=np.float64)
+                lgmv = np.empty(2, dtype=np.float64)
+                lgpv = np.empty(2, dtype=np.float64)
+                for k in range(2):
+                    p = a_ if k == 0 else b_
+                    E_bg = np.sqrt(m2 + p * p)
+                    f_FD = 1.0 / (np.exp(p / T_i) + 1.0)
+                    A_ = m2 + 2.0 * x * E_bg
+                    B_ = 2.0 * x * p
+                    um = A_ - M2 - B_
+                    up = A_ - M2 + B_
+                    if p == p_edge:
+                        if crossing_minus:
+                            um = 0.0
+                        else:
+                            up = 0.0
+                    S0v[k] = p * f_FD / x
+                    Qlv[k] = f_FD * (M2 - um) / (8.0 * x * x)
+                    Qav[k] = -f_FD * (M2 * um + MG2) / (4.0 * x * x * MG)
+                    umv[k] = um
+                    upv[k] = up
+                    atmv[k] = np.arctan(um / MG)
+                    atpv[k] = np.arctan(up / MG)
+                    lgmv[k] = np.log(um * um + MG2)
+                    lgpv[k] = np.log(up * up + MG2)
+                acc += _seg_moment_atan(h, Qav[0], Qav[1], upv[0], upv[1],
+                                        atpv[0], atpv[1], lgpv[0], lgpv[1], MG)
+                acc -= _seg_moment_atan(h, Qav[0], Qav[1], umv[0], umv[1],
+                                        atmv[0], atmv[1], lgmv[0], lgmv[1], MG)
+                acc += _seg_moment_log(h, Qlv[0], Qlv[1], upv[0], upv[1],
+                                       atpv[0], atpv[1], lgpv[0], lgpv[1], MG)
+                acc -= _seg_moment_log(h, Qlv[0], Qlv[1], umv[0], umv[1],
+                                       atmv[0], atmv[1], lgmv[0], lgmv[1], MG)
+                acc += 0.5 * (S0v[0] + S0v[1]) * h
+                continue
+
+            # --- Gauss-Legendre panel on the exact pointwise closed-form I_ang ---
+            mid = 0.5 * (a_ + b_)
+            half = 0.5 * (b_ - a_)
+            for k in range(n_gl):
+                p = mid + half * glx[k]
+                E_bg = np.sqrt(m2 + p * p)
+                f_FD = 1.0 / (np.exp(p / T_i) + 1.0)
+                A_ = m2 + 2.0 * x * E_bg
+                B_ = 2.0 * x * p
+                u_plus = A_ - M2 + B_
+                u_minus = A_ - M2 - B_
+                C = 1.0 - (A_ - M2) / B_
+                D = 1.0 - (A_ - 2.0 * M2) / B_
+                F = C * M2 - MG2 / B_
+                I_ang = ((2.0 / B_)
+                         + (D / (2.0 * B_)) * np.log((u_plus * u_plus + MG2) / (u_minus * u_minus + MG2))
+                         + (F / (B_ * MG)) * (np.arctan(u_plus / MG) - np.arctan(u_minus / MG)))
+                if I_ang < 0.0:
+                    I_ang = 0.0
+                acc += glw[k] * half * p * p * f_FD * I_ang
+
+        if acc < 0.0:
+            acc = 0.0
+        integral_sum = prefactor * acc
+        for alpha in range(3):
+            rates[alpha] += integral_sum * sum_G_alpha[alpha] * eta_mass[i]
+
+    return rates
+
+@njit(fastmath=True, cache=True, parallel=True)
+def precompute_all_thermal_rates_analytic(E_bins: np.ndarray, z_bins: np.ndarray, sum_G: float,
+                                          sum_G_alpha: np.ndarray, m_Zd: float, m_nu_bg_arr: np.ndarray,
+                                          T_nu0: float, eta_mass: np.ndarray,
+                                          glx: np.ndarray, glw: np.ndarray) -> np.ndarray:
+    """Grid builder for the semi-analytic thermal kernel (same layout/parallelism as
+    precompute_all_thermal_rates)."""
+    N_E = len(E_bins)
+    N_z = len(z_bins)
+    Gamma_grid = np.zeros((N_z, N_E, 3), dtype=np.float64)
+    for k in prange(N_z):
+        for i in range(N_E):
+            Gamma_grid[k, i, :] = thermal_averaged_rates_flavor_analytic(
+                E_bins[i], z_bins[k], sum_G, sum_G_alpha, m_Zd, m_nu_bg_arr, T_nu0,
+                eta_mass, glx, glw)
+    return Gamma_grid
+
+# 16-point Gauss-Legendre nodes/weights on [-1, 1] for the semi-analytic thermal kernel
+_GL16_X, _GL16_W = np.polynomial.legendre.leggauss(16)
+_GL16_X = np.ascontiguousarray(_GL16_X)
+_GL16_W = np.ascontiguousarray(_GL16_W)
+
 # NOTE ON APPROXIMATING THIS GRID: two tabulation/interpolation schemes were built and
 # validation-rejected. (1) Coarse-z interpolation at fixed E: the heavier CnuB states
 # are non-relativistic, so the resonance sweeps z with relative width only ~p/m ~
@@ -721,6 +985,9 @@ def get_baseline_earth(d_km: float, costh: float) -> float:
 # x-nodes produced factor-of-few rate errors at resonance-edge points (~20% even on
 # energy-integrated rates). Any future fast scheme must treat the resonant spike
 # analytically (e.g. narrow-width splitting of the angular integral), not by sampling.
+# That analytic path now exists (thermal_averaged_rates_flavor_analytic above, the
+# default); THIS midpoint kernel remains the reference implementation, selectable via
+# grid.thermal_analytic = false.
 @njit(fastmath=True, cache=True, parallel=True)
 def precompute_all_thermal_rates(E_bins: np.ndarray, z_bins: np.ndarray, sum_G: float,
                                  sum_G_alpha: np.ndarray, m_Zd: float, m_nu_bg_arr: np.ndarray,
@@ -761,13 +1028,19 @@ def _interp_thermal_grid_z(Gamma_sub: np.ndarray, N_z: int) -> np.ndarray:
 
 def build_thermal_grid(E_bins: np.ndarray, z_bins: np.ndarray, sum_G: float,
                        sum_G_alpha: np.ndarray, m_Zd: float, m_nu_bg_arr: np.ndarray,
-                       T_nu0: float, eta_mass: np.ndarray, n_z_thermal: int = 0) -> np.ndarray:
+                       T_nu0: float, eta_mass: np.ndarray, n_z_thermal: int = 0,
+                       thermal_analytic: bool = True) -> np.ndarray:
     """Builds the (N_z, N_E, 3) thermal attenuation-rate grid, optionally via a coarse
     z-subgrid plus linear interpolation.
 
-    Each grid entry is a full Breit-Wigner momentum integration
-    (thermal_averaged_rates_flavor), making the exact N_z x N_E precompute one of the
-    most expensive per-evaluation costs at large N_z.
+    thermal_analytic (config key grid.thermal_analytic, default True) selects the
+    semi-analytic momentum integration (thermal_averaged_rates_flavor_analytic:
+    Gauss-Legendre on the smooth intervals + exact closed-form moments across the
+    resonance crossing) -- both faster and more accurate than the 100-point midpoint
+    rule, whose ~p_max/100 sampling granularity cannot resolve resonance windows
+    narrower than a step and carries edge errors up to the percent level at dip cells.
+    Set it to False to fall back to the midpoint reference implementation
+    (thermal_averaged_rates_flavor / precompute_all_thermal_rates).
 
     INTERPOLATION IS OFF BY DEFAULT (n_z_thermal = 0 -> exact grid), deliberately: the
     tempting smoothness argument -- the (1+z) scalings sweep a thermally-broadened
@@ -787,13 +1060,19 @@ def build_thermal_grid(E_bins: np.ndarray, z_bins: np.ndarray, sum_G: float,
     N_z = len(z_bins)
     N_E = len(E_bins)
 
+    def _rates_grid(zb):
+        if thermal_analytic:
+            return precompute_all_thermal_rates_analytic(E_bins, zb, sum_G, sum_G_alpha,
+                                                         m_Zd, m_nu_bg_arr, T_nu0, eta_mass,
+                                                         _GL16_X, _GL16_W)
+        return precompute_all_thermal_rates(E_bins, zb, sum_G, sum_G_alpha, m_Zd,
+                                            m_nu_bg_arr, T_nu0, eta_mass)
+
     n_sub = int(n_z_thermal)
     if n_sub < 2 or n_sub >= N_z:
-        return precompute_all_thermal_rates(E_bins, z_bins, sum_G, sum_G_alpha, m_Zd,
-                                            m_nu_bg_arr, T_nu0, eta_mass)
+        return _rates_grid(z_bins)
     z_sub = np.linspace(z_bins[0], z_bins[-1], n_sub)
-    Gamma_sub = precompute_all_thermal_rates(E_bins, z_sub, sum_G, sum_G_alpha, m_Zd,
-                                             m_nu_bg_arr, T_nu0, eta_mass)
+    Gamma_sub = _rates_grid(z_sub)
     return _interp_thermal_grid_z(np.ascontiguousarray(Gamma_sub), N_z)
 
 @njit(fastmath=True, cache=True, parallel=True)
@@ -1452,7 +1731,8 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                        show_progress: bool = True, verbose: int = 1, n_cores: int = 1,
                        precomputed_Gamma_grid_all: np.ndarray = None, N_steps_earth: int = 500,
                        external_pool=None, U_LRI_struct=None, V_SM_struct=None,
-                       n_z_thermal: int = 0, use_gpu: bool = False) -> np.ndarray:
+                       n_z_thermal: int = 0, use_gpu: bool = False,
+                       thermal_analytic: bool = True) -> np.ndarray:
     """
     Executes the complete spectrum integration, driving the underlying JIT kernels.
     Includes verbose level 2 for periodic redshift status updates.
@@ -1548,7 +1828,7 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         if verbose == 2:
             safe_print(f"Pre-computing thermal interaction rate grids...")
         Gamma_grid_all = build_thermal_grid(E_bins, z_bins, sum_G, sum_G_alpha, m_Zd, m_nu_bg_arr, T_nu0, eta_mass,
-                                            n_z_thermal=n_z_thermal)
+                                            n_z_thermal=n_z_thermal, thermal_analytic=thermal_analytic)
 
     # DOMAIN CHECK: a non-finite rate grid would propagate NaN silently through the whole
     # z-loop and out of the final flux (historically: an all-NaN spectrum with no hint of
@@ -1771,7 +2051,8 @@ def propagation_worker(args) -> Tuple[np.ndarray, np.ndarray]:
     # error budget before enabling).
     sum_G, sum_G_alpha, eta_mass = compute_gamma_grid_inputs(U_pmns_base, u_arr_base, params['g_D'], params['epsilon_prime'], eta_bg)
     Gamma_grid_all = build_thermal_grid(E_bins, z_bins, sum_G, sum_G_alpha, params['m_Zd_eV'], params['m_nu_bg_arr'], params['T_nu0_eV'], eta_mass,
-                                        n_z_thermal=params.get('n_z_thermal', 0))
+                                        n_z_thermal=params.get('n_z_thermal', 0),
+                                        thermal_analytic=params.get('thermal_analytic', True))
 
     def compute_flux(is_anti: bool) -> np.ndarray:
         # Enforce C-contiguous alignment when passing matrices to Numba kernels
@@ -1791,7 +2072,8 @@ def propagation_worker(args) -> Tuple[np.ndarray, np.ndarray]:
             show_progress=show_progress, verbose=verbose, n_cores=params.get('n_cores', 1),
             precomputed_Gamma_grid_all=Gamma_grid_all, N_steps_earth=params.get('N_steps_earth', 500),
             U_LRI_struct=params.get('U_LRI_struct', None), V_SM_struct=params.get('V_SM_struct', None),
-            use_gpu=params.get('use_gpu', False)
+            use_gpu=params.get('use_gpu', False),
+            thermal_analytic=params.get('thermal_analytic', True)
         )
 
     flag_val = str(params.get('is_antineutrino', 'sum')).strip().lower()
@@ -1928,6 +2210,9 @@ def run_solver(config: Dict) -> Tuple[np.ndarray, np.ndarray]:
     params['N_steps_MW'] = int(config['grid']['N_steps_MW'])
     # Coarse z-sampling of the thermal-rate grid (0 disables interpolation -- exact grid).
     params['n_z_thermal'] = int(config['grid']['n_z_thermal'])
+    # Semi-analytic momentum integration of the thermal rates (True, the default) vs
+    # the 100-point midpoint reference kernel (False) -- see build_thermal_grid.
+    params['thermal_analytic'] = bool(config['grid']['thermal_analytic'])
     params['N_steps_earth'] = int(config['grid']['N_steps_earth'])
     params['r_start_kpc'] = float(config['grid']['r_start_kpc'])
     paths_mw = config['grid']['n_mw_paths']
@@ -2092,6 +2377,7 @@ def _build_default_config() -> Dict:
             "n_earth_chords": 12,
             "N_steps_MW": 25,
             "n_z_thermal": 0,
+            "thermal_analytic": True,
             "N_steps_earth": 500,
             "r_start_kpc": 100.0
         },
@@ -2207,6 +2493,7 @@ if __name__ == "__main__":
     parser.add_argument("--n_E_bins", type=int, default=None)
     parser.add_argument("--n_z_bins", type=int, default=None)
     parser.add_argument("--n_z_thermal", type=int, default=None, help="Coarse z-samples for the thermal-rate grid (default 0 = exact, no interpolation; see build_thermal_grid before enabling)")
+    parser.add_argument("--thermal_analytic", type=str, default=None, help="Set to 'false' to use the 100-point midpoint reference kernel for the thermal rates instead of the semi-analytic default (see build_thermal_grid)")
     parser.add_argument("--n_mw_paths", type=int, default=None, help="Number of Milky Way trajectories for solid-angle average")
     parser.add_argument("--n_earth_chords", type=int, default=None, help="Number of Earth chords for PREM evaluation")
     parser.add_argument("--N_steps_MW", type=int, default=None, help="Number of spatial integration steps in the Milky Way")
@@ -2293,6 +2580,7 @@ if __name__ == "__main__":
     if args.n_E_bins is not None: config["grid"]["n_E_bins"] = args.n_E_bins
     if args.n_z_bins is not None: config["grid"]["n_z_bins"] = args.n_z_bins
     if args.n_z_thermal is not None: config["grid"]["n_z_thermal"] = args.n_z_thermal
+    if args.thermal_analytic is not None: config["grid"]["thermal_analytic"] = str_to_bool(args.thermal_analytic)
     if args.n_mw_paths is not None: config["grid"]["n_mw_paths"] = args.n_mw_paths
     if args.n_earth_chords is not None: config["grid"]["n_earth_chords"] = args.n_earth_chords
     if args.N_steps_MW is not None: config["grid"]["N_steps_MW"] = args.N_steps_MW

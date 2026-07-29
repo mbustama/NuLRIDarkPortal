@@ -150,7 +150,7 @@ def prewarm_worker():
             1.5, False, 2.5, 0.0, 1.0, 1.0,
             1, 1, 2, 100.0, 2,          # n_mw_paths, n_earth_chords, N_steps_MW, r_start_kpc, N_steps_earth
             False, 0.0, True, 1,        # use_SM_potential, n_e_earth, use_debye_screening, n_cores_standalone
-            None, None, 0)              # V_SM_struct, U_LRI_struct, n_z_thermal
+            None, None, 0, True)        # V_SM_struct, U_LRI_struct, n_z_thermal, thermal_analytic
         compute_user_model_single({"m_Zd_eV": 2.0e6, "g_D": 1e-4, "epsilon_prime": 0.1}, static)
     except Exception:
         pass
@@ -161,12 +161,12 @@ def compute_user_model_single(params, static_data):
     Standard Python wrapper. Evaluates the dark portal propagation by calling 
     external solvers and returns the predicted flavor fractions at Earth.
     """
-    # Unpack the immutable data tuple (currently 34 elements; every element beyond the
+    # Unpack the immutable data tuple (currently 35 elements; every element beyond the
     # original 26 -- N_steps_earth, use_SM_potential, n_e_earth, use_debye_screening,
-    # n_cores_standalone, V_SM_struct, U_LRI_struct, n_z_thermal -- defaults to a safe
-    # value for any caller still passing an older, shorter tuple. N_steps_earth=500 is
-    # the only value validated against resonance-crossing sensitivity, see
-    # propagate_earth_spatial's docstring in dark_portal_solver.py).
+    # n_cores_standalone, V_SM_struct, U_LRI_struct, n_z_thermal, thermal_analytic --
+    # defaults to a safe value for any caller still passing an older, shorter tuple.
+    # N_steps_earth=500 is the only value validated against resonance-crossing
+    # sensitivity, see propagate_earth_spatial's docstring in dark_portal_solver.py).
     (obs_f_e, obs_f_mu, obs_err_e, obs_err_mu,
      E_bins, z_bins, rho_src, H0, Omega_m, Omega_L,
      U_pmns, M_sq, m_nu_bg_arr, n_n0, T_nu0, eta_bg,
@@ -190,6 +190,9 @@ def compute_user_model_single(params, static_data):
     U_LRI_struct = static_data[32] if len(static_data) > 32 else None
     # Coarse z-sampling of the thermal-rate grid (0 = exact); see build_thermal_grid.
     n_z_thermal = int(static_data[33]) if len(static_data) > 33 else _DC['grid']['n_z_thermal']
+    # Semi-analytic momentum integration of the thermal rates (default True); False
+    # selects the 100-point midpoint reference kernel -- see build_thermal_grid.
+    thermal_analytic = bool(static_data[34]) if len(static_data) > 34 else _DC['grid']['thermal_analytic']
 
     # 1. Unpack scanning parameters from the generic Minuit engine wrapper.
     #    Handles backwards compatibility if passed as a positional array.
@@ -355,7 +358,7 @@ def compute_user_model_single(params, static_data):
     # than it does for a single dark_portal_solver.py run.
     sum_G, sum_G_alpha, eta_mass = compute_gamma_grid_inputs(U_pmns_complex, u_arr_base, g_D, epsilon_prime, eta_bg)
     Gamma_grid_all = build_thermal_grid(E_bins, z_bins, sum_G, sum_G_alpha, m_Zd_eV, m_nu_bg_arr, T_nu0, eta_mass,
-                                        n_z_thermal)
+                                        n_z_thermal, thermal_analytic=thermal_analytic)
 
     def run_propagation(is_anti_flag):
         local_U_pmns = np.ascontiguousarray(np.conjugate(U_pmns_complex)) if is_anti_flag else np.ascontiguousarray(U_pmns_complex)

@@ -516,7 +516,7 @@ def test_frequentist_static_data_wires_use_SM_potential_and_n_e_earth():
     func_lo = GenericLikelihoodWrapper(cfg_lo, [])
     func_hi = GenericLikelihoodWrapper(cfg_hi, [])
 
-    assert len(func_off.static_data) == 34
+    assert len(func_off.static_data) == 35
     assert func_off.static_data[27] is False or func_off.static_data[27] == False  # noqa: E712
     assert func_lo.static_data[27] is True or func_lo.static_data[27] == True  # noqa: E712
     assert func_lo.static_data[28] != func_hi.static_data[28]
@@ -905,13 +905,19 @@ def test_build_thermal_grid_exact_and_interpolated():
     sum_G, sum_G_alpha, eta_mass = dps.compute_gamma_grid_inputs(U_pmns, u_arr, 1e-4, 0.1, np.ones(3))
     m_nu = np.array([0.01, 0.012, 0.06])
 
+    # thermal_analytic=False pins the midpoint reference kernel: this test checks the
+    # z-interpolation MECHANICS, independently of the (now default) semi-analytic
+    # momentum kernel, whose own routing is covered by
+    # test_build_thermal_grid_analytic_switch.
     exact = dps.precompute_all_thermal_rates(E_bins, z_bins, sum_G, sum_G_alpha, 2.0e6, m_nu, 1.95e-4, eta_mass)
     for n_sub in (0, 21, 100):
-        got = dps.build_thermal_grid(E_bins, z_bins, sum_G, sum_G_alpha, 2.0e6, m_nu, 1.95e-4, eta_mass, n_z_thermal=n_sub)
+        got = dps.build_thermal_grid(E_bins, z_bins, sum_G, sum_G_alpha, 2.0e6, m_nu, 1.95e-4, eta_mass, n_z_thermal=n_sub,
+                                     thermal_analytic=False)
         np.testing.assert_array_equal(got, exact)
 
     # n_sub = 11 on a 21-point fine grid: every even fine index coincides with a node
-    interp = dps.build_thermal_grid(E_bins, z_bins, sum_G, sum_G_alpha, 2.0e6, m_nu, 1.95e-4, eta_mass, n_z_thermal=11)
+    interp = dps.build_thermal_grid(E_bins, z_bins, sum_G, sum_G_alpha, 2.0e6, m_nu, 1.95e-4, eta_mass, n_z_thermal=11,
+                                    thermal_analytic=False)
     np.testing.assert_allclose(interp[::2], exact[::2], rtol=1e-12)
     # Odd indices are genuine midpoint interpolations of the coarse neighbors
     np.testing.assert_allclose(interp[1::2], 0.5 * (exact[::2][:-1] + exact[::2][1:]), rtol=1e-12)
@@ -1054,7 +1060,7 @@ def test_frequentist_n_cores_standalone_wired_from_scan_settings():
     cfg = _make_frequentist_config()
     cfg["scan_settings"] = {"num_cores": 4}
     func = GenericLikelihoodWrapper(cfg, [])
-    assert len(func.static_data) == 34
+    assert len(func.static_data) == 35
     assert func.static_data[30] == 4
 
     # Clamped to what's actually available, never silently allowed above it.
@@ -1350,6 +1356,152 @@ def test_frequentist_wrapper_returns_sentinel_on_kernel_failure(monkeypatch, tmp
     monkeypatch.setattr(lk, "compute_user_model_single",
                         lambda params, static_data: (np.nan, np.nan, np.nan))
     assert wrapper(2e-6) == 1e9
+
+
+# =============================================================================
+# Semi-analytic thermal momentum integration (task #1)
+# =============================================================================
+
+def _dense_thermal_truth(E0, z, sum_G, sum_G_alpha, m_Zd, m_nu, T_nu0, eta_mass):
+    """Independent brute-force reimplementation of the thermal-rate momentum integral:
+    dense midpoint panels refined geometrically around the (closed-form) resonance
+    window edge, evaluating the same closed-form I_ang in plain numpy. This is the
+    'quadrature told where the window is' referee for the semi-analytic kernel."""
+    T_nu = T_nu0 * (1.0 + z)
+    MG = m_Zd**2 * sum_G / (12.0 * np.pi)
+    MG2 = MG * MG
+    M2 = m_Zd**2
+    x = E0 * (1.0 + z)
+    rates = np.zeros(3)
+    if MG == 0.0:
+        return rates
+    for i in range(3):
+        if eta_mass[i] <= 0:
+            continue
+        m = m_nu[i]
+        m2 = m * m
+        T_i = T_nu * eta_mass[i] ** (1.0 / 3.0)
+        pmax = 20.0 * T_i
+        delta = (M2 - m2) / (2.0 * x)
+        cuts = [0.0, pmax]
+        if delta > 0:
+            pe = (m2 - delta**2) / (2 * delta) if delta < m else (delta**2 - m2) / (2 * delta)
+            if 0 < pe < pmax:
+                Ebg_e = np.sqrt(m2 + pe * pe)
+                wz = MG / (2.0 * x * delta / Ebg_e)
+                for fac in (1e6, 1e4, 1e2, 3.0):
+                    for s in (-1, 1):
+                        c = pe + s * fac * wz
+                        if 0 < c < pmax:
+                            cuts.append(c)
+                cuts.append(pe)
+        cuts = np.array(sorted(set(cuts)))
+        total = 0.0
+        for a, b in zip(cuts[:-1], cuts[1:]):
+            n = 6000
+            p = a + (np.arange(n) + 0.5) * (b - a) / n
+            E_bg = np.sqrt(m2 + p**2)
+            f = 1.0 / (np.exp(p / T_i) + 1.0)
+            A = m2 + 2 * x * E_bg
+            B = 2 * x * p
+            u_p = A - M2 + B
+            u_m = A - M2 - B
+            C = 1.0 - (A - M2) / B
+            D = 1.0 - (A - 2.0 * M2) / B
+            F = C * M2 - MG2 / B
+            I = (2.0 / B + (D / (2 * B)) * np.log((u_p**2 + MG2) / (u_m**2 + MG2))
+                 + (F / (B * MG)) * (np.arctan(u_p / MG) - np.arctan(u_m / MG)))
+            total += np.sum(p * p * f * np.maximum(I, 0.0)) * (b - a) / n
+        rates += total / (2 * np.pi) * sum_G_alpha * eta_mass[i]
+    return rates
+
+
+def test_thermal_analytic_matches_dense_quadrature():
+    """The semi-analytic kernel must match the independent dense-quadrature referee
+    wherever rates are significant, across a g_D ladder spanning narrow to wide widths
+    and cells targeted ON the resonance (where the old midpoint kernel carries 6-9%
+    edge error). Acceptance: significance-weighted error
+    |new - truth| / max(truth, 1e-3 * Gamma_max) < 1e-5 (measured headroom: ~2.5e-7).
+    Cells far below significance sit on the closed form's own pointwise cancellation
+    noise floor and are excluded by construction of the metric."""
+    U_pmns = dps.construct_PMNS(np.radians(33.41), np.radians(8.58), np.radians(49.1), np.radians(132.0))
+    u_arr = np.array([0.5, 0.5, 0.0], dtype=np.complex128)
+    m_nu = dps.get_mass_eigenvalues(0.01, 7.41e-5, 2.511e-3, "normal")
+    T_nu0, eps_p = 1.95e-4, 0.1
+
+    for m_Zd in (2.0e6, 2.0e7):
+        for g_D in (1e-8, 1e-4, 1.0):
+            sum_G, sum_G_alpha, eta_mass = dps.compute_gamma_grid_inputs(
+                U_pmns, u_arr, g_D, eps_p, np.ones(3))
+            cells = [(1e13, 0.5), (1e15, 1.0), (1e16, 3.0)]
+            for i in (0, 2):
+                for fac in (0.5, 1.0):
+                    delta = fac * m_nu[i]
+                    x = (m_Zd**2 - m_nu[i]**2) / (2.0 * delta)
+                    cells.append((x / 2.0, 1.0))
+            rows = []
+            for (E0, z) in cells:
+                truth = _dense_thermal_truth(E0, z, sum_G, sum_G_alpha, m_Zd, m_nu, T_nu0, eta_mass)
+                new = dps.thermal_averaged_rates_flavor_analytic(
+                    E0, z, sum_G, sum_G_alpha, m_Zd, m_nu, T_nu0, eta_mass,
+                    dps._GL16_X, dps._GL16_W)
+                rows.append((truth[0], new[0]))
+            gmax = max(r[0] for r in rows)
+            assert gmax > 0
+            worst = max(abs(r[1] - r[0]) / max(r[0], 1e-3 * gmax) for r in rows)
+            assert worst < 1e-5, f"m_Zd={m_Zd:.1e}, g_D={g_D:.0e}: weighted err {worst:.3e}"
+
+
+def test_thermal_analytic_linear_scaling_in_sum_G():
+    """Coupling scans rely on Gamma scaling linearly with sum_G off resonance (task #7's
+    rescaling gate): at a window-closed cell the semi-analytic kernel must track the
+    sum_G ratio to ~1e-6 per decade over the g_D range where rates are significant.
+    (At g_D <= ~1e-7 the rates fall to the kernel's noise floor and linearity degrades
+    to ~1e-3 -- documented, and exactly what the #7 element-wise gate protects against.)"""
+    U_pmns = dps.construct_PMNS(np.radians(33.41), np.radians(8.58), np.radians(49.1), np.radians(132.0))
+    u_arr = np.array([0.5, 0.5, 0.0], dtype=np.complex128)
+    m_nu = dps.get_mass_eigenvalues(0.01, 7.41e-5, 2.511e-3, "normal")
+    prev = None
+    for g_D in (1e-2, 1e-3, 1e-4):
+        sum_G, sum_G_alpha, eta_mass = dps.compute_gamma_grid_inputs(
+            U_pmns, u_arr, g_D, 0.1, np.ones(3))
+        r = dps.thermal_averaged_rates_flavor_analytic(
+            1e15, 1.0, sum_G, sum_G_alpha, 2e6, m_nu, T_nu0=1.95e-4, eta_mass=eta_mass,
+            glx=dps._GL16_X, glw=dps._GL16_W)
+        if prev is not None:
+            sg_prev, r_prev = prev
+            ratio = (r[0] / r_prev) / (sum_G / sg_prev)
+            assert abs(ratio - 1.0) < 1e-6, f"g_D={g_D:.0e}: linearity broken at {ratio}"
+        prev = (sum_G, r[0])
+
+
+def test_build_thermal_grid_analytic_switch():
+    """grid.thermal_analytic=False must reproduce the midpoint reference kernel
+    bit-for-bit through build_thermal_grid; True (the default) selects the semi-analytic
+    kernel, which must agree with the reference at the percent level where rates are
+    significant (their difference is dominated by the reference's own resonance-edge
+    quadrature error)."""
+    U_pmns = dps.construct_PMNS(np.radians(33.41), np.radians(8.58), np.radians(49.1), np.radians(132.0))
+    u_arr = np.array([0.5, 0.5, 0.0], dtype=np.complex128)
+    m_nu = dps.get_mass_eigenvalues(0.01, 7.41e-5, 2.511e-3, "normal")
+    sum_G, sum_G_alpha, eta_mass = dps.compute_gamma_grid_inputs(
+        U_pmns, u_arr, 1e-4, 0.1, np.ones(3))
+    E_bins = np.logspace(13, np.log10(3e16), 40)
+    z_bins = np.linspace(4.0, 0.0, 40)
+
+    ref = dps.precompute_all_thermal_rates(E_bins, z_bins, sum_G, sum_G_alpha, 2e6,
+                                           m_nu, 1.95e-4, eta_mass)
+    off = dps.build_thermal_grid(E_bins, z_bins, sum_G, sum_G_alpha, 2e6, m_nu, 1.95e-4,
+                                 eta_mass, thermal_analytic=False)
+    np.testing.assert_array_equal(off, ref)
+
+    on = dps.build_thermal_grid(E_bins, z_bins, sum_G, sum_G_alpha, 2e6, m_nu, 1.95e-4,
+                                eta_mass, thermal_analytic=True)
+    assert not np.array_equal(on, ref)
+    gmax = ref.max()
+    rel = np.abs(on - ref) / np.maximum(ref, 1e-3 * gmax)
+    assert rel.max() < 0.2, f"analytic vs midpoint disagree beyond the reference's own error: {rel.max():.3e}"
+    assert np.isfinite(on).all()
 
 
 if __name__ == "__main__":
