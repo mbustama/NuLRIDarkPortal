@@ -130,7 +130,14 @@ A fourth branch, the **phase-noise guard**, covers extreme mediator masses: at $
 ```text
 .
 ├── src/
-│   ├── dark_portal_solver.py      # Core physics: cosmological + spatial propagation, CLI
+│   ├── dark_portal_solver.py      # PUBLIC FACADE: re-exports everything + orchestration
+│   │                              #   (propagate_spectrum, run_solver, CLI, I/O, plotting)
+│   ├── dp_core.py                 # Env guards (BLAS pins, TBB), constants, shared utilities
+│   ├── dp_propagator.py           # v3 deflation-based divided-difference 3x3 propagator
+│   ├── dp_thermal.py              # Thermal rates: semi-analytic kernel + coupling cache
+│   ├── dp_cosmo.py                # Cosmological phase: z-stepper, sigma table, cascade
+│   ├── dp_spatial.py              # MW/Earth transit, step schemes, workers, persistent pool
+│   ├── dp_config.py               # DEFAULT_CONFIG, unknown-key-rejecting merge, parsing
 │   ├── dark_portal_scanner.py     # Multiprocessing 1D parameter scanner + 2x2 grid figure
 │   └── flux_postprocessing.py     # Energy-averaged flavor ratios (shared by scanner & fits)
 ├── FrequentistAnalysis/

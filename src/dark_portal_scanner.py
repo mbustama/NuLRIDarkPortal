@@ -34,7 +34,10 @@ except ImportError:
 # Import the core physics solver from the adjacent module
 try:
     import dark_portal_solver as dps
-    dps.HAS_TQDM = False  # Suppresses all internal progress bars from the solver
+    import dp_core
+    dp_core.HAS_TQDM = False  # Suppresses all internal progress bars from the solver
+    # (the flag lives in dp_core since the 2026-07 module split; writing
+    # dps.HAS_TQDM would only shadow the facade's read-through)
 except ImportError:
     raise ImportError("Could not find 'dark_portal_solver.py'. Ensure this script is in the same directory.")
 

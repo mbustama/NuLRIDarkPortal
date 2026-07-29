@@ -68,7 +68,8 @@ from flux_postprocessing import compute_energy_averaged_ratios
 
 # This tool runs the solver dozens of times back to back; per-run progress bars would
 # drown the study's own log (and tqdm writes to stderr, escaping stdout suppression).
-dps.HAS_TQDM = False
+import dp_core
+dp_core.HAS_TQDM = False  # flag lives in dp_core since the module split
 
 _CONFIG_TEMPLATE = None
 

@@ -355,14 +355,18 @@ def test_earth_transit_step_count_is_uniform_across_chords():
     each chord and fails if they are ever allowed to differ by chord again without a
     resonance-aware justification.
     """
+    # NOTE: since the 2026-07 module split, propagate_earth_spatial resolves
+    # _earth_chord_worker from dp_spatial's namespace -- patching the facade's
+    # re-export would silently spy on nothing.
+    import dp_spatial
     recorded_n_steps = []
-    orig_worker = dps._earth_chord_worker
+    orig_worker = dp_spatial._earth_chord_worker
 
     def spying_worker(args):
         recorded_n_steps.append(args[2])  # (costh, baseline_km, N_steps_earth, ...)
         return orig_worker(args)
 
-    dps._earth_chord_worker = spying_worker
+    dp_spatial._earth_chord_worker = spying_worker
     try:
         E_bins = np.logspace(13, 16, 20)
         F_mass_arrival = np.full((20, 3), 1e20)
@@ -377,7 +381,7 @@ def test_earth_transit_step_count_is_uniform_across_chords():
                                     N_steps_MW=2, r_start_kpc=100.0,
                                     show_progress=False, verbose=0, n_cores=1)
     finally:
-        dps._earth_chord_worker = orig_worker
+        dp_spatial._earth_chord_worker = orig_worker
 
     assert len(set(recorded_n_steps)) == 1, f"Earth chords received different step counts: {recorded_n_steps}"
 
