@@ -26,6 +26,7 @@ Run with: python3 -m pytest tests/test_physics_regression.py -v
 
 import os
 import sys
+import json
 import subprocess
 
 import numpy as np
@@ -1872,6 +1873,130 @@ def test_gpu_batched_propagator_matches_cpu_numpy_backend():
     assert worst_unit < 1e-11, f"batched propagator non-unitary: {worst_unit:.3e}"
     assert worst_abs < 1e-4, f"batched |U| structure off at large phases: {worst_abs:.3e}"
     assert worst_ray < 1e-10, f"batched projector far-ray not preserved: {worst_ray:.3e}"
+
+
+# =============================================================================
+# Scan-infrastructure regression tests (checkpointing + deterministic retry jitter)
+# =============================================================================
+
+def test_run_segments_checkpoint_resume_and_stale_discard(tmp_path):
+    """_run_segments must (a) persist each completed segment, (b) resume by executing
+    ONLY the segments missing from a matching checkpoint, (c) discard a checkpoint
+    whose header (scan identity/grid/segmentation) does not match, and (d) return
+    results identical to an uncheckpointed run in all cases."""
+    from src.engines.scanner import _run_segments
+
+    calls = []
+
+    def worker(seg):
+        calls.append(tuple(seg))
+        return [(float(v), {"p": float(v) * 2}) for v in seg]
+
+    segments = [[1.0, 2.0], [3.0], [4.0, 5.0]]
+    ckpt = str(tmp_path / "seg.jsonl")
+
+    reference = _run_segments(worker, segments, None, "test")
+
+    calls.clear()
+    full = _run_segments(worker, segments, None, "test", checkpoint_path=ckpt, grid_signature="g1")
+    assert [tuple(f) for f in full] == [tuple(r) for r in reference]
+    assert len(calls) == 3
+    assert os.path.exists(ckpt)  # the file is left for the caller to clean up
+
+    # Simulate a crash after two segments: keep header + first two records only
+    lines = open(ckpt).read().splitlines()
+    with open(ckpt, "w") as f:
+        f.write("\n".join(lines[:3]) + "\n")
+    calls.clear()
+    resumed = _run_segments(worker, segments, None, "test", checkpoint_path=ckpt, grid_signature="g1")
+    assert calls == [tuple(segments[2])], "resume re-ran already-completed segments"
+    assert [tuple(r[1].items()) for r in resumed] == [tuple(r[1].items()) for r in reference]
+    assert [r[0] for r in resumed] == [r[0] for r in reference]
+
+    # A different grid signature must invalidate the checkpoint entirely
+    calls.clear()
+    _run_segments(worker, segments, None, "test", checkpoint_path=ckpt, grid_signature="DIFFERENT")
+    assert len(calls) == 3, "stale checkpoint (different grid) was trusted"
+    os.remove(ckpt)
+
+
+def test_scanner_checkpoint_resume(tmp_path, monkeypatch):
+    """dark_portal_scanner.run_parameter_scan must persist completed points and, on
+    resume, recompute ONLY the missing ones; the final output must contain every grid
+    point exactly once, sorted, and the partial file must be removed on success. A
+    stale checkpoint (changed config) must be ignored."""
+    import dark_portal_scanner as scanner
+
+    grid = np.array([1.0, 2.0, 4.0])
+    cfg = {"execution": {"n_cores": 1}}
+    out = str(tmp_path / "scan_test.txt")
+
+    calls = []
+
+    def fake_worker(args):
+        name, val, config = args
+        calls.append(val)
+        return val, np.array([0.1 * val, 0.2 * val, 0.7 * val])
+
+    monkeypatch.setattr(scanner, "scan_worker", fake_worker)
+    monkeypatch.setattr(scanner, "HAS_TQDM", False)
+
+    scanner.run_parameter_scan("g_D", grid, cfg, out)
+    assert len(calls) == 3
+    assert not os.path.exists(out + ".partial.jsonl"), "partial file not cleaned up"
+    data = np.loadtxt(out)
+    np.testing.assert_array_equal(data[:, 0], grid)
+
+    # Pre-seed a partial with the first two points done; only the third must run
+    header = scanner._scan_checkpoint_header("g_D", cfg)
+    with open(out + ".partial.jsonl", "w") as f:
+        f.write(json.dumps(header) + "\n")
+        for v in grid[:2]:
+            f.write(json.dumps({"val_hex": float(v).hex(), "val": float(v),
+                                "ratios": [0.1 * v, 0.2 * v, 0.7 * v]}) + "\n")
+    calls.clear()
+    scanner.run_parameter_scan("g_D", grid, cfg, out)
+    assert calls == [4.0], f"resume recomputed completed points: {calls}"
+    data = np.loadtxt(out)
+    np.testing.assert_array_equal(data[:, 0], grid)
+    np.testing.assert_allclose(data[:, 1], 0.1 * grid, rtol=1e-5)
+
+    # Stale checkpoint: different config hash -> everything recomputed
+    with open(out + ".partial.jsonl", "w") as f:
+        f.write(json.dumps(scanner._scan_checkpoint_header("g_D", {"execution": {"n_cores": 2}})) + "\n")
+        f.write(json.dumps({"val_hex": float(grid[0]).hex(), "val": float(grid[0]),
+                            "ratios": [9.9, 9.9, 9.9]}) + "\n")
+    calls.clear()
+    scanner.run_parameter_scan("g_D", grid, cfg, out)
+    assert len(calls) == 3, "stale (different-config) checkpoint was trusted"
+
+
+def test_retry_seed_deterministic_and_default_preserved():
+    """retry_seed >= 0 must make the retry-jitter RNG stream a pure function of
+    (base seed, parameter, grid value) -- identical across calls and processes --
+    while distinct grid values still get distinct streams. retry_seed < 0 keeps the
+    historical per-call os.urandom seeding (streams differ call to call)."""
+    from src.engines.optimizers import _seed_retry_rng
+
+    _seed_retry_rng(7, "m_Zd_eV", float(1e6).hex())
+    a = np.random.random(4)
+    _seed_retry_rng(7, "m_Zd_eV", float(1e6).hex())
+    b = np.random.random(4)
+    np.testing.assert_array_equal(a, b)
+
+    _seed_retry_rng(7, "m_Zd_eV", float(2e6).hex())
+    c = np.random.random(4)
+    assert not np.array_equal(a, c), "different grid values shared a jitter stream"
+
+    _seed_retry_rng(8, "m_Zd_eV", float(1e6).hex())
+    d = np.random.random(4)
+    assert not np.array_equal(a, d), "different base seeds shared a jitter stream"
+
+    _seed_retry_rng(-1, "m_Zd_eV", float(1e6).hex())
+    e = np.random.random(4)
+    _seed_retry_rng(-1, "m_Zd_eV", float(1e6).hex())
+    f = np.random.random(4)
+    assert not np.array_equal(e, f), "default (-1) unexpectedly deterministic"
 
 
 if __name__ == "__main__":

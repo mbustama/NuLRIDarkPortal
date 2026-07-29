@@ -99,6 +99,7 @@ def run_2d_analysis(args, m, param_names, limits, func, global_min_chi2, scan_se
                         except OSError: pass
                         
                 if not checkpoint_loaded:
+                    seg_ckpt_path = info_path + ".segments.jsonl"
                     x_grid, y_grid, Z_chi2, param_grid = scan_pair_parallel(
                         m, param_x, param_y, limits, func, param_names,
                         n_steps=scan_settings.get("n_steps_2d", 20), 
@@ -107,7 +108,9 @@ def run_2d_analysis(args, m, param_names, limits, func, global_min_chi2, scan_se
                         force_rigid_bounds=scan_settings.get("force_rigid_bounds", False),
                         pool=pool, num_cores=num_cores,
                         use_warm_start=scan_settings.get("use_warm_start", True),
-                        minuit_strategy=scan_settings.get("minuit_strategy", 0)
+                        minuit_strategy=scan_settings.get("minuit_strategy", 0),
+                        retry_seed=scan_settings.get("retry_seed", -1),
+                        checkpoint_path=seg_ckpt_path if use_checkpointing else None
                     )
 
                     if not repair_settings.get("disable_outlier_repair", False):
@@ -116,7 +119,8 @@ def run_2d_analysis(args, m, param_names, limits, func, global_min_chi2, scan_se
                             use_simplex=repair_settings.get("use_simplex_polish", True), threshold=repair_settings.get("spike_threshold", 0.2),
                             max_passes=repair_settings.get("max_repair_passes", 10), minuit_retries=repair_settings.get("minuit_retries", 3),
                             pool=pool, num_cores=num_cores,
-                            minuit_strategy=scan_settings.get("minuit_strategy", 0)
+                            minuit_strategy=scan_settings.get("minuit_strategy", 0),
+                            retry_seed=scan_settings.get("retry_seed", -1)
                         )
                     
                     os.makedirs(os.path.join(args.output_dir, 'info'), exist_ok=True)
@@ -132,6 +136,8 @@ def run_2d_analysis(args, m, param_names, limits, func, global_min_chi2, scan_se
                         
                     with open(info_path, 'w') as f: 
                         json.dump(json_payload, f, indent=4)
+                    try: os.remove(seg_ckpt_path)
+                    except OSError: pass
 
                 current_scan_min = np.nanmin(Z_chi2)
                 if current_scan_min < 1e5 and current_scan_min < global_min_chi2 - 1e-4:
@@ -365,27 +371,31 @@ def main():
                         except OSError: pass
                 
                 if not checkpoint_loaded:
+                    seg_ckpt_path = info_path + ".segments.jsonl"
                     x, y, hist = scan_parameter_parallel(m, p, m.values[p], max(m.errors[p], 0.1), func, limits, param_names, config["output_dir"],
                                                          n_steps=scan_settings.get("n_steps", 40), use_n_points_internal=scan_settings.get("use_n_points_internal", False),
                                                          n_points_internal=scan_settings.get("n_points_internal", 100), scan_range_sigma=scan_settings.get("scan_range_sigma", 4.0),
                                                          use_log_scan=use_log_scan, force_rigid_bounds=scan_settings.get("force_rigid_bounds", False), pool=pool, num_cores=num_cores,
                                                          use_warm_start=scan_settings.get("use_warm_start", True),
-                                                         minuit_strategy=scan_settings.get("minuit_strategy", 0))
+                                                         minuit_strategy=scan_settings.get("minuit_strategy", 0),
+                                                         retry_seed=scan_settings.get("retry_seed", -1),
+                                                         checkpoint_path=seg_ckpt_path if use_checkpointing else None)
 
                     if not repair_cfg.get("disable_outlier_repair", False):
                         _strategy = scan_settings.get("minuit_strategy", 0)
+                        _rseed = scan_settings.get("retry_seed", -1)
                         x, y = repair_scan_outliers(x, y, hist, p, func, limits, param_names, dict(zip(m.parameters, m.errors)),
                                                     threshold=repair_cfg.get("spike_threshold", 0.2), max_passes=repair_cfg.get("max_repair_passes", 10),
                                                     use_simplex=repair_cfg.get("use_simplex_polish", True), minuit_retries=repair_cfg.get("minuit_retries", 3), pool=pool, num_cores=num_cores,
-                                                    minuit_strategy=_strategy)
+                                                    minuit_strategy=_strategy, retry_seed=_rseed)
                         x, y = repair_scan_continuity(x, y, hist, p, func, limits, param_names, dict(zip(m.parameters, m.errors)),
                                                       continuity_threshold=repair_cfg.get("continuity_threshold", 1.0), max_passes=repair_cfg.get("max_repair_passes", 10),
                                                       use_simplex=repair_cfg.get("use_simplex_polish", True), minuit_retries=repair_cfg.get("minuit_retries", 3), pool=pool, num_cores=num_cores,
-                                                      minuit_strategy=_strategy)
+                                                      minuit_strategy=_strategy, retry_seed=_rseed)
                         x, y = repair_steep_gradients(x, y, hist, p, func, limits, param_names, dict(zip(m.parameters, m.errors)),
                                                       threshold=repair_cfg.get("gradient_threshold", 50.0), max_passes=repair_cfg.get("max_repair_passes", 10),
                                                       use_simplex=repair_cfg.get("use_simplex_polish", True), minuit_retries=repair_cfg.get("minuit_retries", 3), pool=pool, num_cores=num_cores,
-                                                      minuit_strategy=_strategy)
+                                                      minuit_strategy=_strategy, retry_seed=_rseed)
                     
                     os.makedirs(os.path.join(config["output_dir"], 'info'), exist_ok=True)
                     
@@ -397,6 +407,8 @@ def main():
                         
                     with open(info_path, 'w') as f: 
                         json.dump(json_payload, f)
+                    try: os.remove(seg_ckpt_path)
+                    except OSError: pass
 
                 current_scan_min = np.nanmin(y)
                 if current_scan_min < 1e5 and current_scan_min < global_min_chi2 - 1e-4:

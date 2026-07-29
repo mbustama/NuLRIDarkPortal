@@ -15,6 +15,9 @@ the remainder of one segment, which the existing repair passes then catch. Warm
 starting is controlled by scan_settings.use_warm_start (default true).
 """
 
+import os
+import json
+import hashlib
 import numpy as np
 from scipy.interpolate import PchipInterpolator
 from src.engines.optimizers import minimize_point, minimize_point_2d
@@ -24,13 +27,13 @@ def _segment_scan_worker_1d(task_args):
     """Minimizes a contiguous segment of 1D grid points in one worker, optionally
     warm-starting each point from the previous point's profiled solution."""
     (vals, param_name, global_start_values, global_errors, func, limits, param_names,
-     use_simplex, minuit_retries, warm_start, minuit_strategy) = task_args
+     use_simplex, minuit_retries, warm_start, minuit_strategy, retry_seed) = task_args
     out = []
     start = dict(global_start_values)
     for v in vals:
         fval, params = minimize_point(v, param_name, start, global_errors, func, limits,
                                       param_names, use_simplex, minuit_retries,
-                                      minuit_strategy)
+                                      minuit_strategy, retry_seed)
         out.append((fval, params))
         if warm_start and params and np.isfinite(fval):
             start = {**global_start_values, **params}
@@ -43,13 +46,13 @@ def _segment_scan_worker_2d(task_args):
     """Minimizes a contiguous (same-row) segment of 2D grid points in one worker,
     optionally warm-starting each point from the previous point's profiled solution."""
     (pairs, name_pair, global_start_values, global_errors, func, limits, param_names,
-     use_simplex, minuit_retries, warm_start, minuit_strategy) = task_args
+     use_simplex, minuit_retries, warm_start, minuit_strategy, retry_seed) = task_args
     out = []
     start = dict(global_start_values)
     for pair in pairs:
         fval, params = minimize_point_2d(pair, name_pair, start, global_errors, func,
                                          limits, param_names, use_simplex, minuit_retries,
-                                         minuit_strategy)
+                                         minuit_strategy, retry_seed)
         out.append((fval, params))
         if warm_start and params and np.isfinite(fval):
             start = {**global_start_values, **params}
@@ -68,25 +71,84 @@ def _split_segments(items, num_cores):
     return [items[edges[s]:edges[s + 1]] for s in range(n_segments) if edges[s + 1] > edges[s]]
 
 
-def _run_segments(worker_fn, segments, pool, desc):
-    if pool is None or len(segments) == 1:
-        nested = [worker_fn(seg_task) for seg_task in segments]
-    else:
-        try:
-            from tqdm import tqdm
-            nested = list(tqdm(pool.imap(worker_fn, segments), total=len(segments), desc=desc))
-        except ImportError:
-            nested = pool.map(worker_fn, segments)
-    return [r for seg in nested for r in seg]
+def _segment_checkpoint_header(desc, grid_signature, n_segments):
+    """Identity of a segmented scan for checkpoint validity: the scan description, a
+    hash of the exact grid values, and the segmentation itself (which depends on
+    num_cores) -- any mismatch discards the file rather than trusting stale points."""
+    return {"desc": desc, "n_segments": n_segments,
+            "grid_sha256": hashlib.sha256(grid_signature.encode()).hexdigest()}
+
+
+def _run_segments(worker_fn, segments, pool, desc, checkpoint_path=None, grid_signature=None):
+    """Runs the segment tasks, optionally persisting each completed segment to
+    checkpoint_path (JSONL: header line + one {"seg": i, "results": ...} line per
+    finished segment) so a killed scan resumes from completed segments instead of
+    losing the whole grid. The caller deletes the file after consuming the results."""
+    done = {}
+    header = None
+    if checkpoint_path is not None:
+        header = _segment_checkpoint_header(desc, grid_signature or "", len(segments))
+        if os.path.exists(checkpoint_path):
+            try:
+                with open(checkpoint_path, 'r') as f:
+                    first = f.readline()
+                    if first and json.loads(first) == header:
+                        for line in f:
+                            rec = json.loads(line)
+                            done[int(rec["seg"])] = [(float(fv), pr) for fv, pr in rec["results"]]
+                    # else: different scan/grid/segmentation -- ignore stale file
+            except (json.JSONDecodeError, KeyError, ValueError):
+                pass  # keep whatever parsed cleanly; a truncated tail is recomputed
+        if done:
+            print(f"  [Checkpoint] {len(done)}/{len(segments)} segment(s) loaded from {checkpoint_path}")
+
+    todo = [i for i in range(len(segments)) if i not in done]
+    ckpt = None
+    if checkpoint_path is not None:
+        os.makedirs(os.path.dirname(os.path.abspath(checkpoint_path)), exist_ok=True)
+        ckpt = open(checkpoint_path, 'a' if done else 'w')
+        if not done:
+            ckpt.write(json.dumps(header) + "\n")
+            ckpt.flush()
+
+    def _record(i, seg_results):
+        done[i] = seg_results
+        if ckpt is not None:
+            ckpt.write(json.dumps({"seg": i, "results": seg_results}, default=float) + "\n")
+            ckpt.flush()
+
+    try:
+        if pool is None or len(segments) == 1:
+            for i in todo:
+                _record(i, worker_fn(segments[i]))
+        else:
+            it = pool.imap(worker_fn, [segments[i] for i in todo])
+            try:
+                from tqdm import tqdm
+                it = tqdm(it, total=len(todo), desc=desc)
+            except ImportError:
+                pass
+            for i, seg_results in zip(todo, it):
+                _record(i, seg_results)
+    finally:
+        if ckpt is not None:
+            ckpt.close()
+
+    return [r for i in range(len(segments)) for r in done[i]]
 
 
 def scan_parameter_parallel(m_global, param_name, start_val, sigma_guess, func, limits, param_names, output_dir,
                             n_steps=40, use_n_points_internal=False, n_points_internal=100, scan_range_sigma=4.0,
                             minuit_retries=3, use_log_scan=False, force_rigid_bounds=False, pool=None, num_cores=1,
-                            use_warm_start=True, minuit_strategy=0):
+                            use_warm_start=True, minuit_strategy=0, retry_seed=-1,
+                            checkpoint_path=None):
     """
     Constructs distributed HPC tasks dynamically iterating bounds constraints and returns
     synthesized 1D profiling vectors. Features intelligent mesh refinements.
+
+    checkpoint_path, if given, persists each completed warm-start segment as it
+    finishes (see _run_segments), so a killed scan resumes mid-grid; the caller
+    removes the file once the scan's final output is safely written.
     """
     if force_rigid_bounds and param_name in limits and limits[param_name][0] is not None and limits[param_name][1] is not None:
         scan_min, scan_max = limits[param_name][0], limits[param_name][1]
@@ -116,10 +178,13 @@ def scan_parameter_parallel(m_global, param_name, start_val, sigma_guess, func, 
     else:
         segments = _split_segments(list(exec_grid), num_cores)
     seg_tasks = [(seg, param_name, global_start_values, global_errors, func, limits,
-                  param_names, False, minuit_retries, use_warm_start, minuit_strategy)
+                  param_names, False, minuit_retries, use_warm_start, minuit_strategy,
+                  retry_seed)
                  for seg in segments]
     results = _run_segments(_segment_scan_worker_1d, seg_tasks,
-                            None if pool is None else pool, "  Progress")
+                            None if pool is None else pool, "  Progress",
+                            checkpoint_path=checkpoint_path,
+                            grid_signature=param_name + "|" + "|".join(float(v).hex() for v in exec_grid))
 
     chi2_arr_exec = np.array([r[0] for r in results])
     param_hists_exec = [r[1] for r in results]
@@ -138,13 +203,18 @@ def scan_parameter_parallel(m_global, param_name, start_val, sigma_guess, func, 
 
 def scan_pair_parallel(m_global, param_x, param_y, limits, func, param_names, n_steps=20,
                        scan_range_sigma=3.5, minuit_retries=3, force_rigid_bounds=False, pool=None, num_cores=1,
-                       use_log_x=False, use_log_y=False, use_warm_start=True, minuit_strategy=0):
+                       use_log_x=False, use_log_y=False, use_warm_start=True, minuit_strategy=0,
+                       retry_seed=-1, checkpoint_path=None):
     """Iterates a distributed two-dimensional mesh matrix computing profile isolines contour projections.
 
     use_log_x / use_log_y switch the corresponding grid to geometric (logarithmic)
     spacing -- the 2D analogue of scan_parameter_parallel's use_log_scan, needed for
     parameters spanning decades (m_Zd_eV, couplings, sterile mixings). Warm-start
-    segments never cross a row boundary (both members of a chain share the same y)."""
+    segments never cross a row boundary (both members of a chain share the same y).
+
+    checkpoint_path: per-segment resume file (see _run_segments); segments never cross
+    a row, so this checkpoints at finer-than-row granularity. Previously a crashed 2D
+    plane lost every completed point."""
     sigma_x = m_global.errors[param_x] if m_global.errors[param_x] > 0 else 0.1
     sigma_y = m_global.errors[param_y] if m_global.errors[param_y] > 0 else 0.1
     val_x, val_y = m_global.values[param_x], m_global.values[param_y]
@@ -199,11 +269,16 @@ def scan_pair_parallel(m_global, param_x, param_y, limits, func, param_names, n_
 
     n_tasks = n_steps * n_steps
     seg_tasks = [(seg, (param_x, param_y), global_vals, global_errs, func, limits,
-                  param_names, True, minuit_retries, use_warm_start, minuit_strategy)
+                  param_names, True, minuit_retries, use_warm_start, minuit_strategy,
+                  retry_seed)
                  for seg in segments]
     results = _run_segments(_segment_scan_worker_2d, seg_tasks,
                             None if (pool is None or n_tasks < 5) else pool,
-                            f"  2D Grid ({n_steps}x{n_steps})")
+                            f"  2D Grid ({n_steps}x{n_steps})",
+                            checkpoint_path=checkpoint_path,
+                            grid_signature=f"{param_x}|{param_y}|"
+                                           + "|".join(float(v).hex() for v in x_grid)
+                                           + "#" + "|".join(float(v).hex() for v in y_grid))
 
     chi2_list, params_list = [r[0] for r in results], [r[1] for r in results]
     Z = np.array(chi2_list).reshape((n_steps, n_steps))

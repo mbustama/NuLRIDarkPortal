@@ -6,8 +6,24 @@ sanity bounds checks, and the Emcee stochastic basin hopper.
 """
 
 import os
+import hashlib
 import numpy as np
 from iminuit import Minuit
+
+
+def _seed_retry_rng(retry_seed, param_key, val_key):
+    """Seeds numpy's global RNG for a minimize_point call's retry jitter.
+
+    retry_seed < 0 (the default) keeps the historical behavior: a fresh os.urandom seed
+    per call, so stalled-fit retry jitter differs run to run (irreproducible fits).
+    retry_seed >= 0 derives a deterministic per-call seed from (retry_seed, parameter,
+    grid value), so re-running an identical scan reproduces every retry path bit-for-bit
+    while distinct grid points still jitter independently."""
+    if retry_seed is None or int(retry_seed) < 0:
+        np.random.seed(int.from_bytes(os.urandom(4), byteorder='little'))
+        return
+    digest = hashlib.sha256(f"{int(retry_seed)}|{param_key}|{val_key}".encode()).digest()
+    np.random.seed(int.from_bytes(digest[:4], byteorder='little'))
 
 def estimate_param_names(config):
     """Filters floating variables from user-assigned fixed parameters."""
@@ -136,7 +152,7 @@ def perform_sanity_check(func, m):
         for fp in failed_params: print(f"  - {fp}")
     else: print("All parameters are connected. Proceeding to Scan.\n")
 
-def minimize_point(val, param_name, global_start_values, global_errors, func, limits, param_names, use_simplex=False, minuit_retries=3, minuit_strategy=0):
+def minimize_point(val, param_name, global_start_values, global_errors, func, limits, param_names, use_simplex=False, minuit_retries=3, minuit_strategy=0, retry_seed=-1):
     """
     Executes an isolated 1D profile sequence locking the specific parameter array slice,
     permitting gradients to optimize secondary components dynamically.
@@ -146,8 +162,11 @@ def minimize_point(val, param_name, global_start_values, global_errors, func, li
     Strategy >= 1 spends extra likelihood evaluations refining the error matrix --
     information nobody consumes mid-scan, at ~6 s per evaluation for the production
     physics kernel; the repair passes already catch any resulting quality regressions.
+
+    retry_seed (scan_settings.retry_seed, default -1): stalled-fit retry jitter seeding
+    -- see _seed_retry_rng.
     """
-    np.random.seed(int.from_bytes(os.urandom(4), byteorder='little'))
+    _seed_retry_rng(retry_seed, param_name, float(val).hex())
     final_best_fval = np.inf
     final_best_params = {}
 
@@ -190,11 +209,13 @@ def minimize_point(val, param_name, global_start_values, global_errors, func, li
     except Exception: pass
     return (final_best_fval, final_best_params) if final_best_fval < np.inf else (np.inf, {})
 
-def minimize_point_2d(val_pair, name_pair, global_start_values, global_errors, func, limits, param_names, use_simplex=False, minuit_retries=3, minuit_strategy=0):
+def minimize_point_2d(val_pair, name_pair, global_start_values, global_errors, func, limits, param_names, use_simplex=False, minuit_retries=3, minuit_strategy=0, retry_seed=-1):
     """Executes isolated parameter minimization pinning exactly two structural array dimensions.
 
-    minuit_strategy: see minimize_point -- same inner-profiled-fit knob (default 0)."""
-    np.random.seed(int.from_bytes(os.urandom(4), byteorder='little'))
+    minuit_strategy: see minimize_point -- same inner-profiled-fit knob (default 0).
+    retry_seed: see minimize_point -- same deterministic retry-jitter knob (default -1)."""
+    _seed_retry_rng(retry_seed, f"{name_pair[0]}|{name_pair[1]}",
+                    f"{float(val_pair[0]).hex()}|{float(val_pair[1]).hex()}")
     val_x, val_y = val_pair
     name_x, name_y = name_pair
 

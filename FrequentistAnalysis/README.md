@@ -284,7 +284,7 @@ Here is the baseline structure of the JSON payload (`myconfig.json`). Every feat
     "scan_settings": {
         "_comment_num_cores": "Explicit override for multiprocessing CPU cores.",
         "num_cores": 64,
-        "_comment_use_checkpointing": "If true, skips parameters with existing json files in the info directory.",
+        "_comment_use_checkpointing": "If true, skips parameters with existing json files in the info directory. Also enables PER-SEGMENT resume files (<info json>.segments.jsonl): every completed warm-start segment is persisted as it finishes, so a killed scan resumes mid-grid instead of losing every point of the in-progress parameter/plane. Segment files are keyed to the exact grid and segmentation (a changed config or core count invalidates them) and are removed automatically once the final json is written.",
         "use_checkpointing": true,
         "_comment_skip_sanity_check": "If true, bypasses the initial 10% parameter perturbation test.",
         "skip_sanity_check": false,
@@ -316,6 +316,8 @@ Here is the baseline structure of the JSON payload (`myconfig.json`). Every feat
         "use_explicit_step_sizes": true,
         "_comment_minuit_strategy": "Minuit strategy for the INNER profiled fits of 1D/2D scans, repairs and limits (default 0: skip the mid-scan error-matrix refinements nobody consumes; the repair passes catch quality regressions). The initial global fit always keeps iminuit's default strategy 1.",
         "minuit_strategy": 0,
+        "_comment_retry_seed": "Stalled-fit retry jitter seeding for the inner profiled fits. -1 (default) keeps the historical behavior: a fresh os.urandom seed per fit, so retry paths differ run to run. >= 0 derives a deterministic per-(parameter, grid value) seed from this base value, making an identical re-run reproduce every retry path exactly while distinct grid points still jitter independently.",
+        "retry_seed": -1,
         "_comment_use_linear_interp": "If true, uses linear interpolation for 1D prior files instead of PCHIP cubic splines.",
         "use_linear_interp": false,
         "_comment_log_scan_parameters": "List of variables that should use geometric (logarithmic) spacing during 1D scans to resolve bounds near 0.",

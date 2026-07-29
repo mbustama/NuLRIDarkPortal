@@ -18,7 +18,7 @@ def _global_repair_wrapper(task_args):
 
 def repair_scan_outliers(x_scan, chi2_scan, param_histories, param_name, func, limits, param_names, global_errors, 
                          threshold=0.2, max_passes=10, use_simplex=True, minuit_retries=3, pool=None, num_cores=1,
-                         minuit_strategy=0):
+                         minuit_strategy=0, retry_seed=-1):
     """Scans computational array identifying artificial positive data jumps triggered by Minuit stalling and recalculates."""
     chi2_rep = chi2_scan.copy()
     for _ in range(max_passes):
@@ -30,7 +30,7 @@ def repair_scan_outliers(x_scan, chi2_scan, param_histories, param_name, func, l
             
             if chi2_rep[i] > val_p + threshold and chi2_rep[i] > val_n + threshold:
                 neighbor = param_histories[i-1] if val_p < val_n else param_histories[i+1]
-                tasks.append((x_scan[i], param_name, neighbor, global_errors, func, limits, param_names, use_simplex, minuit_retries, minuit_strategy))
+                tasks.append((x_scan[i], param_name, neighbor, global_errors, func, limits, param_names, use_simplex, minuit_retries, minuit_strategy, retry_seed))
                 indices.append(i)
                 
         n_tasks = len(tasks)
@@ -52,7 +52,7 @@ def repair_scan_outliers(x_scan, chi2_scan, param_histories, param_name, func, l
 
 def repair_scan_continuity(x_scan, chi2_scan, param_histories, param_name, func, limits, param_names, global_errors, 
                            use_simplex=True, continuity_threshold=1.0, max_passes=5, minuit_retries=3, pool=None, num_cores=1,
-                           minuit_strategy=0):
+                           minuit_strategy=0, retry_seed=-1):
     """Verifies gradient transitions targeting localized unphysical numerical slope derivations for recalculation."""
     print(f"  [Continuity] Checking for slope discontinuities in {param_name} scan...")
     chi2_rep = chi2_scan.copy()
@@ -65,8 +65,8 @@ def repair_scan_continuity(x_scan, chi2_scan, param_histories, param_name, func,
             deviation = val_c - 0.5 * (val_p + val_n)
             
             if slope_change > continuity_threshold and deviation > 0.1:
-                repair_tasks.extend([(x_scan[i], param_name, param_histories[i-1], global_errors, func, limits, param_names, use_simplex, minuit_retries, minuit_strategy),
-                                     (x_scan[i], param_name, param_histories[i+1], global_errors, func, limits, param_names, use_simplex, minuit_retries, minuit_strategy)])
+                repair_tasks.extend([(x_scan[i], param_name, param_histories[i-1], global_errors, func, limits, param_names, use_simplex, minuit_retries, minuit_strategy, retry_seed),
+                                     (x_scan[i], param_name, param_histories[i+1], global_errors, func, limits, param_names, use_simplex, minuit_retries, minuit_strategy, retry_seed)])
                 repair_indices.extend([i, i])
         
         n_tasks = len(repair_tasks)
@@ -88,7 +88,7 @@ def repair_scan_continuity(x_scan, chi2_scan, param_histories, param_name, func,
 
 def repair_steep_gradients(x_scan, chi2_scan, param_histories, param_name, func, limits, param_names, global_errors, 
                            use_simplex=True, threshold=3.0, max_passes=5, minuit_retries=3, pool=None, num_cores=1,
-                           minuit_strategy=0):
+                           minuit_strategy=0, retry_seed=-1):
     """Repairs jagged structural edges ensuring physically continuous objective surfaces."""
     print(f"  [Gradient] Checking for steep gradients in {param_name} scan...")
     chi2_rep = chi2_scan.copy()
@@ -101,7 +101,7 @@ def repair_steep_gradients(x_scan, chi2_scan, param_histories, param_name, func,
             if abs(val_a - val_b) > threshold:
                 bad_idx, good_idx = (i, i+1) if val_a > val_b else (i+1, i)
                 if bad_idx in repair_indices: continue
-                repair_tasks.append((x_scan[bad_idx], param_name, param_histories[good_idx], global_errors, func, limits, param_names, use_simplex, minuit_retries, minuit_strategy))
+                repair_tasks.append((x_scan[bad_idx], param_name, param_histories[good_idx], global_errors, func, limits, param_names, use_simplex, minuit_retries, minuit_strategy, retry_seed))
                 repair_indices.append(bad_idx)
                 
         n_tasks = len(repair_tasks)
@@ -123,7 +123,7 @@ def repair_steep_gradients(x_scan, chi2_scan, param_histories, param_name, func,
 
 def repair_2d_scan_outliers(x_grid, y_grid, Z_chi2, param_grid, name_pair, func, limits, param_names, global_errors,
                             use_simplex=True, threshold=0.2, max_passes=100, minuit_retries=3, pool=None, num_cores=1,
-                            minuit_strategy=0):
+                            minuit_strategy=0, retry_seed=-1):
     """Maps nearest-neighbor evaluations tracing 2D anomalies to mathematically verify structural depressions."""
     Z_repaired = Z_chi2.copy()
     rows, cols = Z_repaired.shape
@@ -138,7 +138,7 @@ def repair_2d_scan_outliers(x_grid, y_grid, Z_chi2, param_grid, name_pair, func,
                 if Z_repaired[i, j] > min_n[2] + threshold:
                     best_params = param_grid[min_n[0]][min_n[1]]
                     if best_params:
-                        repair_tasks.append(((x_grid[j], y_grid[i]), name_pair, best_params, global_errors, func, limits, param_names, use_simplex, minuit_retries, minuit_strategy))
+                        repair_tasks.append(((x_grid[j], y_grid[i]), name_pair, best_params, global_errors, func, limits, param_names, use_simplex, minuit_retries, minuit_strategy, retry_seed))
                         repair_indices.append((i, j))
         
         n_tasks = len(repair_tasks)
