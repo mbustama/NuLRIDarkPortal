@@ -871,9 +871,15 @@ def test_cascade_suffix_sum_matches_bruteforce():
     F_flavor = np.zeros((N_E, 3)); Gamma_flavor = np.zeros((N_E, 3))
     dF_casc = np.zeros((N_E, 3)); P_all = np.zeros((N_E, 3, 3))
     rate_buf = np.zeros(N_E)
-    dps.step_cosmological_propagation(0.5, 1.0, 1.0, E_bins, F_mass.copy(), rho_src, M_rot,
-                                      u_arr, S, 2.0e6, 1e-4, 0.1, 2.5e-13, 1.95e-4,
-                                      True, False, 2.5, 1.0, eta_bg, BR, W_kernel,
+    # Mixing now arrives through the sigma-table (see _build_sigma_projection_table)
+    c_z = 1e-30
+    sigma_nodes = np.geomspace(E_bins[0] * c_z * 0.5, E_bins[-1] * c_z * 2.0, 512)
+    P_table = dps._build_sigma_projection_table(M_rot, S, sigma_nodes)
+    log_s0 = np.log(sigma_nodes[0])
+    inv_dlogs = (len(sigma_nodes) - 1) / np.log(sigma_nodes[-1] / sigma_nodes[0])
+    dps.step_cosmological_propagation(0.5, 1.0, 1.0, E_bins, F_mass.copy(), rho_src,
+                                      P_table, log_s0, inv_dlogs, c_z,
+                                      2.5, 1.0, BR, W_kernel,
                                       F_flavor, Gamma_flavor, dF_casc, P_all, rate_buf, Gamma_pre)
 
     # Brute-force reference from the buffers the kernel itself filled
@@ -980,6 +986,41 @@ def test_gpu_spatial_matches_cpu():
     F_gpu = dps.propagate_earth_spatial(*args, use_gpu=True, **kwargs)
     rel = np.max(np.abs(F_cpu - F_gpu) / np.maximum(np.abs(F_cpu), 1e-300))
     assert rel < 1e-9, f"GPU vs CPU max relative difference {rel:.3e}"
+
+
+def test_sigma_projection_table_matches_exact_eigenvectors():
+    """The cosmological mixing runs through a one-parameter table: |U|^2 of
+    H(sigma) = M_rot + sigma * S, with sigma = 2 E (1+z) A_LRI(z) (verified exact scale
+    invariance). The table's linear-in-log-sigma interpolation must reproduce direct
+    eigenvector evaluations across the level crossing -- crossing structure in log sigma
+    is mixing-angle-broad, so unlike the thermal resonance there is no sub-grid feature
+    to alias. End-to-end validation (4 parameter points incl. a crossing-in-range one at
+    2.7e-14) lives in the commit record; this pins the table machinery itself."""
+    U_pmns = dps.construct_PMNS(np.radians(33.41), np.radians(8.58), np.radians(49.1), np.radians(132.0))
+    M_sq = np.diag([0.0, 7.41e-5, 2.511e-3]).astype(np.complex128)
+    M_rot = np.ascontiguousarray(U_pmns @ M_sq @ np.conjugate(U_pmns).T)
+    u = np.array([0.5, 0.5, 0.0], dtype=np.complex128)
+    S = np.ascontiguousarray(np.outer(u, np.conjugate(u)))
+
+    scale = np.max(np.abs(M_rot))
+    sig_min, sig_max = 1e-6 * scale, 1e2 * scale     # spans vacuum limit -> crossing -> potential-dominated
+    nodes = np.geomspace(sig_min, sig_max, 4096)
+    table = dps._build_sigma_projection_table(M_rot, S, nodes)
+    log_s0 = np.log(nodes[0])
+    inv_dlogs = (len(nodes) - 1) / np.log(sig_max / sig_min)
+
+    rng = np.random.default_rng(17)
+    worst = 0.0
+    for _ in range(300):
+        sig = 10.0 ** rng.uniform(np.log10(sig_min * 1.01), np.log10(sig_max * 0.99))
+        U = dps.eigenvectors_3x3(np.ascontiguousarray(M_rot + sig * S))
+        P_exact = np.abs(U) ** 2
+        f = (np.log(sig) - log_s0) * inv_dlogs
+        k0 = min(max(int(f), 0), len(nodes) - 2)
+        w = min(max(f - k0, 0.0), 1.0)
+        P_interp = (1.0 - w) * table[k0] + w * table[k0 + 1]
+        worst = max(worst, float(np.max(np.abs(P_interp - P_exact))))
+    assert worst < 1e-4, f"sigma-table interpolation error {worst:.3e}"
 
 
 def test_mw_density_finite_on_galactic_center_line():

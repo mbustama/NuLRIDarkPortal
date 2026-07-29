@@ -669,6 +669,17 @@ def get_baseline_earth(d_km: float, costh: float) -> float:
 # EXTRACTED NUMBA KERNELS FOR PROGRESS TRACKING
 # =============================================================================
 
+# NOTE ON APPROXIMATING THIS GRID: two tabulation/interpolation schemes were built and
+# validation-rejected. (1) Coarse-z interpolation at fixed E: the heavier CnuB states
+# are non-relativistic, so the resonance sweeps z with relative width only ~p/m ~
+# 0.4-2% -- a 201-node subgrid produced 3.5e-3 absolute flavor-ratio errors (kept as
+# the opt-in n_z_thermal). (2) (x = E(1+z), tau) tabulation, where the resonance sits
+# still in x: rejected outright, because the Breit-Wigner spike in x is NARROWER THAN
+# ANY PRACTICAL GRID SPACING -- this "exact" grid itself merely point-samples an
+# unresolved feature at its own E(1+z) positions, and interpolating between offset
+# x-nodes produced factor-of-few rate errors at resonance-edge points (~20% even on
+# energy-integrated rates). Any future fast scheme must treat the resonant spike
+# analytically (e.g. narrow-width splitting of the angular integral), not by sampling.
 @njit(fastmath=True, cache=True, parallel=True)
 def precompute_all_thermal_rates(E_bins: np.ndarray, z_bins: np.ndarray, sum_G: float,
                                  sum_G_alpha: np.ndarray, m_Zd: float, m_nu_bg_arr: np.ndarray,
@@ -733,6 +744,8 @@ def build_thermal_grid(E_bins: np.ndarray, z_bins: np.ndarray, sum_G: float,
     interpolation and compute the exact grid.
     """
     N_z = len(z_bins)
+    N_E = len(E_bins)
+
     n_sub = int(n_z_thermal)
     if n_sub < 2 or n_sub >= N_z:
         return precompute_all_thermal_rates(E_bins, z_bins, sum_G, sum_G_alpha, m_Zd,
@@ -743,14 +756,33 @@ def build_thermal_grid(E_bins: np.ndarray, z_bins: np.ndarray, sum_G: float,
     return _interp_thermal_grid_z(np.ascontiguousarray(Gamma_sub), N_z)
 
 @njit(fastmath=True, cache=True, parallel=True)
+def _build_sigma_projection_table(M_rot: np.ndarray, S_eff: np.ndarray,
+                                  sigma_nodes: np.ndarray) -> np.ndarray:
+    """|U|^2 projection tables for the one-parameter family H(sigma) = M_rot + sigma * S.
+
+    The cosmological mixing matrix at any (E, z) is the eigenvector matrix of
+    M_rot / (2 E (1+z)) + A_LRI(z) * S, and eigenvectors are scale-invariant, so it
+    depends ONLY on sigma = 2 E (1+z) A_LRI(z) -- verified to 8e-15 numerically. The
+    ~1e6 per-run eigenvector computations collapse onto this table; level-crossing
+    structure in log sigma is mixing-angle-broad (no sub-grid features, unlike the
+    thermal resonance), so a few thousand nodes with linear interpolation suffice.
+    """
+    n = len(sigma_nodes)
+    table = np.zeros((n, 3, 3), dtype=np.float64)
+    for k in prange(n):
+        H = M_rot + sigma_nodes[k] * S_eff
+        U = eigenvectors_3x3(np.ascontiguousarray(H))
+        for a in range(3):
+            for b in range(3):
+                table[k, a, b] = np.abs(U[a, b])**2
+    return table
+
+@njit(fastmath=True, cache=True, parallel=True)
 def step_cosmological_propagation(z: float, dt: float, R_z: float, E_bins: np.ndarray,
                                   F_mass: np.ndarray, rho_src: np.ndarray,
-                                  M_rot: np.ndarray,
-                                  u_arr: np.ndarray, U_LRI_struct: np.ndarray,
-                                  m_Zd: float, g_D: float, eps_prime: float,
-                                  n_n0: float, T_nu0: float,
-                                  use_debye_screening: bool, is_antineutrino: bool,
-                                  p_index: float, Phi_0: float, eta_bg: np.ndarray,
+                                  P_table: np.ndarray, log_s0: float, inv_dlogs: float,
+                                  c_z: float,
+                                  p_index: float, Phi_0: float,
                                   BR: np.ndarray, W_kernel: np.ndarray,
                                   F_flavor: np.ndarray, Gamma_flavor: np.ndarray,
                                   dF_casc_flavor: np.ndarray, P_all: np.ndarray,
@@ -771,18 +803,30 @@ def step_cosmological_propagation(z: float, dt: float, R_z: float, E_bins: np.nd
     dF_casc_flavor.fill(0.0)
     rate_F_sum_arr.fill(0.0)
 
-    # First loop: Calculate flavor composition and assign pre-computed interaction rates.
-    # Only the projection probabilities |U|^2 are ever consumed downstream (here and in
-    # the fourth loop), so they are computed once per (i, z) into the P_all buffer
-    # instead of storing the complex mixing matrix and re-deriving |U|^2 element-wise in
-    # both loops as before. np.abs(.)**2 is kept verbatim so the stored values are
-    # bit-identical to the previous inline computation.
+    # First loop: flavor composition via the sigma-table (see
+    # _build_sigma_projection_table): the projection probabilities |U|^2 at this z-step
+    # depend on E only through sigma = E * c_z, interpolated linearly in log|sigma|.
+    N_sig = P_table.shape[0]
     for i in prange(N_E):
-        U_z = get_adiabatic_mixing_cosmo(E_bins[i], z, M_rot, u_arr, U_LRI_struct, m_Zd, g_D, eps_prime,
-                                         n_n0, T_nu0, use_debye_screening, is_antineutrino, eta_bg)
+        sig = np.abs(E_bins[i] * c_z)
+        if sig <= 0.0:
+            # Vanishing potential (e.g. n_n0 = 0): vacuum-limit plateau = lowest node
+            f = 0.0
+        else:
+            f = (np.log(sig) - log_s0) * inv_dlogs
+        k0 = int(f)
+        if k0 < 0:
+            k0 = 0
+        elif k0 > N_sig - 2:
+            k0 = N_sig - 2
+        w = f - k0
+        if w < 0.0:
+            w = 0.0
+        elif w > 1.0:
+            w = 1.0
         for a in range(3):
             for k in range(3):
-                P_all[i, a, k] = np.abs(U_z[a, k])**2
+                P_all[i, a, k] = (1.0 - w) * P_table[k0, a, k] + w * P_table[k0 + 1, a, k]
             F_flavor[i, a] = (P_all[i, a, 0] * F_mass[i, 0]
                               + P_all[i, a, 1] * F_mass[i, 1]
                               + P_all[i, a, 2] * F_mass[i, 2])
@@ -928,17 +972,26 @@ def _evolve_rho_all_bins(E_bins: np.ndarray, rho: np.ndarray, M_rot: np.ndarray,
 
         propagator_3x3(H_buf, dr_eV_inv, U_buf)
 
-        # T = U @ rho_i ; rho_i = T @ U^dagger  (hand-rolled, allocation-free)
+        # T = U @ rho_i ; rho_i = T @ U^dagger  (hand-rolled, allocation-free).
+        # rho is Hermitian and stays Hermitian under U rho U^dagger, so only the upper
+        # triangle is computed; the lower triangle is mirrored by conjugation and the
+        # diagonal is forced real -- ~1/3 fewer multiplies in the second product, and
+        # exact Hermiticity is enforced instead of drifting at the ulp level.
         for a in range(3):
             for b in range(3):
                 T_buf[a, b] = (U_buf[a, 0] * rho[i, 0, b]
                                + U_buf[a, 1] * rho[i, 1, b]
                                + U_buf[a, 2] * rho[i, 2, b])
         for a in range(3):
-            for b in range(3):
-                rho[i, a, b] = (T_buf[a, 0] * np.conjugate(U_buf[b, 0])
-                                + T_buf[a, 1] * np.conjugate(U_buf[b, 1])
-                                + T_buf[a, 2] * np.conjugate(U_buf[b, 2]))
+            rho[i, a, a] = complex((T_buf[a, 0] * np.conjugate(U_buf[a, 0])
+                                    + T_buf[a, 1] * np.conjugate(U_buf[a, 1])
+                                    + T_buf[a, 2] * np.conjugate(U_buf[a, 2])).real, 0.0)
+            for b in range(a + 1, 3):
+                val = (T_buf[a, 0] * np.conjugate(U_buf[b, 0])
+                       + T_buf[a, 1] * np.conjugate(U_buf[b, 1])
+                       + T_buf[a, 2] * np.conjugate(U_buf[b, 2]))
+                rho[i, a, b] = val
+                rho[i, b, a] = np.conjugate(val)
 
 @njit(fastmath=True, cache=True)
 def step_mw_approach(r_current_kpc: float, theta: float, phi: float, dr_MW_eV_inv: float,
@@ -1438,6 +1491,36 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         Gamma_grid_all = build_thermal_grid(E_bins, z_bins, sum_G, sum_G_alpha, m_Zd, m_nu_bg_arr, T_nu0, eta_mass,
                                             n_z_thermal=n_z_thermal)
 
+    # SIGMA-TABLE for the cosmological mixing (see _build_sigma_projection_table):
+    # the |U|^2 projections at any (E, z) depend only on sigma = E * c_z with
+    # c_z = +/- 2 (1+z) A_LRI(z) (sign carries the antineutrino V -> -V transform,
+    # matching get_adiabatic_mixing_cosmo's convention). Tabulate once per call over the
+    # exact sigma range the grid spans, then every z-step is pure interpolation.
+    c_z_arr = np.empty(len(z_bins), dtype=np.float64)
+    c_W_ = 0.88
+    m_Z_ = 91.18 * GeV
+    g_weak_ = 0.65
+    for k in range(len(z_bins)):
+        zk = z_bins[k]
+        m_D_sq_k = calc_debye_mass_sq(g_D, u_arr, T_nu0 * (1.0 + zk), eta_bg) if use_debye_screening else 0.0
+        denom_k = max(m_Zd**2 + m_D_sq_k, 1e-25)
+        A_k = (g_D * eps_prime) / denom_k * (4.0 * c_W_ * m_Z_**2 / g_weak_) * (np.sqrt(2.0) / 2.0 * G_F * n_n0 * (1.0 + zk)**3)
+        c_z_arr[k] = 2.0 * (1.0 + zk) * A_k
+    if is_antineutrino:
+        c_z_arr = -c_z_arr
+
+    # Signed structure matrix entering H(sigma) = M_rot + sigma * S_signed: the table is
+    # built over |sigma|, with the sign folded into S.
+    S_signed = np.ascontiguousarray(-U_LRI_struct_eff if is_antineutrino else U_LRI_struct_eff)
+    abs_c = np.abs(c_z_arr)
+    sig_min = max(E_bins[0] * abs_c.min(), 1e-30 * max(np.max(np.abs(M_rot)), 1e-300))
+    sig_max = max(E_bins[-1] * abs_c.max(), sig_min * 2.0)
+    N_sigma = 4096
+    sigma_nodes = np.geomspace(sig_min, sig_max, N_sigma)
+    P_table = _build_sigma_projection_table(M_rot, S_signed, sigma_nodes)
+    log_s0 = np.log(sigma_nodes[0])
+    inv_dlogs = (N_sigma - 1) / np.log(sig_max / sig_min)
+
     iterator = tqdm(range(1, len(z_bins)), desc=f"Cosmo Phase ({lbl})", leave=False) if (HAS_TQDM and show_progress) else range(1, len(z_bins))
     z_print_mod = max(1, len(z_bins) // 10)
 
@@ -1452,11 +1535,10 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         if verbose == 2 and k % z_print_mod == 0:
             safe_print(f"Cosmological propagation: currently integrating at redshift z = {z:.4f}")
 
-        step_cosmological_propagation(z, dt, R_z, E_bins, F_mass, rho_src, M_rot, u_arr,
-                                      U_LRI_struct_eff,
-                                      m_Zd, g_D, eps_prime, n_n0, T_nu0,
-                                      use_debye_screening, is_antineutrino, p_index, Phi_0,
-                                      eta_bg, BR, W_kernel,
+        step_cosmological_propagation(z, dt, R_z, E_bins, F_mass, rho_src,
+                                      P_table, log_s0, inv_dlogs, c_z_arr[k],
+                                      p_index, Phi_0,
+                                      BR, W_kernel,
                                       F_flavor, Gamma_flavor, dF_casc_flavor, P_all, rate_F_sum_arr,
                                       Gamma_grid_all[k, :, :])
 

@@ -310,7 +310,7 @@ class GenericLikelihoodWrapper:
                     self.n_cores_standalone,          # 30. n_cores_standalone
                     V_SM_struct,                     # 31. V_SM_struct (None = default diag(1,0,0))
                     U_LRI_struct,                    # 32. U_LRI_struct (None = outer(u, conj(u)))
-                    n_z_thermal                      # 33. n_z_thermal (0 = exact thermal grid)
+                    n_z_thermal                      # 33. n_z_thermal (z-interp; 0 = off/exact)
                 )
                 print(f"  [Server] Successfully loaded physical constants from active config.")
             except Exception as e:
