@@ -1504,6 +1504,96 @@ def test_build_thermal_grid_analytic_switch():
     assert np.isfinite(on).all()
 
 
+# =============================================================================
+# GPU spatial path: v3 propagator port, mathematics validated with numpy backend
+# =============================================================================
+
+def test_gpu_batched_propagator_matches_cpu_numpy_backend():
+    """_batched_propagator_gpu takes its array backend as a parameter and uses only
+    numpy-compatible operations, so the v3 port's MATHEMATICS is validated here on the
+    CPU by running it with numpy as the backend against propagator_3x3, one batch
+    mixing every branch regime (masks must coexist within a single call):
+    generic well-separated, rank-1-dominated deflation, constructed near-degenerate,
+    Milky-Way-scale phases (node-exactness), and the phase-noise projector regime.
+    Only execution under cupy itself remains for the skipped-on-CPU device test."""
+    from gpu_spatial import _batched_propagator_gpu
+
+    rng = np.random.default_rng(17)
+    U_pmns = dps.construct_PMNS(np.radians(33.41), np.radians(8.58), np.radians(49.1), np.radians(132.0))
+    M_sq = np.diag([0.0, 7.41e-5, 2.511e-3]).astype(np.complex128)
+    M_rot = U_pmns @ M_sq @ np.conjugate(U_pmns).T
+    u = np.array([0.5, 0.5, 0.0], dtype=np.complex128)
+    S = np.outer(u, np.conjugate(u))
+
+    Hs, ts, regimes = [], [], []
+    for _ in range(60):                                   # generic Hermitian
+        A = rng.normal(size=(3, 3)) + 1j * rng.normal(size=(3, 3))
+        Hs.append((A + A.conj().T) / 2 * 10.0 ** rng.uniform(-20, -12))
+        ts.append(10.0 ** rng.uniform(8, 13))
+        regimes.append("generic")
+    for _ in range(60):                                   # rank-1-dominated (deflation)
+        E = 10.0 ** rng.uniform(13, 16.5)
+        Hs.append(M_rot / (2.0 * E) + 10.0 ** rng.uniform(-19, -15) * S)
+        ts.append(10.0 ** rng.uniform(9, 12))
+        regimes.append("generic")
+    for _ in range(40):                                   # constructed near-degenerate
+        gap = 10.0 ** rng.uniform(-14, -4)
+        lam = np.array([1.0, 1.0 + gap, 2.0]) * 1e-16
+        Q = np.linalg.qr(rng.normal(size=(3, 3)) + 1j * rng.normal(size=(3, 3)))[0]
+        Hd = Q @ np.diag(lam) @ Q.conj().T
+        Hs.append((Hd + Hd.conj().T) / 2)
+        ts.append(1e11)
+        regimes.append("generic")
+    for _ in range(40):                                   # MW-scale phases (node-exact)
+        E = 10.0 ** rng.uniform(13, 16)
+        Hs.append(M_rot / (2.0 * E))
+        ts.append(10.0 ** rng.uniform(25, 27))
+        regimes.append("large_phase")
+    for logV in range(6, 23, 2):                          # phase-noise projector regime
+        Hs.append(M_rot / (2.0 * 1e13) + (10.0 ** logV) * S)
+        ts.append(1.29e11)
+        regimes.append("noise")
+    Hs.append(np.eye(3, dtype=np.complex128) * 2.5e-16)   # pure-phase branch
+    ts.append(1e11)
+    regimes.append("generic")
+    Hs.append(M_rot / (2.0 * 1e15))                       # Taylor branch (tiny spread*t)
+    ts.append(1.0)
+    regimes.append("generic")
+
+    H_batch = np.ascontiguousarray(np.stack(Hs))
+    t_batch = np.array(ts)
+    U_batch = _batched_propagator_gpu(np, H_batch, t_batch)
+
+    out = np.zeros((3, 3), dtype=np.complex128)
+    v_far = (u / np.linalg.norm(u)).reshape(3)
+    worst_direct = 0.0
+    worst_unit = 0.0
+    worst_abs = 0.0
+    worst_ray = 0.0
+    for k in range(len(Hs)):
+        dps.propagator_3x3(np.ascontiguousarray(H_batch[k]), float(t_batch[k]), out)
+        Ub = U_batch[k]
+        worst_unit = max(worst_unit, float(np.max(np.abs(Ub @ Ub.conj().T - np.eye(3)))))
+        if regimes[k] == "generic":
+            # small total phases: scalar and batched arithmetic agree to fp noise
+            worst_direct = max(worst_direct, float(np.max(np.abs(Ub - out))))
+        elif regimes[k] == "large_phase":
+            # large phases: ulp-level arithmetic differences (e.g. abs(z)**2 vs
+            # re^2+im^2) rotate phases at the shared representation limit; the
+            # meaningful invariants are unitarity and the |U| structure
+            worst_abs = max(worst_abs, float(np.max(np.abs(np.abs(Ub) - np.abs(out)))))
+        else:
+            # phase-noise projector regime: even |U| depends on the (machine-noise)
+            # relative phase between the far and pair eigenvalues, so scalar and
+            # batched legitimately disagree there; the meaningful invariants are
+            # unitarity (checked above) and preservation of the far eigenvector's ray
+            worst_ray = max(worst_ray, abs(1.0 - abs(np.vdot(v_far, Ub @ v_far))))
+    assert worst_direct < 1e-9, f"batched vs scalar propagator: {worst_direct:.3e}"
+    assert worst_unit < 1e-11, f"batched propagator non-unitary: {worst_unit:.3e}"
+    assert worst_abs < 1e-4, f"batched |U| structure off at large phases: {worst_abs:.3e}"
+    assert worst_ray < 1e-10, f"batched projector far-ray not preserved: {worst_ray:.3e}"
+
+
 if __name__ == "__main__":
     import sys as _sys
     _sys.exit(pytest.main([__file__, "-v"]))
