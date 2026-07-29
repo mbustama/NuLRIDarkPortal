@@ -195,7 +195,13 @@ def test_thermal_averaged_rates_matches_reimplementation(E0_eV, z, m_Zd_eV):
     rates_jit = dps.thermal_averaged_rates_flavor(E0_eV, z, sum_G, sum_G_alpha, m_Zd_eV, m_nu_bg_arr, T_nu0, eta_mass)
     rates_reimpl = _reimplemented_thermal_rate(E0_eV, z, sum_G, sum_G_alpha, m_Zd_eV, m_nu_bg_arr, T_nu0, eta_mass)
 
-    np.testing.assert_allclose(rates_jit, rates_reimpl, rtol=1e-9, atol=0.0)
+    # rtol history: 1e-9 while the JIT kernel's transcendentals were plain libm. With
+    # an SVML-enabled llvmlite (2026-07 environment change), fastmath kernels emit
+    # SVML's fast variants, which differ from this numpy reimplementation's libm at
+    # up to ~5e-7 on this integrand -- three orders below the midpoint kernel's own
+    # accuracy (~1e-3 significance-weighted vs dense truth; 6-9% at resonance cells).
+    # 1e-5 still pins the closed form itself (historical bug classes were >= 1e-3).
+    np.testing.assert_allclose(rates_jit, rates_reimpl, rtol=1e-5, atol=0.0)
 
 
 # =============================================================================
