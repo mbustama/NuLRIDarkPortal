@@ -204,6 +204,8 @@ Runs logarithmic 1D scans over $m_{Z_D}$, $g_D$, $u_e$, $u_\mu$, distributing co
 
 The scanner's spatial-averaging defaults follow the convergence study (Section 11): `--n_mw_paths 12` and `--n_earth_chords 50` (the sub-percent knee), replacing the historical 100/100 — roughly a 2–3× speed-up per scan point at no measured accuracy cost at the studied points. **Caveat:** the study's `n_mw_paths` conclusion was drawn at the default parameter points; at very small $m_{Z_D}$ (unscreened, longer-range galactic potential) the solid-angle average becomes anisotropic — raise `--n_mw_paths` there and re-check with `tools/convergence_study.py`.
 
+**Rejected optimization — thermal-grid rescaling across coupling scans** (2026-07, round 7): the idea of computing the Γ grid once per coupling scan and rescaling by `sum_G` fails *physically* wherever it would matter. Off resonance Γ is indeed linear in `sum_G` (verified to ~10⁻⁷/decade), but at resonance-window cells the narrow-width plateau contributes Γ ∝ `sum_G_alpha`/MG ∝ *coupling-independent* — measured at grid level (200×200, `g_D` 10⁻⁵ → 10⁻³): at in-band `m_Zd = 2×10⁶` **100% of significant cells violate** an element-wise 10⁻⁶ linearity gate, with deviations up to 0.99 (dip-cell rates barely move while `sum_G` grows 100×); even below-band `m_Zd = 3×10⁵` has 9.5% marginal violations (≤ 7×10⁻⁶). The planned safety gate would therefore always fall back to exact per-point grids. With the semi-analytic thermal kernel already cutting the grid cost 2–5.6×, the machinery is not worth its verification overhead.
+
 ---
 
 ## 7. Configuration Guide & Command-Line Flags
