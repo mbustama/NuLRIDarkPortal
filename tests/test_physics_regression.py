@@ -1657,6 +1657,74 @@ def test_thermal_grid_cached_gate_rejects_wide_bracket():
     assert state["fit"] is None, "surrogate activated across a bracket beyond the model's validity"
 
 
+def test_thermal_grid_cached_exact_point_reuse():
+    """A repeat request at an already-built sum_G must be served from the stored
+    exact point (no rebuild) and must return the identical grid -- Minuit re-evaluates
+    its incumbent point several times per profiled fit, so this is a real scan path."""
+    m_nu, eta_mass, E_bins, z_bins = _tc_setup()
+    dps._tc_cache.clear()
+    weights = np.array([0.5, 1.0, 0.25])
+    first = dps.thermal_grid_cached(E_bins, z_bins, 1e-6, weights, 2e6, m_nu, 1.95e-4, eta_mass)
+    state = next(iter(dps._tc_cache.values()))
+    n_pts = len(state["points"])
+    again = dps.thermal_grid_cached(E_bins, z_bins, 1e-6, weights, 2e6, m_nu, 1.95e-4, eta_mass)
+    assert len(state["points"]) == n_pts, "exact repeat rebuilt instead of reusing the stored point"
+    np.testing.assert_array_equal(again, first)
+
+
+def test_thermal_grid_cached_narrow_bracket_activates_within_gate():
+    """Minuit-inner-fit-sized coupling moves (well below the historical 0.3-dex floor)
+    must be able to activate the surrogate, and its output inside the verified bracket
+    must agree with a fresh exact build to the gate accuracy. This is the case the
+    original floor silently excluded: during real profiled scans every evaluation paid
+    the full exact build because inner-fit steps never spanned 0.3 dex."""
+    m_nu, eta_mass, E_bins, z_bins = _tc_setup()
+    dps._tc_cache.clear()
+    ones = np.ones(3)
+    m_Zd = 2e6
+    # ~0.08-dex bracket with an interior verification point: typical inner-fit moves
+    for s in (1.0e-6, 1.2e-6, 1.1e-6):
+        dps.thermal_grid_cached(E_bins, z_bins, s, ones, m_Zd, m_nu, 1.95e-4, eta_mass)
+    state = next(iter(dps._tc_cache.values()))
+    assert state["fit"] is not None, "narrow bracket did not activate the surrogate"
+    assert state["failures"] == 0
+
+    s_test = 1.15e-6
+    sur = dps.thermal_grid_cached(E_bins, z_bins, s_test, ones, m_Zd, m_nu, 1.95e-4, eta_mass)
+    assert len(state["points"]) == 3, "in-bracket request took the exact path"
+    exact = dps.build_thermal_grid(E_bins, z_bins, s_test, ones, m_Zd, m_nu, 1.95e-4, eta_mass)[:, :, 0]
+    sig = exact > 1e-3 * exact.max()
+    rel = np.max(np.abs(sur[:, :, 0][sig] - exact[sig]) / exact[sig])
+    assert rel < 5e-7, f"narrow-bracket surrogate off gate: {rel:.3e}"
+
+
+def test_thermal_grid_cached_narrow_failures_do_not_disable():
+    """Gate failures at sub-0.3-dex spreads must NOT count toward disabling the key:
+    the failure counter exists to detect two-component model breakdown (a wide-bracket
+    phenomenon), and a numerically degenerate narrow fit must not permanently turn the
+    cache off. Exercised directly against _tc_try_fit with a synthetic non-conforming
+    point set."""
+    from dp_thermal import _tc_try_fit, _TC_MAX_FAILURES
+    shape = (4, 4)
+    U1 = np.full(shape, 1.0)
+    U2 = np.full(shape, 1.001)
+    U_bad = np.full(shape, 5.0)      # wildly off any two-component prediction
+    for _ in range(_TC_MAX_FAILURES + 1):
+        state = {"points": [(1.0e-6, U1), (1.05e-6, U_bad), (1.1e-6, U2)],
+                 "fit": None, "failures": 0, "disabled": False}
+        _tc_try_fit(state, 1.05e-6)   # ~0.02-dex bracket: narrow regime
+        assert state["fit"] is None, "non-conforming narrow fit must not activate"
+        assert state["failures"] == 0, "narrow-regime gate failure was counted"
+        assert not state["disabled"]
+
+    # The wide regime still disables after repeated model-breakdown failures.
+    state = {"points": [(1.0e-7, U1), (1.05e-6, U_bad), (1.1e-5, U2)],
+             "fit": None, "failures": 0, "disabled": False}
+    for _ in range(_TC_MAX_FAILURES):
+        _tc_try_fit(state, 1.05e-6)   # 2-dex bracket: wide regime
+    assert state["disabled"], "wide-regime model breakdown must still disable the key"
+
+
 # =============================================================================
 # Earth step-averaged potential scheme (dev-earth)
 # =============================================================================
