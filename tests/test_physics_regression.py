@@ -1501,7 +1501,7 @@ def test_thermal_analytic_matches_dense_quadrature():
                 truth = _dense_thermal_truth(E0, z, sum_G, sum_G_alpha, m_Zd, m_nu, T_nu0, eta_mass)
                 new = dps.thermal_averaged_rates_flavor_analytic(
                     E0, z, sum_G, sum_G_alpha, m_Zd, m_nu, T_nu0, eta_mass,
-                    dps._GL16_X, dps._GL16_W)
+                    dps._GL16_X, dps._GL16_W, dps._GL10_X, dps._GL10_W, dps._FD16)
                 rows.append((truth[0], new[0]))
             gmax = max(r[0] for r in rows)
             assert gmax > 0
@@ -1524,7 +1524,8 @@ def test_thermal_analytic_linear_scaling_in_sum_G():
             U_pmns, u_arr, g_D, 0.1, np.ones(3))
         r = dps.thermal_averaged_rates_flavor_analytic(
             1e15, 1.0, sum_G, sum_G_alpha, 2e6, m_nu, T_nu0=1.95e-4, eta_mass=eta_mass,
-            glx=dps._GL16_X, glw=dps._GL16_W)
+            glx=dps._GL16_X, glw=dps._GL16_W, glx10=dps._GL10_X, glw10=dps._GL10_W,
+            fd16=dps._FD16)
         if prev is not None:
             sg_prev, r_prev = prev
             ratio = (r[0] / r_prev) / (sum_G / sg_prev)

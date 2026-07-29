@@ -810,12 +810,22 @@ def thermal_averaged_rates_flavor_analytic(E0: float, z: float, sum_G: float,
                                            sum_G_alpha: np.ndarray, m_Zd: float,
                                            m_nu_bg_arr: np.ndarray, T_nu0: float,
                                            eta_mass: np.ndarray, glx: np.ndarray,
-                                           glw: np.ndarray) -> np.ndarray:
+                                           glw: np.ndarray, glx10: np.ndarray,
+                                           glw10: np.ndarray, fd16: np.ndarray) -> np.ndarray:
     """Semi-analytic replacement for thermal_averaged_rates_flavor: same physics,
     same closed-form I_ang, but the p-integral is Gauss-Legendre on the smooth
     intervals plus exact atan/log moments across the (closed-form) resonance
     crossing -- see the scheme NOTE above. Validated against dense brute-force
-    quadrature across a g_D ladder 1e-8..1 (see the regression tests)."""
+    quadrature across a g_D ladder 1e-8..1 (see the regression tests).
+
+    Node-count tuning (referee-validated like everything else here): the bulk
+    structure-free cells integrate a single [0, p_max] panel whose GL nodes sit at
+    FIXED scaled momenta q_k = 10 (1 + x_k) regardless of (E, z, state) -- so their
+    Fermi-Dirac factors are the precomputed constants fd16 (saves the exp, the most
+    expensive transcendental of that loop after atan/log); and panels shorter than
+    p_max / 5 (the geometric resonance shells) use the 10-point rule glx10/glw10 --
+    their integrand varies over at most ~a decade of the transition, far inside
+    GL-10's accuracy for sub-p_max/5 spans."""
     T_nu = T_nu0 * (1.0 + z)
 
     Gamma_width = (sum_G * m_Zd) / (12.0 * np.pi)
@@ -955,10 +965,19 @@ def thermal_averaged_rates_flavor_analytic(E0: float, z: float, sum_G: float,
             # --- Gauss-Legendre panel on the exact pointwise closed-form I_ang ---
             mid = 0.5 * (a_ + b_)
             half = 0.5 * (b_ - a_)
-            for k in range(n_gl):
-                p = mid + half * glx[k]
+            full_panel = a_ == 0.0 and b_ == p_max
+            short_panel = (not full_panel) and (b_ - a_) < 0.2 * p_max
+            n_panel = len(glx10) if short_panel else n_gl
+            for k in range(n_panel):
+                if short_panel:
+                    p = mid + half * glx10[k]
+                else:
+                    p = mid + half * glx[k]
                 E_bg = np.sqrt(m2 + p * p)
-                f_FD = 1.0 / (np.exp(p / T_i) + 1.0)
+                if full_panel:
+                    f_FD = fd16[k]
+                else:
+                    f_FD = 1.0 / (np.exp(p / T_i) + 1.0)
                 A_ = m2 + 2.0 * x * E_bg
                 B_ = 2.0 * x * p
                 u_plus = A_ - M2 + B_
@@ -971,7 +990,8 @@ def thermal_averaged_rates_flavor_analytic(E0: float, z: float, sum_G: float,
                          + (F / (B_ * MG)) * (np.arctan(u_plus / MG) - np.arctan(u_minus / MG)))
                 if I_ang < 0.0:
                     I_ang = 0.0
-                acc += glw[k] * half * p * p * f_FD * I_ang
+                w_k = glw10[k] if short_panel else glw[k]
+                acc += w_k * half * p * p * f_FD * I_ang
 
         if acc < 0.0:
             acc = 0.0
@@ -985,7 +1005,9 @@ def thermal_averaged_rates_flavor_analytic(E0: float, z: float, sum_G: float,
 def precompute_all_thermal_rates_analytic(E_bins: np.ndarray, z_bins: np.ndarray, sum_G: float,
                                           sum_G_alpha: np.ndarray, m_Zd: float, m_nu_bg_arr: np.ndarray,
                                           T_nu0: float, eta_mass: np.ndarray,
-                                          glx: np.ndarray, glw: np.ndarray) -> np.ndarray:
+                                          glx: np.ndarray, glw: np.ndarray,
+                                          glx10: np.ndarray, glw10: np.ndarray,
+                                          fd16: np.ndarray) -> np.ndarray:
     """Grid builder for the semi-analytic thermal kernel (same layout/parallelism as
     precompute_all_thermal_rates)."""
     N_E = len(E_bins)
@@ -995,13 +1017,20 @@ def precompute_all_thermal_rates_analytic(E_bins: np.ndarray, z_bins: np.ndarray
         for i in range(N_E):
             Gamma_grid[k, i, :] = thermal_averaged_rates_flavor_analytic(
                 E_bins[i], z_bins[k], sum_G, sum_G_alpha, m_Zd, m_nu_bg_arr, T_nu0,
-                eta_mass, glx, glw)
+                eta_mass, glx, glw, glx10, glw10, fd16)
     return Gamma_grid
 
-# 16-point Gauss-Legendre nodes/weights on [-1, 1] for the semi-analytic thermal kernel
+# Gauss-Legendre nodes/weights on [-1, 1] for the semi-analytic thermal kernel
+# (16-point for long panels, 10-point for the short resonance-shell panels), plus
+# the Fermi-Dirac factors at the FIXED scaled nodes q_k = 10 (1 + x16_k) of the
+# full-range [0, 20 T] panel -- identical for every (E, z, state).
 _GL16_X, _GL16_W = np.polynomial.legendre.leggauss(16)
 _GL16_X = np.ascontiguousarray(_GL16_X)
 _GL16_W = np.ascontiguousarray(_GL16_W)
+_GL10_X, _GL10_W = np.polynomial.legendre.leggauss(10)
+_GL10_X = np.ascontiguousarray(_GL10_X)
+_GL10_W = np.ascontiguousarray(_GL10_W)
+_FD16 = np.ascontiguousarray(1.0 / (np.exp(10.0 * (1.0 + _GL16_X)) + 1.0))
 
 # NOTE ON APPROXIMATING THIS GRID: two tabulation/interpolation schemes were built and
 # validation-rejected. (1) Coarse-z interpolation at fixed E: the heavier CnuB states
@@ -1093,7 +1122,8 @@ def build_thermal_grid(E_bins: np.ndarray, z_bins: np.ndarray, sum_G: float,
         if thermal_analytic:
             return precompute_all_thermal_rates_analytic(E_bins, zb, sum_G, sum_G_alpha,
                                                          m_Zd, m_nu_bg_arr, T_nu0, eta_mass,
-                                                         _GL16_X, _GL16_W)
+                                                         _GL16_X, _GL16_W, _GL10_X, _GL10_W,
+                                                         _FD16)
         return precompute_all_thermal_rates(E_bins, zb, sum_G, sum_G_alpha, m_Zd,
                                             m_nu_bg_arr, T_nu0, eta_mass)
 
