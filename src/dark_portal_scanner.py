@@ -130,6 +130,14 @@ def run_parameter_scan(param_name: str, param_values: np.ndarray, base_config: D
     """
     Orchestrates a parallel 1D parameter scan across the provided grid values.
 
+    Arguments:
+      param_name: the dark_portal config key being scanned (one of SCANNABLE).
+      param_values: the grid of values to evaluate (one solver run each).
+      base_config: full solver config; each worker deep-copies it and overrides only
+        dark_portal.<param_name> (plus n_cores=1 / verbose=0).
+      output_file: destination for the sorted columnar results; the checkpoint file
+        described below lives next to it.
+
     The pool size is driven by base_config['execution']['n_cores'] (falling back to
     cpu_count()-1 if unset), clamped to the cores actually available. Previously this
     function always recomputed its own hardcoded cpu_count()-1 pool size regardless of

@@ -36,8 +36,9 @@ notes for the expected style).
   `test_gpu_spatial_matches_cpu` / `test_use_gpu_falls_back_to_cpu_without_cuda`).
 * Validation discipline (non-negotiable, same as every round): production-settings
   runs (`n_E_bins=1000, n_z_bins=1000, n_mw_paths=6, n_earth_chords=12,
-  N_steps_MW=25, N_steps_earth=100, earth_step_scheme="avg", n_cores=4,
-  verbose=0` — the certified step-count-independent defaults; historical rounds
+  N_steps_MW=25, N_steps_earth=25, earth_step_scheme="avg", n_cores=4,
+  verbose=0` — the certified step-count-independent defaults (N_steps_earth
+  100 → 25 on 2026-07-29, revalidated at the four points; historical rounds
   used `left`/500) at four parameter
   points, reference and candidate in **separate processes**:
   - `below`:  `m_Zd_eV=3.0e5, g_D=1e-4, epsilon_prime=0.1`

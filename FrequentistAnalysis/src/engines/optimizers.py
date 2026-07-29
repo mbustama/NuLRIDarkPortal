@@ -157,14 +157,29 @@ def minimize_point(val, param_name, global_start_values, global_errors, func, li
     Executes an isolated 1D profile sequence locking the specific parameter array slice,
     permitting gradients to optimize secondary components dynamically.
 
-    minuit_strategy (scan_settings.minuit_strategy, default 0): Minuit's strategy knob
-    for these INNER profiled fits only (the global fit keeps iminuit's default, 1).
-    Strategy >= 1 spends extra likelihood evaluations refining the error matrix --
-    information nobody consumes mid-scan, at ~6 s per evaluation for the production
-    physics kernel; the repair passes already catch any resulting quality regressions.
+    Arguments:
+      val: the grid value at which param_name is fixed for this profiled fit.
+      param_name: the parameter being profiled.
+      global_start_values: {param: value} start point (global best fit, or the
+        neighboring point's solution when warm-started by the caller).
+      global_errors: {param: error} initial step sizes (only positive entries applied).
+      func: the chi2 objective, called as func(*values-in-param_names-order).
+      limits: {param: (low, high)} bounds applied before fixing param_name.
+      param_names: full floating-parameter list (Minuit signature order).
+      use_simplex: run Nelder-Mead simplex before the first migrad.
+      minuit_retries: migrad attempts; after an invalid fit every free parameter is
+        kicked with gaussian noise scaled to its current error before retrying.
+      minuit_strategy (scan_settings.minuit_strategy, default 0): Minuit's strategy
+        knob for these INNER profiled fits only (the global fit keeps iminuit's
+        default, 1). Strategy >= 1 spends extra likelihood evaluations refining the
+        error matrix -- information nobody consumes mid-scan; the repair passes
+        already catch any resulting quality regressions. (m_scan.tol is left at 0.1,
+        which is iminuit's own default.)
+      retry_seed (scan_settings.retry_seed, default -1): stalled-fit retry jitter
+        seeding -- see _seed_retry_rng.
 
-    retry_seed (scan_settings.retry_seed, default -1): stalled-fit retry jitter seeding
-    -- see _seed_retry_rng.
+    Returns: (best chi2, {param: value} at the profiled minimum), or (inf, {}) when
+    every attempt failed.
     """
     _seed_retry_rng(retry_seed, param_name, float(val).hex())
     final_best_fval = np.inf
@@ -212,8 +227,12 @@ def minimize_point(val, param_name, global_start_values, global_errors, func, li
 def minimize_point_2d(val_pair, name_pair, global_start_values, global_errors, func, limits, param_names, use_simplex=False, minuit_retries=3, minuit_strategy=0, retry_seed=-1):
     """Executes isolated parameter minimization pinning exactly two structural array dimensions.
 
-    minuit_strategy: see minimize_point -- same inner-profiled-fit knob (default 0).
-    retry_seed: see minimize_point -- same deterministic retry-jitter knob (default -1)."""
+    Arguments: as minimize_point, except val_pair/name_pair pin TWO parameters
+    ((val_x, val_y) at (name_x, name_y)); a second attempt prepends a simplex run and
+    a small gaussian kick to the free parameters when the first attempt fails
+    entirely. minuit_strategy / retry_seed: same inner-fit knobs as minimize_point.
+
+    Returns: (best chi2, {param: value}) or (inf, {}) when both attempts failed."""
     _seed_retry_rng(retry_seed, f"{name_pair[0]}|{name_pair[1]}",
                     f"{float(val_pair[0]).hex()}|{float(val_pair[1]).hex()}")
     val_x, val_y = val_pair

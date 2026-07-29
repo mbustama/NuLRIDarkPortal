@@ -94,6 +94,41 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
     Executes the complete spectrum integration, driving the underlying JIT kernels.
     Includes verbose level 2 for periodic redshift status updates.
 
+    Arguments:
+      E_bins: energy grid (eV), geometric spacing assumed by the cascading integral.
+      z_bins: redshift grid, DESCENDING from z_max to 0 (the integration direction).
+      rho_src: (3,) source flavor composition (f_e, f_mu, f_tau).
+      H0, Omega_m, Omega_L: flat-LCDM cosmology (H0 already converted to eV).
+      U_pmns: (3, 3) PMNS matrix; pass conj(U_pmns) for the antineutrino call
+        (propagation_worker's convention -- see the NOTE on structures below).
+      M_sq: (3, 3) complex diagonal mass-squared matrix diag(0, dm21, dm31_signed).
+      u_arr: (3,) complex sterile mixing amplitudes (u_e, u_mu, u_tau), pre-conjugated
+        by the caller for antineutrinos.
+      m_Zd, g_D, eps_prime: dark mediator mass (eV) and couplings.
+      m_nu_bg_arr: (3,) neutrino background mass eigenvalues (eV).
+      n_n0: cosmological neutron density today (eV^3); T_nu0: CnuB temperature (eV).
+      use_debye_screening: include the thermal Debye mass in the mediator propagator.
+      detector_depth_km: detector depth below the Earth surface.
+      use_SM_potential / n_e_earth: standard MSW matter potential inside the Earth
+        (electron density in eV^3).
+      is_antineutrino: single-species flag for THIS call (the "sum" weighting lives
+        in the callers).
+      p_index, rho_evol, Phi_0: source spectrum E^-p, redshift evolution, normalization.
+      eta_bg: (3,) CnuB flavor asymmetries.
+      n_mw_paths, n_earth_chords: spatial-averaging counts (solid angle / zenith).
+      N_steps_MW, r_start_kpc: Milky Way transit resolution and entry radius.
+      show_progress, verbose: progress bars / logging (verbose=2 adds z updates).
+      n_cores: intra-run parallelism of the spatial handover AND the numba thread cap.
+      precomputed_Gamma_grid_all, N_steps_earth, external_pool, U_LRI_struct,
+        V_SM_struct, earth_step_scheme: see the dedicated paragraphs below.
+      n_z_thermal: coarse z-sampling of the thermal grid (0 = exact; see
+        build_thermal_grid).
+      use_gpu: route the spatial handover through gpu_spatial when cupy+CUDA exist.
+      thermal_analytic: semi-analytic thermal momentum kernel (True, default) vs the
+        midpoint reference kernel.
+
+    Returns: (N_E, 3) flavor fluxes at the detector for this CP state.
+
     U_LRI_struct / V_SM_struct, if given, are dimensionless 3x3 Hermitian flavor structure
     matrices overriding the default LRI texture (u_i * conj(u_j)) and SM matter-potential
     texture (diag(1, 0, 0)). Pass them in NEUTRINO convention regardless of
@@ -118,11 +153,13 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
     left-endpoint sampling). Under 'avg' -- the CONFIG default -- the accumulated LRI
     phase is step-count-independent and results carry a convergence certificate
     (N = 8..1000 agree to <= 5e-9 at the standard validation points; DEFAULT_CONFIG
-    therefore ships N_steps_earth = 100). Under 'left', results scatter at the ~1e-2
-    level with ANY step-count change (fringe re-aliasing) and 500 was the pinned
-    historical value. NOTE the function-signature defaults here (500, 'left')
-    deliberately preserve the historical behavior for direct callers that omit these
-    kwargs; run_solver and the analysis pipeline always pass the config values.
+    therefore ships N_steps_earth = 25, a ~3x margin over the flat-at-8 knee,
+    revalidated against N = 100 at the four standard points on adoption). Under
+    'left', results scatter at the ~1e-2 level with ANY step-count change (fringe
+    re-aliasing) and 500 was the pinned historical value. NOTE the function-signature
+    defaults here (500, 'left') deliberately preserve the historical behavior for
+    direct callers that omit these kwargs; run_solver and the analysis pipeline
+    always pass the config values.
     """
     if HAS_NUMBA:
         # The cosmological step below is parallelized internally via numba prange; cap its
@@ -412,9 +449,18 @@ def propagation_worker(args) -> Tuple[np.ndarray, np.ndarray]:
 def run_solver(config: Dict) -> Tuple[np.ndarray, np.ndarray]:
     """Orchestrates configuration and parallelization.
 
-    The incoming config is first overlaid onto DEFAULT_CONFIG with unknown-key
-    rejection (see merge_config_with_defaults), so every read below can index
-    directly -- no per-call fallback literals to drift out of sync.
+    Arguments:
+      config: (possibly partial) configuration dict with the DEFAULT_CONFIG section
+        layout -- cosmology, standard_mixing, dark_portal, source, grid, output,
+        execution (see dp_config.DEFAULT_CONFIG for every key and its default,
+        including grid.N_steps_earth = 25 under the certified 'avg' Earth step
+        scheme). It is first overlaid onto DEFAULT_CONFIG with unknown-key
+        rejection (see merge_config_with_defaults), so every read below can index
+        directly -- no per-call fallback literals to drift out of sync.
+
+    Returns:
+      (E_bins, Flux_array): the energy grid (eV) and the (N_E, 3) flavor fluxes at
+      the detector, weighted across neutrinos/antineutrinos per source.is_antineutrino.
     """
     config = merge_config_with_defaults(config)
     params = {}
@@ -690,7 +736,7 @@ if __name__ == "__main__":
     parser.add_argument("--n_mw_paths", type=int, default=None, help="Number of Milky Way trajectories for solid-angle average")
     parser.add_argument("--n_earth_chords", type=int, default=None, help="Number of Earth chords for PREM evaluation")
     parser.add_argument("--N_steps_MW", type=int, default=None, help="Number of spatial integration steps in the Milky Way")
-    parser.add_argument("--N_steps_earth", type=int, default=None, help="Number of spatial integration steps per Earth chord (default 100 under the 'avg' step scheme, whose results are certified step-count-independent; under the legacy 'left' scheme results scatter ~1e-2 with any step-count change and 500 was the pinned value)")
+    parser.add_argument("--N_steps_earth", type=int, default=None, help="Number of spatial integration steps per Earth chord (default 25 under the 'avg' step scheme, whose results are certified step-count-independent; under the legacy 'left' scheme results scatter ~1e-2 with any step-count change and 500 was the pinned value)")
     parser.add_argument("--r_start_kpc", type=float, default=None, help="Starting distance for Milky Way integration in kpc")
     
     # Export Slated Locations Overrides

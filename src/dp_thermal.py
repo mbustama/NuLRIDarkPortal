@@ -562,7 +562,19 @@ def thermal_grid_cached(E_bins: np.ndarray, z_bins: np.ndarray, sum_G: float,
                         thermal_analytic: bool = True) -> np.ndarray:
     """build_thermal_grid with the two-component coupling cache in front (see the
     NOTE above). Exact-path results differ from build_thermal_grid only by the
-    factoring of the sum_G_alpha weights out of the state sum (ulp level)."""
+    factoring of the sum_G_alpha weights out of the state sum (ulp level).
+
+    Arguments:
+      E_bins, z_bins: the (E, z) grid the rates are tabulated on.
+      sum_G, sum_G_alpha: total and per-flavor coupling weights from
+        compute_gamma_grid_inputs (sum_G is the cache's coupling coordinate s).
+      m_Zd: dark mediator mass (eV) -- part of the cache key.
+      m_nu_bg_arr, T_nu0, eta_mass: background masses (eV), CnuB temperature (eV),
+        and mass-basis asymmetries -- part of the cache key.
+      n_z_thermal: >= 2 selects the coarse-z reference path, which BYPASSES the cache.
+      thermal_analytic: False selects the midpoint reference kernel, likewise a bypass.
+
+    Returns: (N_z, N_E, 3) thermal rate grid Gamma."""
     if (not thermal_analytic) or int(n_z_thermal) >= 2 or sum_G <= 0.0:
         return build_thermal_grid(E_bins, z_bins, sum_G, sum_G_alpha, m_Zd,
                                   m_nu_bg_arr, T_nu0, eta_mass,

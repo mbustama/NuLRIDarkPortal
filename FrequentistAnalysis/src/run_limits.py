@@ -130,7 +130,19 @@ def extract_column_limits(y_grid, dchi2_column, threshold):
 
 def run_pair(base_config, pair, ls, output_dir, pool, num_cores, repair_cfg):
     """Runs one (m_Zd, X) plane end to end; returns the payload dict that is also
-    written to disk."""
+    written to disk.
+
+    Arguments:
+      base_config: the loaded analysis config (fixed_params for the pair are lifted
+        in a pair-specific copy -- see build_pair_config).
+      pair: (param_x, param_y) with x = m_Zd_eV and y the coupling being limited.
+      ls: the limits_settings block (n_steps, x_range, y_ranges, thresholds).
+      output_dir: destination for the per-plane json/txt outputs and the
+        per-segment resume file.
+      pool / num_cores: the shared prewarmed worker pool and its size.
+      repair_cfg: the repair_settings block (retries, simplex, spike threshold,
+        pass budget) forwarded to the 2D outlier repair.
+    """
     param_x, param_y = pair          # x = m_Zd_eV, y = the coupling
     cfg, param_names = build_pair_config(base_config, pair)
     start_vals = safe_start_values(param_names, cfg)

@@ -159,15 +159,28 @@ def prewarm_worker():
 
 def compute_user_model_single(params, static_data):
     """
-    Standard Python wrapper. Evaluates the dark portal propagation by calling 
+    Standard Python wrapper. Evaluates the dark portal propagation by calling
     external solvers and returns the predicted flavor fractions at Earth.
+
+    Arguments:
+      params: dict of the parameters Minuit is floating for THIS evaluation
+        (m_Zd_eV, g_D, epsilon_prime, u_e/u_mu/u_tau, f_*_S, eta_*, th*_deg,
+        dm*_sq, ... -- anything omitted falls back to the static defaults), or a
+        positional array (m_Zd_eV, g_D, epsilon_prime, u_e, u_mu, u_tau) for
+        backwards compatibility.
+      static_data: the 36-element immutable tuple built by GenericLikelihoodWrapper
+        (observations, grids, cosmology, mixing matrices, spatial settings,
+        structure overrides, thermal/earth-scheme knobs -- element meanings are
+        unpacked and commented below; shorter historical tuples get safe defaults).
+
+    Returns: (f_e, f_mu, f_tau) energy-averaged flavor fractions at the detector.
     """
     # Unpack the immutable data tuple (currently 36 elements; every element beyond the
     # original 26 -- N_steps_earth, use_SM_potential, n_e_earth, use_debye_screening,
     # n_cores_standalone, V_SM_struct, U_LRI_struct, n_z_thermal, thermal_analytic,
     # earth_step_scheme --
     # defaults to a safe value for any caller still passing an older, shorter tuple.
-    # N_steps_earth defaults to 100 under the certified step-count-independent 'avg'
+    # N_steps_earth defaults to 25 under the certified step-count-independent 'avg'
     # scheme; the historical 'left' scheme needed the pinned 500 -- see
     # propagate_earth_spatial's docstring in dp_spatial.py).
     (obs_f_e, obs_f_mu, obs_err_e, obs_err_mu,

@@ -146,9 +146,29 @@ def scan_parameter_parallel(m_global, param_name, start_val, sigma_guess, func, 
     Constructs distributed HPC tasks dynamically iterating bounds constraints and returns
     synthesized 1D profiling vectors. Features intelligent mesh refinements.
 
-    checkpoint_path, if given, persists each completed warm-start segment as it
-    finishes (see _run_segments), so a killed scan resumes mid-grid; the caller
-    removes the file once the scan's final output is safely written.
+    Arguments:
+      m_global: the globally-fit Minuit instance (start values/errors for every point).
+      param_name: the parameter profiled (fixed per grid point, all others minimized).
+      start_val, sigma_guess: scan window center and scale (window = +/-
+        scan_range_sigma * sigma_guess, clipped to `limits`, unless
+        force_rigid_bounds pins it to the absolute limits).
+      func: the chi2 objective (GenericLikelihoodWrapper), pickled to workers.
+      limits: {param: (low, high)} bounds applied to every inner fit.
+      param_names: full floating-parameter list (Minuit signature order).
+      output_dir: analysis output directory (kept for interface stability).
+      n_steps: returned grid size; n_points_internal/use_n_points_internal: evaluate
+        this many points and PCHIP-interpolate down to n_steps when internal < steps.
+      scan_range_sigma: half-width of the scan window in sigma_guess units.
+      minuit_retries: stalled-fit retry budget per point (see minimize_point).
+      use_log_scan: geometric grid spacing (parameters spanning decades).
+      force_rigid_bounds: scan the absolute parameter_limits instead of the local window.
+      pool / num_cores: multiprocessing pool and its size (segments ~3x num_cores).
+      use_warm_start: seed each point from the previous point's profiled solution.
+      minuit_strategy, retry_seed: inner-fit knobs -- see minimize_point.
+      checkpoint_path: per-segment resume file (see _run_segments), so a killed scan
+        resumes mid-grid; the caller removes it once the final output is written.
+
+    Returns: (grid, chi2 array, per-point profiled-parameter dicts).
     """
     if force_rigid_bounds and param_name in limits and limits[param_name][0] is not None and limits[param_name][1] is not None:
         scan_min, scan_max = limits[param_name][0], limits[param_name][1]
@@ -206,6 +226,22 @@ def scan_pair_parallel(m_global, param_x, param_y, limits, func, param_names, n_
                        use_log_x=False, use_log_y=False, use_warm_start=True, minuit_strategy=0,
                        retry_seed=-1, checkpoint_path=None):
     """Iterates a distributed two-dimensional mesh matrix computing profile isolines contour projections.
+
+    Arguments:
+      m_global: the globally-fit Minuit instance (start values/errors for every point).
+      param_x, param_y: the pinned pair; every other floating parameter is profiled.
+      limits: {param: (low, high)} bounds for the inner fits AND the grid windows
+        (each axis window = value +/- scan_range_sigma * error, clipped, unless
+        force_rigid_bounds pins it to the limits directly).
+      func, param_names: chi2 objective and full floating-parameter list.
+      n_steps: grid resolution per axis (n_steps x n_steps points).
+      scan_range_sigma: half-width of each axis window in error units.
+      minuit_retries, minuit_strategy, retry_seed: inner-fit knobs (see minimize_point).
+      force_rigid_bounds: use the absolute limits as the grid windows.
+      pool / num_cores: multiprocessing pool and sizing of the per-row segments.
+      use_warm_start: seed each point from its predecessor within a segment.
+
+    Returns: (x_grid, y_grid, (n_steps, n_steps) chi2 array Z[y, x], param_grid).
 
     use_log_x / use_log_y switch the corresponding grid to geometric (logarithmic)
     spacing -- the 2D analogue of scan_parameter_parallel's use_log_scan, needed for
