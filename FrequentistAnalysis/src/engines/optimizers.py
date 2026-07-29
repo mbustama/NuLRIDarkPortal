@@ -152,7 +152,7 @@ def perform_sanity_check(func, m):
         for fp in failed_params: print(f"  - {fp}")
     else: print("All parameters are connected. Proceeding to Scan.\n")
 
-def minimize_point(val, param_name, global_start_values, global_errors, func, limits, param_names, use_simplex=False, minuit_retries=3, minuit_strategy=0, retry_seed=-1):
+def minimize_point(val, param_name, global_start_values, global_errors, func, limits, param_names, use_simplex=False, minuit_retries=3, minuit_strategy=0, retry_seed=-1, minuit_maxcall=0):
     """
     Executes an isolated 1D profile sequence locking the specific parameter array slice,
     permitting gradients to optimize secondary components dynamically.
@@ -177,6 +177,12 @@ def minimize_point(val, param_name, global_start_values, global_errors, func, li
         which is iminuit's own default.)
       retry_seed (scan_settings.retry_seed, default -1): stalled-fit retry jitter
         seeding -- see _seed_retry_rng.
+      minuit_maxcall (scan_settings.minuit_maxcall, default 0 = Minuit's internal
+        limit): approximate cap on likelihood calls PER migrad attempt. A stalled
+        inner fit otherwise runs to Minuit's own limit before retrying (measured on a
+        real scan: one point burned 870 evaluations, 22% of the whole scan's budget,
+        against a 26-eval median); a cap bounds that tail, and the repair passes
+        catch any point the truncated fit left high.
 
     Returns: (best chi2, {param: value} at the profiled minimum), or (inf, {}) when
     every attempt failed.
@@ -200,7 +206,10 @@ def minimize_point(val, param_name, global_start_values, global_errors, func, li
 
         best_fval, best_params = np.inf, {}
         for retries in range(minuit_retries):
-            m_scan.migrad()
+            if int(minuit_maxcall) > 0:
+                m_scan.migrad(ncall=int(minuit_maxcall))
+            else:
+                m_scan.migrad()
             if m_scan.fmin is not None and m_scan.fval < best_fval:
                 best_fval = m_scan.fval
                 best_params = dict(zip(m_scan.parameters, m_scan.values))
@@ -224,13 +233,14 @@ def minimize_point(val, param_name, global_start_values, global_errors, func, li
     except Exception: pass
     return (final_best_fval, final_best_params) if final_best_fval < np.inf else (np.inf, {})
 
-def minimize_point_2d(val_pair, name_pair, global_start_values, global_errors, func, limits, param_names, use_simplex=False, minuit_retries=3, minuit_strategy=0, retry_seed=-1):
+def minimize_point_2d(val_pair, name_pair, global_start_values, global_errors, func, limits, param_names, use_simplex=False, minuit_retries=3, minuit_strategy=0, retry_seed=-1, minuit_maxcall=0):
     """Executes isolated parameter minimization pinning exactly two structural array dimensions.
 
     Arguments: as minimize_point, except val_pair/name_pair pin TWO parameters
     ((val_x, val_y) at (name_x, name_y)); a second attempt prepends a simplex run and
     a small gaussian kick to the free parameters when the first attempt fails
-    entirely. minuit_strategy / retry_seed: same inner-fit knobs as minimize_point.
+    entirely. minuit_strategy / retry_seed / minuit_maxcall: same inner-fit knobs as
+    minimize_point.
 
     Returns: (best chi2, {param: value}) or (inf, {}) when both attempts failed."""
     _seed_retry_rng(retry_seed, f"{name_pair[0]}|{name_pair[1]}",
@@ -269,7 +279,10 @@ def minimize_point_2d(val_pair, name_pair, global_start_values, global_errors, f
 
             best_fval, best_params = np.inf, {}
             for retries in range(minuit_retries):
-                m_scan.migrad()
+                if int(minuit_maxcall) > 0:
+                    m_scan.migrad(ncall=int(minuit_maxcall))
+                else:
+                    m_scan.migrad()
                 if m_scan.fmin is not None and m_scan.fval < best_fval:
                     best_fval = m_scan.fval
                     best_params = dict(zip(m_scan.parameters, m_scan.values))

@@ -26,6 +26,8 @@ DEFAULT_SCAN_SETTINGS = {
     "use_warm_start": True,
     "minuit_strategy": 0,
     "retry_seed": -1,
+    "minuit_maxcall": 0,
+    "min_segment_length": 1,
     "use_linear_interp": False,
     "clip_contour_smearing": False,
     "smooth_marginalized_1d": False,

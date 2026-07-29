@@ -183,6 +183,8 @@ def run_pair(base_config, pair, ls, output_dir, pool, num_cores, repair_cfg):
     n_steps = int(ls.get("n_steps", 20))
     _strategy = base_config.get("scan_settings", {}).get("minuit_strategy", 0)
     _rseed = base_config.get("scan_settings", {}).get("retry_seed", -1)
+    _maxcall = base_config.get("scan_settings", {}).get("minuit_maxcall", 0)
+    _minseg = base_config.get("scan_settings", {}).get("min_segment_length", 1)
     # Per-segment resume file: a crashed plane previously lost every completed point
     # (the plane-level checkpoint in main() only kicks in once the whole plane is done).
     seg_ckpt_path = os.path.join(output_dir, f"limits_2d_{param_y}_vs_{param_x}.segments.jsonl")
@@ -193,7 +195,8 @@ def run_pair(base_config, pair, ls, output_dir, pool, num_cores, repair_cfg):
         use_log_x=True, use_log_y=True,
         use_warm_start=base_config.get("scan_settings", {}).get("use_warm_start", True),
         minuit_strategy=_strategy, retry_seed=_rseed,
-        checkpoint_path=seg_ckpt_path)
+        checkpoint_path=seg_ckpt_path, minuit_maxcall=_maxcall,
+        min_segment_length=_minseg)
 
     if not repair_cfg.get("disable_outlier_repair", False):
         x_grid, y_grid, Z_chi2 = repair_2d_scan_outliers(
@@ -204,7 +207,7 @@ def run_pair(base_config, pair, ls, output_dir, pool, num_cores, repair_cfg):
             max_passes=repair_cfg.get("max_repair_passes", 3),
             minuit_retries=repair_cfg.get("minuit_retries", 3),
             pool=pool, num_cores=num_cores,
-            minuit_strategy=_strategy, retry_seed=_rseed)
+            minuit_strategy=_strategy, retry_seed=_rseed, minuit_maxcall=_maxcall)
 
     baseline = min(global_min_chi2, float(np.nanmin(Z_chi2)))
     dchi2 = np.nan_to_num(Z_chi2 - baseline, nan=1e9)

@@ -2039,6 +2039,97 @@ def test_scanner_checkpoint_resume(tmp_path, monkeypatch):
     assert len(calls) == 3, "stale (different-config) checkpoint was trusted"
 
 
+def test_global_fit_checkpoint_identity_and_load(tmp_path):
+    """The global-fit checkpoint must load ONLY when the identity hash (floating set,
+    physics, priors, start conditions) matches AND the stored fit was valid; anything
+    else forces a fresh fit. Guards against silently reusing a minimum computed under
+    different physics."""
+    from src.main import global_fit_identity, load_global_fit_checkpoint
+
+    cfg = {"experiment": "x", "physics_constants": {"m_lightest_eV": 0.01},
+           "start_values": {"g_D": 1e-4}, "fixed_params": {}, "parameter_limits": {},
+           "step_sizes": {}}
+    ident = global_fit_identity(cfg, ["g_D"], asimov=False)
+    assert ident == global_fit_identity(dict(cfg), ["g_D"], asimov=False)
+    assert ident != global_fit_identity(cfg, ["g_D", "u_e"], asimov=False)
+    assert ident != global_fit_identity(cfg, ["g_D"], asimov=True)
+    cfg2 = {**cfg, "physics_constants": {"m_lightest_eV": 0.02}}
+    assert ident != global_fit_identity(cfg2, ["g_D"], asimov=False)
+
+    path = str(tmp_path / "global_fit.json")
+    payload = {"identity": ident, "fval": -15.0, "valid": True,
+               "values": {"g_D": 1.3e-4}, "errors": {"g_D": 5e-6}}
+    with open(path, "w") as f:
+        json.dump(payload, f)
+    loaded = load_global_fit_checkpoint(path, ident)
+    assert loaded is not None and loaded["fval"] == -15.0
+
+    assert load_global_fit_checkpoint(path, "different") is None
+    payload["valid"] = False
+    with open(path, "w") as f:
+        json.dump(payload, f)
+    assert load_global_fit_checkpoint(path, ident) is None, "invalid fit was reused"
+    with open(path, "w") as f:
+        f.write("{corrupt")
+    assert load_global_fit_checkpoint(path, ident) is None
+
+
+def test_split_segments_min_length_floor():
+    """min_segment_length must floor the warm-start segment length: at high worker
+    counts the ~3-per-core rule otherwise produces single-point segments and
+    warm-starting silently dies. Default (1) must reproduce the historical split."""
+    from src.engines.scanner import _split_segments
+
+    items = list(range(100))
+    default = _split_segments(items, 200)
+    assert len(default) == 100, "historical high-core split changed"
+    assert _split_segments(items, 200, min_len=1) == default
+
+    floored = _split_segments(items, 200, min_len=4)
+    assert len(floored) == 25
+    assert all(len(s) >= 4 for s in floored)
+    assert [x for s in floored for x in s] == items, "floored split lost or reordered points"
+
+    # floor larger than the grid: one segment, never zero
+    assert _split_segments(items, 200, min_len=1000) == [items]
+
+
+def test_minuit_maxcall_caps_stalled_fits():
+    """minuit_maxcall must bound the per-migrad evaluation count of a hard inner fit
+    (measured on a real scan: one uncapped point burned 870 evaluations against a
+    26-eval median) while still returning a finite result; 0 keeps Minuit's own
+    internal limit (historical behavior)."""
+    from src.engines.optimizers import minimize_point
+
+    calls = {"n": 0}
+
+    def rosenbrock(w, x, y, z):
+        calls["n"] += 1
+        return (100 * (y - x**2)**2 + (1 - x)**2
+                + 100 * (z - y**2)**2 + (1 - y)**2 + (w - 1.0)**2)
+
+    names = ["w", "x", "y", "z"]
+    starts = {"w": 1.0, "x": -1.5, "y": 2.5, "z": -1.5}
+    errors = {p: 0.1 for p in names}
+    limits = {p: (-5.0, 5.0) for p in names}
+
+    calls["n"] = 0
+    fval_uncapped, _ = minimize_point(1.0, "w", starts, errors, rosenbrock, limits,
+                                      names, minuit_retries=1, retry_seed=3)
+    n_uncapped = calls["n"]
+
+    calls["n"] = 0
+    fval_capped, _ = minimize_point(1.0, "w", starts, errors, rosenbrock, limits,
+                                    names, minuit_retries=1, retry_seed=3,
+                                    minuit_maxcall=20)
+    n_capped = calls["n"]
+
+    assert np.isfinite(fval_capped)
+    assert n_capped < n_uncapped, f"cap did not reduce evals ({n_capped} vs {n_uncapped})"
+    # ncall is an approximate per-iteration check, so allow generous overhead
+    assert n_capped < 60, f"capped fit still ran {n_capped} evaluations"
+
+
 def test_retry_seed_deterministic_and_default_preserved():
     """retry_seed >= 0 must make the retry-jitter RNG stream a pure function of
     (base seed, parameter, grid value) -- identical across calls and processes --

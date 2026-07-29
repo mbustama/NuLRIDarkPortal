@@ -27,13 +27,14 @@ def _segment_scan_worker_1d(task_args):
     """Minimizes a contiguous segment of 1D grid points in one worker, optionally
     warm-starting each point from the previous point's profiled solution."""
     (vals, param_name, global_start_values, global_errors, func, limits, param_names,
-     use_simplex, minuit_retries, warm_start, minuit_strategy, retry_seed) = task_args
+     use_simplex, minuit_retries, warm_start, minuit_strategy, retry_seed,
+     minuit_maxcall) = task_args
     out = []
     start = dict(global_start_values)
     for v in vals:
         fval, params = minimize_point(v, param_name, start, global_errors, func, limits,
                                       param_names, use_simplex, minuit_retries,
-                                      minuit_strategy, retry_seed)
+                                      minuit_strategy, retry_seed, minuit_maxcall)
         out.append((fval, params))
         if warm_start and params and np.isfinite(fval):
             start = {**global_start_values, **params}
@@ -46,13 +47,14 @@ def _segment_scan_worker_2d(task_args):
     """Minimizes a contiguous (same-row) segment of 2D grid points in one worker,
     optionally warm-starting each point from the previous point's profiled solution."""
     (pairs, name_pair, global_start_values, global_errors, func, limits, param_names,
-     use_simplex, minuit_retries, warm_start, minuit_strategy, retry_seed) = task_args
+     use_simplex, minuit_retries, warm_start, minuit_strategy, retry_seed,
+     minuit_maxcall) = task_args
     out = []
     start = dict(global_start_values)
     for pair in pairs:
         fval, params = minimize_point_2d(pair, name_pair, start, global_errors, func,
                                          limits, param_names, use_simplex, minuit_retries,
-                                         minuit_strategy, retry_seed)
+                                         minuit_strategy, retry_seed, minuit_maxcall)
         out.append((fval, params))
         if warm_start and params and np.isfinite(fval):
             start = {**global_start_values, **params}
@@ -61,12 +63,20 @@ def _segment_scan_worker_2d(task_args):
     return out
 
 
-def _split_segments(items, num_cores):
+def _split_segments(items, num_cores, min_len=1):
     """Splits a task list into contiguous segments: enough for good pool load balancing
     (~3 per core), short enough that a warm-start chain gone wrong cannot contaminate
-    much of the grid."""
+    much of the grid.
+
+    min_len (scan_settings.min_segment_length, default 1 = historical behavior) floors
+    the segment length: at high worker counts the ~3-per-core rule shreds the grid into
+    single-point segments and warm-starting silently dies (e.g. 200 SLURM cores on a
+    100-point scan). Raising it trades pool occupancy for warm-start chains -- with
+    fewer segments than workers, the surplus workers idle for the phase."""
     n = len(items)
     n_segments = min(n, max(1, num_cores * 3))
+    if int(min_len) > 1:
+        n_segments = min(n_segments, max(1, n // int(min_len)))
     edges = np.linspace(0, n, n_segments + 1).astype(np.int64)
     return [items[edges[s]:edges[s + 1]] for s in range(n_segments) if edges[s + 1] > edges[s]]
 
@@ -141,7 +151,7 @@ def scan_parameter_parallel(m_global, param_name, start_val, sigma_guess, func, 
                             n_steps=40, use_n_points_internal=False, n_points_internal=100, scan_range_sigma=4.0,
                             minuit_retries=3, use_log_scan=False, force_rigid_bounds=False, pool=None, num_cores=1,
                             use_warm_start=True, minuit_strategy=0, retry_seed=-1,
-                            checkpoint_path=None):
+                            checkpoint_path=None, minuit_maxcall=0, min_segment_length=1):
     """
     Constructs distributed HPC tasks dynamically iterating bounds constraints and returns
     synthesized 1D profiling vectors. Features intelligent mesh refinements.
@@ -164,9 +174,10 @@ def scan_parameter_parallel(m_global, param_name, start_val, sigma_guess, func, 
       force_rigid_bounds: scan the absolute parameter_limits instead of the local window.
       pool / num_cores: multiprocessing pool and its size (segments ~3x num_cores).
       use_warm_start: seed each point from the previous point's profiled solution.
-      minuit_strategy, retry_seed: inner-fit knobs -- see minimize_point.
+      minuit_strategy, retry_seed, minuit_maxcall: inner-fit knobs -- see minimize_point.
       checkpoint_path: per-segment resume file (see _run_segments), so a killed scan
         resumes mid-grid; the caller removes it once the final output is written.
+      min_segment_length: floor on warm-start segment length -- see _split_segments.
 
     Returns: (grid, chi2 array, per-point profiled-parameter dicts).
     """
@@ -196,10 +207,10 @@ def scan_parameter_parallel(m_global, param_name, start_val, sigma_guess, func, 
     if pool is None or len(exec_grid) < 5:
         segments = [list(exec_grid)]
     else:
-        segments = _split_segments(list(exec_grid), num_cores)
+        segments = _split_segments(list(exec_grid), num_cores, min_len=min_segment_length)
     seg_tasks = [(seg, param_name, global_start_values, global_errors, func, limits,
                   param_names, False, minuit_retries, use_warm_start, minuit_strategy,
-                  retry_seed)
+                  retry_seed, minuit_maxcall)
                  for seg in segments]
     results = _run_segments(_segment_scan_worker_1d, seg_tasks,
                             None if pool is None else pool, "  Progress",
@@ -224,7 +235,8 @@ def scan_parameter_parallel(m_global, param_name, start_val, sigma_guess, func, 
 def scan_pair_parallel(m_global, param_x, param_y, limits, func, param_names, n_steps=20,
                        scan_range_sigma=3.5, minuit_retries=3, force_rigid_bounds=False, pool=None, num_cores=1,
                        use_log_x=False, use_log_y=False, use_warm_start=True, minuit_strategy=0,
-                       retry_seed=-1, checkpoint_path=None):
+                       retry_seed=-1, checkpoint_path=None, minuit_maxcall=0,
+                       min_segment_length=1):
     """Iterates a distributed two-dimensional mesh matrix computing profile isolines contour projections.
 
     Arguments:
@@ -236,10 +248,12 @@ def scan_pair_parallel(m_global, param_x, param_y, limits, func, param_names, n_
       func, param_names: chi2 objective and full floating-parameter list.
       n_steps: grid resolution per axis (n_steps x n_steps points).
       scan_range_sigma: half-width of each axis window in error units.
-      minuit_retries, minuit_strategy, retry_seed: inner-fit knobs (see minimize_point).
+      minuit_retries, minuit_strategy, retry_seed, minuit_maxcall: inner-fit knobs
+        (see minimize_point).
       force_rigid_bounds: use the absolute limits as the grid windows.
       pool / num_cores: multiprocessing pool and sizing of the per-row segments.
       use_warm_start: seed each point from its predecessor within a segment.
+      min_segment_length: floor on warm-start segment length (see _split_segments).
 
     Returns: (x_grid, y_grid, (n_steps, n_steps) chi2 array Z[y, x], param_grid).
 
@@ -293,8 +307,13 @@ def scan_pair_parallel(m_global, param_x, param_y, limits, func, param_names, n_
 
     # Segments per row: warm-start chains must not leap from the end of one row to the
     # start of the next (the y value jumps there, invalidating the seed).
+    # min_segment_length caps the per-row split the same way _split_segments floors the
+    # 1D one: at high worker counts the 3x-cores rule otherwise shreds rows into
+    # single-point segments and warm-starting silently dies.
     n_rows = len(y_grid)
     seg_per_row = max(1, int(np.ceil(3.0 * num_cores / max(1, n_rows))))
+    if int(min_segment_length) > 1:
+        seg_per_row = min(seg_per_row, max(1, n_steps // int(min_segment_length)))
     segments = []
     for y in y_grid:
         row = [(x, y) for x in x_grid]
@@ -306,7 +325,7 @@ def scan_pair_parallel(m_global, param_x, param_y, limits, func, param_names, n_
     n_tasks = n_steps * n_steps
     seg_tasks = [(seg, (param_x, param_y), global_vals, global_errs, func, limits,
                   param_names, True, minuit_retries, use_warm_start, minuit_strategy,
-                  retry_seed)
+                  retry_seed, minuit_maxcall)
                  for seg in segments]
     results = _run_segments(_segment_scan_worker_2d, seg_tasks,
                             None if (pool is None or n_tasks < 5) else pool,
