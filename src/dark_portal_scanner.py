@@ -254,8 +254,16 @@ if __name__ == "__main__":
     parser.add_argument("--n_E_bins", type=int, default=200,
                         help="Energy bins during scans (reduced from the solver default for speed).")
     parser.add_argument("--n_z_bins", type=int, default=200)
-    parser.add_argument("--n_mw_paths", type=int, default=100)
-    parser.add_argument("--n_earth_chords", type=int, default=100)
+    parser.add_argument("--n_mw_paths", type=int, default=12,
+                        help="Milky Way trajectories per point (default 12; the convergence study "
+                             "in output/convergence/ found >= 6 sufficient at the studied points, "
+                             "but raise this and re-run tools/convergence_study.py when exploring "
+                             "very small m_Zd, where the unscreened galactic potential makes the "
+                             "solid-angle average anisotropic).")
+    parser.add_argument("--n_earth_chords", type=int, default=50,
+                        help="Earth chords per point (default 50: the sub-percent knee of the "
+                             "convergence study in output/convergence/; 12 suffices for "
+                             "percent-level ratios).")
     parser.add_argument("--N_steps_MW", type=int, default=25,
                         help="25 agrees with a 400-step reference to ~1e-10 (tools/convergence_study.py).")
     parser.add_argument("--n_cores", type=int,

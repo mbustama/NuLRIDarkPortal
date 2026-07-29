@@ -200,6 +200,8 @@ cd src && python3 dark_portal_scanner.py
 
 Runs logarithmic 1D scans over $m_{Z_D}$, $g_D$, $u_e$, $u_\mu$, distributing configurations across a `multiprocessing.Pool` sized by the config's `execution.n_cores`, computes energy-averaged flavor ratios per point (via `flux_postprocessing.compute_energy_averaged_ratios`, which shares the solver's exact geometric bin widths), exports columnar scan data, and renders a 2×2 summary figure.
 
+The scanner's spatial-averaging defaults follow the convergence study (Section 11): `--n_mw_paths 12` and `--n_earth_chords 50` (the sub-percent knee), replacing the historical 100/100 — roughly a 2–3× speed-up per scan point at no measured accuracy cost at the studied points. **Caveat:** the study's `n_mw_paths` conclusion was drawn at the default parameter points; at very small $m_{Z_D}$ (unscreened, longer-range galactic potential) the solid-angle average becomes anisotropic — raise `--n_mw_paths` there and re-check with `tools/convergence_study.py`.
+
 ---
 
 ## 7. Configuration Guide & Command-Line Flags
