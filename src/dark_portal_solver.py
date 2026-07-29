@@ -1541,15 +1541,99 @@ def _mw_path_worker(args) -> np.ndarray:
         step_mw_approach(r_current_kpc, theta, phi, dr_MW_eV_inv, E_bins, rho_f, M_rot, m_eff, Coef, U_LRI_struct, U_step_buffer, H_buf, T_buf)
     return rho_f
 
+# PREM layer boundary radii (km) -- the breakpoints of calc_earth_density
+_PREM_BOUNDARIES_KM = np.array([1221.5, 3480.0, 5701.0, 5771.0, 5971.0, 6151.0,
+                                6346.6, 6356.0, 6368.0, 6371.0])
+
+
+def _earth_layer_crossings(baseline_km: float, costh: float, detector_depth_km: float) -> np.ndarray:
+    """Path positions l (km, sorted, interior) where a chord crosses a PREM layer
+    boundary. Closed form: with u = baseline - l and f2 = 6371 - depth, the geocentric
+    radius obeys r^2 = u^2 + 2 f2 costh u + f2^2, so r = r_b gives
+    u = -f2 costh +- sqrt(r_b^2 - f2^2 (1 - costh^2))."""
+    f2 = 6371.0 - detector_depth_km
+    ls = []
+    for r_b in _PREM_BOUNDARIES_KM:
+        disc = r_b * r_b - f2 * f2 * (1.0 - costh * costh)
+        if disc <= 0.0:
+            continue
+        sq = np.sqrt(disc)
+        for u in (-f2 * costh + sq, -f2 * costh - sq):
+            l = baseline_km - u
+            # margin excludes the entry-point artifact: every chord ENTERS exactly on
+            # the r = 6371 surface boundary, so that root lands at l = O(fp noise);
+            # genuine slivers below ~1e-6 * baseline are integration-negligible anyway
+            if 1e-6 * baseline_km < l < baseline_km * (1.0 - 1e-6):
+                ls.append(l)
+    return np.array(sorted(ls), dtype=np.float64)
+
+
+@njit(fastmath=True, cache=True)
+def _avg_earth_density_seq(baseline_km: float, costh: float, N_steps: int,
+                           detector_depth_km: float, n_n_amb_eV3: float,
+                           cross_ls: np.ndarray, glx: np.ndarray, glw: np.ndarray) -> np.ndarray:
+    """Per-step EXACT path-averaged total density along an Earth chord:
+    nbar_s = (1/dr) * integral of spatial_total_density_earth over [l_s, l_{s+1}],
+    with the integral split at PREM layer crossings (cross_ls, sorted) so every
+    Gauss-Legendre subsegment integrates a smooth piecewise-polynomial -- the density
+    is then exact to fp accuracy for any step count. This is what makes the 'avg'
+    stepping scheme's accumulated LRI phase equal Coef * integral(n dl) EXACTLY,
+    independent of N_steps -- see propagate_earth_spatial's scheme note."""
+    dr = baseline_km / N_steps
+    nbar = np.empty(N_steps, dtype=np.float64)
+    n_cross = len(cross_ls)
+    n_gl = len(glx)
+    for s in range(N_steps):
+        a = s * dr
+        b = a + dr
+        total = 0.0
+        seg_a = a
+        for k in range(n_cross + 1):
+            seg_b = b
+            if k < n_cross:
+                c = cross_ls[k]
+                if c <= a:
+                    continue
+                if c < b:
+                    seg_b = c
+                else:
+                    seg_b = b
+            if seg_b <= seg_a:
+                continue
+            mid = 0.5 * (seg_a + seg_b)
+            half = 0.5 * (seg_b - seg_a)
+            acc = 0.0
+            for q in range(n_gl):
+                l = mid + half * glx[q]
+                acc += glw[q] * spatial_total_density_earth(l, baseline_km, costh,
+                                                           detector_depth_km, n_n_amb_eV3)
+            total += acc * half
+            seg_a = seg_b
+            if seg_a >= b:
+                break
+        nbar[s] = total / dr
+    return nbar
+
+
 def _earth_chord_worker(args) -> np.ndarray:
     """Propagates a single Earth chord (one zenith angle) end-to-end to the detector.
 
     Module-level (picklable) so it can be dispatched to a multiprocessing pool: each
     chord is fully independent of the others, so this is the unit of parallel work for
     the Earth phase of the spatial handover.
+
+    earth_scheme selects the potential discretization per step:
+      'left' -- historical scheme: V sampled at the step's left endpoint (kept
+                byte-identical);
+      'avg'  -- V is the EXACT path average over the step (layer-split Gauss-Legendre
+                integration of the PREM profile). The accumulated LRI phase then equals
+                Coef * integral(n dl) exactly for ANY step count, removing the
+                Riemann-sum phase jitter that made results step-count-ambiguous at the
+                ~1e-2 level (the round-7 fringe-aliasing finding). Same evolution
+                kernel; only the V value per step differs.
     """
     (costh, baseline_km, N_steps_earth, E_bins, rho_surf_avg, M_rot, n_n_amb_eV3, Coef,
-     U_LRI_struct, V_SM, detector_depth_km) = args
+     U_LRI_struct, V_SM, detector_depth_km, earth_scheme) = args
 
     dr_earth_km = baseline_km / N_steps_earth
     dr_earth_eV_inv = dr_earth_km * 1e3 * m_to_eV_inv
@@ -1557,11 +1641,20 @@ def _earth_chord_worker(args) -> np.ndarray:
     U_step_buffer = np.zeros((3, 3), dtype=np.complex128)
     H_buf = np.zeros((3, 3), dtype=np.complex128)
     T_buf = np.zeros((3, 3), dtype=np.complex128)
-    for step in range(N_steps_earth):
-        l_km = step * dr_earth_km
-        step_earth_transit(l_km, baseline_km, costh, dr_earth_eV_inv, E_bins, rho_earth, M_rot,
-                           n_n_amb_eV3, Coef, U_LRI_struct, V_SM,
-                           detector_depth_km, U_step_buffer, H_buf, T_buf)
+    if earth_scheme == "avg":
+        cross_ls = _earth_layer_crossings(baseline_km, costh, detector_depth_km)
+        nbar = _avg_earth_density_seq(baseline_km, costh, N_steps_earth, detector_depth_km,
+                                      n_n_amb_eV3, cross_ls, _GL10_X, _GL10_W)
+        for step in range(N_steps_earth):
+            V_LRI = np.ascontiguousarray((Coef * nbar[step]) * U_LRI_struct + V_SM)
+            _evolve_rho_all_bins(E_bins, rho_earth, M_rot, V_LRI, dr_earth_eV_inv,
+                                 H_buf, U_step_buffer, T_buf)
+    else:
+        for step in range(N_steps_earth):
+            l_km = step * dr_earth_km
+            step_earth_transit(l_km, baseline_km, costh, dr_earth_eV_inv, E_bins, rho_earth, M_rot,
+                               n_n_amb_eV3, Coef, U_LRI_struct, V_SM,
+                               detector_depth_km, U_step_buffer, H_buf, T_buf)
     return rho_earth
 
 def _split_E_blocks(N_E: int, n_units: int, n_workers: int):
@@ -1669,7 +1762,8 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
                             N_steps_MW: int = 25, r_start_kpc: float = 100.0,
                             show_progress: bool = True, verbose: int = 1, n_cores: int = 1,
                             N_steps_earth: int = 500, external_pool=None,
-                            U_LRI_struct=None, V_SM_struct=None, use_gpu: bool = False) -> np.ndarray:
+                            U_LRI_struct=None, V_SM_struct=None, use_gpu: bool = False,
+                            earth_step_scheme: str = "left") -> np.ndarray:
     """
     Executes pure spatial ODE through Milky Way and Earth with active tracking.
     Milky Way trajectories and Earth chords are mutually independent, so when n_cores > 1
@@ -1811,9 +1905,15 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
             dr_earth_km = baselines / N_steps_earth
             n_seq_earth = np.empty((len(earth_costh), N_steps_earth))
             for c in range(len(earth_costh)):
-                for s in range(N_steps_earth):
-                    n_seq_earth[c, s] = spatial_total_density_earth(s * dr_earth_km[c], baselines[c],
-                                                                    earth_costh[c], detector_depth_km, n_n_amb_eV3)
+                if earth_step_scheme == "avg":
+                    cross_ls = _earth_layer_crossings(baselines[c], earth_costh[c], detector_depth_km)
+                    n_seq_earth[c, :] = _avg_earth_density_seq(baselines[c], earth_costh[c],
+                                                               N_steps_earth, detector_depth_km,
+                                                               n_n_amb_eV3, cross_ls, _GL10_X, _GL10_W)
+                else:
+                    for s in range(N_steps_earth):
+                        n_seq_earth[c, s] = spatial_total_density_earth(s * dr_earth_km[c], baselines[c],
+                                                                        earth_costh[c], detector_depth_km, n_n_amb_eV3)
             rho0_chords = np.broadcast_to(rho_surf_avg, (len(earth_costh), N_E, 3, 3)).copy()
             rho_chords = run_spatial_handover_gpu(E_bins, rho0_chords, n_seq_earth,
                                                   dr_earth_km * 1e3 * m_to_eV_inv,
@@ -1849,8 +1949,23 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
     if verbose == 2:
         safe_print(f"Milky Way transit complete. Initiating Solar System point-source locks and Earth PREM transit ({len(earth_costh)} chord(s))...")
 
-    # NOTE: An earlier version of this code scaled n_steps_earth down for shorter chords
-    # (same physical km/step as the costh=-1 chord, since that seemed to only cost
+    # NOTE ON STEP SCHEMES ('avg' vs 'left', grid.earth_step_scheme): under the default
+    # 'avg' scheme each step uses the EXACT path-averaged potential, so the accumulated
+    # LRI phase equals Coef * integral(n dl) exactly for ANY step count -- measured at
+    # the production validation points (below/inband/strong classes), fluxes at
+    # N_steps_earth = 8 and 1000 agree to <= 4.5e-9 with energy-averaged ratios to
+    # <= 6.5e-10, which is what justifies the N_steps_earth = 100 default (a 12.5x
+    # margin over the observed knee). The historical 'left' scheme (V sampled at each
+    # step's left endpoint) carries a Riemann-sum phase error of thousands of radians
+    # that RE-ALIASES the Earth-transit fringes on every step-count change (500 vs 501
+    # measured 1.6-17% pointwise flux / up to 1.7e-2 energy-averaged-ratio scatter);
+    # everything in the historical note below applies to THAT scheme. Phase-noise-
+    # regime points (e.g. m_Zd ~ 40 eV, potential-dominated Earth transit) remain
+    # pointwise-unconvergeable under ANY scheme (decoherence-averaged only, see
+    # propagator_3x3's phase-noise guard).
+    #
+    # HISTORICAL NOTE ('left' scheme): an earlier version scaled n_steps_earth down for
+    # shorter chords (same physical km/step as the costh=-1 chord, since that seemed to only cost
     # resolution nobody needed -- verified via a synthetic, purely-diagonal test state to
     # agree with a 2000-step reference to 1e-12). That test state was misleading: the real
     # rho_surf_avg arriving from the Milky Way phase carries off-diagonal coherences, and at
@@ -1870,7 +1985,7 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
     earth_blocks = _split_E_blocks(N_E, len(earth_costh), n_workers)
     earth_tasks = [(costh, get_baseline_earth(detector_depth_km, costh), N_steps_earth, E_bins[b0:b1],
                     rho_surf_avg[b0:b1], M_rot, n_n_amb_eV3, Coef, U_LRI_struct, V_SM,
-                    detector_depth_km) for costh in earth_costh for (b0, b1) in earth_blocks]
+                    detector_depth_km, earth_step_scheme) for costh in earth_costh for (b0, b1) in earth_blocks]
     earth_block_results = _run_spatial_tasks(_earth_chord_worker, earth_tasks, f"Earth chords ({lbl})", n_workers, show_progress, external_pool=external_pool)
     earth_results = []
     for c in range(len(earth_costh)):
@@ -1952,7 +2067,8 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                        precomputed_Gamma_grid_all: np.ndarray = None, N_steps_earth: int = 500,
                        external_pool=None, U_LRI_struct=None, V_SM_struct=None,
                        n_z_thermal: int = 0, use_gpu: bool = False,
-                       thermal_analytic: bool = True) -> np.ndarray:
+                       thermal_analytic: bool = True,
+                       earth_step_scheme: str = "left") -> np.ndarray:
     """
     Executes the complete spectrum integration, driving the underlying JIT kernels.
     Includes verbose level 2 for periodic redshift status updates.
@@ -2120,7 +2236,7 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                                       show_progress=show_progress, verbose=verbose, n_cores=n_cores,
                                       N_steps_earth=N_steps_earth, external_pool=external_pool,
                                       U_LRI_struct=U_LRI_struct_eff, V_SM_struct=V_SM_struct_eff,
-                                      use_gpu=use_gpu)
+                                      use_gpu=use_gpu, earth_step_scheme=earth_step_scheme)
 
     # DOMAIN CHECK: same contract as the thermal-grid check above -- never return NaN
     # silently. (The known non-finite mechanism here, unitarity loss of the spatial
@@ -2293,7 +2409,8 @@ def propagation_worker(args) -> Tuple[np.ndarray, np.ndarray]:
             precomputed_Gamma_grid_all=Gamma_grid_all, N_steps_earth=params.get('N_steps_earth', 500),
             U_LRI_struct=params.get('U_LRI_struct', None), V_SM_struct=params.get('V_SM_struct', None),
             use_gpu=params.get('use_gpu', False),
-            thermal_analytic=params.get('thermal_analytic', True)
+            thermal_analytic=params.get('thermal_analytic', True),
+            earth_step_scheme=params.get('earth_step_scheme', 'left')
         )
 
     flag_val = str(params.get('is_antineutrino', 'sum')).strip().lower()
@@ -2433,6 +2550,11 @@ def run_solver(config: Dict) -> Tuple[np.ndarray, np.ndarray]:
     # Semi-analytic momentum integration of the thermal rates (True, the default) vs
     # the 100-point midpoint reference kernel (False) -- see build_thermal_grid.
     params['thermal_analytic'] = bool(config['grid']['thermal_analytic'])
+    # Earth-transit potential discretization: 'left' (historical) or 'avg' (exact
+    # step-averaged potential -- see _earth_chord_worker's docstring).
+    params['earth_step_scheme'] = str(config['grid']['earth_step_scheme']).strip().lower()
+    if params['earth_step_scheme'] not in ('left', 'avg'):
+        raise ValueError(f"grid.earth_step_scheme must be 'left' or 'avg', got {params['earth_step_scheme']!r}")
     params['N_steps_earth'] = int(config['grid']['N_steps_earth'])
     params['r_start_kpc'] = float(config['grid']['r_start_kpc'])
     paths_mw = config['grid']['n_mw_paths']
@@ -2598,7 +2720,8 @@ def _build_default_config() -> Dict:
             "N_steps_MW": 25,
             "n_z_thermal": 0,
             "thermal_analytic": True,
-            "N_steps_earth": 500,
+            "earth_step_scheme": "avg",
+            "N_steps_earth": 100,
             "r_start_kpc": 100.0
         },
         "output": {
@@ -2714,6 +2837,7 @@ if __name__ == "__main__":
     parser.add_argument("--n_z_bins", type=int, default=None)
     parser.add_argument("--n_z_thermal", type=int, default=None, help="Coarse z-samples for the thermal-rate grid (default 0 = exact, no interpolation; see build_thermal_grid before enabling)")
     parser.add_argument("--thermal_analytic", type=str, default=None, help="Set to 'false' to use the 100-point midpoint reference kernel for the thermal rates instead of the semi-analytic default (see build_thermal_grid)")
+    parser.add_argument("--earth_step_scheme", type=str, default=None, help="Earth-transit potential discretization: 'left' (historical default) or 'avg' (exact step-averaged potential; step-count-independent LRI phase -- see _earth_chord_worker)")
     parser.add_argument("--n_mw_paths", type=int, default=None, help="Number of Milky Way trajectories for solid-angle average")
     parser.add_argument("--n_earth_chords", type=int, default=None, help="Number of Earth chords for PREM evaluation")
     parser.add_argument("--N_steps_MW", type=int, default=None, help="Number of spatial integration steps in the Milky Way")
@@ -2801,6 +2925,7 @@ if __name__ == "__main__":
     if args.n_z_bins is not None: config["grid"]["n_z_bins"] = args.n_z_bins
     if args.n_z_thermal is not None: config["grid"]["n_z_thermal"] = args.n_z_thermal
     if args.thermal_analytic is not None: config["grid"]["thermal_analytic"] = str_to_bool(args.thermal_analytic)
+    if args.earth_step_scheme is not None: config["grid"]["earth_step_scheme"] = args.earth_step_scheme
     if args.n_mw_paths is not None: config["grid"]["n_mw_paths"] = args.n_mw_paths
     if args.n_earth_chords is not None: config["grid"]["n_earth_chords"] = args.n_earth_chords
     if args.N_steps_MW is not None: config["grid"]["N_steps_MW"] = args.N_steps_MW

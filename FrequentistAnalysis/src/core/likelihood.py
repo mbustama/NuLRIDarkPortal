@@ -153,11 +153,11 @@ class GenericLikelihoodWrapper:
         # caller relies on repeat-evaluation identity (perform_sanity_check compares
         # against Minuit's stored fval, and the emcee wrapper re-evaluates by design).
 
-        # Ensure the tuple expects 35 elements now (spatial tracking overrides plus
+        # Ensure the tuple expects 36 elements now (spatial tracking overrides plus
         # use_SM_potential/n_e_earth/use_debye_screening/n_cores_standalone/
-        # V_SM_struct/U_LRI_struct/n_z_thermal/thermal_analytic)
+        # V_SM_struct/U_LRI_struct/n_z_thermal/thermal_analytic/earth_step_scheme)
         self.static_data = self.config.get("static_data_tuple", None)
-        if self.static_data is None or len(self.static_data) != 35:
+        if self.static_data is None or len(self.static_data) != 36:
             try:
                 # Direct read from the flat physics_constants dict in the active frequentist config
                 pc = self.config.get("physics_constants", {})
@@ -268,6 +268,10 @@ class GenericLikelihoodWrapper:
                 # Semi-analytic momentum integration of the thermal rates (default
                 # True; False = midpoint reference kernel).
                 thermal_analytic = bool(pc.get("thermal_analytic", _PC_DEFAULTS["thermal_analytic"]))
+                # Earth-transit potential discretization (see dark_portal_solver's
+                # _earth_chord_worker: 'avg' = exact step-averaged, step-count-
+                # independent LRI phase; 'left' = historical scheme).
+                earth_step_scheme = str(pc.get("earth_step_scheme", _PC_DEFAULTS["earth_step_scheme"]))
                 
                 # Computed structures
                 E_bins = np.logspace(np.log10(E_min_eV), np.log10(E_max_eV), n_E_bins)
@@ -317,7 +321,8 @@ class GenericLikelihoodWrapper:
                     V_SM_struct,                     # 31. V_SM_struct (None = default diag(1,0,0))
                     U_LRI_struct,                    # 32. U_LRI_struct (None = outer(u, conj(u)))
                     n_z_thermal,                     # 33. n_z_thermal (z-interp; 0 = off/exact)
-                    thermal_analytic                 # 34. thermal_analytic (semi-analytic p-integral)
+                    thermal_analytic,                # 34. thermal_analytic (semi-analytic p-integral)
+                    earth_step_scheme                # 35. earth_step_scheme ('avg' | 'left')
                 )
                 print(f"  [Server] Successfully loaded physical constants from active config.")
             except Exception as e:
@@ -325,7 +330,7 @@ class GenericLikelihoodWrapper:
                 self.static_data = None
 
         if self.static_data is None:
-            print("  [Warning] Valid 35-element 'static_data_tuple' not found in config. Injecting mock tuple for initialization.")
+            print("  [Warning] Valid 36-element 'static_data_tuple' not found in config. Injecting mock tuple for initialization.")
             self.static_data = (
                 0.33, 0.33, 0.05, 0.05,
                 np.logspace(5, 8, 10), np.linspace(0, 4, 10),
@@ -339,7 +344,7 @@ class GenericLikelihoodWrapper:
                 1.0, 6, 3, 100, 100.0, 500,
                 False, 1.5e24 * cm_inv3_to_eV3, True,
                 self.n_cores_standalone,
-                None, None, 0, True
+                None, None, 0, True, "avg"
             )
 
         # PHASE-NOISE DOMAIN ADVISORY (from the task-#3 diagnosis in

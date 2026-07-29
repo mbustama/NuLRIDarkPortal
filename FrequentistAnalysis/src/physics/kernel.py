@@ -151,7 +151,7 @@ def prewarm_worker():
             1.5, False, 2.5, 0.0, 1.0, 1.0,
             1, 1, 2, 100.0, 2,          # n_mw_paths, n_earth_chords, N_steps_MW, r_start_kpc, N_steps_earth
             False, 0.0, True, 1,        # use_SM_potential, n_e_earth, use_debye_screening, n_cores_standalone
-            None, None, 0, True)        # V_SM_struct, U_LRI_struct, n_z_thermal, thermal_analytic
+            None, None, 0, True, "avg")  # V_SM_struct, U_LRI_struct, n_z_thermal, thermal_analytic, earth_step_scheme
         compute_user_model_single({"m_Zd_eV": 2.0e6, "g_D": 1e-4, "epsilon_prime": 0.1}, static)
     except Exception:
         pass
@@ -162,9 +162,10 @@ def compute_user_model_single(params, static_data):
     Standard Python wrapper. Evaluates the dark portal propagation by calling 
     external solvers and returns the predicted flavor fractions at Earth.
     """
-    # Unpack the immutable data tuple (currently 35 elements; every element beyond the
+    # Unpack the immutable data tuple (currently 36 elements; every element beyond the
     # original 26 -- N_steps_earth, use_SM_potential, n_e_earth, use_debye_screening,
-    # n_cores_standalone, V_SM_struct, U_LRI_struct, n_z_thermal, thermal_analytic --
+    # n_cores_standalone, V_SM_struct, U_LRI_struct, n_z_thermal, thermal_analytic,
+    # earth_step_scheme --
     # defaults to a safe value for any caller still passing an older, shorter tuple.
     # N_steps_earth=500 is the only value validated against resonance-crossing
     # sensitivity, see propagate_earth_spatial's docstring in dark_portal_solver.py).
@@ -194,6 +195,9 @@ def compute_user_model_single(params, static_data):
     # Semi-analytic momentum integration of the thermal rates (default True); False
     # selects the 100-point midpoint reference kernel -- see build_thermal_grid.
     thermal_analytic = bool(static_data[34]) if len(static_data) > 34 else _DC['grid']['thermal_analytic']
+    # Earth-transit potential discretization ('avg' = exact step-averaged, the default;
+    # 'left' = historical left-endpoint sampling) -- see _earth_chord_worker.
+    earth_step_scheme = str(static_data[35]) if len(static_data) > 35 else _DC['grid']['earth_step_scheme']
 
     # 1. Unpack scanning parameters from the generic Minuit engine wrapper.
     #    Handles backwards compatibility if passed as a positional array.
@@ -377,7 +381,8 @@ def compute_user_model_single(params, static_data):
             n_mw_paths, n_earth_chords, N_steps_MW, r_start_kpc,
             show_progress, verbose, n_cores_for_call, Gamma_grid_all, N_steps_earth,
             external_pool=persistent_pool,
-            U_LRI_struct=U_LRI_struct, V_SM_struct=V_SM_struct
+            U_LRI_struct=U_LRI_struct, V_SM_struct=V_SM_struct,
+            earth_step_scheme=earth_step_scheme
         )
 
     # Evaluate flags to match solver's native worker capabilities

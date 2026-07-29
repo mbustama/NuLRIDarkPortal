@@ -522,7 +522,7 @@ def test_frequentist_static_data_wires_use_SM_potential_and_n_e_earth():
     func_lo = GenericLikelihoodWrapper(cfg_lo, [])
     func_hi = GenericLikelihoodWrapper(cfg_hi, [])
 
-    assert len(func_off.static_data) == 35
+    assert len(func_off.static_data) == 36
     assert func_off.static_data[27] is False or func_off.static_data[27] == False  # noqa: E712
     assert func_lo.static_data[27] is True or func_lo.static_data[27] == True  # noqa: E712
     assert func_lo.static_data[28] != func_hi.static_data[28]
@@ -564,7 +564,12 @@ def test_frequentist_static_data_wires_use_debye_screening():
     result_on = compute_user_model_single(params, func_on.static_data)
     result_off = compute_user_model_single(params, func_off.static_data)
 
-    assert not np.allclose(result_on, result_off)
+    # Wiring check: a dropped flag would give BIT-IDENTICAL results. Under the 'left'
+    # Earth scheme the toggle's small V-shift was amplified by discretization phase
+    # noise into an O(1e-4) flux change; the phase-exact 'avg' scheme (dev-earth)
+    # removes that amplification, leaving only the true physical effect (~1e-7 here)
+    # -- so assert at a tolerance that detects wiring, not noise amplification.
+    assert not np.allclose(result_on, result_off, rtol=1e-12, atol=1e-12)
 
 
 def test_frequentist_static_data_backward_compatible_with_shorter_tuples():
@@ -1066,7 +1071,7 @@ def test_frequentist_n_cores_standalone_wired_from_scan_settings():
     cfg = _make_frequentist_config()
     cfg["scan_settings"] = {"num_cores": 4}
     func = GenericLikelihoodWrapper(cfg, [])
-    assert len(func.static_data) == 35
+    assert len(func.static_data) == 36
     assert func.static_data[30] == 4
 
     # Clamped to what's actually available, never silently allowed above it.
@@ -1643,6 +1648,134 @@ def test_thermal_grid_cached_gate_rejects_wide_bracket():
         dps.thermal_grid_cached(E_bins, z_bins, s, ones, 2e6, m_nu, 1.95e-4, eta_mass)
     state = next(iter(dps._tc_cache.values()))
     assert state["fit"] is None, "surrogate activated across a bracket beyond the model's validity"
+
+
+# =============================================================================
+# Earth step-averaged potential scheme (dev-earth)
+# =============================================================================
+
+def test_earth_layer_crossings_match_bruteforce():
+    """The closed-form PREM layer-crossing positions along a chord must match a dense
+    sign-change scan of r(l) - r_b for every boundary, on core-crossing, mid, and
+    grazing chords."""
+    depth = 1.5
+    for costh in (-1.0, -0.7, -0.3, -0.05):
+        baseline = dps.get_baseline_earth(depth, costh)
+        got = dps._earth_layer_crossings(baseline, costh, depth)
+        # brute force: dense r(l), find crossings of each boundary
+        l = np.linspace(0.0, baseline, 2_000_001)
+        f1 = baseline - l
+        f2 = 6371.0 - depth
+        r = np.sqrt(f1**2 + f2**2 + 2.0 * f1 * f2 * costh)
+        expected = []
+        for r_b in dps._PREM_BOUNDARIES_KM:
+            s = np.sign(r - r_b)
+            # strict sign product < 0: a sample sitting EXACTLY on a boundary (the
+            # costh = -1 chord enters at r = 6371.0 precisely) is not an interior
+            # crossing
+            idx = np.nonzero(s[:-1] * s[1:] < 0)[0]
+            for i in idx:
+                expected.append(0.5 * (l[i] + l[i + 1]))
+        # exclude near-endpoint artifacts: at costh = -1 the chord's entry point sits
+        # EXACTLY on the r = 6371 surface boundary (r(0) = 6371.0), which the dense
+        # sign scan reports as a crossing; the closed form correctly returns only
+        # interior crossings.
+        expected = np.array(sorted(e for e in expected if 1e-6 * baseline < e < baseline * (1 - 1e-6)))
+        assert len(got) == len(expected), f"costh={costh}: {len(got)} vs {len(expected)} crossings"
+        if len(got):
+            np.testing.assert_allclose(got, expected, atol=baseline / 1_000_000)
+
+
+def test_avg_earth_density_matches_dense_average():
+    """The layer-split GL step averages must equal dense numerical averages of the
+    (discontinuous, piecewise-polynomial) density to high accuracy, and their step sum
+    must reproduce the total path integral exactly for different step counts -- the
+    property that makes the 'avg' scheme's LRI phase step-count-independent."""
+    depth, costh = 1.5, -0.83
+    baseline = dps.get_baseline_earth(depth, costh)
+    n_amb = 1.36e-14
+    cross = dps._earth_layer_crossings(baseline, costh, depth)
+
+    totals = {}
+    for N in (37, 250):
+        nbar = dps._avg_earth_density_seq(baseline, costh, N, depth, n_amb, cross,
+                                          dps._GL10_X, dps._GL10_W)
+        dr = baseline / N
+        # dense referee for a few steps, including ones containing a layer crossing
+        check = {0, N // 2, N - 1}
+        for c in cross[:3]:
+            check.add(min(N - 1, int(c / dr)))
+        for s in check:
+            a, b = s * dr, (s + 1) * dr
+            # jump-aware referee: adaptive quadrature on the smooth subsegments between
+            # layer crossings (any fixed-step rule ACROSS a density discontinuity, or
+            # even dense trapezoids on the curved smooth parts, referee the wrong way)
+            edges = [a] + [c for c in cross if a < c < b] + [b]
+            ref_int = 0.0
+            for lo, hi in zip(edges[:-1], edges[1:]):
+                val, _ = integrate.quad(
+                    lambda x: dps.spatial_total_density_earth(x, baseline, costh, depth, n_amb),
+                    lo, hi, limit=200)
+                ref_int += val
+            ref = ref_int / dr
+            assert abs(nbar[s] - ref) / ref < 1e-12, f"N={N} step {s}: {nbar[s]:.8e} vs {ref:.8e}"
+        totals[N] = float(np.sum(nbar) * dr)
+    # the path integral must be identical across step counts (fp-level)
+    assert abs(totals[37] - totals[250]) / totals[250] < 1e-12
+
+
+def test_earth_step_scheme_default_and_switch(tmp_path):
+    """dev-earth default is the phase-exact 'avg' scheme; the historical 'left' scheme
+    must remain selectable (and differ -- 'avg' corrects the Riemann phase error);
+    unknown scheme names must be rejected loudly."""
+    import copy
+    cfg = dps.create_default_config(str(tmp_path / "cfg.json"))
+    cfg["grid"].update(dict(n_E_bins=16, n_z_bins=16, n_mw_paths=1, n_earth_chords=2,
+                            N_steps_MW=3, N_steps_earth=40))
+    cfg["execution"].update(dict(n_cores=1, verbose=0))
+    assert cfg["grid"]["earth_step_scheme"] == "avg"
+
+    cfg_left = copy.deepcopy(cfg)
+    cfg_left["grid"]["earth_step_scheme"] = "left"
+    _, F_avg = dps.run_solver(cfg)
+    _, F_left = dps.run_solver(cfg_left)
+    assert np.isfinite(F_avg).all()
+    assert not np.array_equal(F_left, F_avg)
+
+    bad = copy.deepcopy(cfg)
+    bad["grid"]["earth_step_scheme"] = "midpointish"
+    with pytest.raises(ValueError, match="earth_step_scheme"):
+        dps.run_solver(bad)
+
+
+def test_earth_avg_scheme_step_count_certificate(tmp_path):
+    """The core property of the 'avg' scheme, at test scale: results are essentially
+    step-count-INDEPENDENT (the accumulated LRI phase equals Coef * integral(n dl)
+    exactly for any N), while the 'left' scheme's Riemann phase error makes its
+    results scatter with N. This is the certificate that justified reducing
+    N_steps_earth (production evidence: N = 8..1000 agree to <= 4.5e-9 at the
+    below/inband/strong validation points; see the dev-earth study)."""
+    import copy
+    cfg = dps.create_default_config(str(tmp_path / "cfg.json"))
+    cfg["grid"].update(dict(n_E_bins=24, n_z_bins=16, n_mw_paths=1, n_earth_chords=3,
+                            N_steps_MW=3))
+    cfg["execution"].update(dict(n_cores=1, verbose=0))
+
+    flux = {}
+    for scheme in ("avg", "left"):
+        for n in (25, 200):
+            c = copy.deepcopy(cfg)
+            c["grid"]["earth_step_scheme"] = scheme
+            c["grid"]["N_steps_earth"] = n
+            _, flux[(scheme, n)] = dps.run_solver(c)
+
+    scatter_avg = np.max(np.abs(flux[("avg", 25)] - flux[("avg", 200)])
+                         / np.maximum(np.abs(flux[("avg", 200)]), 1e-300))
+    scatter_left = np.max(np.abs(flux[("left", 25)] - flux[("left", 200)])
+                          / np.maximum(np.abs(flux[("left", 200)]), 1e-300))
+    assert scatter_avg < 1e-6, f"avg scheme not step-count-stable: {scatter_avg:.3e}"
+    assert scatter_avg < 0.01 * scatter_left, (
+        f"certificate inverted: avg {scatter_avg:.3e} vs left {scatter_left:.3e}")
 
 
 # =============================================================================
