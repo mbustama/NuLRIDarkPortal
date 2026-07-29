@@ -86,7 +86,7 @@ $$H_{tot} = H_{vac} + V_{SM} + V_{LRI}$$
 
 $$V_{LRI, ij} = \left[ \frac{g_D \epsilon'}{m_{Z_D}^2 + m_D^2} \right] \left( \frac{4 c_W m_Z^2}{g_w} \right) \left( \frac{\sqrt{2}}{2} G_F n_n(z) \right) S_{LRI, ij}$$
 
-with the flavor texture $S_{LRI, ij} = u_i u_j^*$ by default (also overridable, [Section 8](#8-custom-potential-structure-matrices)). Antineutrinos experience $V \to -V^*$; the code applies this transform in a single, centralized place (`propagate_spectrum`) for both potentials.
+with the flavor texture $S_{LRI, ij} = u_i u_j^\ast$ by default (also overridable, [Section 8](#8-custom-potential-structure-matrices)). Antineutrinos experience $V \to -V^\ast$; the code applies this transform in a single, centralized place (`propagate_spectrum`) for both potentials.
 
 **Debye Screening & Flavor Asymmetry:** The LRI potential is dynamically screened by the hot plasma of the C$\nu$B, which generates a Debye mass $m_D$. The solver accounts for theoretical C$\nu$B lepton asymmetries ($\eta_\alpha \equiv n_{\nu_\alpha}/n_{\nu, \text{sym}}$), which orthogonalizes the screening across flavors:
 $$m_D^2 = \frac{g_D^2}{6} \sum_i |u_i|^4 T_{\nu, i}^2 \quad \text{where} \quad T_{\nu, i}^2 = T_{\nu, \text{base}}^2 \cdot \eta_i^{2/3}$$
@@ -301,8 +301,8 @@ Both coherent forward-scattering potentials accept an optional user-defined 3×3
 
 * Each entry is a plain number (real) or a two-element `[re, im]` list (complex) — JSON has no native complex type.
 * Matrices are validated at parse time: shape must be 3×3 and the matrix must be Hermitian (the eigensolver reads only one triangle, so a non-Hermitian potential would be *silently* wrong; the code raises instead).
-* Supply matrices in **neutrino convention**; the antineutrino transform $V \to -V^*$ is applied centrally.
-* Defaults when absent: $S_{SM} = \mathrm{diag}(1,0,0)$ and $S_{LRI,ij} = u_i u_j^*$ — bit-identical to the pre-override behavior (regression-tested).
+* Supply matrices in **neutrino convention**; the antineutrino transform $V \to -V^\ast$ is applied centrally.
+* Defaults when absent: $S_{SM} = \mathrm{diag}(1,0,0)$ and $S_{LRI,ij} = u_i u_j^\ast$ — bit-identical to the pre-override behavior (regression-tested).
 * **Physics caveat:** the overrides change only the coherent forward-scattering potentials. The Debye screening mass and the thermal attenuation/regeneration rates remain tied to `u_e/u_mu/u_tau`. In the frequentist pipeline (same keys under `physics_constants`), combining a `U_LRI_struct` override with *scanning* the `u_*` parameters triggers a loud warning, since the scanned parameters would then affect only the rates, not the potential.
 
 ---
