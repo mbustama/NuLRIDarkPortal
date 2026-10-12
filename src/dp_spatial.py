@@ -1163,8 +1163,7 @@ def _split_E_blocks(N_E: int, n_units: int, n_workers: int):
 # =============================================================================
 # A single run_solver call previously created and destroyed FOUR multiprocessing
 # pools (MW + Earth phase, neutrino + antineutrino pass), and a scan re-pays that
-# per point. This module-level pool mirrors the persistent pool already used by
-# FrequentistAnalysis/src/physics/kernel.py: created lazily at first use, resized
+# per point. This module-level pool is created lazily at first use, resized
 # only when the requested worker count changes, torn down at exit. It is only ever
 # touched from processes that call the spatial handover with n_cores > 1 and no
 # caller-managed external_pool -- scanner/analysis pool workers run with n_cores=1
@@ -1205,14 +1204,13 @@ def _run_spatial_tasks(worker_fn, tasks, desc, n_workers, show_progress, externa
     sequentially, across a freshly-created multiprocessing pool, or across a caller-managed
     persistent pool (external_pool), depending on n_workers and whether one was supplied.
 
-    external_pool exists for callers that invoke this many times in a tight loop (e.g.
-    FrequentistAnalysis's kernel.py evaluating the physics kernel once per Migrad iteration
-    during the initial global fit) and want to reuse the same worker processes across all of
-    them, rather than spinning up a fresh Pool every call. Creating a Pool is cheap under the
-    'fork' start method (a copy-on-write process clone) but expensive under 'spawn' (a full
-    interpreter relaunch plus reimport per worker) -- and FrequentistAnalysis's main.py forces
-    'spawn'. Without reuse, using more than one core here made every single Migrad evaluation
-    roughly 10x *slower*, not faster (measured directly). With external_pool=None (the
+    external_pool exists for callers that invoke this many times in a tight loop (e.g. a
+    minimizer evaluating the physics once per iteration) and want to reuse the same worker
+    processes across all of them, rather than spinning up a fresh Pool every call. Creating a
+    Pool is cheap under the 'fork' start method (a copy-on-write process clone) but expensive
+    under 'spawn' (a full interpreter relaunch plus reimport per worker), which the analysis
+    workers use. Without reuse, using more than one core here made every evaluation of the
+    retired FrequentistAnalysis' global fit roughly 10x *slower*, not faster (measured directly). With external_pool=None (the
     default), the module-level persistent pool (_get_spatial_pool) is used instead of the
     historical per-call Pool creation -- a single run previously built and tore down four
     pools (MW/Earth x nu/nubar), and scans re-paid that per point.

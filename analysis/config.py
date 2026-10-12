@@ -24,9 +24,11 @@ Profile and plane ranges are in physical units; a parameter fitted in log10 spac
 in equal steps of log10. Keys starting with '_' are comments.
 """
 import copy
+import dataclasses
 import hashlib
 import json
 import os
+import warnings
 from dataclasses import dataclass, field
 from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
@@ -110,6 +112,17 @@ class AnalysisConfig:
     def digest(self) -> str:
         return hashlib.sha256(json.dumps(self.raw, sort_keys=True).encode()).hexdigest()[:16]
 
+    def identity(self, data_centre=None, extra=None) -> str:
+        """Digest of everything that decides a chi^2 or a constrained minimum: the data term
+        (and its re-centring), the solver configuration, the free parameters with their
+        bounds and spaces, and the priors; plus `extra` (a scan's grid). Checkpoints carry
+        it, so results computed under another configuration are never reused. Fit settings
+        and starts are left out: rerunning with better ones resumes, keeping the best fits."""
+        d = dict(data=self.surface, centre=None if data_centre is None else [float(c) for c in data_centre],
+                 solver=self.solver, parameters=[[p.name, p.space, list(p.bounds)] for p in self.parameters],
+                 priors=[[type(p).__name__, sorted(dataclasses.asdict(p).items())] for p in self.priors], extra=extra)
+        return hashlib.sha256(json.dumps(d, sort_keys=True, default=str).encode()).hexdigest()[:16]
+
     def output_path(self, *parts: str) -> str:
         return os.path.join(self.output_dir, *parts)
 
@@ -162,6 +175,11 @@ def from_dict(raw: Mapping, path: str = "") -> AnalysisConfig:
         cfg.planes.append(Scan2D(px.name, py.name,
                                  _grid(px, float(spec["x_range"][0]), float(spec["x_range"][1]), int(spec["nx"])),
                                  _grid(py, float(spec["y_range"][0]), float(spec["y_range"][1]), int(spec["ny"]))))
+    lri = (cfg.solver.get("dark_portal") or {}).get("U_LRI_struct")
+    floating_u = [n for n in cfg.free_names if n in ("u_e", "u_mu", "u_tau")]
+    if lri is not None and floating_u:
+        warnings.warn(f"{cfg.name}: dark_portal.U_LRI_struct overrides the potential's texture, so the floating "
+                      f"{floating_u} change only the absorption rates and the Debye mass, not the potential")
     out = d.get("output_dir") or os.path.join("output", "analysis", cfg.name)
     cfg.output_dir = out if os.path.isabs(out) else os.path.join(REPO_DIR, out)
     # Build the model once to validate every solver key and parameter name now, not in a worker
@@ -173,6 +191,10 @@ def from_dict(raw: Mapping, path: str = "") -> AnalysisConfig:
     for name in cfg.asimov:
         if name not in LINEAR_KEYS:
             solver_key(name)
+    from .objective import DERIVED
+    for prior in cfg.priors:                     # a misspelt prior must fail, not go silently unused
+        if prior.name not in cfg.free_names and prior.name not in DERIVED and prior.name not in LINEAR_KEYS:
+            solver_key(prior.name)
     del model
     return cfg
 

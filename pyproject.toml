@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "nulri-dark-portal"
 version = "0.1.0"
-description = "High-energy astrophysical neutrino propagation under dark-portal LRI physics, with a frequentist flavor-ratio analysis pipeline"
+description = "High-energy astrophysical neutrino propagation under dark-portal LRI physics, with a profile-likelihood flavor-ratio analysis"
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "GPL-3.0-or-later" }
@@ -19,17 +19,15 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# The frequentist profile-likelihood pipeline (FrequentistAnalysis/)
-analysis = ["iminuit", "emcee"]
 # The optional CUDA spatial handover (src/gpu_spatial.py); pick the wheel matching
 # your CUDA toolkit if cuda12x is not right for your system.
 gpu = ["cupy-cuda12x"]
-test = ["pytest"]
+test = ["pytest", "mpmath"]
 
 [tool.setuptools]
 # The core solver is a set of flat modules under src/ (imported as top-level names,
-# e.g. `import dark_portal_solver`), matching how the scripts and the
-# FrequentistAnalysis tree consume them. `pip install -e .` exposes them without the
+# e.g. `import dark_portal_solver`), matching how the scripts and the analysis
+# package (analysis/, run from the repository root) consume them. `pip install -e .` exposes them without the
 # sys.path manipulation the scripts otherwise perform.
 package-dir = { "" = "src" }
 py-modules = ["dark_portal_solver", "dp_core", "dp_propagator", "dp_thermal", "dp_cosmo",

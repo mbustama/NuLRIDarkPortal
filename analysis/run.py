@@ -70,8 +70,8 @@ def _write_json(path: str, obj):
     os.replace(tmp, path)
 
 
-def _load_scan(path: str, names, grids):
-    recs = scans._best_by_index(scans._read_jsonl(path))
+def _load_scan(path: str, names, grids, identity):
+    recs = scans._best_by_index(scans._read_jsonl(path, identity))
     shape = tuple(len(g) for g in grids)
     chi2 = np.full(shape, np.inf)
     values = {}
@@ -82,23 +82,27 @@ def _load_scan(path: str, names, grids):
     return chi2, values
 
 
-def summarize(cfg, out_dir: str, log=print) -> dict:
+def summarize(cfg, out_dir: str, data_centre=None, log=print) -> dict:
     """Re-reads the fit and every scan checkpoint in out_dir, takes the lowest chi^2 found
     anywhere as the reference, and writes each scan's summary (Delta chi^2, intervals) and
     figure. Returns the reference minimum and where it was found."""
     fit_path = os.path.join(out_dir, "fit.json")
     best = json.load(open(fit_path)) if os.path.exists(fit_path) else None
+    if best is not None and best.get("id") != cfg.identity(data_centre):
+        log("  fit.json was computed under another configuration: ignored")
+        best = None
     ref = dict(chi2=best["chi2"] if best else np.inf, values=best["values"] if best else None, where="global fit")
     loaded = []
     for s in cfg.profiles:
         p = os.path.join(out_dir, f"profile_{s.name}.jsonl")
         if os.path.exists(p):
-            chi2, vals = _load_scan(p, [s.name], [s.grid])
+            chi2, vals = _load_scan(p, [s.name], [s.grid], scans.scan_identity(cfg, [s.name], [s.grid], data_centre))
             loaded.append(("profile", [s.name], [s.grid], chi2, vals))
     for s in cfg.planes:
         p = os.path.join(out_dir, f"plane_{s.x}_{s.y}.jsonl")
         if os.path.exists(p):
-            chi2, vals = _load_scan(p, [s.x, s.y], [s.x_grid, s.y_grid])
+            chi2, vals = _load_scan(p, [s.x, s.y], [s.x_grid, s.y_grid],
+                                    scans.scan_identity(cfg, [s.x, s.y], [s.x_grid, s.y_grid], data_centre))
             loaded.append(("plane", [s.x, s.y], [s.x_grid, s.y_grid], chi2, vals))
     for kind, names, grids, chi2, vals in loaded:
         if np.isfinite(chi2).any() and chi2.min() < ref["chi2"] - scans.REPAIR_TOL:
@@ -151,7 +155,8 @@ def main(argv=None):
     os.makedirs(out_dir, exist_ok=True)
     workers = args.workers or dp_core.default_n_cores()
     if args.summarize:
-        summarize(cfg, out_dir)
+        centre = asimov_centre(cfg) if args.asimov else None
+        summarize(cfg, out_dir, centre)
         return 0
     everything = not (args.fit or args.profiles is not None or args.planes)
     run = dict(provenance=provenance(cfg), workers=workers, tasks=[])
@@ -163,11 +168,15 @@ def main(argv=None):
     run["data_centre"] = data_centre
 
     fit_path = os.path.join(out_dir, "fit.json")
-    if everything or args.fit or not os.path.exists(fit_path):
+    stored = json.load(open(fit_path)) if os.path.exists(fit_path) else None
+    if stored is not None and stored.get("id") != cfg.identity(data_centre):
+        print("fit.json was computed under another configuration: refitting")
+        stored = None
+    if everything or args.fit or stored is None:
         print(f"Global fit of {cfg.name} ({len(cfg.parameters)} free parameters, {1 + cfg.fit.n_random} starts, {workers} workers)")
         res = scans.global_fit(cfg, data_centre, workers, checkpoint=os.path.join(out_dir, "fit.jsonl"))
         _write_json(fit_path, dict(values=res["values"], chi2=res["chi2"], nfev=res["nfev"], seconds=res["seconds"],
-                                   starts=res["starts"], data_centre=data_centre))
+                                   starts=res["starts"], data_centre=data_centre, id=res["id"]))
         print(f"  best fit chi2 = {res['chi2']:.6g} at " + ", ".join(f"{k} = {v:.6g}" for k, v in res["values"].items()))
         run["tasks"].append(dict(task="fit", seconds=res["seconds"], nfev=res["nfev"]))
     best = json.load(open(fit_path))["values"]
@@ -188,7 +197,7 @@ def main(argv=None):
                             checkpoint=os.path.join(out_dir, f"plane_{s.x}_{s.y}.jsonl"), max_passes=args.repair_passes)
             run["tasks"].append(dict(task=f"plane {s.x}/{s.y}", seconds=r.seconds, nfev=r.nfev, passes=r.passes))
     print("Summary")
-    ref = summarize(cfg, out_dir)
+    ref = summarize(cfg, out_dir, data_centre)
     run["chi2_min"] = ref["chi2"]
     run["seconds"] = time.perf_counter() - t_start
     man_path = os.path.join(out_dir, "manifest.json")

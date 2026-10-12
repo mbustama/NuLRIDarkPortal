@@ -168,8 +168,8 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
     if HAS_NUMBA:
         # The cosmological step below is parallelized internally via numba prange; cap its
         # thread pool to n_cores so a caller that already parallelizes across many processes
-        # at a higher level (dark_portal_scanner.py, FrequentistAnalysis's Minuit/emcee
-        # workers -- both of which pass n_cores=1 here) doesn't also oversubscribe every core
+        # at a higher level (dark_portal_scanner.py, the analysis package's scan workers --
+        # both of which pass n_cores=1 here) doesn't also oversubscribe every core
         # from inside each of its own worker processes.
         numba.set_num_threads(max(1, int(n_cores)))
 

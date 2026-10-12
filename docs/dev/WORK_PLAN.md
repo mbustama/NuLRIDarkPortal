@@ -15,19 +15,19 @@ work on Tycho; show the statistical analysis is sound with coverage tests.
    errors present since the first commit (runaway cosmological cascade, `7dc95e9`; resonant
    absorption independent of the couplings, `944360d`; non-unitary spatial propagator,
    `2066f3b`; details in the notes' corrections appendix). Every analysis result before them
-   is void. **In progress:** the new analysis package `analysis/` (replaces
-   FrequentistAnalysis; chi^2 bit-identical to it on all 35 flavor surfaces), then removing
-   FrequentistAnalysis from code, tests, docs and outputs. Validation now includes absolute
+   is void. **Done 2026-10-13:** the analysis package `analysis/` (`docs/dev/ANALYSIS_DESIGN.md`;
+   ln L bit-identical to FrequentistAnalysis on the flavor surfaces), and FrequentistAnalysis
+   removed from code, tests, docs and outputs. Validation now includes absolute
    checks (energy and number at Earth <= the no-interaction run, total conservation through the
    spatial phase, u -> 0 recovers standard propagation), not only old-vs-new comparisons.
 1. **Core-count fix** -- **done** 2026-10-12: `dp_core.available_cores()` (affinity mask capped by
    `SLURM_CPUS_PER_TASK`) and `default_n_cores()` (all but one core locally, the whole allocation
-   under SLURM) now size every pool, FrequentistAnalysis included. Original note: the solver side
+   under SLURM) now size every pool. Original note: the solver side
    sized its pools with `cpu_count()`, which on a SLURM node
    reports the whole node (128 cores) regardless of the allocation: `DEFAULT_CONFIG
    execution.n_cores`, the clamp in `dp_spatial.propagate_earth_spatial`, `dark_portal_scanner`,
    and `tools/convergence_study.py`. Use `SLURM_CPUS_PER_TASK`, then `os.sched_getaffinity`, then
-   `cpu_count`. No change on the laptop. (FrequentistAnalysis already uses `sched_getaffinity`.)
+   `cpu_count`. No change on the laptop.
 2. **Tycho setup**, following GRBsim and NuFlavorSingleSource: clone over SSH to
    `/lustre/astro/mbustama/NuLRIDarkPortal`, conda environment on lustre pinned to the laptop's
    versions, `slurm/common.sh` plus job scripts, logs in `logs/`. First job: the four-point
@@ -107,7 +107,7 @@ work on Tycho; show the statistical analysis is sound with coverage tests.
       with PyFC (github.com/mbustama/FeldmanCousins), whose L_Eff likelihood also handles the
       finite statistics of the HESE MC.
 
-   Coverage also settles the limit thresholds: `run_limits.py` uses delta-chi2 = 2.71 / 3.84 for
+   Coverage also settles the limit thresholds: the analysis uses delta-chi2 = 2.706 / 3.841 for
    90% / 95%, the two-sided values; for an upper limit on a coupling bounded at zero the
    one-sided values are 1.64 / 2.71. The present flavor-ratio analysis has no events to fluctuate
    (its data term is a projected measurement), so its pseudo-experiments shift the projected

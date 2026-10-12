@@ -3,7 +3,7 @@
 ![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)
 ![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)
 
-This repository contains a high-performance, Python-based numerical solver for simulating the cosmological propagation of high-energy astrophysical neutrinos (E ≳ 10⁴ GeV) under the influence of new dark-sector physics, together with a full frequentist statistical pipeline for confronting the predictions with detector flavor-ratio measurements.
+This repository contains a high-performance, Python-based numerical solver for simulating the cosmological propagation of high-energy astrophysical neutrinos (E ≳ 10⁴ GeV) under the influence of new dark-sector physics, together with a profile-likelihood analysis package (`analysis/`) for confronting the predictions with detector flavor-ratio measurements.
 
 The code evaluates a comprehensive framework featuring a light vector mediator ($Z_D$) that couples to active neutrinos via mixing with a sterile state, and to standard matter via kinetic mixing ($\epsilon'$). It explicitly tracks flavor evolution, resonant attenuation against the Cosmic Neutrino Background (C$\nu$B), exact energy cascading (down-scattering), and environmentally dependent long-range interactions (LRI).
 
@@ -18,8 +18,8 @@ The code evaluates a comprehensive framework featuring a light vector mediator (
 6. [The Solver & Scanner](#6-the-solver--scanner)
 7. [Configuration Guide & Command-Line Flags](#7-configuration-guide--command-line-flags)
 8. [Custom Potential Structure Matrices](#8-custom-potential-structure-matrices)
-9. [The Frequentist Analysis Pipeline](#9-the-frequentist-analysis-pipeline)
-10. [Exclusion Limits vs. Mediator Mass](#10-exclusion-limits-vs-mediator-mass)
+9. [The Statistical Analysis (`analysis/`)](#9-the-statistical-analysis-analysis)
+10. [Exclusion Planes](#10-exclusion-planes)
 11. [Choosing Resolution Parameters (Convergence Tool)](#11-choosing-resolution-parameters-convergence-tool)
 12. [Performance Notes](#12-performance-notes)
 13. [Testing](#13-testing)
@@ -31,7 +31,7 @@ The code evaluates a comprehensive framework featuring a light vector mediator (
 
 ```bash
 # Install dependencies
-pip install numpy scipy numba matplotlib tqdm iminuit pytest
+pip install numpy scipy numba matplotlib tqdm pytest
 
 # 1) Compute one flux spectrum at the default dark-portal parameters
 #    (first run pauses ~10 s while numba JIT-compiles and caches the kernels)
@@ -44,20 +44,20 @@ python3 dark_portal_solver.py --m_Zd_eV 2e6 --g_D 1e-4 --u_e 0.5 --u_mu 0.5 --n_
 # 3) 1D parameter scans (m_Zd, g_D, u_e, u_mu) with a 2x2 summary figure
 python3 dark_portal_scanner.py
 
-# 4) Full frequentist profile-likelihood scan (1D profiles + 2D contours)
-cd ../FrequentistAnalysis
-python3 -m src.main --config_file ../config/pion_2050_case_5_fixed_nuisance.json
+# 4) Profile-likelihood analysis: global fit, profiles, planes (Section 9)
+cd ..
+python3 -m analysis analysis/configs/pion_2050_case_5_exclusion.json --workers 8
 
-# 5) Profiled exclusion limits: each coupling vs m_Zd
-python3 -m src.run_limits --config_file ../config/pion_2050_case_5_fixed_nuisance.json
+# 5) The same against Asimov data (the model's own prediction at the config's 'asimov' values)
+python3 -m analysis analysis/configs/pion_2050_case_5.json --asimov --fit
 
 # 6) Find the coarsest safe resolution settings for YOUR parameter region
-cd ../tools
+cd tools
 python3 convergence_study.py --axes n_z_bins n_E_bins --n_cores 8
 
-# 7) Run the regression test suite (do this after any physics edit)
+# 7) Run the regression suite and the analysis tests (do this after any physics edit)
 cd ..
-python3 -m pytest tests/test_physics_regression.py -v
+python3 -m pytest tests/ -v
 ```
 
 ---
@@ -98,7 +98,7 @@ High-energy neutrinos scatter resonantly off the C$\nu$B via $s$-channel $Z_D$ e
 $$\sigma_\alpha = \frac{48\pi\,\Gamma_{in,\alpha}\Gamma\, s}{M^2[(s-M^2)^2 + M^2\Gamma^2]} = \frac{(\Sigma G)_\alpha(\Sigma G)\, s}{3\pi[(s-M^2)^2 + M^2\Gamma^2]}, \qquad \Gamma = \frac{(\Sigma G)\,M}{12\pi},$$
 whose integral over $s$ is $4\pi(\Sigma G)_\alpha$ (for the $Z$ it gives the classic $\langle\sigma\rangle = 2\sqrt{2}\pi G_F$). The kernels integrate the raw form $2\pi(\Sigma G)_\alpha s/[(s-M^2)^2+M^2\Gamma^2]$, and the grids leave `dp_thermal` multiplied by $\Sigma G/(6\pi^2)$ (`absorption_normalization`). Until 2026-10-12 the raw form was the rate: with one coupling factor in the numerator, the resonance's integrated strength, $12\pi^2(\Sigma G)_\alpha/\Sigma G$, did not depend on the size of the couplings (the integrated rate was identical from $\Sigma G = 7.6\times10^{-4}$ down to $3\times10^{-19}$), so any nonzero $u$, however small, gave the full absorption and only $u = 0$ exactly was standard. Tests pin the integrated rate's proportionality to $\Sigma G$, the narrow-width limit against independent quadrature, and $u = 10^{-10}$ reproducing the $u = 0$ flux to $10^{-8}$.
 
-On top of the kernel sits the **two-component coupling cache** (`thermal_grid_cached`): the raw unit-weight grid $U(s) = \Gamma_{raw}/\text{sum}_{G\alpha}$ (the normalization rides on the weights) obeys $U(s) \approx I_A + I_B/s$ (linear cells + narrow-width $1/MG$ plateau) to $\sim 7\times10^{-8}$ over ≤2-decade brackets of $s = \text{sum}_G$. The cache activates the surrogate **lazily and only after verifying it** against an exact grid built at an interior bracket point (gate $3\times10^{-7}$, the kernel's own accuracy class), never extrapolates outside the verified bracket, and disables itself on repeated gate failures *in the wide-bracket regime where failures indicate genuine model breakdown*. Brackets are accepted down to a purely numerical floor (~$10^{-4}$ dex): the surrogate is an interpolation between exact endpoints, so narrower only means more accurate — this is what lets it fire inside Minuit's profiled inner fits, whose per-step coupling moves (~0.01–0.1 dex) never spanned the original 0.3-dex floor (measured: the cache **never activated** during real scans before this fix). Exact repeats of an already-built $s$ are additionally served straight from the stored exact point. Measured on Minuit-like inner-fit traces at fixed $m_{Z_D}$ (in-band/below/strong classes, 200×200): **83% of evaluations hit** with worst cached-grid error $6.5\times10^{-9}$ vs fresh exact builds (~50× inside the gate); repeated-point evaluations drop the thermal cost from ~105 ms to 0.3 ms. $m_{Z_D}$-scan points pay exactly one exact build, as before. The reference paths bypass the cache entirely. The cosmological absorption resonance sits at $E_{res} \sim m_{Z_D}^2 / (2 m_\nu)$ and sweeps through the observed energy band as $m_{Z_D}$ varies — this drives the resolution requirements discussed in [Section 11](#11-choosing-resolution-parameters-convergence-tool).
+On top of the kernel sits the **two-component coupling cache** (`thermal_grid_cached`): the raw unit-weight grid $U(s) = \Gamma_{raw}/\text{sum}_{G\alpha}$ (the normalization rides on the weights) obeys $U(s) \approx I_A + I_B/s$ (linear cells + narrow-width $1/MG$ plateau) to $\sim 7\times10^{-8}$ over ≤2-decade brackets of $s = \text{sum}_G$. The cache activates the surrogate **lazily and only after verifying it** against an exact grid built at an interior bracket point (gate $3\times10^{-7}$, the kernel's own accuracy class), never extrapolates outside the verified bracket, and disables itself on repeated gate failures *in the wide-bracket regime where failures indicate genuine model breakdown*. Brackets are accepted down to a purely numerical floor (~$10^{-4}$ dex): the surrogate is an interpolation between exact endpoints, so narrower only means more accurate — this is what lets it fire inside profiled inner fits, whose per-step coupling moves (~0.01–0.1 dex) never spanned the original 0.3-dex floor (measured: the cache **never activated** during real scans before this fix). Exact repeats of an already-built $s$ are additionally served straight from the stored exact point. Measured on minimizer-like inner-fit traces at fixed $m_{Z_D}$ (in-band/below/strong classes, 200×200): **83% of evaluations hit** with worst cached-grid error $6.5\times10^{-9}$ vs fresh exact builds (~50× inside the gate); repeated-point evaluations drop the thermal cost from ~105 ms to 0.3 ms. $m_{Z_D}$-scan points pay exactly one exact build, as before. The reference paths bypass the cache entirely. The cosmological absorption resonance sits at $E_{res} \sim m_{Z_D}^2 / (2 m_\nu)$ and sweeps through the observed energy band as $m_{Z_D}$ varies — this drives the resolution requirements discussed in [Section 11](#11-choosing-resolution-parameters-convergence-tool).
 
 ### 2.3 Energy Cascading & Injection
 For resonant scattering events ($Z_D \to \nu + \bar{\nu}$), particles cascade to lower energies following the exact lab-frame differential cross-section for the decay of a vector mediator into chiral fermions ($W(E, E') = 3 \frac{E^2}{(E')^3}$). The kernel is integrated exactly over the logarithmic bins (`cascade_kernel_weights`), so every absorption re-emits exactly one neutrino (the midpoint weights used until 2026-10-12 re-emitted $1 + 1.5\,\Delta\ln E$, about 1.2% too many per generation). The code continuously integrates flux injections at every redshift utilizing a broken power-law Star Formation Rate (SFR) combined with an arbitrary source evolution modifier $\rho_{evol}$.
@@ -149,26 +149,19 @@ The flux at the detector is the average over the up-going hemisphere. Inside the
 │   ├── dp_config.py               # DEFAULT_CONFIG, unknown-key-rejecting merge, parsing
 │   ├── dark_portal_scanner.py     # Multiprocessing 1D parameter scanner + 2x2 grid figure
 │   └── flux_postprocessing.py     # Energy-averaged flavor ratios (shared by scanner & fits)
-├── FrequentistAnalysis/
-│   ├── config/                    # Analysis configuration JSONs
-│   └── src/
-│       ├── main.py                # Profile-likelihood scan orchestrator (1D + 2D)
-│       ├── run_limits.py          # Profiled exclusion limits: couplings vs m_Zd
-│       ├── core/
-│       │   ├── likelihood.py      # GenericLikelihoodWrapper (Minuit/emcee objective)
-│       │   ├── config.py          # JSON parsing / comment stripping
-│       │   ├── defaults.py        # Default scan & repair settings
-│       │   └── detector_flavor_likelihood.py   # Detector contour likelihood models
-│       ├── engines/
-│       │   ├── optimizers.py      # Per-point Minuit minimization, MCMC warm start
-│       │   └── scanner.py         # Parallel 1D/2D profile grids
-│       ├── physics/kernel.py      # Bridge: analysis parameters -> solver -> flavor ratios
-│       ├── topology/repair.py     # Spike / continuity / gradient repair passes
-│       └── analysis/              # Interval extraction & plotting
+├── analysis/                      # Profile-likelihood analysis (Section 9; docs/dev/ANALYSIS_DESIGN.md)
+│   ├── configs/                   # One JSON per analysis
+│   ├── data/flavor_surfaces.json  # The 35 measured/projected flavor-composition likelihoods
+│   ├── model.py                   # Parameters -> solver -> energy-averaged flavor fractions
+│   ├── surfaces.py, parameters.py, objective.py, fitting.py
+│   ├── scans.py                   # Global fit, profiles, planes: spawn pool, repair, checkpoints
+│   ├── intervals.py, plots.py
+│   └── run.py                     # Command line: python -m analysis CONFIG.json
 ├── tools/
 │   └── convergence_study.py       # Resolution-parameter convergence studies
 ├── tests/
-│   └── test_physics_regression.py # Regression suite (run before & after every change)
+│   ├── test_physics_regression.py # Regression suite (run before & after every change)
+│   └── test_analysis.py           # The analysis package
 ├── config/                        # Solver configuration (autogenerated on first run)
 └── output/                        # Flux data, plots, convergence-study reports
 ```
@@ -179,12 +172,11 @@ The flux at the detector is the average over the up-going hemisphere. Inside the
 
 The code is written in Python 3 and strictly utilizes fast, standard numerical libraries.
 
-**Core dependencies:** `numpy`, `scipy`, `numba` (JIT compilation of all physics kernels, with persistent on-disk caching), `matplotlib`, `tqdm`.
-**Frequentist pipeline:** additionally `iminuit` (and optionally `emcee` for the MCMC warm start).
+**Core dependencies:** `numpy`, `scipy`, `numba` (JIT compilation of all physics kernels, with persistent on-disk caching), `matplotlib`, `tqdm`. The analysis package needs nothing more (its minimizers are scipy's).
 **Tests:** `pytest`.
 
 ```bash
-pip install numpy scipy numba matplotlib tqdm iminuit pytest
+pip install numpy scipy numba matplotlib tqdm pytest
 ```
 
 ---
@@ -286,7 +278,7 @@ The scanner's spatial-averaging defaults follow the convergence study (Section 1
 
 ### `[output]` & `[execution]`
 * `--flux_filename`, `--plot_filename` (str): Output paths.
-* `--n_cores` (int): Cores used to parallelize the Milky Way paths / Earth chords of the spatial handover within a single run (Default: available cores − 1 on a workstation, the whole allocation inside a SLURM job). "Available" is the process's CPU affinity mask capped by `SLURM_CPUS_PER_TASK` (`dp_core.available_cores`), never `cpu_count()`, which reports a whole cluster node whatever the job was given. The scanner, the convergence tool and FrequentistAnalysis size their pools the same way.
+* `--n_cores` (int): Cores used to parallelize the Milky Way paths / Earth chords of the spatial handover within a single run (Default: available cores − 1 on a workstation, the whole allocation inside a SLURM job). "Available" is the process's CPU affinity mask capped by `SLURM_CPUS_PER_TASK` (`dp_core.available_cores`), never `cpu_count()`, which reports a whole cluster node whatever the job was given. The scanner, the convergence tool and the analysis package size their pools the same way.
 * `--verbose` (int): `1` standard, `2` granular milestones (Default: `1`).
 
 ---
@@ -315,38 +307,33 @@ Both coherent forward-scattering potentials accept an optional user-defined 3×3
 * Matrices are validated at parse time: shape must be 3×3 and the matrix must be Hermitian (the eigensolver reads only one triangle, so a non-Hermitian potential would be *silently* wrong; the code raises instead).
 * Supply matrices in **neutrino convention**; the antineutrino transform $V \to -V^\ast$ is applied centrally.
 * Defaults when absent: $S_{SM} = \mathrm{diag}(1,0,0)$ and $S_{LRI,ij} = u_i u_j^\ast$ — bit-identical to the pre-override behavior (regression-tested).
-* **Physics caveat:** the overrides change only the coherent forward-scattering potentials. The Debye screening mass and the thermal attenuation/regeneration rates remain tied to `u_e/u_mu/u_tau`. In the frequentist pipeline (same keys under `physics_constants`), combining a `U_LRI_struct` override with *scanning* the `u_*` parameters triggers a loud warning, since the scanned parameters would then affect only the rates, not the potential.
+* **Physics caveat:** the overrides change only the coherent forward-scattering potentials. The Debye screening mass and the thermal attenuation/regeneration rates remain tied to `u_e/u_mu/u_tau`. The analysis package warns when a configuration combines a `U_LRI_struct` override with *floating* `u_*` parameters, since those would then affect only the rates, not the potential.
 
 ---
 
-## 9. The Frequentist Analysis Pipeline
+## 9. The Statistical Analysis (`analysis/`)
 
-`FrequentistAnalysis/` wraps the solver in a profile-likelihood machinery driven by `iminuit`:
-
-```bash
-cd FrequentistAnalysis
-python3 -m src.main --config_file ../config/pion_2050_case_5_fixed_nuisance.json
-```
-
-* **Objective:** `GenericLikelihoodWrapper` maps Minuit's floating parameters through `physics/kernel.py` into `propagate_spectrum`, collapses the flux to energy-averaged flavor ratios, and scores them against detector flavor-contour likelihoods (`detector_flavor_likelihood.py`: symmetric/asymmetric Gaussian, Student's-t, and polar ray-casting contour models), plus optional empirical priors from external $\chi^2$ files.
-* **Workflow:** global `simplex` + `migrad` fit → optional MCMC warm start (`--use_mcmc_warm_start`) → parallel 1D profile scans → spike/continuity/gradient repair passes → interval extraction → parallel 2D contour scans → corner plots. Checkpointing resumes interrupted scans from the JSON outputs.
-* **Configuration:** one JSON file holds `physics_constants` (everything from Section 7, including `use_SM_potential`, `n_e_earth_cm3`, `use_debye_screening`, `N_steps_earth`, and the structure-matrix overrides), `scan_settings`, `repair_settings`, `parameter_limits`, `start_values`, `fixed_params`, `step_sizes`, and confidence thresholds. CLI flags override `scan_settings`/`repair_settings` entries.
-* **Parallelism:** the scan/repair grids distribute across a `multiprocessing.Pool` (`scan_settings.num_cores`); each worker's physics evaluation is strictly single-core to avoid oversubscription. The *initial global fit*, which runs in the main process before any worker exists, automatically parallelizes its spatial handover across the same core budget through a persistent internal pool.
-
----
-
-## 10. Exclusion Limits vs. Mediator Mass
-
-`run_limits.py` computes the standard "coupling vs. mediator mass, everything else profiled" exclusion curves in five planes — $(m_{Z_D}, u_e)$, $(m_{Z_D}, u_\mu)$, $(m_{Z_D}, u_\tau)$, $(m_{Z_D}, g_D)$, $(m_{Z_D}, \epsilon')$:
+`analysis/` fits the solver's energy-averaged flavor fractions to measured or projected flavor-composition likelihoods by profile likelihood. It replaced FrequentistAnalysis on 2026-10-12; the design, and what changed, is in `docs/dev/ANALYSIS_DESIGN.md`.
 
 ```bash
-cd FrequentistAnalysis
-python3 -m src.run_limits --config_file ../config/pion_2050_case_5_fixed_nuisance.json
-# subset / resolution / cores:
-python3 -m src.run_limits --config_file ... --pairs u_e g_D --n_steps 25 --num_cores 32
+python -m analysis analysis/configs/pion_2050_case_5_exclusion.json --workers 8   # everything the config lists
+python -m analysis CONFIG.json --fit                    # the global fit only
+python -m analysis CONFIG.json --profiles g_D u_e       # chosen profiles
+python -m analysis CONFIG.json --planes                 # the planes
+python -m analysis CONFIG.json --asimov                 # against Asimov data
+python -m analysis CONFIG.json --summarize              # re-summarize existing results
 ```
 
-At every point of a log-log grid the pair is fixed and **all other floating parameters are profiled** with Minuit; per-$m_{Z_D}$-column threshold crossings of the profiled $\Delta\chi^2$ (default 90%/95% CL: 2.71/3.84) give the limit curves. Pairs pinned in the base config's `fixed_params` (e.g. `u_tau`, `epsilon_prime` in the shipped configs) are automatically unlocked for their own plane. Outputs per plane: a JSON $\Delta\chi^2$ surface, a text limit table, and a combined log-log summary PDF. Grid windows, pair list, and thresholds are configurable through an optional `limits_settings` config block (see the module docstring).
+* **Configuration** (one JSON per analysis, `analysis/configs/`): the data surface (`data.surface`, one of the 35 in `analysis/data/flavor_surfaces.json`), a partial solver configuration in the layout of Section 7 (anything absent takes the solver's default; unknown keys are rejected), the free parameters with start, bounds and fit space (`linear` or `log10`), priors (`gaussian`, or `half_gaussian` for one-sided limits, also on the derived `sum_masses_eV`), fit settings, profile and plane grids, Delta chi^2 thresholds (default 1D 1/2.706/3.841, 2D 2.296/4.605/5.991 for 68.27/90/95%), the Asimov injection, and the output directory.
+* **Model:** each evaluation overrides the solver configuration and calls the solver's own `build_solver_params` / `propagate_nu_nubar`; solver runs are cached. The fluxes are linear in the source composition, the antineutrino ratio and the normalization, so those float without new runs (with the source composition free, the remainder goes to `f_tau_S` if `f_e_S` and `f_mu_S` both float, to `f_mu_S` otherwise).
+* **chi^2** = -2 ln(L/L_max) of the surface (zero at its centre) + priors; mixing beyond unitarity is evaluated on the unit sphere plus a continuous wall.
+* **Fits and scans:** L-BFGS-B from several seeded starts, then a Powell polish. Profiles and planes run in a spawn pool: chains walked outward from the best fit with warm starts, then repair passes that refit points from their neighbours' solutions where those do better, where a point sticks out above its neighbours, and (once) at the edges. Every fit is appended to a JSONL checkpoint; rerunning resumes.
+* **Outputs** (`output_dir/data/` or `.../asimov/`): `fit.json`, `profile_<name>.json` (Delta chi^2 and intervals at every threshold, open ends flagged) with its figure, `plane_<x>_<y>.json` with its figure, and `manifest.json` (code version, configuration digest, machine, timing of every run). Delta chi^2 is measured from the lowest chi^2 found anywhere.
+* **Shipped configurations:** `pion_2050_case_5` (MeV mediators, m_Zd, g_D, u_e, u_mu free) and `pion_2050_case_5_mZd_1e-30` (ultralight) port FrequentistAnalysis' two analyses of the 2050 projection; `pion_2050_case_5_exclusion` is an exclusion plane. All fix the mixing at NuFIT 6.0 NO with SK, which reproduces the projection's centre (FrequentistAnalysis' fixed values put standard physics 0.7 sigma off it).
+
+## 10. Exclusion Planes
+
+The 2050 projection is centred on standard physics. With every coupling free, a fit can always switch the new physics off, so profiles of that data stay at Delta chi^2 ~ 0: exclusion regions need fixed couplings or a fixed texture. `analysis/configs/pion_2050_case_5_exclusion.json` fixes the e-mu texture of the theory notes at |U_e4| = |U_mu4| = 0.5 and maps Delta chi^2 over (m_Zd, g_D); nothing else floats, so each point is one evaluation and the excluded region is where Delta chi^2 exceeds the 2D thresholds. Other planes follow by choosing which parameters are free and which are fixed in the solver section. Flavor fractions alone are degenerate: Asimov data injected at m_Zd = 2 MeV were fitted equally well (chi^2 = 7e-7) at m_Zd = 8e-14 eV.
 
 ---
 
@@ -383,26 +370,26 @@ Under the percent-level ratio criterion, the production study's robust recommend
 
 * **Thread pinning:** BLAS/LAPACK pools (MKL/OpenBLAS/OMP) are pinned to one thread at import, *before* numpy loads. Every linear-algebra call here touches 3×3 matrices; unconstrained BLAS pools multiply against the code's own process-level parallelism and can slow parallel runs 3–5×.
 * **Solver parallelism:** within one run, `n_cores` distributes the independent Milky Way paths / Earth chords across processes, and the cosmological phase's `prange` loops scale via `numba.set_num_threads`.
-* **Scanner / frequentist parallelism:** both parallelize across configurations/grid points at the process level; each worker forces its internal physics to a single core.
-* **Spawn-safe pooling:** the frequentist `main.py` forces the `spawn` start method, under which creating a pool is expensive; the physics kernel therefore maintains one *persistent* internal pool for main-process evaluations rather than recreating one per Minuit call (measured ~3× faster per evaluation at analysis-scale settings; per-call pool creation under `spawn` was ~10× *slower* than single-core).
+* **Scanner / analysis parallelism:** both parallelize across configurations/grid points at the process level; each worker forces its internal physics to a single core.
+* **Spawn-safe pooling:** the analysis runs its workers under the `spawn` start method (numba's kernels and the solver's pools are not fork-safe), where creating a pool is expensive; each scan therefore creates one pool and each worker builds its objective once. The solver's spatial phase keeps one *persistent* internal pool for repeated calls in the same process rather than recreating one per call (per-call pool creation under `spawn` was ~10× *slower* than single-core).
 * **Closed-form propagator:** the spatial hot loops use `propagator_3x3` (Section 3.3, no LAPACK call) with allocation-free, Hermitian-exploiting ρ-updates (upper triangle + conjugate mirror). Removing the 100%-firing eigh fallback roughly halved full production runs; the exactly unitary form of 2026-10-12 is 0.6–0.7× the previous cost per Earth step and 1.25× per Milky Way step.
 * **Threads-based spatial mode: attempted twice, rejected twice (final).** Round 6: numba's default workqueue threading layer deadlocked the `spawn`-subprocess + persistent-pool combination. Round 7 retried under the **TBB layer** (which coexists cleanly with spawn pools — verified by a dedicated stress test now in the suite): a whole-phase fused `prange` kernel reached 4.1× scaling on 8 threads (5.0× on 12; the machine is a hybrid 2P+8E-core part, so the uniform-core 6–7× target is not physically available) — but **any** `parallel=True` recompilation of the spatial kernels changes fastmath FMA contraction at the last ulp (two *textually identical* kernels measured bit-different), and at the `cosmoX2` level-crossing point the phase-noise-regime spatial steps amplify any ulp change into ~10⁻³ flux differences, far beyond the ≤4×10⁻¹¹ validation gate. Bit-identical validation is therefore unattainable for any prange restructure of these kernels; the mode was reverted per the round's own acceptance rules. What landed instead: the **TBB threading layer** (spawn-safety for the existing thermal prange kernels) and a **persistent spatial process pool** for the standalone solver (previously four pools were created and destroyed per run — one per phase per flavor pass), which is bit-identical by construction.
 * **Current benchmarks** (12-core desktop, 8 cores): solver defaults (1000×1000 grid, 12 chords) ≈ 6.2 s; analysis-config likelihood evaluation ≈ 6.1 s single-core / 1.6 s in the pooled global fit.
 * **JIT cache:** first-ever execution compiles for ~10 s; the scanner additionally warms the cache once before spawning workers so they don't compile simultaneously.
 * **Cosmological phase:** the cascading integral runs in O(N_E) (its kernel is separable, so the downward sweep of Section 3.1 accumulates it as it goes), and the per-(E, z) mixing projections come from the σ-table (Section 3.3) — ~10⁶ eigenvector computations per run collapsed to ~4×10³ table nodes, validated to 2.7×10⁻¹⁴ at a level-crossing-in-range stress point. The thermal-rate grid uses the **semi-analytic momentum kernel by default** (Section 2.2): the "treat the resonant spike analytically" path that two validation-rejected tabulation schemes (coarse-z interpolation, (x, τ) tabulation) pointed toward — those failed because the Breit–Wigner resonance is narrower than any practical grid spacing, so it must be integrated in closed form, not sampled (see the NOTE at `precompute_all_thermal_rates`). The midpoint reference kernel remains selectable via `grid.thermal_analytic = false`, and the legacy `--n_z_thermal` z-interpolation stays available opt-in with its measured error budget. Thermal-grid build at production size: ~2.0 s → 0.28–0.8 s (parameter-dependent, after node tuning). Full solver defaults across the 2026-07 campaigns: 6.23 s → 2.41 s (semi-analytic thermal) → 1.92 s (persistent spatial pool) → ~1.1 s (phase-exact `avg` Earth scheme at N = 100) → **~0.3 s** (N = 25, revalidated inside the same certificate; 0.45 → 0.32 s same-conditions); analysis eval 6.14/1.58 s → 0.84/0.25 s (N = 100) → **~0.4 s** single-core (0.29 s on thermal-cache hits) / **~0.17 s** pooled (N = 25).
 * **SVML (operator note — ACTIVE since 2026-07):** the environment now runs the SVML-enabled `llvmlite 0.43.0 py312h6a678d5_1` build (anaconda `defaults`; the previously installed `_0` build of the *same version* reported `has_svml() = False`), with pip `icc-rt` supplying `libsvml.so` — `numba.core.config.USING_SVML` is True. **Measured effects:** 3.5× on a pure transcendental fastmath microbenchmark; **1.6× on the midpoint *reference* thermal kernel** (array-vectorized code, 1.97–2.08 → 1.26 s at production size); **no measurable change to the default paths** — the semi-analytic thermal kernel is scalar/branchy (LLVM does not auto-vectorize it, so no SVML calls are emitted) and `propagator_3x3` is scalar *and* non-fastmath (its transcendentals deliberately stay libm — verified by cosmoX2 validating at 1.7×10⁻¹³ across the swap). Under `fastmath=True`, SVML's fast variants differ from libm at up to ~5×10⁻⁷ on the thermal integrand (three orders below that kernel's own accuracy; the reimplementation test's pin was relaxed 1e-9 → 1e-5 accordingly). **Rollback:** `NUMBA_DISABLE_INTEL_SVML=1` (env var, no reinstall) or `conda install "llvmlite=0.43.0=py312h6a678d5_0"`. Verify with `python -c "from numba.core import config; print(config.USING_SVML)"`.
-* **Warm-started scans:** profile-scan grid points dispatch in contiguous segments, each point's Minuit fit seeded from its neighbor's solution (`scan_settings.use_warm_start`, default true); repair passes run unchanged afterward.
-* **GPU (optional, off by default):** `--use_gpu` / `execution.use_gpu` runs the spatial handover as one batched CUDA workload via cupy (`src/gpu_spatial.py`) — same density helpers, and `propagator_3x3` **ported to batched masks** (traceless shift, pure-phase/Taylor branches, the loner's eigenvector, the orthonormal complement and the pair's 2×2 block, the degenerate form for unresolved pairs — **no LAPACK call**, replacing the old Lagrange + batched-eigh-fallback scheme that fired for ~100% of Earth evolutions and was numerically inconsistent with the CPU path). Falls back to CPU with a warning when cupy or a CUDA device is missing. **Validation status:** the port's *mathematics* is validated on CPU — the batched kernel takes its array backend as a parameter, so the suite runs it with numpy against `propagator_3x3` across every branch regime — but **execution under cupy on real hardware is not yet tested**: before trusting `--use_gpu` results, run `python3 -m pytest tests/test_physics_regression.py -k gpu -v` on the GPU machine (the device test compares GPU vs CPU output end-to-end and is skipped without a device). The FrequentistAnalysis pipeline deliberately does not use the GPU path: its scan workers already saturate the CPU cores, and hundreds of workers contending for one GPU is an anti-pattern.
+* **Warm-started scans:** profile and plane points are fitted in chains walked outward from the best fit, each point started from its predecessor's solution and from the best fit; repair passes follow (Section 9).
+* **GPU (optional, off by default):** `--use_gpu` / `execution.use_gpu` runs the spatial handover as one batched CUDA workload via cupy (`src/gpu_spatial.py`) — same density helpers, and `propagator_3x3` **ported to batched masks** (traceless shift, pure-phase/Taylor branches, the loner's eigenvector, the orthonormal complement and the pair's 2×2 block, the degenerate form for unresolved pairs — **no LAPACK call**, replacing the old Lagrange + batched-eigh-fallback scheme that fired for ~100% of Earth evolutions and was numerically inconsistent with the CPU path). Falls back to CPU with a warning when cupy or a CUDA device is missing. **Validation status:** the port's *mathematics* is validated on CPU — the batched kernel takes its array backend as a parameter, so the suite runs it with numpy against `propagator_3x3` across every branch regime — but **execution under cupy on real hardware is not yet tested**: before trusting `--use_gpu` results, run `python3 -m pytest tests/test_physics_regression.py -k gpu -v` on the GPU machine (the device test compares GPU vs CPU output end-to-end and is skipped without a device). The analysis package does not use the GPU path: its scan workers already saturate the CPU cores, and hundreds of workers contending for one GPU is an anti-pattern.
 
 ---
 
 ## 13. Testing
 
 ```bash
-python3 -m pytest tests/test_physics_regression.py -v
+python3 -m pytest tests/ -v        # the regression suite and the analysis tests
 ```
 
-The regression suite pins down, among other things: the closed-form Breit-Wigner angular integral against brute-force quadrature; the semi-analytic thermal momentum kernel against a dense structure-aware referee across a g_D ladder (and the sum_G linearity the coupling cache relies on, plus the cache's verification gate, bracket bounds, and bit-exact reference-path bypass); the antineutrino conjugation conventions of both potentials (including complex, CP-violating textures) across the cosmological and spatial code paths; the structure-matrix override plumbing (explicit defaults must be bit-identical to no override); the propagator against the eigendecomposition and a 50-digit matrix exponential, its unitarity at every potential from $10^{-24}$ to $10^{22}$ eV (far-eigenvector ray, single-flavor textures), the degenerate treatment of pairs below double-precision resolution, and trace conservation through the whole spatial handover; the GPU propagator port's mathematics via a numpy backend; the PREM layer-crossing closed forms and step-averaged potentials against adaptive quadrature, plus the `avg` scheme's step-count-stability certificate; the exact chord length (every chord starts on the surface); the Earth's Yukawa integral against the uniform-ball closed form at $mR$ from $10^{-7}$ to $10^8$, brute-force quadrature of the shell kernel, the long-range (enclosed-charge) limit and the exterior point source, the agreement of its two evaluations across their switch, bit-identity with the contact form at the benchmark masses, and step-count independence with the boundary layers resolved; the uniform-across-chords Earth step count (Section 3.4); the loud-NaN contract at extreme mediator masses (finite flux end-to-end, ValueError on non-finite grids, the 1e9 sentinel in the wrapper); the config-wiring of every parameter that once went silently dead (`n_e_earth_cm3`, `use_SM_potential`, `use_debye_screening`, `n_cores`); Milky Way density finiteness on the galactic-center line; the frequentist `static_data` contract with backward compatibility; and the TBB prange → spawn-pool coexistence stress test. **Run it before and after any physics change.**
+The regression suite pins down, among other things: the closed-form Breit-Wigner angular integral against brute-force quadrature; the semi-analytic thermal momentum kernel against a dense structure-aware referee across a g_D ladder (and the sum_G linearity the coupling cache relies on, plus the cache's verification gate, bracket bounds, and bit-exact reference-path bypass); the antineutrino conjugation conventions of both potentials (including complex, CP-violating textures) across the cosmological and spatial code paths; the structure-matrix override plumbing (explicit defaults must be bit-identical to no override); the propagator against the eigendecomposition and a 50-digit matrix exponential, its unitarity at every potential from $10^{-24}$ to $10^{22}$ eV (far-eigenvector ray, single-flavor textures), the degenerate treatment of pairs below double-precision resolution, and trace conservation through the whole spatial handover; the GPU propagator port's mathematics via a numpy backend; the PREM layer-crossing closed forms and step-averaged potentials against adaptive quadrature, plus the `avg` scheme's step-count-stability certificate; the exact chord length (every chord starts on the surface); the Earth's Yukawa integral against the uniform-ball closed form at $mR$ from $10^{-7}$ to $10^8$, brute-force quadrature of the shell kernel, the long-range (enclosed-charge) limit and the exterior point source, the agreement of its two evaluations across their switch, bit-identity with the contact form at the benchmark masses, and step-count independence with the boundary layers resolved; the uniform-across-chords Earth step count (Section 3.4); the loud-NaN contract at extreme mediator masses (finite flux end-to-end, ValueError on non-finite grids); the config-wiring of every parameter that once went silently dead (`n_e_earth_cm3`, `use_SM_potential`, `use_debye_screening`, `n_cores`); Milky Way density finiteness on the galactic-center line; the absolute checks (energy at Earth below the injected, conservation through the spatial phase, vanishing mixing recovering standard propagation); and the TBB prange → spawn-pool coexistence stress test. `tests/test_analysis.py` covers the analysis package (surfaces against recorded FrequentistAnalysis values, fits, scans with repair and resume, intervals, the command line end to end). **Run it before and after any physics change.**
 
 ---
 

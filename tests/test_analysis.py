@@ -237,6 +237,28 @@ def test_repair_pass_lifts_a_point_out_of_a_side_minimum(synthetic, tmp_path):
     np.testing.assert_allclose(res.chi2_array(), (grid - 1.0) ** 2 / 0.04, atol=1e-6)
 
 
+def test_checkpoints_of_another_configuration_are_ignored(synthetic, tmp_path):
+    """Results computed under different physics must never be reused: records carry the
+    configuration's identity (data, solver, parameters, priors, grid), and a scan under a
+    changed configuration refits every point. Fit settings are not part of it."""
+    cfg, obj = synthetic
+    grid = np.linspace(0.0, 2.0, 5)
+    ck = str(tmp_path / "profile_a.jsonl")
+    scans.profile(cfg, "a", grid, {"a": 1.0, "b": 1.0}, workers=1, checkpoint=ck, log=lambda *a: None)
+    n = obj.calls
+    cfg.fit = FitSettings(n_random=0, max_evals=300)            # settings change: resume
+    scans.profile(cfg, "a", grid, {"a": 1.0, "b": 1.0}, workers=1, checkpoint=ck, log=lambda *a: None)
+    assert obj.calls - n <= 3 * len(grid)
+    n = obj.calls
+    cfg.solver = {"dark_portal": {"epsilon_prime": 0.2}}      # physics change: refit everything
+    msgs = []
+    scans.profile(cfg, "a", grid, {"a": 1.0, "b": 1.0}, workers=1, checkpoint=ck, log=msgs.append)
+    assert obj.calls - n > 10 * len(grid)
+    assert any("another configuration" in m for m in msgs)
+    assert cfg.identity() != cfg.identity(data_centre=(0.3, 0.3))
+    assert cfg.identity() != cfg.identity(extra=dict(grids=[[0.0, 1.0]]))
+
+
 def test_plane_of_the_synthetic_objective(synthetic):
     cfg, obj = synthetic
     xa, xb = np.linspace(0.5, 1.5, 5), np.linspace(0.0, 2.0, 4)
@@ -285,6 +307,14 @@ def test_configs_validate():
     bad["solver"]["grid"]["no_such_key"] = 1
     with pytest.raises(Exception):
         config_mod.from_dict(bad)
+    bad = copy.deepcopy(raw)                        # FrequentistAnalysis' "dcp" prior went unused
+    bad["priors"] = [{"name": "dcp", "type": "gaussian", "centre": 212.0, "width": 6.7}]
+    with pytest.raises(KeyError):
+        config_mod.from_dict(bad)
+    ok = copy.deepcopy(raw)
+    ok["priors"] = [{"name": "d_cp_deg", "type": "gaussian", "centre": 212.0, "width": 6.7},
+                    {"name": "sum_masses_eV", "type": "half_gaussian", "limit": 0.055}]
+    assert len(config_mod.from_dict(ok).priors) == 2
 
 
 def test_command_line_end_to_end(tmp_path):

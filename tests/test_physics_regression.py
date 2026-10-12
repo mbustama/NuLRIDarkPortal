@@ -37,10 +37,6 @@ _SRC_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
 if _SRC_DIR not in sys.path:
     sys.path.insert(0, _SRC_DIR)
 
-_FREQ_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "FrequentistAnalysis"))
-if _FREQ_DIR not in sys.path:
-    sys.path.insert(0, _FREQ_DIR)
-
 import dark_portal_solver as dps  # noqa: E402
 
 
@@ -480,132 +476,6 @@ def test_energy_averaged_ratios_uses_shared_dE_helper():
     Flux_array[:, 1] = 2.0 / dE
     ratios = fpp.compute_energy_averaged_ratios(E_bins, Flux_array)
     np.testing.assert_allclose(ratios, [1.0 / 3.0, 2.0 / 3.0, 0.0], rtol=1e-9)
-
-
-# =============================================================================
-# 7. FrequentistAnalysis static_data wiring (regression test for the fixed dead-parameter bugs)
-# =============================================================================
-
-def _make_frequentist_config(**physics_overrides):
-    """Minimal physics_constants block sized for fast tests, with production-representative
-    defaults for everything compute_user_model_single needs to run end-to-end."""
-    physics_constants = {
-        "H0_km_s_Mpc": 67.4, "Omega_m": 0.315, "Omega_L": 0.685,
-        "T_nu0_eV": 1.95e-4, "n_n0_cm3": 0.25e-6, "m_lightest_eV": 0.01,
-        "mass_ordering": "normal", "eta_e": 1.0, "eta_mu": 1.0, "eta_tau": 1.0,
-        "detector_depth_km": 1.5, "p_index": 2.5, "Phi_0": 1.0, "z_max": 4.0,
-        "rho_evol": 0.0, "f_e_S": 0.333333, "f_mu_S": 0.666667, "f_tau_S": 0.0,
-        "is_antineutrino": "sum", "E_min_eV": 1e13, "E_max_eV": 3e16,
-        "n_E_bins": 15, "n_z_bins": 15, "n_mw_paths": 1, "n_earth_chords": 1,
-        "N_steps_MW": 5, "N_steps_earth": 5,
-    }
-    physics_constants.update(physics_overrides)
-    return {"experiment": "test", "physics_constants": physics_constants}
-
-
-def _default_dark_portal_params():
-    return {"m_Zd_eV": 2.0e6, "g_D": 1e-4, "epsilon_prime": 0.1, "u_e": 0.5, "u_mu": 0.5, "u_tau": 0.0}
-
-
-def test_frequentist_static_data_wires_use_SM_potential_and_n_e_earth():
-    """FrequentistAnalysis's GenericLikelihoodWrapper must actually read use_SM_potential and
-    n_e_earth_cm3 from physics_constants into static_data, and kernel.py's
-    compute_user_model_single must actually use them -- previously both were hardcoded
-    (use_SM_potential=False, n_e_earth=0.0) regardless of the config, silently dropping the
-    same way n_e_earth_cm3 was previously dropped in dark_portal_solver.py's own run_solver
-    (see test_n_e_earth_cm3_affects_flux_when_SM_potential_enabled above)."""
-    from src.core.likelihood import GenericLikelihoodWrapper
-    from src.physics.kernel import compute_user_model_single
-
-    # n_e_earth_cm3 values chosen so the effect is comfortably above float noise: this
-    # dark-portal configuration's LRI potential dominates over the standard MSW potential by
-    # several orders of magnitude (as expected -- the whole point of the model is that the
-    # new force dominates), so use_SM_potential's effect on the output, while real and
-    # non-zero at any n_e_earth_cm3, only clears typical float-comparison tolerances once
-    # n_e_earth_cm3 is large enough (empirically checked to give a ~1e-4-level relative
-    # effect at 5e24 cm^-3, vs ~1e-16 machine noise when the parameter is dead/dropped).
-    cfg_off = _make_frequentist_config(use_SM_potential=False, n_e_earth_cm3=5.0e24)
-    cfg_lo = _make_frequentist_config(use_SM_potential=True, n_e_earth_cm3=1.0e23)
-    cfg_hi = _make_frequentist_config(use_SM_potential=True, n_e_earth_cm3=5.0e24)
-
-    func_off = GenericLikelihoodWrapper(cfg_off, [])
-    func_lo = GenericLikelihoodWrapper(cfg_lo, [])
-    func_hi = GenericLikelihoodWrapper(cfg_hi, [])
-
-    assert len(func_off.static_data) == 37
-    assert func_off.static_data[27] is False or func_off.static_data[27] == False  # noqa: E712
-    assert func_lo.static_data[27] is True or func_lo.static_data[27] == True  # noqa: E712
-    assert func_lo.static_data[28] != func_hi.static_data[28]
-
-    params = _default_dark_portal_params()
-    result_off = compute_user_model_single(params, func_off.static_data)
-    result_lo = compute_user_model_single(params, func_lo.static_data)
-    result_hi = compute_user_model_single(params, func_hi.static_data)
-
-    # Turning on use_SM_potential (with n_e_earth actually wired through) must change the
-    # output, and different n_e_earth_cm3 values must give different outputs from each other.
-    assert not np.allclose(result_off, result_hi, rtol=1e-6, atol=0.0)
-    assert not np.allclose(result_lo, result_hi, rtol=1e-6, atol=0.0)
-
-
-def test_frequentist_static_data_wires_use_debye_screening():
-    """use_debye_screening is present in every shipped physics_constants block's spirit
-    (dark_portal_solver.py's own config exposes it under dark_portal.use_debye_screening)
-    but was hardcoded to True in kernel.py regardless of config. Regression test that it is
-    now read from static_data and actually changes the propagated flux when toggled."""
-    from src.core.likelihood import GenericLikelihoodWrapper
-    from src.physics.kernel import compute_user_model_single
-
-    cfg_on = _make_frequentist_config(use_debye_screening=True)
-    cfg_off = _make_frequentist_config(use_debye_screening=False)
-
-    func_on = GenericLikelihoodWrapper(cfg_on, [])
-    func_off = GenericLikelihoodWrapper(cfg_off, [])
-
-    assert func_on.static_data[29] is True or func_on.static_data[29] == True  # noqa: E712
-    assert func_off.static_data[29] is False or func_off.static_data[29] == False  # noqa: E712
-
-    # A large g_D (strong dark coupling) makes the Debye screening mass non-negligible
-    # relative to m_Zd, so toggling it should visibly change the propagated flux.
-    params = dict(_default_dark_portal_params())
-    params["m_Zd_eV"] = 1.0e3
-    params["g_D"] = 1.0
-
-    result_on = compute_user_model_single(params, func_on.static_data)
-    result_off = compute_user_model_single(params, func_off.static_data)
-
-    # Wiring check: a dropped flag would give BIT-IDENTICAL results. Under the 'left'
-    # Earth scheme the toggle's small V-shift was amplified by discretization phase
-    # noise into an O(1e-4) flux change; the phase-exact 'avg' scheme (dev-earth)
-    # removes that amplification, leaving only the true physical effect (~1e-7 here)
-    # -- so assert at a tolerance that detects wiring, not noise amplification.
-    assert not np.allclose(result_on, result_off, rtol=1e-12, atol=1e-12)
-
-
-def test_frequentist_static_data_backward_compatible_with_shorter_tuples():
-    """compute_user_model_single must still work, with safe defaults, given an older
-    26-element static_data tuple that predates N_steps_earth/use_SM_potential/n_e_earth/
-    use_debye_screening -- these were all added as tuple extensions specifically to avoid
-    breaking any caller still constructing the older, shorter form."""
-    from src.physics.kernel import compute_user_model_single
-
-    old_static_data = (
-        0.33, 0.33, 0.05, 0.05,
-        np.logspace(13, 16, 10), np.linspace(4.0, 0.0, 10),
-        np.array([0.333333, 0.666667, 0.0]),
-        67.4 * dps.km_per_s / dps.Mpc_to_eV_inv, 0.315, 0.685,
-        np.eye(3, dtype=np.complex128),
-        np.diag([0.0, 7.41e-5, 2.511e-3]).astype(np.complex128),
-        np.array([0.0, 8.6e-3, 5.01e-2]),
-        0.25e-6 * dps.cm_inv3_to_eV3, 1.95e-4, np.ones(3, dtype=np.float64),
-        1.5, "sum", 2.5, 0.0, 1.0,
-        1.0, 1, 1, 5, 100.0,
-    )
-    assert len(old_static_data) == 26
-
-    result = compute_user_model_single(_default_dark_portal_params(), old_static_data)
-    assert len(result) == 3
-    assert all(np.isfinite(result))
 
 
 # =============================================================================
@@ -1142,138 +1012,8 @@ def test_mw_density_finite_on_galactic_center_line():
 
 
 # =============================================================================
-# 8. MainProcess-adaptive n_cores (regression test for the fix)
+# 8. TBB threading layer: a prange kernel, then a spawn pool, in one process
 # =============================================================================
-
-def test_frequentist_n_cores_standalone_wired_from_scan_settings():
-    """GenericLikelihoodWrapper must read scan_settings.num_cores (clamped to actually
-    available cores) into static_data as n_cores_standalone, for kernel.py's
-    run_propagation to use whenever it is *not* running inside main.py's scan/repair
-    multiprocessing.Pool."""
-    from src.core.likelihood import GenericLikelihoodWrapper
-
-    cfg = _make_frequentist_config()
-    cfg["scan_settings"] = {"num_cores": 4}
-    func = GenericLikelihoodWrapper(cfg, [])
-    assert len(func.static_data) == 37
-    assert func.static_data[30] == 4
-
-    # Clamped to what's actually available, never silently allowed above it.
-    import multiprocessing as _mp
-    huge_request = _mp.cpu_count() * 100
-    cfg_huge = _make_frequentist_config()
-    cfg_huge["scan_settings"] = {"num_cores": huge_request}
-    func_huge = GenericLikelihoodWrapper(cfg_huge, [])
-    assert 1 <= func_huge.static_data[30] <= _mp.cpu_count()
-
-
-def _call_kernel_and_report_process(args):
-    """Module-level (picklable) helper for
-    test_frequentist_kernel_uses_n_cores_standalone_only_in_main_process -- must live at
-    module scope so multiprocessing can pickle it for dispatch to a real Pool worker."""
-    import multiprocessing as _mp
-    from src.physics.kernel import compute_user_model_single
-    static_data, params = args
-    proc_name = _mp.current_process().name
-    result = compute_user_model_single(params, static_data)
-    return proc_name, proc_name == "MainProcess", result
-
-
-def test_frequentist_kernel_uses_n_cores_standalone_only_in_main_process():
-    """kernel.py's run_propagation must use n_cores_standalone when running in the main
-    process (e.g. main.py's initial m.simplex()/m.migrad() global fit, which runs before
-    any scan/repair Pool worker ever touches this function), but must force n_cores back
-    to 1 whenever called from inside an actual multiprocessing.Pool worker -- otherwise a
-    worker would itself spin up a nested pool and oversubscribe every core (the same
-    hazard the BLAS/numba thread-pinning guards in dp_core.py exist to avoid).
-    Both must produce the exact same physics result regardless of core count."""
-    from src.core.likelihood import GenericLikelihoodWrapper
-    import multiprocessing as _mp
-
-    cfg = _make_frequentist_config()
-    cfg["scan_settings"] = {"num_cores": max(2, min(4, _mp.cpu_count()))}
-    func = GenericLikelihoodWrapper(cfg, [])
-    params = _default_dark_portal_params()
-
-    assert _mp.current_process().name == "MainProcess"
-    result_main = _call_kernel_and_report_process((func.static_data, params))
-
-    with _mp.Pool(processes=2) as pool:
-        result_worker = pool.apply(_call_kernel_and_report_process, ((func.static_data, params),))
-
-    proc_name_main, is_main_flag, flux_main = result_main
-    proc_name_worker, is_main_worker_flag, flux_worker = result_worker
-
-    assert is_main_flag is True
-    assert is_main_worker_flag is False
-    assert proc_name_worker != "MainProcess"
-    np.testing.assert_allclose(flux_main, flux_worker, rtol=1e-9)
-
-
-def test_frequentist_persistent_pool_reused_under_spawn_not_recreated_per_call():
-    """Regression test for a near-miss caught during this fix's own development: the first
-    version of the MainProcess-adaptive n_cores fix created a fresh multiprocessing.Pool
-    inside propagate_earth_spatial on every single call. That is cheap under the 'fork' start
-    method (the default on Linux, and what every earlier timing check in this fix's
-    development happened to use) but *catastrophically* expensive under 'spawn' -- a full
-    interpreter relaunch plus reimport per worker, per call. main.py explicitly forces
-    'spawn' (multiprocessing.set_start_method('spawn', force=True)), and measured directly on
-    the real production config, using more cores made every single Migrad evaluation ~10x
-    *slower* without pool reuse (3.75s/eval vs 0.37s/eval). kernel.py's _get_persistent_pool
-    must construct the Pool at most once and reuse it across many calls.
-
-    This runs in an isolated subprocess: the multiprocessing start method is process-global
-    and can only be forced to 'spawn' once, before any Pool has been created in that process
-    -- doing so here would affect every other test in this file that uses multiprocessing.
-    """
-    script = f'''
-import sys, multiprocessing, multiprocessing.pool
-sys.path.insert(0, {_FREQ_DIR!r})
-multiprocessing.set_start_method("spawn", force=True)
-
-_pool_construct_count = [0]
-_RealPool = multiprocessing.pool.Pool
-class _CountingPool(_RealPool):
-    def __init__(self, *a, **k):
-        _pool_construct_count[0] += 1
-        super().__init__(*a, **k)
-multiprocessing.Pool = _CountingPool
-
-from src.core.likelihood import GenericLikelihoodWrapper
-from src.physics.kernel import compute_user_model_single
-
-config = {{
-    "experiment": "test",
-    "physics_constants": {{
-        "H0_km_s_Mpc": 67.4, "Omega_m": 0.315, "Omega_L": 0.685,
-        "T_nu0_eV": 1.95e-4, "n_n0_cm3": 0.25e-6, "m_lightest_eV": 0.01,
-        "mass_ordering": "normal", "eta_e": 1.0, "eta_mu": 1.0, "eta_tau": 1.0,
-        "detector_depth_km": 1.5, "p_index": 2.5, "Phi_0": 1.0, "z_max": 4.0,
-        "rho_evol": 0.0, "f_e_S": 0.333333, "f_mu_S": 0.666667, "f_tau_S": 0.0,
-        "is_antineutrino": "sum", "E_min_eV": 1e13, "E_max_eV": 3e16,
-        "n_E_bins": 12, "n_z_bins": 12, "n_mw_paths": 8, "n_earth_chords": 8,
-        "N_steps_MW": 5, "N_steps_earth": 5,
-    }},
-    "scan_settings": {{"num_cores": 4}},
-}}
-params = {{"m_Zd_eV": 2.0e6, "g_D": 1e-4, "epsilon_prime": 0.1, "u_e": 0.5, "u_mu": 0.5, "u_tau": 0.0}}
-
-func = GenericLikelihoodWrapper(config, [])
-results = [compute_user_model_single(params, func.static_data) for _ in range(3)]
-
-assert all(r == results[0] for r in results), f"results differ across repeated calls: {{results}}"
-print(f"POOL_CONSTRUCTIONS={{_pool_construct_count[0]}}")
-print("OK")
-'''
-    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=420)
-    assert result.returncode == 0, f"subprocess failed:\nstdout={result.stdout}\nstderr={result.stderr}"
-    assert "OK" in result.stdout, f"stdout={result.stdout}\nstderr={result.stderr}"
-
-    pool_count_lines = [l for l in result.stdout.splitlines() if l.startswith("POOL_CONSTRUCTIONS=")]
-    assert pool_count_lines, f"missing pool count marker in output: {result.stdout}"
-    pool_constructions = int(pool_count_lines[0].split("=")[1])
-    assert pool_constructions == 1, f"expected exactly 1 Pool construction reused across 3 calls, got {pool_constructions}"
-
 
 def test_threads_mode_prange_then_spawn_pool_same_process():
     """The TBB gate for the threads-based spatial mode: run the parallel prange spatial
@@ -1383,24 +1123,6 @@ def test_nubar_ratio_zero_skips_antineutrino_propagation(tmp_path):
     _, F_sum0 = dps.run_solver(cfg_sum0)
     _, F_nu = dps.run_solver(cfg_nu)
     np.testing.assert_array_equal(F_sum0, F_nu)
-
-
-def test_calculate_intervals_ignores_sentinel_boundaries():
-    """A failed grid point (1e9 sentinel) adjacent to a valid sub-threshold point must
-    not fabricate a threshold crossing at the failure boundary."""
-    from src.analysis.statistics import calculate_intervals
-
-    x = np.linspace(0.0, 1.0, 11)
-    d = np.full(11, 0.5)          # everywhere comfortably below a 2.71 threshold
-    d[5] = 1e9                    # one failed point mid-scan
-    res = calculate_intervals(x, d, "p", {"90": 2.71}, merge_gaps=False)
-    intervals = res["90"]
-    assert intervals is not None
-    # Every crossing-derived boundary except the scan edges would be spurious here:
-    # the entire valid curve sits below threshold, so the allowed region must span the
-    # full scan without interior breakpoints from the sentinel.
-    assert len(intervals) == 1
-    assert intervals[0][0] == pytest.approx(0.0) and intervals[0][1] == pytest.approx(1.0)
 
 
 # =============================================================================
@@ -1573,33 +1295,6 @@ def test_propagate_spectrum_raises_on_nonfinite_gamma_grid():
             True, 1.5, False, 0.0, False, 2.5, 0.0, 1.0, np.ones(3),
             1, 1, N_steps_MW=3, show_progress=False, verbose=0, n_cores=1,
             precomputed_Gamma_grid_all=bad_grid, N_steps_earth=3)
-
-
-def test_frequentist_wrapper_returns_sentinel_on_kernel_failure(monkeypatch, tmp_path):
-    """GenericLikelihoodWrapper must convert BOTH kernel failure modes established by the
-    task-#3 contract into the 1e9 sentinel: a raised ValueError (the new loud domain
-    check in propagate_spectrum) and a NaN chi2 (e.g. NaN flavor fractions reaching the
-    detector likelihood). Uses a tiny mock grid so no real physics runs."""
-    import src.core.likelihood as lk
-
-    config = {
-        "experiment": "icecube_mese_2025",
-        "physics_constants": {"n_E_bins": 8, "n_z_bins": 8, "n_mw_paths": 1,
-                              "n_earth_chords": 1, "N_steps_MW": 2, "N_steps_earth": 2},
-        "start_values": {"m_Zd_eV": 1e-6, "g_D": 1e-4, "epsilon_prime": 0.1},
-        "scan_settings": {"num_cores": 1},
-    }
-    wrapper = lk.GenericLikelihoodWrapper(config, ["m_Zd_eV"])
-
-    def raise_domain_error(params, static_data):
-        raise ValueError("Non-finite thermal-rate grid (Gamma) at m_Zd_eV=1e-06 ...")
-
-    monkeypatch.setattr(lk, "compute_user_model_single", raise_domain_error)
-    assert wrapper(1e-6) == 1e9
-
-    monkeypatch.setattr(lk, "compute_user_model_single",
-                        lambda params, static_data: (np.nan, np.nan, np.nan))
-    assert wrapper(2e-6) == 1e9
 
 
 # =============================================================================
@@ -1828,7 +1523,7 @@ def test_thermal_grid_cached_gate_rejects_wide_bracket():
 
 def test_thermal_grid_cached_exact_point_reuse():
     """A repeat request at an already-built sum_G must be served from the stored
-    exact point (no rebuild) and must return the identical grid -- Minuit re-evaluates
+    exact point (no rebuild) and must return the identical grid -- a minimizer re-evaluates
     its incumbent point several times per profiled fit, so this is a real scan path."""
     m_nu, eta_mass, E_bins, z_bins = _tc_setup()
     dps._tc_cache.clear()
@@ -1842,7 +1537,7 @@ def test_thermal_grid_cached_exact_point_reuse():
 
 
 def test_thermal_grid_cached_narrow_bracket_activates_within_gate():
-    """Minuit-inner-fit-sized coupling moves (well below the historical 0.3-dex floor)
+    """Minimizer-step-sized coupling moves (well below the historical 0.3-dex floor)
     must be able to activate the surrogate, and its output inside the verified bracket
     must agree with a fresh exact build to the gate accuracy. This is the case the
     original floor silently excluded: during real profiled scans every evaluation paid
@@ -2127,47 +1822,6 @@ def test_gpu_batched_propagator_matches_cpu_numpy_backend():
 # Scan-infrastructure regression tests (checkpointing + deterministic retry jitter)
 # =============================================================================
 
-def test_run_segments_checkpoint_resume_and_stale_discard(tmp_path):
-    """_run_segments must (a) persist each completed segment, (b) resume by executing
-    ONLY the segments missing from a matching checkpoint, (c) discard a checkpoint
-    whose header (scan identity/grid/segmentation) does not match, and (d) return
-    results identical to an uncheckpointed run in all cases."""
-    from src.engines.scanner import _run_segments
-
-    calls = []
-
-    def worker(seg):
-        calls.append(tuple(seg))
-        return [(float(v), {"p": float(v) * 2}) for v in seg]
-
-    segments = [[1.0, 2.0], [3.0], [4.0, 5.0]]
-    ckpt = str(tmp_path / "seg.jsonl")
-
-    reference = _run_segments(worker, segments, None, "test")
-
-    calls.clear()
-    full = _run_segments(worker, segments, None, "test", checkpoint_path=ckpt, grid_signature="g1")
-    assert [tuple(f) for f in full] == [tuple(r) for r in reference]
-    assert len(calls) == 3
-    assert os.path.exists(ckpt)  # the file is left for the caller to clean up
-
-    # Simulate a crash after two segments: keep header + first two records only
-    lines = open(ckpt).read().splitlines()
-    with open(ckpt, "w") as f:
-        f.write("\n".join(lines[:3]) + "\n")
-    calls.clear()
-    resumed = _run_segments(worker, segments, None, "test", checkpoint_path=ckpt, grid_signature="g1")
-    assert calls == [tuple(segments[2])], "resume re-ran already-completed segments"
-    assert [tuple(r[1].items()) for r in resumed] == [tuple(r[1].items()) for r in reference]
-    assert [r[0] for r in resumed] == [r[0] for r in reference]
-
-    # A different grid signature must invalidate the checkpoint entirely
-    calls.clear()
-    _run_segments(worker, segments, None, "test", checkpoint_path=ckpt, grid_signature="DIFFERENT")
-    assert len(calls) == 3, "stale checkpoint (different grid) was trusted"
-    os.remove(ckpt)
-
-
 def test_scanner_checkpoint_resume(tmp_path, monkeypatch):
     """dark_portal_scanner.run_parameter_scan must persist completed points and, on
     resume, recompute ONLY the missing ones; the final output must contain every grid
@@ -2219,97 +1873,6 @@ def test_scanner_checkpoint_resume(tmp_path, monkeypatch):
     assert len(calls) == 3, "stale (different-config) checkpoint was trusted"
 
 
-def test_global_fit_checkpoint_identity_and_load(tmp_path):
-    """The global-fit checkpoint must load ONLY when the identity hash (floating set,
-    physics, priors, start conditions) matches AND the stored fit was valid; anything
-    else forces a fresh fit. Guards against silently reusing a minimum computed under
-    different physics."""
-    from src.main import global_fit_identity, load_global_fit_checkpoint
-
-    cfg = {"experiment": "x", "physics_constants": {"m_lightest_eV": 0.01},
-           "start_values": {"g_D": 1e-4}, "fixed_params": {}, "parameter_limits": {},
-           "step_sizes": {}}
-    ident = global_fit_identity(cfg, ["g_D"], asimov=False)
-    assert ident == global_fit_identity(dict(cfg), ["g_D"], asimov=False)
-    assert ident != global_fit_identity(cfg, ["g_D", "u_e"], asimov=False)
-    assert ident != global_fit_identity(cfg, ["g_D"], asimov=True)
-    cfg2 = {**cfg, "physics_constants": {"m_lightest_eV": 0.02}}
-    assert ident != global_fit_identity(cfg2, ["g_D"], asimov=False)
-
-    path = str(tmp_path / "global_fit.json")
-    payload = {"identity": ident, "fval": -15.0, "valid": True,
-               "values": {"g_D": 1.3e-4}, "errors": {"g_D": 5e-6}}
-    with open(path, "w") as f:
-        json.dump(payload, f)
-    loaded = load_global_fit_checkpoint(path, ident)
-    assert loaded is not None and loaded["fval"] == -15.0
-
-    assert load_global_fit_checkpoint(path, "different") is None
-    payload["valid"] = False
-    with open(path, "w") as f:
-        json.dump(payload, f)
-    assert load_global_fit_checkpoint(path, ident) is None, "invalid fit was reused"
-    with open(path, "w") as f:
-        f.write("{corrupt")
-    assert load_global_fit_checkpoint(path, ident) is None
-
-
-def test_split_segments_min_length_floor():
-    """min_segment_length must floor the warm-start segment length: at high worker
-    counts the ~3-per-core rule otherwise produces single-point segments and
-    warm-starting silently dies. Default (1) must reproduce the historical split."""
-    from src.engines.scanner import _split_segments
-
-    items = list(range(100))
-    default = _split_segments(items, 200)
-    assert len(default) == 100, "historical high-core split changed"
-    assert _split_segments(items, 200, min_len=1) == default
-
-    floored = _split_segments(items, 200, min_len=4)
-    assert len(floored) == 25
-    assert all(len(s) >= 4 for s in floored)
-    assert [x for s in floored for x in s] == items, "floored split lost or reordered points"
-
-    # floor larger than the grid: one segment, never zero
-    assert _split_segments(items, 200, min_len=1000) == [items]
-
-
-def test_minuit_maxcall_caps_stalled_fits():
-    """minuit_maxcall must bound the per-migrad evaluation count of a hard inner fit
-    (measured on a real scan: one uncapped point burned 870 evaluations against a
-    26-eval median) while still returning a finite result; 0 keeps Minuit's own
-    internal limit (historical behavior)."""
-    from src.engines.optimizers import minimize_point
-
-    calls = {"n": 0}
-
-    def rosenbrock(w, x, y, z):
-        calls["n"] += 1
-        return (100 * (y - x**2)**2 + (1 - x)**2
-                + 100 * (z - y**2)**2 + (1 - y)**2 + (w - 1.0)**2)
-
-    names = ["w", "x", "y", "z"]
-    starts = {"w": 1.0, "x": -1.5, "y": 2.5, "z": -1.5}
-    errors = {p: 0.1 for p in names}
-    limits = {p: (-5.0, 5.0) for p in names}
-
-    calls["n"] = 0
-    fval_uncapped, _ = minimize_point(1.0, "w", starts, errors, rosenbrock, limits,
-                                      names, minuit_retries=1, retry_seed=3)
-    n_uncapped = calls["n"]
-
-    calls["n"] = 0
-    fval_capped, _ = minimize_point(1.0, "w", starts, errors, rosenbrock, limits,
-                                    names, minuit_retries=1, retry_seed=3,
-                                    minuit_maxcall=20)
-    n_capped = calls["n"]
-
-    assert np.isfinite(fval_capped)
-    assert n_capped < n_uncapped, f"cap did not reduce evals ({n_capped} vs {n_uncapped})"
-    # ncall is an approximate per-iteration check, so allow generous overhead
-    assert n_capped < 60, f"capped fit still ran {n_capped} evaluations"
-
-
 def test_default_relic_neutrino_temperature_is_physical():
     """The relic-neutrino temperature must be (4/11)^(1/3) T_CMB, converted to eV.
 
@@ -2320,28 +1883,26 @@ def test_default_relic_neutrino_temperature_is_physical():
     T_expected = (4.0 / 11.0) ** (1.0 / 3.0) * 2.7255 * 8.617333262e-5   # eV
     assert abs(dps.DEFAULT_CONFIG["cosmology"]["T_nu0_eV"] / T_expected - 1.0) < 1e-5
 
-    cfg_dir = os.path.join(_FREQ_DIR, "config")
-    for name in ("pion_2050_case_5_fixed_nuisance.json", "pion_2050_case_5_fixed_nuisance_mZD.json",
-                 os.path.join("tests", "dark_portal_frequentist_config.json")):
+    cfg_dir = os.path.join(os.path.dirname(__file__), "..", "analysis", "configs")
+    for name in sorted(os.listdir(cfg_dir)):
         with open(os.path.join(cfg_dir, name)) as f:
-            T_cfg = json.load(f)["physics_constants"]["T_nu0_eV"]
+            T_cfg = json.load(f)["solver"]["cosmology"]["T_nu0_eV"]
         assert abs(T_cfg / T_expected - 1.0) < 1e-5, f"{name} carries T_nu0_eV = {T_cfg}"
 
 
 def test_default_cosmological_neutron_density_is_physical():
     """The cosmological dark-portal potential is sourced by neutrons only, which sit almost
     entirely in helium-4: n_n0 = n_b * Y_p / 2. Until 2026-10-12 the default was the total
-    baryon density (0.25e-6 cm^-3), 8.1x too large. Pins the default and the three analysis
+    baryon density (0.25e-6 cm^-3), 8.1x too large. Pins the default and the analysis
     configurations, each of which carries its own copy."""
     n_b, Y_p = 2.515e-7, 0.2458             # PDG 2024 (CMB); LBT Y_p project (2026)
     expected = n_b * Y_p / 2.0
     assert abs(dps.DEFAULT_CONFIG["cosmology"]["n_n0_cm3"] / expected - 1.0) < 1e-3
 
-    cfg_dir = os.path.join(_FREQ_DIR, "config")
-    for name in ("pion_2050_case_5_fixed_nuisance.json", "pion_2050_case_5_fixed_nuisance_mZD.json",
-                 os.path.join("tests", "dark_portal_frequentist_config.json")):
+    cfg_dir = os.path.join(os.path.dirname(__file__), "..", "analysis", "configs")
+    for name in sorted(os.listdir(cfg_dir)):
         with open(os.path.join(cfg_dir, name)) as f:
-            n_cfg = json.load(f)["physics_constants"]["n_n0_cm3"]
+            n_cfg = json.load(f)["solver"]["cosmology"]["n_n0_cm3"]
         assert abs(n_cfg / expected - 1.0) < 1e-3, f"{name} carries n_n0_cm3 = {n_cfg}"
 
 
@@ -2442,34 +2003,6 @@ def test_resonant_absorption_scales_with_relic_temperature():
     integral_ratio = np.trapz(G[T_old], E_bins) / np.trapz(G[T_new], E_bins)
     assert abs(integral_ratio / r**3 - 1.0) < 2e-3, integral_ratio
     assert abs((G[T_old].max() / G[T_new].max()) / r**2 - 1.0) < 1e-2
-
-
-def test_retry_seed_deterministic_and_default_preserved():
-    """retry_seed >= 0 must make the retry-jitter RNG stream a pure function of
-    (base seed, parameter, grid value) -- identical across calls and processes --
-    while distinct grid values still get distinct streams. retry_seed < 0 keeps the
-    historical per-call os.urandom seeding (streams differ call to call)."""
-    from src.engines.optimizers import _seed_retry_rng
-
-    _seed_retry_rng(7, "m_Zd_eV", float(1e6).hex())
-    a = np.random.random(4)
-    _seed_retry_rng(7, "m_Zd_eV", float(1e6).hex())
-    b = np.random.random(4)
-    np.testing.assert_array_equal(a, b)
-
-    _seed_retry_rng(7, "m_Zd_eV", float(2e6).hex())
-    c = np.random.random(4)
-    assert not np.array_equal(a, c), "different grid values shared a jitter stream"
-
-    _seed_retry_rng(8, "m_Zd_eV", float(1e6).hex())
-    d = np.random.random(4)
-    assert not np.array_equal(a, d), "different base seeds shared a jitter stream"
-
-    _seed_retry_rng(-1, "m_Zd_eV", float(1e6).hex())
-    e = np.random.random(4)
-    _seed_retry_rng(-1, "m_Zd_eV", float(1e6).hex())
-    f = np.random.random(4)
-    assert not np.array_equal(e, f), "default (-1) unexpectedly deterministic"
 
 
 if __name__ == "__main__":

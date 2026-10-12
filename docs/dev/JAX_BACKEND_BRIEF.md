@@ -19,15 +19,13 @@ notes for the expected style).
 
 ## 0. Repository context you must know first
 
-* Solver: `src/dark_portal_solver.py`. Analysis pipeline:
-  `FrequentistAnalysis/src/core/likelihood.py` (`GenericLikelihoodWrapper`) →
-  `src/physics/kernel.py` (`compute_user_model_single`) → `propagate_spectrum`.
-  Configuration flows from `DEFAULT_CONFIG` (solver) with unknown-key rejection;
-  the analysis mirrors it through a **36-element `static_data` tuple** built in
-  `likelihood.py` (element 34 is `thermal_analytic`, element 35 is
-  `earth_step_scheme`; extend the tuple for new flags, with the established
-  `len(static_data) > N` backward-compat unpack pattern in `kernel.py`). The
-  solver itself was split (2026-07) into `dp_core/dp_propagator/dp_thermal/
+* Solver: `src/dark_portal_solver.py`. Analysis (since 2026-10-12, replacing
+  FrequentistAnalysis): `analysis/model.py` overrides keys of a solver
+  configuration and calls the solver's own `build_solver_params` /
+  `propagate_nu_nubar`, so a new solver flag reaches the analysis with no wiring;
+  `analysis/fitting.py` minimizes with scipy (L-BFGS-B, finite differences, then
+  Powell). Configuration flows from `DEFAULT_CONFIG` (solver) with unknown-key
+  rejection. The solver itself was split (2026-07) into `dp_core/dp_propagator/dp_thermal/
   dp_cosmo/dp_spatial/dp_config` behind the `dark_portal_solver` facade —
   import through the facade, but read implementation in the dp_* modules.
 * Test suite: `python3 -m pytest tests/test_physics_regression.py` — 60 passed +
@@ -94,11 +92,10 @@ Mirror the existing `use_gpu` pattern exactly:
   plus x64 check) and the forward entry point. `propagation_worker` routes to it
   when `use_jax` is set, **falling back to the numba path with a one-line warning**
   when JAX is unavailable (same courtesy as the GPU path).
-* FrequentistAnalysis: extend `static_data` to 37 elements
-  (`use_jax` at index 36), read from `physics_constants.use_jax` in
-  `likelihood.py` with `_PC_DEFAULTS` fallback; `kernel.compute_user_model_single`
-  routes. Gradient wiring (phase c) adds a `value_and_grad` method on the wrapper —
-  do NOT change `__call__`'s signature (iminuit and the pool workers depend on it).
+* Analysis: nothing to wire for the forward pass (the flag travels in the solver
+  configuration). Gradient wiring (phase c) adds a `value_and_grad` path to
+  `analysis/objective.py` and passes `jac=True` to the L-BFGS-B call in
+  `analysis/fitting.py`.
 * At import: `jax.config.update("jax_enable_x64", True)` before anything else, and
   refuse to run (raise, loudly) if x64 cannot be enabled. float32 is a non-starter
   at these phase magnitudes.
@@ -172,13 +169,12 @@ its numba counterpart before moving on):
 ## 5. Fitting integration (phase c)
 
 Escalate in this order, benchmarking a real 1-D profile scan
-(`config/pion_2050_case_5_fixed_nuisance.json`, small grid first) at each step:
+(`analysis/configs/pion_2050_case_5.json`, small grid first) at each step:
 
-1. iminuit `Minuit(func, grad=...)` — smallest change, keeps everything else.
-2. Inner profiled fits → `scipy.optimize.minimize(..., method="L-BFGS-B",
-   jac=True)` with bounds from `parameter_limits`; Migrad stays as the global-fit
-   orchestrator. Expect ~15–30 value_and_grad calls per point vs the current ~134
-   evaluations (post-`minuit_strategy=0`).
+1. Analytic gradients into the existing L-BFGS-B fits (`jac=True`) — smallest
+   change. Expect ~15–30 value_and_grad calls per point instead of ~100–200
+   finite-difference evaluations.
+2. Drop the Powell polish where the gradient makes it redundant.
 3. (Optional, later) full-JAX scans: `vmap` the whole profiled objective over
    grid points.
 
@@ -215,8 +211,8 @@ daemon. The considerations that actually matter for THIS pipeline:
   200-worker pool, submit a **SLURM array job** where each task is one process
   that `vmap`s a chunk of grid points. Fewer, fatter processes amortize the JIT
   once each, drop the pickling entirely, and map cleanly onto
-  `#SBATCH --array=0-39` + a chunk index. The repo's existing
-  `slurm_batch_frequentist_dark_portal.sh` is the file to extend.
+  `#SBATCH --array=0-39` + a chunk index (the Tycho job scripts of WORK_PLAN
+  item 2).
 * **GPU nodes (optional)**: needs a CUDA-matched wheel (`pip install "jax[cuda12]"`
   or the cluster's module). Two flags matter on shared GPUs: JAX preallocates 75%
   of device memory by default — set `XLA_PYTHON_CLIENT_PREALLOCATE=false` (or

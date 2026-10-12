@@ -131,18 +131,26 @@ class _Pool:
 # ----------------------------------------------------------------------------------------
 # Checkpoints
 # ----------------------------------------------------------------------------------------
-def _read_jsonl(path: str) -> List[dict]:
+def _read_jsonl(path: str, identity: Optional[str] = None, log=None) -> List[dict]:
+    """The records of a checkpoint; with identity, only those computed under it (the others,
+    from another configuration, are reported and ignored)."""
     if not os.path.exists(path):
         return []
-    out = []
+    out, stale = [], 0
     with open(path) as f:
         for line in f:
             line = line.strip()
             if line:
                 try:
-                    out.append(json.loads(line))
+                    r = json.loads(line)
                 except json.JSONDecodeError:
-                    pass                      # a line cut by an interruption
+                    continue                  # a line cut by an interruption
+                if identity is not None and r.get("id") != identity:
+                    stale += 1
+                    continue
+                out.append(r)
+    if stale and log is not None:
+        log(f"  ignoring {stale} records of {os.path.basename(path)} computed under another configuration")
     return out
 
 
@@ -180,13 +188,15 @@ def global_fit(cfg: AnalysisConfig, data_centre=None, workers: int = 1, checkpoi
     lo, hi = pset.bounds_internal()
     starts = [pset.start_values()]
     starts += [pset.as_values(lo + (hi - lo) * rng.random(len(lo))) for _ in range(cfg.fit.n_random)]
-    done = _read_jsonl(checkpoint) if checkpoint else []
+    ident = cfg.identity(data_centre)
+    done = _read_jsonl(checkpoint, ident, log) if checkpoint else []
     done_starts = {json.dumps(r["start"], sort_keys=True) for r in done if "start" in r}
     todo = [s for s in starts if json.dumps(s, sort_keys=True) not in done_starts]
     settings = {**asdict(cfg.fit), "polish": False, "n_random": 0}
     results = [r for r in done if "start" in r]
     with _Pool(cfg, data_centre, min(workers, max(1, len(todo)))) as pool:
         for r in pool.imap(_run_start, [(s, settings) for s in todo]):
+            r["id"] = ident
             results.append(r)
             if checkpoint:
                 _append_jsonl(checkpoint, [r])
@@ -198,8 +208,9 @@ def global_fit(cfg: AnalysisConfig, data_centre=None, workers: int = 1, checkpoi
     out = dict(values=final["values"], chi2=final["chi2"],
                nfev=int(sum(r["nfev"] for r in results) + polished["nfev"]),
                seconds=time.perf_counter() - t0, starts=[dict(chi2=r["chi2"], values=r["values"]) for r in results])
+    out["id"] = ident
     if checkpoint:
-        _append_jsonl(checkpoint, [dict(final=True, values=out["values"], chi2=out["chi2"])])
+        _append_jsonl(checkpoint, [dict(final=True, values=out["values"], chi2=out["chi2"], id=ident)])
     return out
 
 
@@ -261,7 +272,8 @@ def _scan(cfg: AnalysisConfig, names: List[str], grids: List[np.ndarray], best: 
         for c in _chains_1d(grids[0], best[names[0]], params[0].space == "log10", length):
             chains.append([(i,) + tuple(rest) for i in c])
     t0 = time.perf_counter()
-    records = _read_jsonl(checkpoint) if checkpoint else []
+    ident = scan_identity(cfg, names, grids, data_centre)
+    records = _read_jsonl(checkpoint, ident, log) if checkpoint else []
     done = _best_by_index(records)
     edge_checked = {tuple(r["index"]) for r in records if r.get("edge_checked")}
     settings = {**asdict(cfg.fit), "n_random": 0}
@@ -277,6 +289,7 @@ def _scan(cfg: AnalysisConfig, names: List[str], grids: List[np.ndarray], best: 
         for recs in pool.imap(_run_chain, todo):
             for r in recs:
                 r["pass"] = 0
+                r["id"] = ident
                 done[tuple(r["index"])] = r
                 result.nfev += r["nfev"]
             if checkpoint:
@@ -317,10 +330,11 @@ def _scan(cfg: AnalysisConfig, names: List[str], grids: List[np.ndarray], best: 
             for r in pool.imap(_run_repair, tasks):
                 if r is not None:
                     r["pass"] = k
+                    r["id"] = ident
                     improved.append(r)
                     done[tuple(r["index"])] = r
                     result.nfev += r["nfev"]
-            markers = [dict(index=list(t[0]), edge_checked=True) for t in tasks if t[6]]
+            markers = [dict(index=list(t[0]), edge_checked=True, id=ident) for t in tasks if t[6]]
             if checkpoint and (improved or markers):
                 _append_jsonl(checkpoint, improved + markers)
             edge_checked |= {tuple(m["index"]) for m in markers}
@@ -332,6 +346,11 @@ def _scan(cfg: AnalysisConfig, names: List[str], grids: List[np.ndarray], best: 
     result.points = [done[ix] for ix in indices]
     result.seconds = time.perf_counter() - t0
     return result
+
+
+def scan_identity(cfg: AnalysisConfig, names: Sequence[str], grids: Sequence[np.ndarray], data_centre=None) -> str:
+    """The identity a scan's checkpoint records carry (configuration, data, names, grid)."""
+    return cfg.identity(data_centre, extra=dict(names=list(names), grids=[[float(x) for x in g] for g in grids]))
 
 
 def profile(cfg: AnalysisConfig, name: str, grid: np.ndarray, best: dict, data_centre=None,

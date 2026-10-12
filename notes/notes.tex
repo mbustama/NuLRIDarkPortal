@@ -248,9 +248,11 @@ the form used for the long-range potential in the Sun in Magnus and in the Earth
 
 Table~\ref{tab:resolution} compares the solver's production defaults with the settings of the
 statistical analysis. The defaults follow the convergence study of 2026-07-28
-(\file{tools/convergence_study.py}, results in \file{output/convergence/}). The analysis uses a
-coarser energy and redshift grid but more Milky Way paths and Earth chords, because its scans
-reach mediator masses beyond the study's parameter points.
+(\file{tools/convergence_study.py}, results in \file{output/convergence/}). We remeasured the
+analysis settings on 2026-10-12 with the corrected solver (Appendices~\ref{app:cascade}
+to~\ref{app:unitarity}): the errors of the study, measured on the runaway cascade, were up to
+two orders of magnitude too large. The analysis uses coarser energy and redshift grids than the
+defaults.
 
 \begin{table}[h]
 \centering
@@ -262,10 +264,10 @@ to achieve.}
 \toprule
 Setting & Solver default & Analysis & Evidence \\
 \midrule
-Energy bins $N_E$ (10~TeV--30~PeV) & 1000 & 200 & $\sim6\times10^{-3}$ on flavor ratios at 200 \\
-Redshift steps $N_z$ ($z \le 4$) & 1000 & 200 & $\sim1.1\times10^{-2}$ at 200 \\
-Milky Way paths $n_{\rm MW}$ & 6 & 50 & \\
-Earth chords $n_\oplus$ & 12 & 50 & 12 agree with 50 to $\le1.4\times10^{-7}$ (Appendix~\ref{app:zenith}) \\
+Energy bins $N_E$ (10~TeV--30~PeV) & 1000 & 400 & $\le1.5\times10^{-5}$ on flavor fractions at 400 (inband), $2\times10^{-4}$ at $\mzd = 10^{-2}$~eV \\
+Redshift steps $N_z$ ($z \le 4$) & 1000 & 200 & $\le7\times10^{-6}$ at 200 \\
+Milky Way paths $n_{\rm MW}$ & 6 & 6 & 6 agree with 50 to $2\times10^{-8}$ (cosmoX2) \\
+Earth chords $n_\oplus$ & 12 & 12 & 12 agree with 50 to $\le1.4\times10^{-7}$ (Appendix~\ref{app:zenith}) \\
 Milky Way steps $N_{\rm MW}$ & 25 & 25 & Converged to $\sim10^{-10}$ \\
 Earth steps $N_{\rm Earth}$ & 25 & 25 & Certified, Sec.~\ref{sec:earth} \\
 \bottomrule
@@ -276,9 +278,10 @@ Earth steps $N_{\rm Earth}$ & 25 & 25 & Certified, Sec.~\ref{sec:earth} \\
 energy-averaged flavor ratios pseudo-randomly at the $10^{-2}$ level instead of converging. We
 had attributed this to energy fringes finer than the grid; it was sampling noise of the
 dark-portal phase, which does not depend on energy, in the equal-weight chord mean. The
-phase-aware zenith average removes it (Appendix~\ref{app:zenith}). With the chord floor gone,
-the largest numerical error left at the analysis settings is the redshift grid of 200 steps,
-$\sim1.1\times10^{-2}$ on the ratios. \note{Revisit the analysis grid.}
+phase-aware zenith average removes it (Appendix~\ref{app:zenith}). With the chord floor gone
+and the solver corrected, the largest numerical error left at the analysis settings is the
+energy grid, up to $2\times10^{-4}$ on the fractions at $\mzd = 10^{-2}$~eV, where fine fringes
+in energy need $\sim1000$ bins; at the benchmark points it is below $1.5\times10^{-5}$.
 
 \subsection{Thermal absorption rates}
 \label{sec:thermal}
@@ -354,10 +357,12 @@ an equal-weight mean.
 Milky Way paths and Earth chords are independent; they run in a persistent pool of processes
 started with \texttt{spawn}, the start method the analysis requires. The cosmological phase
 and the thermal grids use threads (numba, TBB layer). On the development laptop (Intel
-i5-1334U, 8 cores), a solver run at the defaults takes $0.32$~s (best of three). One
-likelihood evaluation at the analysis settings takes $0.39$~s on one core, $0.29$~s when the
-coupling cache applies, and $0.17$~s with the spatial phases spread over 8 cores (medians,
-2026-07-29). Before the step count fell from 100 to 25, the Earth phase took 66\% of a
+i5-1334U, 8 cores), a solver run at the defaults took $0.32$~s on 2026-07-29 and takes
+$0.71$~s now (Sec.~\ref{sec:open}). One likelihood evaluation at the analysis settings
+($400\times200$, 6 paths, 12 chords) takes $0.35$~s on one core (2026-10-12). Below
+$m_{\rm eff}\approx2\times10^{-5}$~eV the Earth's Yukawa columns depend on the couplings through
+the Debye mass and are recomputed for every new point, adding $\sim0.3$~s; they are cached per
+$m_{\rm eff}$, so the antineutrino pass reuses those of the neutrino pass. Before the step count fell from 100 to 25, the Earth phase took 66\% of a
 single-core evaluation and the Milky Way phase 18\%.
 
 %==============================================================================
@@ -447,40 +452,65 @@ Date, commit & Change & Result \\
 
 \subsection{Likelihood and parameters}
 
-The analysis (\file{FrequentistAnalysis/}) predicts the flavor composition at Earth,
-$f_\alpha = \int \Phi_\alpha\,dE / \int \Phi\,dE$ over $10$~TeV--$30$~PeV, and compares it with
-a projected measurement: an asymmetric Gaussian fitted to the expected 2050 sensitivity of
-IceCube with IceCube-Gen2, KM3NeT, Baikal-GVD, P-ONE and HUNT, centred on full pion decay
-(``case 5'' in \file{core/params_detector_flavor_likelihood.py}). Detector uncertainties enter
-only through the width of that projection. In the shipped configurations
-(\file{config/pion_2050_case_5_fixed_nuisance*.json}) four parameters float, $\mzd$, $\gd$,
-$u_e$ and $u_\mu$; everything else is fixed, including the mixing parameters, the source
-composition, the spectral index and the lightest neutrino mass.
+The analysis (\file{analysis/}, which replaced FrequentistAnalysis on 2026-10-12;
+\file{docs/dev/ANALYSIS\_DESIGN.md}) predicts the flavor composition at Earth,
+$f_\alpha = \int \Phi_\alpha\,dE / \int \Phi\,dE$ over $10$~TeV--$30$~PeV, and compares it with a
+projected measurement: an asymmetric Gaussian fitted to the expected 2050 sensitivity of IceCube
+with IceCube-Gen2, KM3NeT, Baikal-GVD, P-ONE and HUNT, centred on full pion decay (surface
+\texttt{pion\_2050\_case\_5} in \file{analysis/data/flavor\_surfaces.json}, one of 35, whose
+$\ln L$ we reproduce bit for bit). We use $\chi^2 = -2\ln(L/L_{\max})$, zero at the centre.
+Detector uncertainties enter only through the width of that projection. In the two analyses
+ported from FrequentistAnalysis four parameters float, $\mzd$, $\gd$, $u_e$ and $u_\mu$ (three
+at $\mzd = 10^{-30}$~eV); everything else is fixed, including the source composition, the
+spectral index and the lightest neutrino mass. The mixing parameters are fixed at the NuFIT~6.0
+best fit for normal ordering with Super-Kamiokande atmospheric data ($\sin^2\theta_{12} = 0.308$,
+$\sin^2\theta_{13} = 0.02215$, $\sin^2\theta_{23} = 0.470$, $\delta_{\rm CP} = 212^\circ$), which
+reproduces the projection's centre to $10^{-6}$. FrequentistAnalysis fixed them at the solver's
+defaults ($\delta_{\rm CP} = 132^\circ$, $\sin^2\theta_{23} = 0.571$), which put standard
+physics $0.0034$ away from the centre in $f_\mu$, $0.7\sigma$ of the projection; only new physics
+could absorb that offset.
 
 \textit{Limitations we found.}---The flavor fractions are plain integrals of the flux; a
 detector would weight them by its effective area and cross sections, which rise with energy.
 For an $E^{-2.5}$ spectrum the plain integral is dominated by energies near $10$~TeV. The
-event-rate calculation of Sec.~\ref{sec:rates} removes this approximation. The configurations
-also define Gaussian priors for the mixing parameters, which are inactive because those
-parameters are fixed; they would not work if released (Appendix~\ref{app:priors}).
+event-rate calculation of Sec.~\ref{sec:rates} removes this approximation. The priors that
+FrequentistAnalysis' configurations defined for the mixing parameters were never applied
+(Appendix~\ref{app:priors}); the new package applies Gaussian and half-Gaussian priors, also on
+derived quantities such as the sum of the neutrino masses.
 
 \subsection{Scans and limits}
 
-One-dimensional profiles fix the parameter of interest on a grid and minimize over the others
-with Minuit. Each grid point starts from its neighbor's solution: in a 100-point scan of $\mzd$
-(2026-07-29, 8 processes) these points needed a median of 26 evaluations, against 37 for the
-first point of each segment, which starts from the global fit.
-Repair passes re-minimize points that stand out from their neighbors; on that scan they found
-none. Exclusion planes (\file{FrequentistAnalysis/src/run_limits.py}) fix the pair ($\mzd$, coupling) on a
-$20\times20$ grid and read the limits off the profiled $\Delta\chi^2$ at $2.71$ and $3.84$,
-the two-sided 90\% and 95\% values for one parameter. Scans and planes save each completed
-segment, so an interrupted run resumes; the initial global fit of the profile scans is saved as
-well.
+Each fit is a bounded quasi-Newton minimization (L-BFGS-B) from several seeded starts, polished
+by Powell's derivative-free method; parameters spanning decades are fitted in $\log_{10}$. A
+profile fixes the parameter of interest on a grid and minimizes over the others; a plane does
+the same for two parameters. The grid points are fitted in parallel, in chains walked outward
+from the global fit, each point starting from its predecessor's solution and from the global
+fit. Repair passes then refit points that their neighbours' solutions beat, points that stand
+out above their neighbours, and the edges of the grid. Every fit is checkpointed, so an
+interrupted scan resumes. We read intervals off $\Delta\chi^2$, measured from the lowest $\chi^2$
+found anywhere, at $1$, $2.706$ and $3.841$ for one parameter (68.27\%, 90\%, 95\%, two-sided)
+and at $2.296$, $4.605$ and $5.991$ for two; FrequentistAnalysis labelled $4.61$ as $2\sigma$.
+
+\textit{Profiles of null data.}---The projection is centred on standard physics, and with every
+coupling free the fit can always switch the new physics off ($u\to0$, $\gd\to0$, or a resonance
+outside the energy range). The profiles of the ported analyses are therefore expected to stay at
+$\Delta\chi^2\approx0$, and an exclusion region needs fixed couplings: the configuration
+\file{pion\_2050\_case\_5\_exclusion.json} maps $\Delta\chi^2$ over ($\mzd$, $\gd$) for the
+$e\mu$ texture (T13) at $u = 0.5$.
+
+\textit{Degeneracies.}---Flavor fractions alone do not identify the parameters. We fitted Asimov
+data, the model's own prediction at $\mzd = 2$~MeV, $\gd = 3\times10^{-4}$, $u = 0.5$: with
+$\mzd$ and $\gd$ free the fit reached $\chi^2 = 7\times10^{-7}$ at $\mzd = 8\times10^{-14}$~eV
+(both the resonant absorption and the coherent potential pull $f_e$ and $f_\mu$ together when
+$u_e = u_\mu$); with the mixing free as well it returned the injected mass to $5\times10^{-6}$
+with $\gd = 10^{-4}$ ($\chi^2 = 8\times10^{-4}$). Injection-recovery tests must therefore check
+that the fit reaches $\chi^2\approx0$, not that it returns the injected values.
 
 \textit{What we have not shown.}---Nothing yet checks that the intervals have their stated
 coverage. Near the boundaries of the parameter space (couplings at zero, the lightest mass at
 zero) the asymptotic thresholds can fail. For an upper limit on a coupling bounded at zero the
-one-sided values are $1.64$ and $2.71$, so our current limits are probably conservative.
+one-sided values are $1.64$ and $2.71$, so limits read at the two-sided values are probably
+conservative.
 Section~\ref{sec:soundness} describes the tests.
 
 %==============================================================================
@@ -983,7 +1013,7 @@ move from $(0.32917, 0.32917, 0.34166)$ to $(0.32899, 0.32899, 0.34201)$. The po
 depends on the last digit, on the number of chords or on the number of Earth steps
 (Sec.~\ref{sec:validation} and~\ref{sec:open}).
 
-\subsection{The mixing-parameter priors (found 2026-10-12, not yet fixed)}
+\subsection{The mixing-parameter priors (found 2026-10-12)}
 \label{app:priors}
 
 The Gaussian priors in the \texttt{fallbacks} block of the analysis configurations have never
@@ -994,6 +1024,8 @@ centres disagree with the fixed values ($\delta_{\rm CP}$ $212^\circ$ against $1
 $\Delta m^2_{21}$ $7.537\times10^{-5}$ against $7.41\times10^{-5}$~eV$^2$, which is $3.4\sigma$
 of the prior). In addition, the branch for angles in degrees converts a value that is already
 in degrees. The NuFIT~6.1 constraints of Sec.~\ref{sec:syst} will replace these priors.
+FrequentistAnalysis was retired on 2026-10-12; the analysis package that replaced it applies its
+priors and checks their names against the model's parameters (Sec.~\ref{sec:stats}).
 
 \subsection{Earlier corrections}
 

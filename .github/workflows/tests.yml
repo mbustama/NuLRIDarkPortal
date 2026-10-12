@@ -21,9 +21,9 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install numpy scipy numba matplotlib tqdm iminuit pytest
+          pip install numpy scipy numba matplotlib tqdm pytest mpmath
 
-      - name: Run regression suite
-        # First run includes numba JIT compilation of every kernel (a few minutes cold);
-        # the suite itself is ~40 tests. The GPU test self-skips on CUDA-less runners.
-        run: python -m pytest tests/test_physics_regression.py -v
+      - name: Run regression suite and analysis tests
+        # First run includes numba JIT compilation of every kernel (a few minutes cold).
+        # The GPU test self-skips on CUDA-less runners.
+        run: python -m pytest tests/ -v

@@ -62,8 +62,8 @@ def parse_structure_matrix_3x3(entry, name: str) -> np.ndarray:
 # CANONICAL CONFIGURATION DEFAULTS
 # =============================================================================
 # Single source of truth for every configuration default. create_default_config, the
-# CLI baseline in __main__, run_solver's normalization, and FrequentistAnalysis's
-# physics_constants fallbacks all read from THIS dict -- defaults previously lived in
+# CLI baseline in __main__, run_solver's normalization, and the analysis package's
+# solver configurations all read from THIS dict -- defaults previously lived in
 # four separately-maintained copies, and keeping them synchronized by hand produced
 # exactly the class of silent drift this codebase's audits kept finding.
 def _build_default_config() -> Dict:
@@ -166,7 +166,7 @@ def merge_config_with_defaults(config: Dict) -> Dict:
     fell through every .get() fallback and silently did nothing -- the same
     parsed-but-dropped failure mode behind several bugs fixed in past audits
     (n_e_earth_cm3, use_SM_potential, execution.n_cores). Keys and sections whose names
-    begin with '_comment' are ignored, matching the FrequentistAnalysis convention.
+    begin with '_comment' are ignored (the analysis configurations use the same convention).
     """
     merged = copy.deepcopy(DEFAULT_CONFIG)
     for section, entries in config.items():

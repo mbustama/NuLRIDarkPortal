@@ -23,8 +23,8 @@ import os
 # their defaults, these libraries spin up one thread pool per *process*, and since this
 # solver's own parallelism comes from numba (prange, scaled via numba.set_num_threads in
 # propagate_spectrum) and from multiprocessing (across independent MW paths/Earth chords,
-# and across parameter configs in dark_portal_scanner.py / Minuit workers in
-# FrequentistAnalysis), an unconstrained BLAS thread pool multiplies against every one of
+# and across parameter configs in dark_portal_scanner.py / the analysis package's scan
+# workers), an unconstrained BLAS thread pool multiplies against every one of
 # those layers and can *slow down* a parallel run by 3-5x. Pinning BLAS to a single thread
 # here removes that hazard everywhere this module is imported.
 os.environ.setdefault("OMP_NUM_THREADS", "1")

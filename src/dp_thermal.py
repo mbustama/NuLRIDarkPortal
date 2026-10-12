@@ -527,7 +527,7 @@ def _build_thermal_grid_raw(E_bins: np.ndarray, z_bins: np.ndarray, sum_G: float
 #     verified bracket (no extrapolation ever). The lower spread floor is a purely
 #     numerical guard (~1e-4 dex): interpolation between exact endpoints only gets
 #     MORE accurate as the bracket narrows, and allowing narrow brackets is what lets
-#     the cache fire inside Minuit's profiled inner fits, whose per-step coupling
+#     the cache fire inside profiled inner fits, whose per-step coupling
 #     moves are ~0.01-0.1 dex (with the original 0.3-dex floor the cache never
 #     activated during real scans);
 #   * out-of-bracket or unverified requests pay the normal exact build (which slides
@@ -556,7 +556,7 @@ def _tc_try_fit(state, s_new):
     Bracket spreads down to _TC_MIN_SPREAD_DEX (a purely numerical floor) are allowed:
     the surrogate is an INTERPOLATION between two exact endpoints, so narrowing the
     bracket only shrinks the model error, and the verification gate still stands guard.
-    This is what lets the cache fire inside Minuit's profiled inner fits, whose
+    This is what lets the cache fire inside profiled inner fits, whose
     coupling moves are far smaller than the original 0.3-dex floor (measured: with the
     0.3-dex floor the cache NEVER activated during real scans -- every inner-fit
     evaluation paid the full exact build). Gate failures count toward disabling the key
@@ -634,8 +634,8 @@ def thermal_grid_cached(E_bins: np.ndarray, z_bins: np.ndarray, sum_G: float,
     s = float(sum_G)
     # Exact-point reuse: a request at a sum_G we already built exactly returns the
     # stored unit-weight grid -- identical arithmetic to the exact path below, so this
-    # is a pure lookup, valid even when the surrogate is disabled. (Minuit re-evaluates
-    # its incumbent parameter point several times per profiled fit.)
+    # is a pure lookup, valid even when the surrogate is disabled. (Minimizers re-evaluate
+    # their incumbent parameter point several times per profiled fit.)
     for ps, pu in state["points"]:
         if ps == s:
             return np.ascontiguousarray(pu[:, :, None] * weights[None, None, :])
