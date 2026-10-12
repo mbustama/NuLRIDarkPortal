@@ -47,8 +47,8 @@ with a sterile state and to matter through $Z$--$Z_D$ mass mixing. Two effects f
 neutrinos scatter resonantly on the relic (cosmic) neutrino background, which absorbs and
 regenerates them, and neutrons source a long-range coherent potential that changes their
 flavor in flight. The solver integrates both across cosmological distances, the Milky Way and
-the Earth; it is validated at four benchmark parameter points and runs in $0.32$~s at its
-production defaults. The statistical analysis fits the predicted flavor composition to a
+the Earth; it is validated at four benchmark parameter points and runs in $0.71$~s at its
+production defaults on 8 cores ($1.04$~s on one). The statistical analysis fits the predicted flavor composition to a
 projected 2050 measurement; it carries no explicit systematic uncertainties yet. The next
 stage, agreed on 2026-10-12, adds IceCube event rates, systematic uncertainties and coverage
 tests (Sec.~\ref{sec:plan}). On 2026-10-12 we corrected the relic-neutrino temperature, every
@@ -56,7 +56,12 @@ neutron number that sources the potential and the length of the Earth chords, an
 the Earth's own potential as the full Yukawa integral over its neutrons
 (Appendix~\ref{app:corrections}). The same day we removed the chord-sampling floor of the Earth
 transit, which had left $\sim10^{-2}$ of noise in the predicted flavor fractions
-(Appendix~\ref{app:zenith}).
+(Appendix~\ref{app:zenith}). Late that day we found three errors in the solver itself, present
+since its first version, and corrected them: the cosmological cascade created neutrinos without
+bound, the resonant absorption did not depend on the size of the couplings, and the propagator of
+the Milky Way and Earth transits was not unitary (Appendices~\ref{app:cascade}--\ref{app:unitarity}).
+Every result of the statistical analysis, and every effect size quoted for the earlier
+corrections, was obtained before these fixes.
 \end{minipage}}
 \end{center}
 
@@ -77,10 +82,10 @@ four benchmark points of Sec.~\ref{sec:validation} with the acceptance rules sta
 \toprule
 Component & State & Section \\
 \midrule
-Flux solver & Validated; production defaults run in $0.32$~s on 8 cores & \ref{sec:numerics}, \ref{sec:validation} \\
+Flux solver & Validated; cascade, absorption normalization and propagator corrected 2026-10-12; $0.71$~s on 8 cores & \ref{sec:numerics}, \ref{sec:validation} \\
 Thermal absorption rates & Semi-analytic kernel; relic temperature corrected 2026-10-12 & \ref{sec:thermal}, \ref{app:tnu} \\
 Earth transit & Phase-exact stepping with a step-count certificate; 25 steps; the Earth's potential as its Yukawa integral & \ref{sec:earth}, \ref{app:yukawa} \\
-Flavor-ratio analysis & Profile scans and exclusion planes run; no explicit systematics & \ref{sec:stats} \\
+Flavor-ratio analysis & Results predate the solver corrections and are void; being rebuilt & \ref{sec:stats} \\
 IceCube event rates & Planned; data sets and folding method chosen & \ref{sec:rates} \\
 Systematics and coverage & Planned; list and procedure agreed & \ref{sec:syst}, \ref{sec:soundness} \\
 Neutron densities & All corrected 2026-10-12 & \ref{sec:inputs}, \ref{app:corrections} \\
@@ -307,12 +312,18 @@ Sec.~12).
 
 \subsection{Coherent propagation}
 
-The evolution operator of each step, $\exp(-iH\Delta x)$ for a $3\times3$ Hermitian $H$, is
-evaluated in closed form (Newton divided differences on the traceless part, with a separate
-treatment of nearly degenerate eigenvalues; \file{src/dp_propagator.py}). When the potential
-is so large that double precision cannot follow the oscillation phase, the propagator switches
-to an exactly unitary projector form; the fluxes stay finite but carry only the
-decoherence-averaged information. This happens roughly where
+The evolution operator of each step, $\exp(-iH\Delta x)$ for a $3\times3$ Hermitian $H$, is the
+spectral sum $\sum_k e^{-i\lambda_k\Delta x}v_kv_k^\dagger$ over an eigenbasis built to stay
+orthonormal to rounding at any eigenvalue gap (\file{src/dp_propagator.py}). Closed-form roots
+of the traceless part order the eigenvalues; the isolated one's eigenvector is a column of the
+product of the matrices shifted by the other two; the remaining pair comes from a $2\times2$
+block. The operator is therefore unitary to $10^{-15}$ at any phase
+(Appendix~\ref{app:unitarity}). A pair whose splitting $H$ does not resolve in double precision
+evolves as degenerate; under a dominant potential this drops the vacuum splitting inside the
+potential's degenerate subspace, which changes flavor populations by at most $5\times10^{-6}$
+across the Earth's diameter at 10~TeV. When the potential is so large that double precision
+cannot follow the oscillation phase, the fluxes carry only the decoherence-averaged
+information. This happens roughly where
 $\mzd^2 + m_D^2 \lesssim 3\times10^{6}\,\gd\epsp$~eV$^2$, i.e., below $\mzd\approx5$~eV for
 the default couplings ($\gd = 10^{-4}$, $\epsp = 0.1$); the analysis warns when its scan window
 reaches this region.
@@ -373,18 +384,33 @@ cosmoX2 & $40$ & $10^{-4}$ & $0.1$ \\
 \end{center}
 At ``below'' all three absorption resonances lie under the energy range; at ``inband'' they lie
 inside it; ``strong'' has a hundred times the coupling. At ``cosmoX2'' the mediator is light, so
-the potential dominates the Earth transit and the accumulated phase is large enough that a change
-in the last floating-point digit moves the pointwise fluxes by $\sim10^{-3}$.
+the potential dominates the Earth transit. Until 2026-10-12 a change in the last floating-point
+digit moved its pointwise fluxes by $\sim10^{-3}$, which we attributed to the large phase; it was
+the non-unitary propagator (Appendix~\ref{app:unitarity}). It now moves them by
+$1.8\times10^{-12}$.
 
 \textit{Acceptance rules.}---We compare two quantities: the largest relative flux difference over
 all energies and flavors, and the energy-averaged flavor ratios. A change that should not alter the
 arithmetic must reproduce ``below'', ``inband'' and ``strong'' to the floor at which two runs of
 identical code agree, $\sim2$--$7\times10^{-12}$. The ``strong'' point has an additional
 common-mode floor of $\sim7.5\times10^{-8}$ under any reordering of the last floating-point digit, with its
-flavor ratios at $\lesssim10^{-12}$. We judge ``cosmoX2'' on the energy-averaged flavor ratios
-and the energies of the absorption dips only. For the same reason, any recompilation of the
-spatial kernels changes the results at the last digit: two textually identical kernels
-compiled separately differed by $3.7\times10^{-16}$.
+flavor ratios at $\lesssim10^{-12}$. Until 2026-10-12 we judged ``cosmoX2'' on the energy-averaged
+flavor ratios and the energies of the absorption dips only; it now meets the same rules as the
+other points. Any recompilation of the spatial kernels changes the results at the last digit:
+two textually identical kernels compiled separately differed by $3.7\times10^{-16}$.
+
+\textit{Absolute checks.}---Comparing a modified code with its predecessor cannot reveal an
+error that both share; three such errors survived from the first version of the solver until
+2026-10-12 (Appendices~\ref{app:cascade}--\ref{app:unitarity}). We now also check every change
+against conservation: the energy and number of neutrinos reaching the Earth must not exceed
+those of the same run without interactions, the spatial phase must conserve every energy bin's
+total, and vanishing sterile mixing must reproduce standard propagation. At production settings
+the energy (number) reaching the Earth is $0.99898$ ($0.99805$) of the no-interaction value at
+``below'', $0.84068$ ($0.95504$) at ``inband'', $0.98239$ ($0.99993$) at ``strong'' and
+$0.99934$ ($0.99883$) at ``cosmoX2''; the energy-averaged fractions are
+$(0.32899, 0.32899, 0.34202)$, $(0.33100, 0.33100, 0.33801)$, $(0.32900, 0.32900, 0.34201)$
+and $(0.32899, 0.32899, 0.34201)$, and change by $\le4\times10^{-7}$ between 1000 and 2000
+redshift steps (commit \texttt{2066f3b}).
 
 \subsection{Record of validated changes}
 
@@ -408,6 +434,9 @@ Date, commit & Change & Result \\
 2026-10-12 \texttt{5866227} & Exact length of the Earth chords & Flavor fractions move by $9\times10^{-4}$ (below) and $\le5\times10^{-5}$ (inband, strong); dips unchanged (Appendix~\ref{app:baseline}) \\
 2026-10-12 \texttt{70ef709} & The Earth's potential as its Yukawa integral & Bit-identical at the four points; effects where the range reaches the Earth's scale in Appendix~\ref{app:yukawa} \\
 2026-10-12 \texttt{8f1910b} & Phase-aware zenith average of the Earth chords & Chord-sampling floor removed; flavor fractions move by up to $0.029$ (Appendix~\ref{app:zenith}) \\
+2026-10-12 \texttt{7dc95e9} & Cosmological cascade conserves number & A correction: the energy at the Earth was up to $10^{67}$ times the injected one (Appendix~\ref{app:cascade}) \\
+2026-10-12 \texttt{944360d} & Resonant absorption scales with the couplings & A correction: energy at the Earth $3\times10^{-3}\to0.999$ of the no-interaction value at ``below'' (Appendix~\ref{app:bwnorm}) \\
+2026-10-12 \texttt{2066f3b} & Exactly unitary propagator & below, inband, strong unchanged to five digits; ``cosmoX2'' fractions move by $3.5\times10^{-4}$ and become reproducible (Appendix~\ref{app:unitarity}) \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -565,16 +594,26 @@ against the laptop's results.
 \section{Open items}
 \label{sec:open}
 
-\textit{Residual in the phase-noise regime.}---At ``cosmoX2'' the chord count still moves the
-averaged fractions by $\sim6\times10^{-4}$: the potential, $\sim70$~eV in the core, is so large
-that the propagator's eigenvalues, precise to $\sim10^{-14}$~eV, cannot resolve the vacuum
-splitting inside the potential's degenerate subspace, whose phases are therefore noise. Evolving
-that regime analytically, as $e^{-i\Psi S}$ times the vacuum Hamiltonian's block-diagonal part,
-would remove it and the Earth steps along with it. \note{Open, 2026-10-12}
+\textit{Residual in the phase-noise regime (resolved).}---At ``cosmoX2'' the chord count moved
+the averaged fractions by $\sim6\times10^{-4}$, and the Earth step count by $2.9\times10^{-3}$. We
+attributed this to phases that double precision cannot follow; it was the propagator's
+non-unitarity. Since 2026-10-12 the results with 12, 24 and 50 chords, and with 8, 25 and 100
+Earth steps, agree to $10^{-14}$ (Appendix~\ref{app:unitarity}).
 
-\textit{Analyses to rerun.}---Profiles and limits computed before 2026-10-12 used the old
-neutron inputs and the equal-weight chord mean; at MeV masses the predicted flavor fractions
-moved by up to $0.03$. They should be recomputed, which is the first use planned for Tycho.
+\textit{Analyses to rerun.}---Profiles and limits computed before 2026-10-12 used a solver whose
+cascade ran away and whose absorption did not depend on the couplings
+(Appendices~\ref{app:cascade} and~\ref{app:bwnorm}); they are void, not merely shifted. The new
+analysis package replaces the old pipeline, and its first production run is planned for Tycho.
+
+\textit{Effect sizes to re-measure.}---The effects quoted in Appendices~\ref{app:tnu}
+to~\ref{app:zenith} were measured with the solver of the time, before the corrections of
+Appendices~\ref{app:cascade}--\ref{app:unitarity}. They describe the change each correction made
+then; their size on the corrected solver is not known. \note{Re-measure}
+
+\textit{Run time.}---The production defaults ran in $0.32$~s on 8 cores on 2026-07-29; on
+2026-10-12 the same machine took $0.80$~s before the solver corrections (commit
+\texttt{135ed02}) and $0.71$~s after them ($1.04$~s on one core). \note{VERIFY: find what
+changed between July and \texttt{135ed02}}
 
 \textit{Up-going only.}---The chords span the up-going hemisphere; down-going neutrinos, which
 cross only the overburden, are not in the average. The per-direction output of
@@ -837,7 +876,112 @@ $\mzd = 10^{-2}$~eV the chord count no longer matters at all ($10^{-16}$), and i
 window of Appendix~\ref{app:yukawa} the fractions move by $10^{-3}$--$4.5\times10^{-3}$ and agree
 across chord counts to $5\times10^{-9}$. ``cosmoX2'' keeps a residual of $\sim6\times10^{-4}$, down
 from $5\times10^{-3}$, for the reason given in Sec.~\ref{sec:open}. A solver run costs the same
-as before.
+as before. (The ``cosmoX2'' residual was the propagator's non-unitarity and is gone since commit
+\texttt{2066f3b}, Appendix~\ref{app:unitarity}.)
+
+\subsection{The cosmological cascade (2026-10-12)}
+\label{app:cascade}
+
+Each absorption at an energy $E_j$ re-emits a neutrino at a lower energy $E$ with the spectrum
+$3E^2/E_j^3$. Within a redshift step the code held this regenerated source at its value at the
+start of the step, $\Gamma F_n$. Near a resonance the optical depth of one step, $\Gamma\Delta t$,
+reaches $10^{10}$, and it exceeds 1 in 70\% of the $(z,E)$ cells at ``inband''. A bin then
+re-emitted up to $\Gamma\Delta t$ times more neutrinos than it absorbed. The excess
+compounded from step to step: at ``inband'' the energy reaching the Earth was
+$5\times10^{36}$, $8\times10^{60}$ and $6\times10^{66}$ times the no-interaction value with 100,
+1000 and 10,000 redshift steps (at ``strong'', $6\times10^{9}$ to $10^{15}$). The midpoint weights
+of the kernel also re-emitted $1 + 1.5\,\Delta\ln E$ neutrinos per absorption, 1.2\% too many per
+generation at 1000 bins. The flavor fractions, dominated by the runaway secondaries, stayed near
+$1/3$ and looked plausible. Every earlier validation compared the code with a previous version of
+itself, which shared the error; the first check against conservation found it.
+
+\textit{Fix.}---We now sweep the energy bins of each step from high to low. A bin solves
+$dF/dt = -\Gamma F + S$ exactly over the step, with $S$ the injection plus the regeneration from
+higher bins, computed from the number those bins actually absorbed during the step,
+$F_n(1-e^{-\Gamma\Delta t}) + S\,[\Delta t - (1-e^{-\Gamma\Delta t})/\Gamma]$. A bin's
+regeneration into itself is solved implicitly. The kernel is integrated exactly over the
+bins (commit \texttt{7dc95e9}). A step conserves the number of neutrinos to rounding for
+$\Gamma\Delta t$ from $10^{-8}$ to $10^{10}$, and the solver never returns more energy than it
+injects; tests check both.
+
+\textit{Effect.}---With the absorption of the time, the energy reaching the Earth fell to
+$3.0\times10^{-3}$ (below), $3.3\times10^{-3}$ (inband), $0.11$ (strong) and $3.0\times10^{-3}$
+(cosmoX2) of the no-interaction value. Absorption that strong at couplings of $10^{-4}$ is
+implausible; we traced it to the normalization of Appendix~\ref{app:bwnorm}.
+
+\subsection{The normalization of the resonant absorption (2026-10-12)}
+\label{app:bwnorm}
+
+The rates integrate a Breit--Wigner cross section over the relic distribution. The theory notes
+give its width, $\Gamma = (\Sigma G)M/(12\pi)$ (T11), and the couplings $\Sigma G$ (T12), but
+not its numerator. The code used $\sigma_\alpha = 2\pi(\Sigma G)_\alpha s/[(s-M^2)^2 + M^2\Gamma^2]$,
+with a single coupling factor. Its integral over $s$, $12\pi^2(\Sigma G)_\alpha/\Sigma G$, does not
+depend on the size of the couplings: over the benchmark grid the integrated rate was
+$1.870\times10^{-17}$~eV whether $\Sigma G$ was $7.6\times10^{-4}$ or $3\times10^{-19}$. Any
+nonzero mixing, however small, absorbed as strongly as $u = 0.5$; only $u = 0$ exactly
+recovered standard propagation.
+
+\textit{Fix.}---We decided (2026-10-12) on the Breit--Wigner cross section of a vector resonance
+formed by $\nu_L + \bar\nu_R$, summed over final states,
+\begin{equation}
+\sigma_\alpha = \frac{48\pi\,\Gamma_{{\rm in},\alpha}\,\Gamma\,s}{M^2[(s-M^2)^2+M^2\Gamma^2]}
+= \frac{(\Sigma G)_\alpha(\Sigma G)\,s}{3\pi[(s-M^2)^2+M^2\Gamma^2]} ,
+\qquad \Gamma_{{\rm in},\alpha} = \frac{(\Sigma G)_\alpha M}{12\pi} ,
+\end{equation}
+whose integral over $s$ is $4\pi(\Sigma G)_\alpha$; for the $Z$ it gives the classic
+$\langle\sigma\rangle = 2\sqrt2\pi G_F$. The rates are the old ones times $\Sigma G/(6\pi^2)$,
+applied where the grids leave \file{src/dp\_thermal.py}, so the coupling cache keeps working on
+the unnormalized grids (commit \texttt{944360d}). We test that the integrated rate is
+proportional to $\Sigma G$ at fixed flavor ratios and vanishes at $u = 0$, the narrow-width limit
+against an independent quadrature (to $2\times10^{-3}$), and that $u = 10^{-10}$ reproduces the
+$u = 0$ flux to $10^{-8}$.
+
+\textit{Effect.}---With the cascade fixed, the energy reaching the Earth is $0.999$ (below),
+$0.841$ (inband) and $0.982$ (strong) of the no-interaction value (Sec.~\ref{sec:validation}). In
+July we had rejected rescaling the rate grid across coupling scans because the rates at the
+resonance did not scale with the couplings; that independence was this error.
+
+\subsection{The unitarity of the spatial propagator (2026-10-12)}
+\label{app:unitarity}
+
+The propagator evaluated $U = e^{-iH\Delta x}$ as a polynomial in the traceless part of $H$,
+through Newton divided differences of $e^{-i\lambda\Delta x}$ at the computed eigenvalues. A
+polynomial evaluated at rounded eigenvalues is unitary only to
+$\sim\varepsilon\,\Delta\lambda\,\min(\Delta x, 2/\delta\lambda)$, with $\Delta\lambda$ the spread
+and $\delta\lambda$ the smallest gap of the eigenvalues. Under the potential of ``cosmoX2'',
+$\sim70$~eV in the Earth's core, the error reached $5\times10^{-3}$ per Earth step: the Milky Way
+and Earth transits changed the total flux of an energy bin by $-0.5\%$ to $+0.7\%$. The energy
+reaching the Earth exceeded the no-interaction value ($1.0003$), which absorption alone cannot do.
+A guard added in July for $\mzd\sim10^{-6}$~eV, where the error grew to $\sim10^{11}$ and
+overflowed to NaN, switched to an exactly unitary form only once the error exceeded $0.1$. The
+polynomial also read both triangles of an $H$ that is Hermitian only to rounding. For
+single-flavor mixing ($u_\mu = 0$ or $u_e = 0$) above $\sim10^7$~eV, its basis for nearly
+degenerate pairs divided by zero.
+
+\textit{Fix.}---We now evaluate $U$ as the spectral sum over an eigenbasis that stays orthonormal
+to rounding at any gap (Sec.~\ref{sec:numerics}; commit \texttt{2066f3b}). It is unitary to
+$2\times10^{-15}$ over 12,880 production textures, with potentials from $10^{-24}$ to $10^{22}$~eV
+and steps up to $6\times10^{32}$~eV$^{-1}$, and over 20,000 random spectra; the polynomial reached
+errors of order one in the same sweep. Against a 50-digit matrix exponential we find it as
+accurate as the polynomial where the latter was sound. A pair whose splitting is below
+$16\varepsilon(|q|+p)$, with $q$ and $p$ the mean and the scale of the eigenvalues, evolves as
+degenerate. Rounding when $H$ is formed already splits an exact degeneracy by up to
+$3.1\varepsilon(|q|+p)$; evolving that splitting would rotate the pair by tens of radians per
+Earth step. The new form costs $0.6$--$0.7$ times the old one per Earth step and $1.25$ times per
+Milky Way step.
+
+\textit{A stale compilation.}---Our first check of the fix returned the old totals and the old
+division by zero. numba validates a cached function against its own source file only, so the
+spatial kernels, which call the propagator from another file, had kept its old machine code. We
+now key the cache by a digest of every source file (\file{src/dp\_core.py}), so any edit
+recompiles everything.
+
+\textit{Effect.}---The spatial phase conserves every total to $10^{-14}$. At ``below'',
+``inband'' and ``strong'' the results are unchanged to five digits. At ``cosmoX2'' the energy
+reaching the Earth falls from $1.0003$ to $0.99934$ of the no-interaction value. The fractions
+move from $(0.32917, 0.32917, 0.34166)$ to $(0.32899, 0.32899, 0.34201)$. The point no longer
+depends on the last digit, on the number of chords or on the number of Earth steps
+(Sec.~\ref{sec:validation} and~\ref{sec:open}).
 
 \subsection{The mixing-parameter priors (found 2026-10-12, not yet fixed)}
 \label{app:priors}

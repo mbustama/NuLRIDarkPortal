@@ -51,25 +51,26 @@ notes for the expected style).
   - `below`/`inband`: expect ≤ ~1e-8 max relative flux, flavor ratios ≤ ~1e-10.
   - `strong`: known conditioning floor — ANY last-ulp reordering produces ~7.5e-8
     max relative flux, common-mode across flavors; judge on ratios (≤ ~1e-10).
-  - `cosmoX2`: the spatial steps there are in the phase-noise regime; a last-ulp
-    perturbation was **measured** to produce 1.5e-3 max relative flux and 3.9e-4
-    per-bin ratio differences. Judge cosmoX2 on **energy-averaged flavor ratios
-    and dip-location sanity only**; pointwise flux parity is meaningless there.
+  - `cosmoX2`: until 2026-10-12 a last-ulp perturbation moved its fluxes by 1.5e-3
+    (the non-unitary propagator of the time); since `2066f3b` it moves them by
+    1.8e-12, so judge cosmoX2 like below/inband.
 * Numerical lessons already paid for (respect them; they all transfer to XLA):
-  node-exactness of divided differences at large phases; √ε-conditioning of cubic
-  roots at double roots (deflation required); the Breit–Wigner spike is narrower
+  exact unitarity at large phases (a polynomial in H evaluated at rounded
+  eigenvalues is not unitary -- the pre-2026-10-12 propagator lost up to 0.7% of
+  the flux at cosmoX2); √ε-conditioning of cubic roots at double roots (deflation
+  required); the Breit–Wigner spike is narrower
   than any grid (integrate analytically, never sample); phases reach 1e10–1e27 rad
   (float64 mandatory, and phase *values* there are representation noise — only
   unitarity and |U| structure are meaningful).
 
 ## 0.1 Two round-7 artifacts are your head start
 
-1. **`src/gpu_spatial.py`** — the v3 propagator already exists as branch-free,
+1. **`src/gpu_spatial.py`** — the propagator already exists as branch-free,
    batched, *backend-parameterized* array code (`_batched_propagator_gpu(cp, H, t)`
    takes its array module as an argument and is CPU-validated by passing numpy).
    A JAX port is nearly a transliteration: `cp` → `jnp`, in-place writes → chained
-   `jnp.where`. All masks (pure-phase, Taylor, deflation, phase-noise projector)
-   are already mask-form.
+   `jnp.where`. All masks (pure-phase, Taylor, unresolved pair) are already
+   mask-form.
 2. **The semi-analytic thermal kernel** (`dp_thermal.thermal_averaged_rates_flavor_analytic`)
    — closed-form window edge `p_edge = |m² − δ²|/(2δ)`, `δ = (M2 − m²)/(2x)`,
    `|u'(p_edge)| = 2xδ/E_bg(p_edge)`; geometric shells `p_edge ± {3,30,…,3e4}·MG/|u'|`

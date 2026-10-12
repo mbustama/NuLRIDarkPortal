@@ -11,6 +11,15 @@ work on Tycho; show the statistical analysis is sound with coverage tests.
 
 ## Order of work
 
+0. **Solver corrections and the new analysis** -- the solver part is **done** 2026-10-12: three
+   errors present since the first commit (runaway cosmological cascade, `7dc95e9`; resonant
+   absorption independent of the couplings, `944360d`; non-unitary spatial propagator,
+   `2066f3b`; details in the notes' corrections appendix). Every analysis result before them
+   is void. **In progress:** the new analysis package `analysis/` (replaces
+   FrequentistAnalysis; chi^2 bit-identical to it on all 35 flavor surfaces), then removing
+   FrequentistAnalysis from code, tests, docs and outputs. Validation now includes absolute
+   checks (energy and number at Earth <= the no-interaction run, total conservation through the
+   spatial phase, u -> 0 recovers standard propagation), not only old-vs-new comparisons.
 1. **Core-count fix** -- **done** 2026-10-12: `dp_core.available_cores()` (affinity mask capped by
    `SLURM_CPUS_PER_TASK`) and `default_n_cores()` (all but one core locally, the whole allocation
    under SLURM) now size every pool, FrequentistAnalysis included. Original note: the solver side
@@ -23,7 +32,8 @@ work on Tycho; show the statistical analysis is sound with coverage tests.
    `/lustre/astro/mbustama/NuLRIDarkPortal`, conda environment on lustre pinned to the laptop's
    versions, `slurm/common.sh` plus job scripts, logs in `logs/`. First job: the four-point
    validation against laptop results, judged by the usual cross-machine rules (fp floor at
-   below/inband, the ~7.5e-8 floor at strong, cosmoX2 on energy-averaged ratios and dips only).
+   below/inband/cosmoX2, the ~7.5e-8 floor at strong; cosmoX2 has been as reproducible as the
+   others since `2066f3b`).
    Partitions `astro3_devel` / `astro3_short` / `astro3_long`; 16 cores by default, up to 32 per
    job, more only on request. Installs and large downloads go on Tycho, not the laptop.
 3. **Per-direction solver output.** The solver returns one flux, the average over up-going
@@ -115,8 +125,24 @@ linear in it), so it can float. Backgrounds included from the start.
   Glashow resonance, nu_tau regeneration and NC scatterings that continue at lower energy.
 - Gen2 starting events use IceCube's smearing.
 - DR2 events must not be combined with other IceCube releases in a joint data fit (overlap).
+- Under a dominant potential, the vacuum splitting inside the potential's degenerate subspace is
+  below double-precision resolution and evolves as zero: <= 5e-6 in flavor populations across
+  the Earth's diameter at 10 TeV, 5e-8 at 100 TeV (`2066f3b`).
 
 ## Done
+
+- 2026-10-12: solver corrections. Cascade (`7dc95e9`): the regenerated source was held at its
+  start-of-step value while Gamma*dt reached 1e10, so the energy at Earth was up to 1e67 times
+  the no-interaction value; now an exact per-step sweep that conserves number. Absorption
+  (`944360d`): the Breit-Wigner numerator carried one coupling, so the resonance's strength did
+  not depend on the couplings; now Gamma_in*Gamma_tot (decided with Mauricio), rates x
+  Sum G/(6 pi^2). Propagator (`2066f3b`): the divided-difference polynomial was unitary only to
+  ~eps*spread*min(dr, 2/gap) (0.7% of the flux created or destroyed at cosmoX2); now an exactly
+  unitary spectral sum, and the numba cache is keyed by a digest of src/ (cross-module callers
+  had kept stale machine code). Production record: energy (number) at Earth / no interaction
+  0.99898 (0.99805) below, 0.84068 (0.95504) inband, 0.98239 (0.99993) strong, 0.99934
+  (0.99883) cosmoX2. Solver defaults 0.71 s on 8 cores, 1.04 s on one (0.80 / 0.84 s before
+  the corrections; the July figure of 0.32 s is not reproduced -- to investigate).
 
 - 2026-10-12: relic-neutrino temperature fixed, 1.95e-4 -> 1.676389e-4 eV (`5ecf10e`); spectra
   and event rates change materially, energy-averaged flavor fractions by <= 3.8e-4.
@@ -124,8 +150,9 @@ linear in it), so it can float. Backgrounds included from the start.
   zenith average (`grid.earth_zenith_average = "phase"`), which integrates each block of their
   density matrices against its dark-portal phase over cos(zenith). 12 chords agree with 50 to
   <= 1.4e-7 at below/inband/strong (was ~1e-3-4e-3 between 12 and 13); fractions move by up to
-  0.029. Residual ~6e-4 at cosmoX2 (propagator precision in the phase-noise regime). The analysis
-  must be rerun; its 200-step redshift grid (~1.1e-2) is now its largest numerical error.
+  0.029. Residual ~6e-4 at cosmoX2 (then attributed to precision in the phase-noise regime; it
+  was the non-unitary propagator, gone since `2066f3b`). The analysis must be rerun; its
+  200-step redshift grid (~1.1e-2) is now its largest numerical error.
 - 2026-10-12: Earth chords start exactly on the surface (`get_baseline_earth` had dropped the d^2
   terms); the Earth's own potential is its spherical Yukawa integral (Magnus/NuOscProbExact
   method), bit-identical at the benchmark points, 7-8% on the Earth effect at ranges >~ 100 km.
