@@ -49,7 +49,7 @@ from dp_thermal import (  # noqa: F401
 )
 from dp_cosmo import (  # noqa: F401
     calc_H_Hubble, calc_R_source, calc_V_LRI_cosmo, get_adiabatic_mixing_cosmo,
-    _build_sigma_projection_table, step_cosmological_propagation,
+    _build_sigma_projection_table, step_cosmological_propagation, cascade_kernel_weights,
 )
 from dp_spatial import (  # noqa: F401
     calc_MW_neutron_density, calc_earth_density, get_baseline_earth,
@@ -207,21 +207,14 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
     if sum_G > 0:
         BR = sum_G_alpha / sum_G
 
-    dE = compute_dE_geometric(E_bins)
-
-    # The cascading integral's kernel dE[j]/E_bins[j]^3 depends only on the (fixed) energy
-    # grid, never on i or z, but was previously recomputed inside the O(N_E^2) inner loop of
-    # step_cosmological_propagation for every (i, j) pair. Precomputing it once here removes
-    # a division and a cube from what is otherwise the single most expensive loop in the solver.
-    W_kernel = dE / E_bins**3
+    # The cascade kernel's exact bin integrals depend only on the (fixed) energy grid
+    # (see dp_cosmo.cascade_kernel_weights).
+    W_kernel, pref_kernel, self_frac = cascade_kernel_weights(E_bins)
 
 
-    # Pre-allocated buffers for the compiled Numba stepper to prevent garbage-collection throttling
-    F_flavor = np.zeros((N_E, 3), dtype=np.float64)
-    Gamma_flavor = np.zeros((N_E, 3), dtype=np.float64)
-    dF_casc_flavor = np.zeros((N_E, 3), dtype=np.float64)
+    # Pre-allocated buffers for the compiled stepper (projections; absorbed rates)
     P_all = np.zeros((N_E, 3, 3), dtype=np.float64)
-    rate_F_sum_arr = np.zeros(N_E, dtype=np.float64)
+    R_abs = np.zeros(N_E, dtype=np.float64)
 
     # Pre-compute the thermal interaction rates for the entire grid before sequential stepping.
     # Reuse the caller's precomputed grid when given one (see the docstring above) instead of
@@ -289,10 +282,8 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
 
         step_cosmological_propagation(z, dt, R_z, E_bins, F_mass, rho_src,
                                       P_table, log_s0, inv_dlogs, c_z_arr[k],
-                                      p_index, Phi_0,
-                                      BR, W_kernel,
-                                      F_flavor, Gamma_flavor, dF_casc_flavor, P_all, rate_F_sum_arr,
-                                      Gamma_grid_all[k, :, :])
+                                      p_index, Phi_0, BR, W_kernel, pref_kernel, self_frac, P_all,
+                                      np.ascontiguousarray(Gamma_grid_all[k, :, :]), R_abs)
 
     if verbose == 2:
         safe_print(f"Cosmological baseline finished at z = {z_bins[-1]:.4f}.")

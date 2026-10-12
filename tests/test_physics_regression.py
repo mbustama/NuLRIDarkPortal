@@ -334,7 +334,10 @@ def test_n_e_earth_cm3_affects_flux_when_SM_potential_enabled(tmp_path):
     _, F_lo = dps.run_solver(cfg_lo)
     _, F_hi = dps.run_solver(cfg_hi)
 
-    assert not np.allclose(F_lo, F_hi)
+    # A wiring check: the output must respond, well above rounding. (The response is small,
+    # ~1e-5 relative: the SM potential is flavor-diagonal and MSW effects are suppressed at
+    # these energies. Before 2026-10-12 the runaway cosmological cascade amplified it.)
+    assert np.max(np.abs(F_lo - F_hi) / np.abs(F_hi)) > 1e-8
 
 
 # =============================================================================
@@ -861,53 +864,129 @@ def test_eigenvectors_3x3_matches_eigh():
         np.testing.assert_allclose(np.abs(U)**2, np.abs(evecs_ref)**2, atol=1e-12)
 
 
-def test_cascade_suffix_sum_matches_bruteforce():
-    """The O(N_E) suffix-sum form of the cascading integral in
-    step_cosmological_propagation must reproduce the original O(N_E^2) double loop:
-    dF_casc[i, a] = BR[a] * 3 E_i^2 * sum_{j >= i} (sum_b Gamma[j,b] F_flavor[j,b]) * W[j].
-    The identity holds because the cascading kernel is separable (the whole i-dependence
-    is the 3 E_i^2 prefactor); this test drives the real JIT kernel and checks its
-    dF_casc buffer against an independent brute-force evaluation built from the same
-    U_z projections."""
-    N_E = 40
+def _cascade_step_setup(N_E=40, seed=5):
+    """Synthetic inputs for one call of step_cosmological_propagation."""
     E_bins = np.logspace(13, 16, N_E)
-    rng = np.random.default_rng(5)
+    rng = np.random.default_rng(seed)
     F_mass = rng.uniform(1e18, 1e22, size=(N_E, 3))
-    rho_src = np.array([0.333, 0.667, 0.0])
     U_pmns = np.ascontiguousarray(dps.construct_PMNS(np.radians(33.41), np.radians(8.58),
                                                      np.radians(49.1), np.radians(132.0)))
     M_sq = np.diag([0.0, 7.41e-5, 2.511e-3]).astype(np.complex128)
     M_rot = np.ascontiguousarray(U_pmns @ M_sq @ np.conjugate(U_pmns).T)
     u_arr = np.array([0.5, 0.5, 0.0], dtype=np.complex128)
     S = np.ascontiguousarray(np.outer(u_arr, np.conjugate(u_arr)))
-    eta_bg = np.ones(3)
-    BR = np.array([0.4, 0.35, 0.25])
-    dE = dps.compute_dE_geometric(E_bins)
-    W_kernel = dE / E_bins**3
-    Gamma_pre = rng.uniform(1e-20, 1e-18, size=(N_E, 3))
-
-    F_flavor = np.zeros((N_E, 3)); Gamma_flavor = np.zeros((N_E, 3))
-    dF_casc = np.zeros((N_E, 3)); P_all = np.zeros((N_E, 3, 3))
-    rate_buf = np.zeros(N_E)
-    # Mixing now arrives through the sigma-table (see _build_sigma_projection_table)
     c_z = 1e-30
     sigma_nodes = np.geomspace(E_bins[0] * c_z * 0.5, E_bins[-1] * c_z * 2.0, 512)
     P_table = dps._build_sigma_projection_table(M_rot, S, sigma_nodes)
     log_s0 = np.log(sigma_nodes[0])
     inv_dlogs = (len(sigma_nodes) - 1) / np.log(sigma_nodes[-1] / sigma_nodes[0])
-    dps.step_cosmological_propagation(0.5, 1.0, 1.0, E_bins, F_mass.copy(), rho_src,
-                                      P_table, log_s0, inv_dlogs, c_z,
-                                      2.5, 1.0, BR, W_kernel,
-                                      F_flavor, Gamma_flavor, dF_casc, P_all, rate_buf, Gamma_pre)
+    return E_bins, F_mass, rng, (P_table, log_s0, inv_dlogs, c_z)
 
-    # Brute-force reference from the buffers the kernel itself filled
-    expected = np.zeros((N_E, 3))
-    for i in range(N_E):
-        integral = 0.0
-        for j in range(i, N_E):
-            integral += np.sum(Gamma_flavor[j] * F_flavor[j]) * W_kernel[j]
-        expected[i, :] = BR * 3.0 * E_bins[i]**2 * integral
-    np.testing.assert_allclose(dF_casc, expected, rtol=1e-12)
+
+def _one_cascade_step(E_bins, F, Gamma, dt, Phi_0, table, BR=np.array([0.4, 0.35, 0.25])):
+    W, pref, selff = dps.cascade_kernel_weights(E_bins)
+    P_all = np.zeros((len(E_bins), 3, 3))
+    R = np.zeros(len(E_bins))
+    F = F.copy()
+    dps.step_cosmological_propagation(0.5, dt, 1.0, E_bins, F, np.array([0.333, 0.667, 0.0]),
+                                      *table, 2.5, Phi_0, BR, W, pref, selff, P_all,
+                                      np.ascontiguousarray(Gamma), R)
+    return F, R, P_all
+
+
+def test_cascade_kernel_weights_are_exact_bin_integrals():
+    """The discrete cascade kernel must be the exact bin integral of 3 E^2 / E_j^3 on the
+    geometric grid: its fractions add up to 1 - (E_lo,0 / E_j)^3, the secondaries landing
+    above the grid's lower edge, and never more. The midpoint weights used until 2026-10-12
+    gave each parent 1 + 1.5 dlnE secondaries (1.2% created per generation)."""
+    from scipy.integrate import quad
+    E = np.logspace(13, 16.5, 300)
+    W, pref, selff = dps.cascade_kernel_weights(E)
+    dE = dps.compute_dE_geometric(E)
+    h = np.sqrt(E[1] / E[0])
+    for j in (0, 1, 7, 150, 299):
+        kept = selff[j] + sum(pref[i] * dE[i] * W[j] / dE[j] for i in range(j))
+        assert abs(kept - (1.0 - (E[0] / h / E[j])**3)) < 1e-12, j
+        if j > 0:
+            i = j // 2
+            ref = quad(lambda e: 3 * e**2 / E[j]**3, E[i] / h, E[i] * h)[0]
+            assert abs(pref[i] * dE[i] * W[j] / dE[j] / ref - 1.0) < 1e-12
+        ref_self = quad(lambda e: 3 * e**2 / E[j]**3, E[j] / h, E[j])[0]
+        assert abs(selff[j] / ref_self - 1.0) < 1e-12
+
+
+def test_cascade_step_conserves_number_at_any_optical_depth():
+    """One cosmological step must conserve neutrino number exactly, whatever the optical
+    depth per step: after = before + injected - (secondaries lost below the grid). Until
+    2026-10-12 the regenerated source was each bin's initial rate Gamma F held over the
+    whole step, which re-emitted up to Gamma dt (1e10 near resonance) times more neutrinos
+    than were absorbed and inflated the fluxes by up to 1e70."""
+    E_bins, F0, rng, table = _cascade_step_setup()
+    dE = dps.compute_dE_geometric(E_bins)
+    h = np.sqrt(E_bins[1] / E_bins[0])
+    dt = 1.0
+    for gdt_scale in (1e-8, 1e-2, 1.0, 1e3, 1e10):
+        Gamma = rng.uniform(0.1, 1.0, size=(len(E_bins), 3)) * gdt_scale / dt
+        for Phi_0 in (0.0, 1e50):
+            F1, R, P_all = _one_cascade_step(E_bins, F0, Gamma, dt, Phi_0, table)
+            inj = Phi_0 * (E_bins * 1.5)**(-2.5) * dt          # z = 0.5, R_z = 1
+            lost = np.sum(R * dt * dE * (E_bins[0] / h / E_bins)**3)
+            before = np.sum(F0.sum(axis=1) * dE) + np.sum(inj * dE)
+            after = np.sum(F1.sum(axis=1) * dE)
+            assert abs(after - (before - lost)) <= 1e-11 * before, (gdt_scale, Phi_0, after, before, lost)
+            assert np.all(F1 >= 0.0)
+
+
+def test_cascade_step_limits():
+    """Without absorption the step is pure injection, F + S dt. For a small optical depth
+    per step it agrees with the explicit first-order update to O(Gamma dt)."""
+    E_bins, F0, rng, table = _cascade_step_setup()
+    dt = 2.0
+    F1, R, P_all = _one_cascade_step(E_bins, F0, np.zeros((len(E_bins), 3)), dt, 1e50, table)
+    inj_spec = 1e50 * (E_bins * 1.5)**(-2.5)
+    rho = np.array([0.333, 0.667, 0.0])
+    expected = F0 + np.einsum("iak,a->ik", P_all, rho) * inj_spec[:, None] * dt
+    np.testing.assert_allclose(F1, expected, rtol=1e-14)
+    assert np.all(R == 0.0)
+    # small optical depth: compare with the explicit update (rate G F held over the step)
+    BR = np.array([0.4, 0.35, 0.25])
+    Gamma = rng.uniform(0.1, 1.0, size=(len(E_bins), 3)) * 1e-7 / dt
+    F1, R, P_all = _one_cascade_step(E_bins, F0, Gamma, dt, 0.0, table, BR)
+    W, pref, selff = dps.cascade_kernel_weights(E_bins)
+    G_mass = np.einsum("iak,ia->ik", P_all, Gamma)
+    R_expl = np.sum(G_mass * F0, axis=1)
+    above = np.concatenate([np.cumsum((R_expl * W)[::-1])[::-1][1:], [0.0]])
+    casc = pref * above + selff * R_expl
+    brp = np.einsum("iak,a->ik", P_all, BR)
+    F_expl = F0 * (1 - G_mass * dt) + brp * casc[:, None] * dt
+    np.testing.assert_allclose(F1, F_expl, rtol=1e-11, atol=0)
+    np.testing.assert_allclose(R, R_expl, rtol=1e-6)
+
+
+def test_solver_never_returns_more_energy_than_injected(tmp_path):
+    """End to end, at the three MeV benchmark couplings: absorption and down-scattering can
+    only remove or degrade energy, so the energy flux at the detector stays below the
+    no-interaction one, and the energy-averaged flavor fractions converge in the redshift
+    step. Before 2026-10-12 the energy flux came out up to 1e67 times the injected one."""
+    import copy
+    base = dps.create_default_config(str(tmp_path / "cfg.json"))
+    base["grid"].update(dict(n_E_bins=60, n_mw_paths=1, n_earth_chords=2, N_steps_MW=3, N_steps_earth=10))
+    base["execution"].update(dict(n_cores=1, verbose=0))
+
+    def run(nz, **dp):
+        c = copy.deepcopy(base)
+        c["grid"]["n_z_bins"] = nz
+        c["dark_portal"].update(dp)
+        return dps.run_solver(c)
+    E, F0 = run(100, u_e=0.0, u_mu=0.0)
+    dE = dps.compute_dE_geometric(E)
+    e0 = np.sum(E * F0.sum(axis=1) * dE)
+    from flux_postprocessing import compute_energy_averaged_ratios as ratios
+    for dp in (dict(m_Zd_eV=3e5), dict(m_Zd_eV=2e6), dict(m_Zd_eV=2e7, g_D=1e-2)):
+        E, F = run(100, **dp)
+        assert np.sum(E * F.sum(axis=1) * dE) <= e0 * (1 + 1e-9), dp
+        E, F4 = run(400, **dp)
+        assert np.max(np.abs(ratios(E, F4) - ratios(E, F))) < 2e-3, dp
 
 
 def test_build_thermal_grid_exact_and_interpolated():

@@ -114,35 +114,31 @@ def _build_sigma_projection_table(M_rot: np.ndarray, S_eff: np.ndarray,
                 table[k, a, b] = np.abs(U[a, b])**2
     return table
 
+@njit(fastmath=True, cache=True)
+def _absorption_factors(G: float, dt: float):
+    """For dF/dt = -G F + S over a step dt with constant G and S: returns
+    (e, a1, g) = (exp(-G dt), (1 - exp(-G dt))/G, dt - a1), so that
+        F(dt) = F(0) e + S a1   and   (number absorbed) = F(0)(1 - e) + S g.
+    Series below G dt = 1e-3, where the closed forms cancel; exact at G = 0 (e = 1,
+    a1 = dt, g = 0)."""
+    x = G * dt
+    if x < 1e-3:
+        e = np.exp(-x)
+        a1 = dt * (1.0 - x * (0.5 - x * (1.0 / 6.0 - x * (1.0 / 24.0 - x / 120.0))))
+        g = dt * x * (0.5 - x * (1.0 / 6.0 - x * (1.0 / 24.0 - x * (1.0 / 120.0 - x / 720.0))))
+        return e, a1, g
+    e = np.exp(-x)
+    a1 = -np.expm1(-x) / G
+    return e, a1, dt - a1
+
+
 @njit(fastmath=True, cache=True, parallel=True)
-def step_cosmological_propagation(z: float, dt: float, R_z: float, E_bins: np.ndarray,
-                                  F_mass: np.ndarray, rho_src: np.ndarray,
-                                  P_table: np.ndarray, log_s0: float, inv_dlogs: float,
-                                  c_z: float,
-                                  p_index: float, Phi_0: float,
-                                  BR: np.ndarray, W_kernel: np.ndarray,
-                                  F_flavor: np.ndarray, Gamma_flavor: np.ndarray,
-                                  dF_casc_flavor: np.ndarray, P_all: np.ndarray,
-                                  rate_F_sum_arr: np.ndarray, precomputed_Gamma_flavor: np.ndarray):
-    """Executes a single cosmological integration step using pre-allocated buffers and pre-computed rates.
-
-    Each of the four loops below only ever reads state fully computed by the *previous*
-    loop and writes to a disjoint per-i (or per-j) slice of its own output buffer, so each
-    loop is independently safe to parallelize across energy bins via prange -- there is no
-    dependency across bins within a single z-step (the physical z-recursion itself, across
-    calls to this function, remains sequential).
-    """
+def _cosmo_projections(E_bins: np.ndarray, P_table: np.ndarray, log_s0: float, inv_dlogs: float,
+                       c_z: float, P_all: np.ndarray):
+    """|U|^2 projections at every energy of one z-step from the sigma-table (see
+    _build_sigma_projection_table): they depend on E only through sigma = E * c_z,
+    interpolated linearly in log|sigma|."""
     N_E = len(E_bins)
-
-    # Zero out buffers at start of step
-    F_flavor.fill(0.0)
-    Gamma_flavor.fill(0.0)
-    dF_casc_flavor.fill(0.0)
-    rate_F_sum_arr.fill(0.0)
-
-    # First loop: flavor composition via the sigma-table (see
-    # _build_sigma_projection_table): the projection probabilities |U|^2 at this z-step
-    # depend on E only through sigma = E * c_z, interpolated linearly in log|sigma|.
     N_sig = P_table.shape[0]
     for i in prange(N_E):
         sig = np.abs(E_bins[i] * c_z)
@@ -164,61 +160,102 @@ def step_cosmological_propagation(z: float, dt: float, R_z: float, E_bins: np.nd
         for a in range(3):
             for k in range(3):
                 P_all[i, a, k] = (1.0 - w) * P_table[k0, a, k] + w * P_table[k0 + 1, a, k]
-            F_flavor[i, a] = (P_all[i, a, 0] * F_mass[i, 0]
-                              + P_all[i, a, 1] * F_mass[i, 1]
-                              + P_all[i, a, 2] * F_mass[i, 2])
 
-        # Use the pre-computed grid values instead of the thermal kernel
-        Gamma_flavor[i, :] = precomputed_Gamma_flavor[i, :]
 
-    # Second loop: Energy cascading integral, reduced from O(N_E^2) to O(N_E).
-    # The cascading kernel W(E_i, E_j) = 3 E_i^2 * dE_j / E_j^3 is separable: the entire
-    # i-dependence is the prefactor 3 E_i^2, so the per-bin integral
-    #     integral_i = sum_{j >= i} rate_F_sum[j] * W_kernel[j]
-    # is a pure suffix sum over a fixed vector. The previous formulation recomputed each
-    # suffix independently -- N_E^2/2 multiply-adds per z-step, the single dominant cost
-    # of the whole cosmological phase at the production 1000x1000 grid (10^9 operations
-    # per run) -- where one reversed sweep produces every suffix in N_E operations.
-    # rate_F_sum_arr[j] now stores the suffix value sum_{k >= j} rate*W rather than the
-    # per-bin summand; nothing downstream reads the old meaning.
-    suffix = 0.0
-    for j in range(N_E - 1, -1, -1):
-        s = (Gamma_flavor[j, 0] * F_flavor[j, 0]
-             + Gamma_flavor[j, 1] * F_flavor[j, 1]
-             + Gamma_flavor[j, 2] * F_flavor[j, 2])
-        suffix += s * W_kernel[j]
-        rate_F_sum_arr[j] = suffix
+@njit(fastmath=True, cache=True)
+def step_cosmological_propagation(z: float, dt: float, R_z: float, E_bins: np.ndarray,
+                                  F_mass: np.ndarray, rho_src: np.ndarray,
+                                  P_table: np.ndarray, log_s0: float, inv_dlogs: float,
+                                  c_z: float, p_index: float, Phi_0: float,
+                                  BR: np.ndarray, W_kernel: np.ndarray, pref_kernel: np.ndarray,
+                                  self_frac: np.ndarray, P_all: np.ndarray,
+                                  Gamma_flavor: np.ndarray, R_out: np.ndarray):
+    """One cosmological z-step: absorption on the relic neutrinos, regeneration of the
+    absorbed flux at lower energies (the cascade), and injection, per mass state.
 
-    # Third loop: apply the i-dependent prefactor and branching ratios
-    for i in prange(N_E):
-        casc_i = 3.0 * (E_bins[i]**2) * rate_F_sum_arr[i]
-        for a in range(3):
-            dF_casc_flavor[i, a] = BR[a] * casc_i
+    Arguments: z, dt -- redshift and time step (eV^-1); R_z -- source evolution;
+    E_bins -- observed energies (eV); F_mass -- (N_E, 3) mass-state fluxes, updated in
+    place; rho_src -- source flavor composition; P_table, log_s0, inv_dlogs, c_z -- the
+    sigma-table and this step's coordinate; p_index, Phi_0 -- source spectrum;
+    BR -- flavor branching of the regenerated neutrinos (sum 1); W_kernel, pref_kernel,
+    self_frac -- the discrete cascade kernel (cascade_kernel_weights); P_all -- (N_E, 3, 3)
+    projection buffer; Gamma_flavor -- (N_E, 3) flavor absorption
+    rates at this z (eV); R_out -- (N_E,) receives each bin's absorbed number per unit
+    energy per unit time, averaged over the step (diagnostics and tests).
 
-    # Fourth loop: Update mass eigenstate flux with decay and injection (projections
-    # read from the P_all buffer filled in the first loop; summation order over flavors
-    # is unchanged, so the arithmetic is identical).
-    for i in prange(N_E):
+    The cascade sends each absorbed neutrino of energy E_j to energy E_i < E_j with
+    spectrum 3 E_i^2 / E_j^3 (one neutrino per absorption, flavor split by BR). The
+    absorption per step is often enormous -- G dt up to 1e10 near resonance -- so the
+    regenerated source must be what each bin ACTUALLY absorbs during the step, not its
+    initial rate G F held over the whole step: until 2026-10-12 it was the latter, which
+    re-emitted up to G dt times more neutrinos than were absorbed, step after step, and
+    inflated the fluxes by up to 1e70. Bins are therefore swept from high to low energy:
+    each solves its linear equation over the step exactly (constant rates and sources),
+    and passes down the number it absorbed, averaged over the step. A bin's share of its
+    own regeneration (the i = j term of the kernel) makes its absorbed number appear on
+    both sides; that linear relation is solved directly. With the kernel's exact bin
+    integrals (cascade_kernel_weights) the step conserves number exactly for any G dt,
+    the only loss being secondaries below the grid."""
+    N_E = len(E_bins)
+    _cosmo_projections(E_bins, P_table, log_s0, inv_dlogs, c_z, P_all)
+    above = 0.0          # sum over j > i of R_j W_j (R: absorbed number per energy per time)
+    for i in range(N_E - 1, -1, -1):
         E_z = E_bins[i] * (1.0 + z)
         inj_spectrum = Phi_0 * (E_z**(-p_index))
+        pref = pref_kernel[i]
+        num = 0.0
+        qg = 0.0
+        e_a = np.empty(3)
+        a1_a = np.empty(3)
+        s0_a = np.empty(3)
+        q_a = np.empty(3)
         for a in range(3):
-            Gamma_mass_a = (P_all[i, 0, a] * Gamma_flavor[i, 0]
-                            + P_all[i, 1, a] * Gamma_flavor[i, 1]
-                            + P_all[i, 2, a] * Gamma_flavor[i, 2])
-            dF_casc_mass_a = (P_all[i, 0, a] * dF_casc_flavor[i, 0]
-                              + P_all[i, 1, a] * dF_casc_flavor[i, 1]
-                              + P_all[i, 2, a] * dF_casc_flavor[i, 2])
-            inj_rate_mass_a = (P_all[i, 0, a] * rho_src[0]
-                               + P_all[i, 1, a] * rho_src[1]
-                               + P_all[i, 2, a] * rho_src[2]) * inj_spectrum * R_z
-            total_rate = dF_casc_mass_a + inj_rate_mass_a
-            
-            if Gamma_mass_a > 1e-30:
-                decay = np.exp(-Gamma_mass_a * dt)
-                # Numerically stable calculation for (1 - exp(-x)) / x
-                # We use -np.expm1(-x) which is equivalent to 1 - exp(-x) but stable near 0
-                term = total_rate * (-np.expm1(-Gamma_mass_a * dt) / Gamma_mass_a)
-                F_mass[i, a] = F_mass[i, a] * decay + term
-            else:
-                F_mass[i, a] += total_rate * dt
+            G = (P_all[i, 0, a] * Gamma_flavor[i, 0]
+                 + P_all[i, 1, a] * Gamma_flavor[i, 1]
+                 + P_all[i, 2, a] * Gamma_flavor[i, 2])
+            brp = (P_all[i, 0, a] * BR[0] + P_all[i, 1, a] * BR[1] + P_all[i, 2, a] * BR[2])
+            inj = (P_all[i, 0, a] * rho_src[0]
+                   + P_all[i, 1, a] * rho_src[1]
+                   + P_all[i, 2, a] * rho_src[2]) * inj_spectrum * R_z
+            e, a1, g = _absorption_factors(G, dt)
+            s0 = inj + brp * pref * above
+            q = brp * self_frac[i]
+            num += F_mass[i, a] * (1.0 - e) + s0 * g
+            qg += q * g
+            e_a[a] = e
+            a1_a[a] = a1
+            s0_a[a] = s0
+            q_a[a] = q
+        R = num / (dt - qg)        # qg <= 3 dE/E * dt: the denominator stays near dt
+        R_out[i] = R
+        for a in range(3):
+            F_mass[i, a] = F_mass[i, a] * e_a[a] + (s0_a[a] + q_a[a] * R) * a1_a[a]
+        above += R * W_kernel[i]
 
+
+def cascade_kernel_weights(E_bins: np.ndarray):
+    """The cascade kernel 3 E^2 / E_j^3 (secondaries of a neutrino absorbed at E_j, per unit
+    energy, for E <= E_j) integrated exactly over the geometric bins of E_bins.
+
+    Returns (W_kernel, pref_kernel, self_frac): a parent in bin j sends to a lower bin i the
+    fraction pref_kernel[i] dE_i W_kernel[j], with pref_kernel[i] = (E_hi,i^3 - E_lo,i^3)/dE_i
+    and W_kernel[j] = dE_j / E_j^3, and keeps in its own bin the fraction
+    self_frac[j] = 1 - (E_lo,j / E_j)^3 -- secondaries above E_j are kinematically forbidden.
+    The fractions add up to 1 - (E_lo,0 / E_j)^3 exactly. The midpoint weights used until
+    2026-10-12 (3 E_i^2 for every bin, the parent's own bin included in full) kept about
+    1 + 1.5 dlnE of a neutrino per absorption: ~1.2% created per generation of rescattering
+    on the 1000-bin grid."""
+    from dp_core import compute_dE_geometric
+    N = len(E_bins)
+    dE = compute_dE_geometric(E_bins)
+    if N > 1:
+        h = np.sqrt(E_bins[1] / E_bins[0])
+        E_lo, E_hi = E_bins / h, E_bins * h
+    else:
+        E_lo, E_hi = E_bins.copy(), E_bins.copy()
+    W_kernel = dE / E_bins**3
+    with np.errstate(divide="ignore", invalid="ignore"):
+        pref = np.where(dE > 0, (E_hi**3 - E_lo**3) / dE, 3.0 * E_bins**2)
+    self_frac = 1.0 - (E_lo / E_bins)**3
+    return (np.ascontiguousarray(W_kernel), np.ascontiguousarray(pref),
+            np.ascontiguousarray(self_frac))
