@@ -229,7 +229,7 @@ The scanner's spatial-averaging defaults follow the convergence study (Section 1
 * `--H0_km_s_Mpc` (float): Present-day Hubble constant in km/s/Mpc (Default: `67.4`).
 * `--Omega_m` (float): Cosmological matter density parameter (Default: `0.315`).
 * `--Omega_L` (float): Cosmological dark energy density parameter (Default: `0.685`).
-* `--T_nu0_eV` (float): Present-day C$\nu$B temperature in eV (Default: `1.95e-4`).
+* `--T_nu0_eV` (float): Present-day C$\nu$B temperature in eV (Default: `1.676389e-4`, i.e. $(4/11)^{1/3}\,T_{\rm CMB} = 1.9454$ K; until 2026-10-12 the default was `1.95e-4`, "1.95 K" entered as eV, which made the relic neutrinos 16% too hot and the absorption rates ~57% too high).
 * `--n_n0_cm3` (float): Present-day cosmological background neutron density in cm$^{-3}$ (Default: `0.25e-6`).
 * `--m_lightest_eV` (float): Mass of the lightest neutrino eigenstate in eV (Default: `0.01`).
 * `--mass_ordering` (str): `"normal"` or `"inverted"` (Default: `"normal"`).

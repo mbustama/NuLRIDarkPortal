@@ -341,7 +341,7 @@ class GenericLikelihoodWrapper:
                 np.eye(3, dtype=np.complex128),
                 np.array([0., 7.4e-5, 2.51e-3]),
                 np.array([0., 0.0086, 0.0501]),
-                112.0, 1.95e-4, np.ones(3, dtype=np.float64),
+                112.0, 1.676389e-4, np.ones(3, dtype=np.float64),
                 1.5, False, 2.0, 0.0, 1e-18,
                 1.0, 6, 3, 100, 100.0, 25,
                 False, 1.5e24 * cm_inv3_to_eV3, True,

@@ -2130,6 +2130,45 @@ def test_minuit_maxcall_caps_stalled_fits():
     assert n_capped < 60, f"capped fit still ran {n_capped} evaluations"
 
 
+def test_default_relic_neutrino_temperature_is_physical():
+    """The relic-neutrino temperature must be (4/11)^(1/3) T_CMB, converted to eV.
+
+    Until 2026-10-12 the default was 1.95e-4 eV: "1.95 K" entered as eV (2.26 K, 16% too
+    hot). The thermal kernel's relic density follows from the Fermi-Dirac integral, so the
+    absorption rates scale ~T^3 and were ~57% too high. Pins the default AND the shipped
+    analysis configs, which carry their own copy of the value."""
+    T_expected = (4.0 / 11.0) ** (1.0 / 3.0) * 2.7255 * 8.617333262e-5   # eV
+    assert abs(dps.DEFAULT_CONFIG["cosmology"]["T_nu0_eV"] / T_expected - 1.0) < 1e-5
+
+    cfg_dir = os.path.join(_FREQ_DIR, "config")
+    for name in ("pion_2050_case_5_fixed_nuisance.json", "pion_2050_case_5_fixed_nuisance_mZD.json",
+                 os.path.join("tests", "dark_portal_frequentist_config.json")):
+        with open(os.path.join(cfg_dir, name)) as f:
+            T_cfg = json.load(f)["physics_constants"]["T_nu0_eV"]
+        assert abs(T_cfg / T_expected - 1.0) < 1e-5, f"{name} carries T_nu0_eV = {T_cfg}"
+
+
+def test_resonant_absorption_scales_with_relic_temperature():
+    """The absorption lives in the resonant dip, and the relic density there comes from the
+    kernel's Fermi-Dirac integral, so the ENERGY-INTEGRATED dip scales as T^3 while the
+    relic momentum spread sets the dip's shape: depth ~T^2, width ~T. Measured 2026-10-12:
+    the old 1.95e-4 eV default inflated the integrated absorption by 1.573 (T^3 = 1.574)
+    and the peak by 1.353 (T^2 = 1.353). Window: +-10% around the at-rest resonance of the
+    0.07 eV state, E_res = m_Zd^2 / (2 m), clear of the two lighter states' dips."""
+    m_Zd = 3.0e7
+    m_nu = np.array([0.05, 0.051, 0.07])
+    E_bins = m_Zd**2 / (2 * 0.07) * np.linspace(0.90, 1.10, 2001)
+    z_bins = np.array([0.0])
+    sum_G, sum_G_alpha, eta_mass = 1e-8, np.array([0.5e-8, 0.3e-8, 0.2e-8]), np.ones(3)
+    T_old, T_new = 1.95e-4, dps.DEFAULT_CONFIG["cosmology"]["T_nu0_eV"]
+    G = {T: dps.build_thermal_grid(E_bins, z_bins, sum_G, sum_G_alpha, m_Zd, m_nu, T, eta_mass)[0, :, 0]
+         for T in (T_old, T_new)}
+    r = T_old / T_new
+    integral_ratio = np.trapz(G[T_old], E_bins) / np.trapz(G[T_new], E_bins)
+    assert abs(integral_ratio / r**3 - 1.0) < 2e-3, integral_ratio
+    assert abs((G[T_old].max() / G[T_new].max()) / r**2 - 1.0) < 1e-2
+
+
 def test_retry_seed_deterministic_and_default_preserved():
     """retry_seed >= 0 must make the retry-jitter RNG stream a pure function of
     (base seed, parameter, grid value) -- identical across calls and processes --

@@ -8,7 +8,7 @@
         "H0_km_s_Mpc": 67.4,
         "Omega_m": 0.315,
         "Omega_L": 0.685,
-        "T_nu0_eV": 1.95e-4,
+        "T_nu0_eV": 1.676389e-4,
         "n_n0_cm3": 0.25e-6,
         "m_lightest_eV": 0.01,
         "mass_ordering": "normal",

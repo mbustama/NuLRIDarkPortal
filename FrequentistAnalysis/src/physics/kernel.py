@@ -146,7 +146,7 @@ def prewarm_worker():
             construct_PMNS(0.5831, 0.1498, 0.8570, 2.3038),
             np.ascontiguousarray(np.diag([0.0, 7.41e-5, 2.511e-3]).astype(np.complex128)),
             get_mass_eigenvalues(0.01, 7.41e-5, 2.511e-3, "normal"),
-            _DC['cosmology']['n_n0_cm3'] * cm_inv3_to_eV3, 1.95e-4,
+            _DC['cosmology']['n_n0_cm3'] * cm_inv3_to_eV3, 1.676389e-4,
             np.ones(3, dtype=np.float64),
             1.5, False, 2.5, 0.0, 1.0, 1.0,
             1, 1, 2, 100.0, 2,          # n_mw_paths, n_earth_chords, N_steps_MW, r_start_kpc, N_steps_earth

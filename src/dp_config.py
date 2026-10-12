@@ -73,7 +73,12 @@ def _build_default_config() -> Dict:
             "H0_km_s_Mpc": 67.4,
             "Omega_m": 0.315,
             "Omega_L": 0.685,
-            "T_nu0_eV": 1.95e-4,
+            # Relic-neutrino temperature today: (4/11)^(1/3) * T_CMB = 1.9454 K for
+            # T_CMB = 2.7255 K, i.e. 1.6764e-4 eV (k_B = 8.617333e-5 eV/K). The value was
+            # 1.95e-4 eV until 2026-10-12 -- "1.95 K" entered as eV, 16% too hot; since the
+            # thermal kernel's relic density follows from the Fermi-Dirac integral (~T^3),
+            # the absorption rates were ~57% too high.
+            "T_nu0_eV": 1.676389e-4,
             "n_n0_cm3": 0.25e-6,
             "m_lightest_eV": 0.01,
             "mass_ordering": "normal",
