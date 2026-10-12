@@ -1,0 +1,607 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{array}
+\usepackage[margin=1in]{geometry}
+\usepackage[hidelinks]{hyperref}
+
+\newcommand{\note}[1]{\textbf{[#1]}}
+\newcommand{\file}[1]{\nolinkurl{#1}}
+\newcommand{\mzd}{m_{Z_D}}
+\newcommand{\gd}{g_D}
+\newcommand{\epsp}{\epsilon'}
+\newcommand{\Tnu}{T_{\nu,0}}
+\newcommand{\Eres}{E_{\rm res}}
+\newcommand{\VLRI}{V_{\rm LRI}}
+\newcommand{\Aeff}{A_{\rm eff}}
+\newcommand{\nusum}{\Sigma m_\nu}
+
+\renewcommand{\topfraction}{0.9}
+\renewcommand{\bottomfraction}{0.8}
+\renewcommand{\textfraction}{0.07}
+\renewcommand{\floatpagefraction}{0.75}
+\setlength{\emergencystretch}{2em}
+
+\title{Dark-portal interactions of high-energy astrophysical neutrinos\\[2pt]
+       \large Working notes}
+\author{}
+\date{Last revised \today}
+
+\begin{document}
+\maketitle
+\tableofcontents
+
+%==============================================================================
+\section{Summary}
+\label{sec:summary}
+
+\begin{center}
+\fbox{\begin{minipage}{0.94\textwidth}
+\textbf{What the code computes, and where it stands.} We compute the diffuse flux of
+high-energy astrophysical neutrinos at IceCube in the dark-portal model of the theory notes
+(\file{notes/main.pdf}, ``Notes on the theoretical framework for generalized new neutrino
+interactions''). A dark vector boson $Z_D$ couples to active neutrinos through their mixing
+with a sterile state and to matter through $Z$--$Z_D$ mass mixing. Two effects follow:
+neutrinos scatter resonantly on the relic (cosmic) neutrino background, which absorbs and
+regenerates them, and neutrons source a long-range coherent potential that changes their
+flavor in flight. The solver integrates both across cosmological distances, the Milky Way and
+the Earth; it is validated at four benchmark parameter points and runs in $0.32$~s at its
+production defaults. The statistical analysis fits the predicted flavor composition to a
+projected 2050 measurement; it carries no explicit systematic uncertainties yet. The next
+stage, agreed on 2026-10-12, adds IceCube event rates, systematic uncertainties and coverage
+tests (Sec.~\ref{sec:plan}). Two physics inputs, the cosmological and Milky Way neutron
+densities, await a decision (Sec.~\ref{sec:open}).
+\end{minipage}}
+\end{center}
+
+Table~\ref{tab:status} lists the state of each component. Every number in these notes comes
+from a run of the code, identified by the commit that contains it or by the test that checks
+it; anything not yet traced is marked \note{VERIFY}. Corrections to the code and to earlier
+statements are kept in Appendix~\ref{app:corrections}, because they are the reason the
+remaining numbers can be trusted. The agreed order of work is also kept, in shorter form, in
+\file{docs/dev/WORK_PLAN.md}.
+
+\begin{table}[h]
+\centering
+\caption{\textbf{State of each component, as of 2026-10-12.} ``Validated'' means checked at the
+four benchmark points of Sec.~\ref{sec:validation} with the acceptance rules stated there.}
+\label{tab:status}
+\small
+\begin{tabular}{p{4.2cm}p{7.6cm}l}
+\toprule
+Component & State & Section \\
+\midrule
+Flux solver & Validated; production defaults run in $0.32$~s on 8 cores & \ref{sec:numerics}, \ref{sec:validation} \\
+Thermal absorption rates & Semi-analytic kernel; relic temperature corrected 2026-10-12 & \ref{sec:thermal}, \ref{app:tnu} \\
+Earth transit & Phase-exact stepping with a step-count certificate; 25 steps & \ref{sec:earth} \\
+Flavor-ratio analysis & Profile scans and exclusion planes run; no explicit systematics & \ref{sec:stats} \\
+IceCube event rates & Planned; data sets and folding method chosen & \ref{sec:rates} \\
+Systematics and coverage & Planned; list and procedure agreed & \ref{sec:syst}, \ref{sec:soundness} \\
+Neutron densities & Cosmological and Milky Way values in question & \ref{sec:open} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%==============================================================================
+\section{The model and its implementation}
+\label{sec:model}
+
+\subsection{Where the physics is defined}
+
+The theory notes define the framework; we cite their equations as ``Eq.~(T$n$)''. The neutrino
+ensemble is a $3\times3$ density matrix $\rho(E_0,z)$, where $E_0$ is the energy observed at
+Earth and $z$ the redshift. It obeys the quantum kinetic equation (T3). The Hamiltonian (T4)
+drives its coherent part; the collision operator (T6) is its incoherent part. The
+coherent part contains the standard matter potential (T5) and the long-range dark-portal
+potential (T9) for neutrinos, (T10) for antineutrinos. The incoherent part contains the
+attenuation rate (T7) and the regeneration kernel (T8), evaluated with a Breit--Wigner
+resonance of width (T11) and coupling (T12). The sources follow a power law with a free flavor
+composition (T18), distributed in redshift as the star-formation rate (T19, T20). The thermal
+(Debye) mass that screens the mediator is (T23).
+
+\textit{Parameters.}---The dark sector is set by the mediator mass $\mzd$, the dark gauge
+coupling $\gd$, the $Z$--$Z_D$ mass mixing $\epsp$, and the active--sterile mixing magnitudes
+$u_\alpha \equiv |U_{\alpha 4}|$ ($\alpha = e, \mu, \tau$). Resonant absorption on a relic
+neutrino of mass $m_i$ peaks near $\Eres = \mzd^2/(2 m_i)$, so a mediator of mass
+$\sim1$--$10$~MeV places the absorption features inside the IceCube energy range. Table~\ref{tab:params}
+lists every parameter with its default value and configuration key. The defaults live in one
+place, \file{src/dp_config.py} (\texttt{DEFAULT\_CONFIG}); the analysis configurations carry
+their own copies of the physical constants.
+
+\begin{table}[h]
+\centering
+\caption{\textbf{Parameters and their defaults.} Keys refer to the solver's configuration
+sections; the analysis configurations use the same names under \texttt{physics\_constants}.
+Masses and energies in eV unless stated.}
+\label{tab:params}
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{llll}
+\toprule
+Symbol & Meaning & Default & Key \\
+\midrule
+$\mzd$ & Dark mediator mass & $2\times10^{6}$ & \texttt{dark\_portal.m\_Zd\_eV} \\
+$\gd$ & Dark gauge coupling & $10^{-4}$ & \texttt{dark\_portal.g\_D} \\
+$\epsp$ & $Z$--$Z_D$ mass mixing & $0.1$ & \texttt{dark\_portal.epsilon\_prime} \\
+$u_e, u_\mu, u_\tau$ & Active--sterile mixing & $0.5, 0.5, 0$ & \texttt{dark\_portal.u\_*} \\
+$p$ & Source spectral index & $2.5$ & \texttt{source.p\_index} \\
+$f_{e,S}, f_{\mu,S}, f_{\tau,S}$ & Source flavor composition & $1/3, 2/3, 0$ & \texttt{source.f\_*\_S} \\
+$z_{\max}$ & Largest source redshift & $4$ & \texttt{source.z\_max} \\
+$m_{\rm lightest}$ & Lightest neutrino mass & $0.01$ & \texttt{cosmology.m\_lightest\_eV} \\
+$\Tnu$ & Relic-neutrino temperature today & $1.676389\times10^{-4}$ & \texttt{cosmology.T\_nu0\_eV} \\
+$n_{n,0}$ & Cosmological neutron density & $2.5\times10^{-7}$~cm$^{-3}$ & \texttt{cosmology.n\_n0\_cm3} \\
+$\theta_{12}, \theta_{13}, \theta_{23}$ & Mixing angles & $33.41^\circ, 8.58^\circ, 49.1^\circ$ & \texttt{standard\_mixing.th*\_deg} \\
+$\delta_{\rm CP}$ & Dirac phase & $132^\circ$ & \texttt{standard\_mixing.d\_cp\_deg} \\
+$\Delta m^2_{21}, \Delta m^2_{31}$ & Mass splittings [eV$^2$] & $7.41\times10^{-5}, 2.511\times10^{-3}$ & \texttt{standard\_mixing.dm*\_sq} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{From the equations to the code}
+
+The solver (\file{src/}, entry point \texttt{run\_solver} in \file{src/dark_portal_solver.py})
+divides the propagation into three phases. Each phase hands its result to the next, and
+neutrinos and antineutrinos run separately before their fluxes are combined.
+
+\textit{Cosmological phase.}---From $z_{\max}=4$ to $z=0$ the flux is carried as populations
+in the instantaneous eigenbasis of the Hamiltonian (T4), one per mass state, with no
+coherences between them. At each step the populations decay at the thermal absorption rate
+(T7) and receive the regenerated flux of the cascade kernel (T8) and the injected source flux
+(T18). We project them onto flavor with the mixing probabilities $|U_{\alpha i}(E,z)|^2$ of the
+full Hamiltonian. The cascade kernel is separable, which reduces the regeneration
+integral to a suffix sum that costs $O(N_E)$ per step instead of $O(N_E^2)$
+(\texttt{step\_cosmological\_propagation} in \file{src/dp_cosmo.py}).
+
+\textit{Milky Way phase.}---At $r_{\rm start}=100$~kpc from the Sun the populations become a
+density matrix, which we evolve under the vacuum Hamiltonian plus the dark-portal potential
+sourced by the neutrons of the Galaxy, the Sun, the Moon and the Earth. We average the result over
+$n_{\rm MW}$ arrival directions (six by default), each integrated in $N_{\rm MW}$ steps
+(\file{src/dp_spatial.py}).
+
+\textit{Earth phase.}---The averaged density matrix is then evolved along $n_\oplus$ chords
+through the Earth (PREM densities, optional standard matter potential), from the surface to a
+detector $1.5$~km deep. The chords are evenly spaced in the cosine of the zenith angle between
+straight up-going ($-1$) and horizontal ($0$); the flux returned is the plain average over
+them. The flavor fluxes at the detector are the diagonal of the averaged density matrix.
+
+\textit{Antineutrinos.}---The antineutrino run uses $U^*_{\rm PMNS}$ and the transformed
+potential $-V^*$ (T10). With the default \texttt{is\_antineutrino = "sum"} the two runs are
+added, weighted by \texttt{nubar\_to\_nu\_ratio} ($=1$).
+
+\subsection{Potential textures}
+\label{sec:textures}
+
+The flavor structure of both coherent potentials can be replaced through the configuration:
+\texttt{dark\_portal.U\_LRI\_struct} for the dark-portal potential (default
+$u_\alpha u^*_\beta$, as in Eq.~(T9)) and \texttt{standard\_mixing.V\_SM\_struct} for the
+standard matter potential (default ${\rm diag}(1,0,0)$, as in Eq.~(T5)). Each is a $3\times3$
+nested list whose entries are real numbers or $[{\rm Re}, {\rm Im}]$ pairs. The regression tests
+\file{test_structure_override_*} and
+\file{test_parse_structure_matrix_3x3_formats_and_validation} check the parsing and the
+antineutrino convention. In addition, we ran rank-zero, full-rank complex and indefinite textures
+through both spatial phases and the cosmological mixing table (2026-07-29); any fixed Hermitian
+texture works.
+
+\textit{Limits of the override.}---The texture must be Hermitian to $10^{-12}$ relative
+precision; the parser rejects anything else, because the propagator reads only one triangle
+of the Hamiltonian. It must be constant within a run, since the cosmological mixing table
+assumes a Hamiltonian of the form $M + \sigma S$ with one fixed matrix $S$. Overrides are given
+in the neutrino convention; the solver applies the antineutrino transformation itself. The
+override changes only the coherent potential: the Debye mass and the absorption rates remain
+set by $u_e, u_\mu, u_\tau$. Its overall scale is degenerate with $\gd\epsp$.
+
+\subsection{Physical inputs}
+\label{sec:inputs}
+
+\textit{Relic neutrinos.}---The absorption rates integrate the Fermi--Dirac distribution of
+the relic neutrinos at temperature $\Tnu(1+z)$. Therefore, the relic density in our rates
+follows from $\Tnu$ and scales as $\Tnu^3$. The nominal $56$~cm$^{-3}$ per state enters only as
+a ratio that carries flavor asymmetries. The temperature is
+$\Tnu = (4/11)^{1/3}\,T_{\rm CMB} = 1.9454$~K $= 1.676389\times10^{-4}$~eV for
+$T_{\rm CMB}=2.7255$~K. Until 2026-10-12 the code used $1.95\times10^{-4}$~eV
+(Appendix~\ref{app:tnu}).
+
+\textit{Neutron densities.}---The dark-portal potential is proportional to the neutron number
+density along the path. In the Earth the code takes half of the nucleons to be neutrons
+(density $\times\,3.011\times10^{23}$~g$^{-1}$), which suits rock. The cosmological and Milky
+Way densities are discussed in Sec.~\ref{sec:open}.
+
+%==============================================================================
+\section{Numerical method}
+\label{sec:numerics}
+
+\subsection{Resolution and defaults}
+
+Table~\ref{tab:resolution} compares the solver's production defaults with the settings of the
+statistical analysis. The defaults follow the convergence study of 2026-07-28
+(\file{tools/convergence_study.py}, results in \file{output/convergence/}). The analysis uses a
+coarser energy and redshift grid but more Milky Way paths and Earth chords, because its scans
+reach mediator masses beyond the study's parameter points.
+
+\begin{table}[h]
+\centering
+\caption{\textbf{Resolution settings.} The convergence column states what each setting is known
+to achieve.}
+\label{tab:resolution}
+\small
+\begin{tabular}{lccp{5.2cm}}
+\toprule
+Setting & Solver default & Analysis & Evidence \\
+\midrule
+Energy bins $N_E$ (10~TeV--30~PeV) & 1000 & 200 & $\sim6\times10^{-3}$ on flavor ratios at 200 \\
+Redshift steps $N_z$ ($z \le 4$) & 1000 & 200 & $\sim1.1\times10^{-2}$ at 200 \\
+Milky Way paths $n_{\rm MW}$ & 6 & 50 & \\
+Earth chords $n_\oplus$ & 12 & 50 & Fringe floor $\sim1.1\times10^{-2}$ at 50 (in-band) \\
+Milky Way steps $N_{\rm MW}$ & 25 & 25 & Converged to $\sim10^{-10}$ \\
+Earth steps $N_{\rm Earth}$ & 25 & 25 & Certified, Sec.~\ref{sec:earth} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textit{The Earth-chord floor.}---The Earth transit imprints interference fringes in energy that
+are finer than the energy grid. Therefore, at in-band parameter points, changing the number of
+chords moves the energy-averaged flavor ratios pseudo-randomly at the $10^{-2}$ level instead of
+converging. We treat this scatter as a numerical systematic of the unsmeared observable
+(\file{README.md}, Sec.~11). Folding through a detector's energy resolution, as the event rates
+of Sec.~\ref{sec:rates} will do, smooths these fringes.
+
+\subsection{Thermal absorption rates}
+\label{sec:thermal}
+
+The rates (T7) require a momentum integral over the relic distribution of a Breit--Wigner
+resonance whose width is far smaller than any practical grid. We integrate it
+semi-analytically: the momentum at which the resonance enters the angular range has a closed
+form, the narrow zone around it is integrated with exact antiderivatives, and the smooth
+remainder with Gauss--Legendre quadrature (\file{src/dp_thermal.py}). Against a dense
+reference integration, the significance-weighted error is $2.5\times10^{-7}$; the midpoint
+rule used before July 2026 erred by 6--9\% at on-resonance cells (round 7, commits
+\texttt{53d74f2}--\texttt{ca816a4}).
+
+\textit{Coupling cache.}---Within a fit at fixed $\mzd$ the rate grid depends on the couplings
+only through the total coupling $s$, as $U(s) \approx I_A + I_B/s$ to $\sim7\times10^{-8}$
+over brackets of up to two decades. The cache fits this form from two exact grids and uses it
+only after checking it against a third (tolerance $3\times10^{-7}$). Until 2026-07-29 its
+minimum bracket width ($0.3$ decades) exceeded the coupling steps of the minimizer, so it
+never fired in real scans. We replaced that width with a numerical floor. The cache then served
+83\% of the evaluations of minimizer-like sequences at three mediator masses, with a worst error
+of $6.5\times10^{-9}$ against fresh exact grids (commit \texttt{5e7877c}).
+
+\subsection{Cosmological mixing}
+
+The eigenvectors of $M/(2E(1+z)) + A(z) S$ depend on $E$ and $z$ only through
+$\sigma = 2E(1+z)A(z)$, because eigenvectors are unchanged by an overall factor. Therefore, we
+tabulate the mixing probabilities on $4096$ nodes in $\log\sigma$ and interpolate, instead of
+computing $\sim10^6$ eigenvector sets per run. Our table agrees with direct computation to
+$2.7\times10^{-14}$ at a stress point with a level crossing in range (\file{README.md},
+Sec.~12).
+
+\subsection{Coherent propagation}
+
+The evolution operator of each step, $\exp(-iH\Delta x)$ for a $3\times3$ Hermitian $H$, is
+evaluated in closed form (Newton divided differences on the traceless part, with a separate
+treatment of nearly degenerate eigenvalues; \file{src/dp_propagator.py}). When the potential
+is so large that double precision cannot follow the oscillation phase, the propagator switches
+to an exactly unitary projector form; the fluxes stay finite but carry only the
+decoherence-averaged information. This happens roughly where
+$\mzd^2 + m_D^2 \lesssim 3\times10^{6}\,\gd\epsp$~eV$^2$, i.e., below $\mzd\approx5$~eV for
+the default couplings ($\gd = 10^{-4}$, $\epsp = 0.1$); the analysis warns when its scan window
+reaches this region.
+
+\subsection{Earth steps}
+\label{sec:earth}
+
+In each Earth step we use the exact average of the PREM density over the step, integrated layer
+by layer with the layer crossings in closed form. The accumulated phase then equals the integral
+of the potential along the chord for any number of steps. Fluxes computed
+with $8$ and with $1000$ steps agree to $\le4.5\times10^{-9}$, and their energy-averaged
+flavor ratios to $\le6.5\times10^{-10}$, at the three benchmark points of
+Sec.~\ref{sec:validation} that are not in the phase-noise regime (commit \texttt{e1b6660}).
+Since the scheme converges to the exact path-ordered result as the steps shrink, this
+independence of the step count shows that the result is converged. The earlier
+left-endpoint scheme accumulated a phase error of thousands of radians, which moved the fluxes
+by up to $10^{-2}$ whenever the step count changed. The default is $25$ steps since
+2026-07-29 (commit \texttt{95fef9f}, Table~\ref{tab:changes}).
+
+\subsection{Parallelism and cost}
+
+Milky Way paths and Earth chords are independent; they run in a persistent pool of processes
+started with \texttt{spawn}, the start method the analysis requires. The cosmological phase
+and the thermal grids use threads (numba, TBB layer). On the development laptop (Intel
+i5-1334U, 8 cores), a solver run at the defaults takes $0.32$~s (best of three). One
+likelihood evaluation at the analysis settings takes $0.39$~s on one core, $0.29$~s when the
+coupling cache applies, and $0.17$~s with the spatial phases spread over 8 cores (medians,
+2026-07-29). Before the step count fell from 100 to 25, the Earth phase took 66\% of a
+single-core evaluation and the Milky Way phase 18\%.
+
+%==============================================================================
+\section{Validation}
+\label{sec:validation}
+
+\subsection{The four benchmark points}
+
+Every change that can affect the physics is checked against the full solver at production
+settings ($N_E = N_z = 1000$, 6 paths, 12 chords, 4 cores) at four parameter points, with the
+reference and the modified code in separate processes:
+\begin{center}
+\small
+\begin{tabular}{lccc}
+\toprule
+Point & $\mzd$ [eV] & $\gd$ & $\epsp$ \\
+\midrule
+below & $3\times10^{5}$ & $10^{-4}$ & $0.1$ \\
+inband & $2\times10^{6}$ & $10^{-4}$ & $0.1$ \\
+strong & $2\times10^{7}$ & $10^{-2}$ & $0.1$ \\
+cosmoX2 & $40$ & $10^{-4}$ & $0.1$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+At ``below'' all three absorption resonances lie under the energy range; at ``inband'' they lie
+inside it; ``strong'' has a hundred times the coupling. At ``cosmoX2'' the mediator is light, so
+the potential dominates the Earth transit and the accumulated phase is large enough that a change
+in the last floating-point digit moves the pointwise fluxes by $\sim10^{-3}$.
+
+\textit{Acceptance rules.}---We compare two quantities: the largest relative flux difference over
+all energies and flavors, and the energy-averaged flavor ratios. A change that should not alter the
+arithmetic must reproduce ``below'', ``inband'' and ``strong'' to the floor at which two runs of
+identical code agree, $\sim2$--$7\times10^{-12}$. The ``strong'' point has an additional
+common-mode floor of $\sim7.5\times10^{-8}$ under any reordering of the last floating-point digit, with its
+flavor ratios at $\lesssim10^{-12}$. We judge ``cosmoX2'' on the energy-averaged flavor ratios
+and the energies of the absorption dips only. For the same reason, any recompilation of the
+spatial kernels changes the results at the last digit: two textually identical kernels
+compiled separately differed by $3.7\times10^{-16}$.
+
+\subsection{Record of validated changes}
+
+\begin{table}[h]
+\centering
+\caption{\textbf{Changes checked at the benchmark points.} Differences are the largest relative
+flux difference and the largest change of an energy-averaged flavor fraction.}
+\label{tab:changes}
+\small
+\begin{tabular}{p{2.0cm}p{4.8cm}p{7.4cm}}
+\toprule
+Date, commit & Change & Result \\
+\midrule
+2026-07-29 \texttt{e1b6660} & Phase-exact Earth stepping & Step-count independent to $4.5\times10^{-9}$ (Sec.~\ref{sec:earth}) \\
+2026-07-29 \texttt{0d6392c} & Solver split into modules & Identical at inband, strong, cosmoX2; below at the $7\times10^{-12}$ floor \\
+2026-07-29 \texttt{95fef9f} & Earth steps $100\to25$ & below $1.0\times10^{-9}$ / $1.2\times10^{-10}$; inband $2.1\times10^{-11}$ / $2.3\times10^{-12}$; strong $6.2\times10^{-12}$ / $8.3\times10^{-13}$; cosmoX2 ratios $2.9\times10^{-3}$, dips unchanged \\
+2026-10-12 \texttt{5ecf10e} & Relic temperature corrected & A physics change; effects in Appendix~\ref{app:tnu} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%==============================================================================
+\section{Statistical analysis: current state}
+\label{sec:stats}
+
+\subsection{Likelihood and parameters}
+
+The analysis (\file{FrequentistAnalysis/}) predicts the flavor composition at Earth,
+$f_\alpha = \int \Phi_\alpha\,dE / \int \Phi\,dE$ over $10$~TeV--$30$~PeV, and compares it with
+a projected measurement: an asymmetric Gaussian fitted to the expected 2050 sensitivity of
+IceCube with IceCube-Gen2, KM3NeT, Baikal-GVD, P-ONE and HUNT, centred on full pion decay
+(``case 5'' in \file{core/params_detector_flavor_likelihood.py}). Detector uncertainties enter
+only through the width of that projection. In the shipped configurations
+(\file{config/pion_2050_case_5_fixed_nuisance*.json}) four parameters float, $\mzd$, $\gd$,
+$u_e$ and $u_\mu$; everything else is fixed, including the mixing parameters, the source
+composition, the spectral index and the lightest neutrino mass.
+
+\textit{Limitations we found.}---The flavor fractions are plain integrals of the flux; a
+detector would weight them by its effective area and cross sections, which rise with energy.
+For an $E^{-2.5}$ spectrum the plain integral is dominated by energies near $10$~TeV. The
+event-rate calculation of Sec.~\ref{sec:rates} removes this approximation. The configurations
+also define Gaussian priors for the mixing parameters, which are inactive because those
+parameters are fixed; they would not work if released (Appendix~\ref{app:priors}).
+
+\subsection{Scans and limits}
+
+One-dimensional profiles fix the parameter of interest on a grid and minimize over the others
+with Minuit. Each grid point starts from its neighbor's solution: in a 100-point scan of $\mzd$
+(2026-07-29, 8 processes) these points needed a median of 26 evaluations, against 37 for the
+first point of each segment, which starts from the global fit.
+Repair passes re-minimize points that stand out from their neighbors; on that scan they found
+none. Exclusion planes (\file{FrequentistAnalysis/src/run_limits.py}) fix the pair ($\mzd$, coupling) on a
+$20\times20$ grid and read the limits off the profiled $\Delta\chi^2$ at $2.71$ and $3.84$,
+the two-sided 90\% and 95\% values for one parameter. Scans and planes save each completed
+segment, so an interrupted run resumes; the initial global fit of the profile scans is saved as
+well.
+
+\textit{What we have not shown.}---Nothing yet checks that the intervals have their stated
+coverage. Near the boundaries of the parameter space (couplings at zero, the lightest mass at
+zero) the asymptotic thresholds can fail. For an upper limit on a coupling bounded at zero the
+one-sided values are $1.64$ and $2.71$, so our current limits are probably conservative.
+Section~\ref{sec:soundness} describes the tests.
+
+%==============================================================================
+\section{Planned work}
+\label{sec:plan}
+
+\subsection{Event rates at IceCube}
+\label{sec:rates}
+
+We will compute the event distributions in reconstructed energy for two event classes, from
+public IceCube responses, in a new package (\file{IceCubeRates/}).
+
+\textit{Northern-Hemisphere muons.}---Through-going muon tracks from below the horizon, where
+the Earth removes the atmospheric muon background. The response is IceCube's IceTracks-DR2
+release (2008--2022, doi:10.7910/DVN/MMIIZA), which provides per-season muon-neutrino effective
+areas and smearing tables. For each bin of true energy and declination, a smearing table gives
+the fraction of events in each bin of reconstructed muon energy, angular distance from the true
+direction (point-spread function) and estimated angular error. Its 41 declination bins replace the 3 of the 2018
+release, which matters near the horizon. We fold the flux with the PLEnuM framework
+(github.com/PLEnuM-group/Plenum), which also places detectors at other sites; our adapter
+converts the DR2 tables into PLEnuM's grids.
+
+\textit{Starting events.}---Cascades, starting tracks and double cascades, from IceCube's HESE
+7.5-year release (github.com/icecube/HESE-7-year-data-release). It is the only public
+simulation of individual starting events that resolves all three morphologies. Each simulated
+event carries its flavor (neutrino or antineutrino), its interaction (charged current, neutral
+current or Glashow resonance), its reconstructed deposited energy and its morphology. It also
+carries a weight per unit flux, together with the atmospheric fluxes and self-veto probabilities
+at its energy and direction. We reweight each simulated event by our flux. For IceCube-Gen2 we
+scale these weights by the ratio of the Gen2 and IceCube effective areas published for the
+Gen2 design (doi:10.7910/DVN/XANWAT), per morphology, flavor, energy and zenith angle. Those
+tables carry no energy resolution, so the IceCube response supplies it.
+
+\textit{Earth absorption and direction.}---Both responses already contain absorption in the
+Earth, computed by IceCube with its nominal cross sections. We checked this in the DR2 tables:
+at 1~PeV the effective area for straight up-going neutrinos is 20 times smaller than at the
+horizon, and at 10~PeV 120 times smaller, while at 10~TeV it is nearly uniform. Our solver computes the other effect of the Earth,
+the flavor change caused by the dark-portal potential, which involves no cross section. Because
+collisions remove all flavors nearly equally, the two act as independent factors along each
+path; the Glashow resonance, $\nu_\tau$ regeneration and neutral-current scatterings that
+continue at lower energy break this slightly. Since both factors depend on direction, the solver
+must return the flux per Earth chord, and must add down-going directions, instead of the
+average it returns now.
+
+\subsection{Systematic uncertainties}
+\label{sec:syst}
+
+The fits will vary the following, agreed on 2026-10-12. \textit{Astrophysical flux:} its
+normalization and spectral index. \textit{Source composition:} $f_{e,S}$, with
+$f_{\tau,S}=0$. \textit{Atmospheric fluxes:} the conventional normalization, a tilt of the
+cosmic-ray spectrum and the twelve hadron-production parameters of Barr et al.\ above 30~GeV
+(pion regions G, H, I and kaon regions W, Y, Z, each for both charges). We compute their effects
+with MCEq (SIBYLL-2.3d and the H3a cosmic-ray model), exactly as in the NuFlavorSingleSource
+project. The prompt and atmospheric-muon normalizations and the self-veto vary as well. \textit{Mixing parameters:} all
+six, constrained by the joint $\Delta\chi^2$ of NuFIT~6.1 with atmospheric data, per ordering.
+We use the three-dimensional table over $(\sin^2\theta_{23}, \Delta m^2_{31}, \delta_{\rm CP})$,
+the two-dimensional table over $(\sin^2\theta_{12}, \Delta m^2_{21})$ and the one-dimensional
+table over $\sin^2\theta_{13}$, so that each parameter appears in exactly one table. \textit{Lightest neutrino mass:} free, with a prior on the sum of the masses.
+
+\textit{The prior on the mass sum.}---As in the GeoneutrinoDecay project, our prior is a
+half-Gaussian on the sum, which we derive from the lightest mass and the splittings. It adds
+$(\nusum/\sigma)^2$ to the $\chi^2$, with $\sigma = L/\Phi^{-1}(0.95)$ for a published 95\%
+upper limit $L$. We use $L = 0.055$~eV, from the cosmic microwave background (Planck, ACT and
+SPT-3G) with the baryon acoustic oscillations of DESI DR2 in $\Lambda$CDM, with a prior on
+$\nusum$ that starts at zero (SPT-3G D1, arXiv:2506.20707, Eq.~96). Then $\sigma = 0.0334$~eV.
+The smallest sum allowed in normal ordering, $0.0587$~eV, costs $\Delta\chi^2 = 3.08$; in
+inverted ordering, $0.0995$~eV costs $8.85$. Both orderings are fitted. As a check, this prior
+excludes the two minimal sums at 96.0\% and 99.9\%, against 96.6\% and 99.9\% stated in the
+paper.
+
+\textit{Not varied.}---The cross sections are fixed by the public responses; varying them
+would require generating our own effective areas. The detector-systematic corrections of the
+HESE release (optical efficiency, hole ice, ice anisotropy) are deferred, because they need the
+PHOTOSPLINE package.
+
+\subsection{Statistical soundness}
+\label{sec:soundness}
+
+We will establish that the analysis is sound in the order used in the GeoneutrinoDecay
+project. \textit{Closure.}---Each response must reproduce a published IceCube fit before it
+is used for new physics; the HESE release includes its own power-law fit. \textit{Injection
+and recovery.}---On Asimov data with known dark-portal parameters, and without a signal, the fit
+must recover the truth without bias. \textit{Fits.}---Then the fits with the current
+profile-likelihood procedure. \textit{Coverage.}---We generate pseudo-experiments with
+Poisson-fluctuated counts and fit each exactly like the data, 200 per point (which gives
+$\pm2\%$ on a 10\% rate). The points are the no-signal hypothesis, where we compare the test
+statistic with its asymptotic distribution, and the expected limit and half a decade beyond it.
+We add the parameter boundaries, the region where the mediator mass and the lightest mass trade
+off in setting the resonance energy, and the low-count corners (double cascades,
+highest-energy tracks). The pseudo-experiments change only
+the data, so the solver predictions on the scan grid are computed once and reused.
+\textit{Decision.}---If no point under-covers, we keep the profile likelihood; otherwise we
+construct Feldman--Cousins intervals with PyFC (github.com/mbustama/FeldmanCousins), whose
+likelihood also accounts for the finite size of the HESE simulation.
+
+\textit{The projected flavor analysis.}---It has no counts to fluctuate; its
+pseudo-experiments must shift the centre of the projected measurement by its own width, which
+is an approximation we will state with its results.
+
+\subsection{Computation}
+
+Our heavy runs go to Tycho, the cluster of the Niels Bohr Institute, set up as in the GRBsim and
+NuFlavorSingleSource projects. The repository and a conda environment live on the shared file
+system, and the job scripts read their core count from SLURM. Jobs take 16 cores by default and
+up to 32. Before the first run, the solver must size its process pools from the cores the job was
+given; it now uses the core count of the whole node, so a 16-core job would start 127
+processes. The first job will repeat the benchmark validation of Sec.~\ref{sec:validation}
+against the laptop's results.
+
+%==============================================================================
+\section{Open items}
+\label{sec:open}
+
+\textit{Cosmological neutron density.}---The default $n_{n,0} = 2.5\times10^{-7}$~cm$^{-3}$,
+documented as the neutron density, equals the present baryon density
+($\Omega_b h^2 = 0.02237$ gives $2.53\times10^{-7}$~cm$^{-3}$). Neutrons are bound almost
+entirely in helium-4; with a helium mass fraction $Y_p = 0.245$ they number $Y_p/2 = 0.1225$
+per baryon, i.e., $3.10\times10^{-8}$~cm$^{-3}$. If the potential (T9) is sourced by neutrons
+alone, as the theory notes state, the cosmological potential is 8.1 times too large.
+\note{VERIFY: intended value; awaiting decision, 2026-10-12}
+
+\textit{Milky Way neutron density.}---The Galactic model converts the stellar mass density
+(in $M_\odot$~pc$^{-3}$) with the factor $20.235$, which is half the nucleon density, and
+multiplies the hot-gas density by $0.5$; both take half of the nucleons to be neutrons. That
+fraction suits the Earth but not matter made mostly of hydrogen, where it is
+$\sim0.12$--$0.15$. \note{VERIFY: intended neutron fraction; awaiting decision, 2026-10-12}
+
+\textit{Implementation queue.}---In order: the core-count fix, the Tycho setup and its
+validation job, the per-direction solver output, the muon channel, the starting-event channel
+with the systematic uncertainties, then the statistical tests of Sec.~\ref{sec:soundness}.
+The details are in \file{docs/dev/WORK_PLAN.md}.
+
+%==============================================================================
+\appendix
+\section{Corrections}
+\label{app:corrections}
+
+\subsection{The relic-neutrino temperature (2026-10-12)}
+\label{app:tnu}
+
+The default $\Tnu$ was $1.95\times10^{-4}$~eV, which is $2.26$~K: the value ``$1.95$~K'' had
+been entered as if it were in eV. The correct value is $1.676389\times10^{-4}$~eV, so the
+relic neutrinos were 16\% too hot (commit \texttt{5ecf10e}). We measured the effect on the
+absorption rates directly. Above every resonance, where the relics act as if at rest, the old
+temperature raised the rates by a factor of $1.553$--$1.570$ across the energy range at the
+``below'' point, close to $(1.95/1.676389)^3 = 1.574$. Across a resonant dip it raised the
+energy-integrated absorption by $1.573$, the depth of the dip by $1.35$--$1.38$
+(against $(1.95/1.676389)^2 = 1.353$) and its width by 5--16\%. Over the energies and redshifts
+of the ``inband'' grid, where the shapes of the dips also depend on the temperature, the ratio
+ranged from $1.33$ to $5.4$.
+
+\textit{Effect on the fluxes.}---At the benchmark points the fluxes changed by up to a factor
+of $\sim130$ at individual energies. At ``below'' and ``cosmoX2'', where the flux is strongly
+absorbed across the energy range, the median change was a factor of $\sim30$, because a 57\%
+change of the optical depth $\tau$ changes $e^{-\tau}$ by large factors once $\tau$ exceeds a
+few. Absorption features above the resonances moved down in energy, by $0.195$ decades at
+``below'' and ``cosmoX2'' (the relic-density factor, because the optical depth there scales as
+density over energy) and by $\sim0.15$ decades at ``inband''. The resonant dips stayed at their energies ($\Eres$ does not depend on the
+temperature) but became shallower: the flux at the deepest ``inband'' dip rose by a factor of
+$3.6$, at the deepest ``strong'' dip by 36\%. The energy-averaged flavor fractions moved by at
+most $3.8\times10^{-4}$ (below), $1.8\times10^{-4}$ (inband), $7\times10^{-9}$ (strong) and
+$6.7\times10^{-5}$ (cosmoX2). Therefore, results of the flavor-ratio analysis obtained before the
+correction are almost unchanged, while spectra and event rates change substantially.
+
+\subsection{The mixing-parameter priors (found 2026-10-12, not yet fixed)}
+\label{app:priors}
+
+The Gaussian priors in the \texttt{fallbacks} block of the analysis configurations have never
+been applied, for three reasons. First, the configurations name the shape \texttt{"gaussian"}, while
+the code accepts only \texttt{"gauss"}. Second, the entries \texttt{dcp} and \texttt{dm3l\_sq}
+do not match the parameter names \texttt{d\_cp\_deg} and \texttt{dm31\_sq}. Third, the prior
+centres disagree with the fixed values ($\delta_{\rm CP}$ $212^\circ$ against $132^\circ$,
+$\Delta m^2_{21}$ $7.537\times10^{-5}$ against $7.41\times10^{-5}$~eV$^2$, which is $3.4\sigma$
+of the prior). In addition, the branch for angles in degrees converts a value that is already
+in degrees. The NuFIT~6.1 constraints of Sec.~\ref{sec:syst} will replace these priors.
+
+\subsection{Earlier corrections}
+
+\textit{Thermal kernel (July 2026).}---The midpoint-rule momentum integral erred by 6--9\% at
+on-resonance cells; validation against the previous code could not reveal this, since it
+measures only differences. A dense reference integration did. The semi-analytic kernel
+replaced it, which changed the fluxes at the dips by up to 15\% with flavor ratios within
+$10^{-6}$ and dip energies unchanged (round 7).
+
+\textit{Earth steps (July 2026).}---The left-endpoint stepping scattered the results at the
+$10^{-2}$ level under any change of the step count (Sec.~\ref{sec:earth}); in-band
+energy-averaged flavor ratios carried a $1.7\times10^{-2}$ ambiguity at the analysis settings.
+The phase-exact scheme removed it.
+
+\textit{Coupling cache (July 2026).}---The cache never activated in real scans
+(Sec.~\ref{sec:thermal}); its narrower brackets fixed that without loss of accuracy.
+
+\end{document}
