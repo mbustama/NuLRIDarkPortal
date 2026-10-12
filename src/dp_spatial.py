@@ -1074,8 +1074,18 @@ def average_earth_chords(rho_chords: np.ndarray, earth_costh: np.ndarray, Coef: 
             _zenith_column_cache[key] = hit = (c_fine, node_index, col)
         c_fine, node_index, col = hit
     else:
-        c_fine, node_index = _earth_zenith_fine_grid(earth_costh, detector_depth_km, _ZENITH_FINE_POINTS_YUKAWA)
-        col = _earth_columns(c_fine, detector_depth_km, n_n_amb_eV3, earth_yk)
+        # the Yukawa columns depend on m_eff only through earth_yk = earth_yukawa_table(m_eff):
+        # cached per m_eff, so the antineutrino pass reuses the neutrino pass's columns
+        key = ("yukawa", float(m_eff_eV), float(detector_depth_km), tuple(np.round(earth_costh, 15)),
+               float(n_n_amb_eV3))
+        hit = _zenith_column_cache.get(key)
+        if hit is None:
+            c_fine, node_index = _earth_zenith_fine_grid(earth_costh, detector_depth_km, _ZENITH_FINE_POINTS_YUKAWA)
+            col = _earth_columns(c_fine, detector_depth_km, n_n_amb_eV3, earth_yk)
+            if len(_zenith_column_cache) > 64:
+                _zenith_column_cache.clear()
+            _zenith_column_cache[key] = hit = (c_fine, node_index, col)
+        c_fine, node_index, col = hit
     psi = Coef * col * _KM_IN_EV_INV                       # Psi(c), rad per unit eigenvalue
     span = earth_costh[-1] - earth_costh[0]
     rho_avg = np.zeros(rho_chords.shape[1:], dtype=np.complex128)

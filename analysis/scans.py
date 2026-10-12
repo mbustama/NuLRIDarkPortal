@@ -1,0 +1,351 @@
+"""
+scans.py
+
+The global fit and profile likelihoods: chi^2 minimized over the other free parameters at each
+point of a grid of one parameter (a profile) or of two (a plane), computed in parallel.
+
+Every grid point is a fit with the scanned parameters held. A fit started far from the
+profile's valley can stop in a side minimum, so the points are fitted in chains: each half of a
+grid line, on either side of the global best fit, is cut into contiguous chains that are walked
+outward, and every point starts both from its predecessor's solution and from the global best
+fit. A repair pass then evaluates each point at its neighbours' solutions (one chi^2 each) and
+refits it from them wherever one already beats its own fit or the point sticks out above its
+neighbours; the passes repeat until no point improves. Every completed fit is appended to a JSONL checkpoint, so an
+interrupted scan resumes where it stopped.
+
+Workers are spawned processes (the solver's numba kernels and pools are not fork-safe). Each
+builds the analysis' objective once from the configuration, with its own cache of solver runs.
+With one worker everything runs in this process.
+"""
+import json
+import multiprocessing as mp
+import os
+import time
+from dataclasses import asdict, dataclass, field
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+
+import numpy as np
+
+from .config import AnalysisConfig, from_dict
+from .fitting import FitSettings, fit
+
+REPAIR_TOL = 1e-6          # chi^2 improvement that counts as a repair
+SPIKE_TOL = 0.05           # chi^2 above the neighbours' midpoint that marks a point for refitting
+_W: dict = {}              # per-process state: the configuration and its objective
+
+
+# ----------------------------------------------------------------------------------------
+# Workers
+# ----------------------------------------------------------------------------------------
+def _init_worker(raw: dict, path: str, data_centre):
+    cfg = from_dict(raw, path)
+    _W["cfg"] = cfg
+    _W["objective"] = cfg.objective(data_centre=data_centre)
+
+
+def _record(index, held, r) -> dict:
+    return dict(index=list(index), held=held, values=r.values, chi2=float(r.chi2), nfev=int(r.nfev),
+                seconds=float(r.seconds), message=r.message)
+
+
+def _fit_held(held: dict, starts: Sequence[dict], settings: dict):
+    cfg, obj = _W["cfg"], _W["objective"]
+    pset = cfg.parameter_set().holding(held)
+    return fit(obj, pset, starts=[s for s in starts if s], settings=FitSettings(**settings))
+
+
+def _run_chain(task) -> List[dict]:
+    """Fits the points of one chain in order, each from the global best fit and from its
+    predecessor's solution."""
+    chain, best, settings = task
+    out, prev = [], None
+    for index, held in chain:
+        r = _fit_held(held, [best, prev], settings)
+        out.append(_record(index, held, r))
+        prev = r.values
+    return out
+
+
+def _run_repair(task) -> Optional[dict]:
+    """Refits one point from its neighbours' solutions where they promise better: where one
+    already gives a lower chi^2 at this point, or where the point sticks out above its
+    neighbours (chi^2 above the midpoint of the two neighbours along every axis that has
+    both, by SPIKE_TOL; a valley curving faster than the grid can defeat the first test).
+    Edge points, which lack a neighbour on one side, are refitted from their neighbours once
+    (force). Returns the improved record or None. A point stuck at the bottom of a convex
+    profile, below its neighbours' midpoint, passes every test."""
+    index, held, own_values, own_chi2, candidates, nb_mean, force, settings = task
+    obj = _W["objective"]
+    better, trials = [], []
+    for c in candidates:
+        trial = {**c, **held}
+        x = obj.chi2(trial)
+        trials.append(trial)
+        if x < own_chi2 - REPAIR_TOL:
+            better.append((x, trial))
+    spike = force or (nb_mean is not None and own_chi2 > nb_mean + SPIKE_TOL)
+    if not better and not spike:
+        return None
+    starts = [t for _, t in sorted(better, key=lambda bt: bt[0])] + (trials if spike else []) + [own_values]
+    r = _fit_held(held, starts, settings)
+    if r.chi2 < own_chi2 - REPAIR_TOL:
+        return _record(index, held, r)
+    return None
+
+
+def _run_start(task) -> dict:
+    """One start of the global fit (no polish)."""
+    start, settings = task
+    cfg, obj = _W["cfg"], _W["objective"]
+    r = fit(obj, cfg.parameter_set(), starts=[start], settings=FitSettings(**settings))
+    return dict(values=r.values, chi2=float(r.chi2), nfev=int(r.nfev), seconds=float(r.seconds), start=start)
+
+
+class _Pool:
+    """A spawn pool, or this process when workers == 1."""
+
+    def __init__(self, cfg: AnalysisConfig, data_centre, workers: int):
+        self.workers = max(1, int(workers))
+        self.args = (cfg.raw, cfg.path, data_centre)
+        self.pool = None
+
+    def __enter__(self):
+        if self.workers == 1:
+            _init_worker(*self.args)
+        else:
+            ctx = mp.get_context("spawn")
+            self.pool = ctx.Pool(self.workers, initializer=_init_worker, initargs=self.args)
+        return self
+
+    def __exit__(self, *exc):
+        if self.pool is not None:
+            self.pool.close()
+            self.pool.join()
+
+    def imap(self, f, tasks: Iterable):
+        if self.pool is None:
+            return map(f, tasks)
+        return self.pool.imap_unordered(f, tasks)
+
+
+# ----------------------------------------------------------------------------------------
+# Checkpoints
+# ----------------------------------------------------------------------------------------
+def _read_jsonl(path: str) -> List[dict]:
+    if not os.path.exists(path):
+        return []
+    out = []
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                try:
+                    out.append(json.loads(line))
+                except json.JSONDecodeError:
+                    pass                      # a line cut by an interruption
+    return out
+
+
+def _append_jsonl(path: str, records: Iterable[dict]):
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "a") as f:
+        for r in records:
+            f.write(json.dumps(r) + "\n")
+        f.flush()
+        os.fsync(f.fileno())
+
+
+def _best_by_index(records: Iterable[dict]) -> Dict[tuple, dict]:
+    best = {}
+    for r in records:
+        if "chi2" not in r:
+            continue                          # a marker, e.g. an edge point already checked
+        k = tuple(r["index"])
+        if k not in best or r["chi2"] < best[k]["chi2"]:
+            best[k] = r
+    return best
+
+
+# ----------------------------------------------------------------------------------------
+# Global fit
+# ----------------------------------------------------------------------------------------
+def global_fit(cfg: AnalysisConfig, data_centre=None, workers: int = 1, checkpoint: Optional[str] = None,
+               log=print) -> dict:
+    """The best fit over all free parameters: L-BFGS-B from the configured starts and
+    cfg.fit.n_random random starts inside the bounds (seeded), in parallel, then a Powell
+    polish of the best. Returns {"values", "chi2", "nfev", "seconds", "starts": [...]}."""
+    t0 = time.perf_counter()
+    pset = cfg.parameter_set()
+    rng = np.random.default_rng(cfg.fit.seed)
+    lo, hi = pset.bounds_internal()
+    starts = [pset.start_values()]
+    starts += [pset.as_values(lo + (hi - lo) * rng.random(len(lo))) for _ in range(cfg.fit.n_random)]
+    done = _read_jsonl(checkpoint) if checkpoint else []
+    done_starts = {json.dumps(r["start"], sort_keys=True) for r in done if "start" in r}
+    todo = [s for s in starts if json.dumps(s, sort_keys=True) not in done_starts]
+    settings = {**asdict(cfg.fit), "polish": False, "n_random": 0}
+    results = [r for r in done if "start" in r]
+    with _Pool(cfg, data_centre, min(workers, max(1, len(todo)))) as pool:
+        for r in pool.imap(_run_start, [(s, settings) for s in todo]):
+            results.append(r)
+            if checkpoint:
+                _append_jsonl(checkpoint, [r])
+            log(f"  start {len(results)}/{len(starts)}: chi2 = {r['chi2']:.6g} ({r['nfev']} evaluations)")
+        best = min(results, key=lambda r: r["chi2"])
+        polish_settings = {**asdict(cfg.fit), "n_random": 0}
+        polished = list(pool.imap(_run_start, [(best["values"], polish_settings)]))[0]
+    final = polished if polished["chi2"] <= best["chi2"] else best
+    out = dict(values=final["values"], chi2=final["chi2"],
+               nfev=int(sum(r["nfev"] for r in results) + polished["nfev"]),
+               seconds=time.perf_counter() - t0, starts=[dict(chi2=r["chi2"], values=r["values"]) for r in results])
+    if checkpoint:
+        _append_jsonl(checkpoint, [dict(final=True, values=out["values"], chi2=out["chi2"])])
+    return out
+
+
+# ----------------------------------------------------------------------------------------
+# Profiles and planes
+# ----------------------------------------------------------------------------------------
+@dataclass
+class ScanResult:
+    """Fits on a grid: kind '1d' or '2d', the scanned names and grids, and per point (in
+    C order over the grid) the held values, the fitted values and chi^2."""
+    kind: str
+    names: List[str]
+    grids: List[List[float]]
+    points: List[dict] = field(default_factory=list)
+    nfev: int = 0
+    seconds: float = 0.0
+    passes: int = 0
+
+    def chi2_array(self) -> np.ndarray:
+        shape = tuple(len(g) for g in self.grids)
+        a = np.full(shape, np.inf)
+        for p in self.points:
+            a[tuple(p["index"])] = p["chi2"]
+        return a
+
+    def as_dict(self) -> dict:
+        return asdict(self)
+
+
+def _chains_1d(grid: np.ndarray, centre: float, log: bool, length: int) -> List[List[int]]:
+    u = np.log10(grid) if log else grid
+    c = np.log10(centre) if log else centre
+    i0 = int(np.argmin(np.abs(u - c)))
+    right = list(range(i0, len(grid)))
+    left = list(range(i0 - 1, -1, -1))
+    chains = []
+    for side in (right, left):
+        for k in range(0, len(side), length):
+            chains.append(side[k:k + length])
+    return [c for c in chains if c]
+
+
+def _scan(cfg: AnalysisConfig, names: List[str], grids: List[np.ndarray], best: dict, data_centre,
+          workers: int, checkpoint: Optional[str], max_passes: int, log=print) -> ScanResult:
+    params = [cfg.parameter(n) for n in names]
+    shape = tuple(len(g) for g in grids)
+    indices = list(np.ndindex(*shape))
+
+    def held_of(index):
+        return {n: float(g[i]) for n, g, i in zip(names, grids, index)}
+
+    # chains along the first axis, for each value of the others: about two per worker
+    n_points = len(indices)
+    rows = int(np.prod(shape[1:]))
+    per_row = max(2, int(np.ceil(2 * workers / rows)))
+    length = max(1, int(np.ceil(shape[0] / per_row)))
+    chains = []
+    for rest in np.ndindex(*shape[1:]):
+        for c in _chains_1d(grids[0], best[names[0]], params[0].space == "log10", length):
+            chains.append([(i,) + tuple(rest) for i in c])
+    t0 = time.perf_counter()
+    records = _read_jsonl(checkpoint) if checkpoint else []
+    done = _best_by_index(records)
+    edge_checked = {tuple(r["index"]) for r in records if r.get("edge_checked")}
+    settings = {**asdict(cfg.fit), "n_random": 0}
+    result = ScanResult("1d" if len(names) == 1 else "2d", list(names), [list(map(float, g)) for g in grids])
+    best_start = {k: v for k, v in best.items()}
+    todo = []
+    for ch in chains:
+        rest = [ix for ix in ch if ix not in done]
+        if rest:
+            todo.append(([(ix, held_of(ix)) for ix in rest], best_start, settings))
+    with _Pool(cfg, data_centre, min(workers, max(1, len(todo)))) as pool:
+        n_done = len(done)
+        for recs in pool.imap(_run_chain, todo):
+            for r in recs:
+                r["pass"] = 0
+                done[tuple(r["index"])] = r
+                result.nfev += r["nfev"]
+            if checkpoint:
+                _append_jsonl(checkpoint, recs)
+            n_done += len(recs)
+            log(f"  {n_done}/{n_points} points")
+        # repair passes: cross-seed from the neighbours' solutions; after the first pass,
+        # only around the points that changed
+        def neighbours(ix):
+            out = []
+            for ax in range(len(shape)):
+                for step in (-1, 1):
+                    nb = list(ix)
+                    nb[ax] += step
+                    if 0 <= nb[ax] < shape[ax]:
+                        out.append(tuple(nb))
+            return out
+
+        changed = set(indices)
+        for k in range(1, max_passes + 1):
+            tasks = []
+            for ix in indices:
+                nbs = neighbours(ix)
+                if ix not in changed and not any(nb in changed for nb in nbs):
+                    continue
+                own = done[ix]
+                cands = [done[nb]["values"] for nb in nbs if nb in done]
+                # the profile interpolated between the two neighbours along each axis that has them
+                mids = []
+                for ax in range(len(shape)):
+                    pair = [tuple(ix[:ax]) + (ix[ax] + st,) + tuple(ix[ax + 1:]) for st in (-1, 1)]
+                    if all(p in done and np.isfinite(done[p]["chi2"]) for p in pair):
+                        mids.append(0.5 * (done[pair[0]]["chi2"] + done[pair[1]]["chi2"]))
+                nb_mid = max(mids) if mids else None
+                edge = k == 1 and len(mids) < len(shape) and ix not in edge_checked   # once, from the neighbours
+                tasks.append((ix, held_of(ix), own["values"], own["chi2"], cands, nb_mid, edge, settings))
+            improved = []
+            for r in pool.imap(_run_repair, tasks):
+                if r is not None:
+                    r["pass"] = k
+                    improved.append(r)
+                    done[tuple(r["index"])] = r
+                    result.nfev += r["nfev"]
+            markers = [dict(index=list(t[0]), edge_checked=True) for t in tasks if t[6]]
+            if checkpoint and (improved or markers):
+                _append_jsonl(checkpoint, improved + markers)
+            edge_checked |= {tuple(m["index"]) for m in markers}
+            result.passes = k
+            log(f"  repair pass {k}: {len(improved)} of {len(tasks)} points improved")
+            changed = {tuple(r["index"]) for r in improved}
+            if not improved:
+                break
+    result.points = [done[ix] for ix in indices]
+    result.seconds = time.perf_counter() - t0
+    return result
+
+
+def profile(cfg: AnalysisConfig, name: str, grid: np.ndarray, best: dict, data_centre=None,
+            workers: int = 1, checkpoint: Optional[str] = None, max_passes: int = 3, log=print) -> ScanResult:
+    """The profile of chi^2 in one parameter over grid (physical values), starting from the
+    global best fit's values `best`."""
+    return _scan(cfg, [name], [np.asarray(grid, dtype=float)], best, data_centre, workers, checkpoint,
+                 max_passes, log)
+
+
+def plane(cfg: AnalysisConfig, x: str, y: str, x_grid: np.ndarray, y_grid: np.ndarray, best: dict,
+          data_centre=None, workers: int = 1, checkpoint: Optional[str] = None, max_passes: int = 3,
+          log=print) -> ScanResult:
+    """The profile of chi^2 in two parameters over the grid x_grid x y_grid (index order
+    [i_x, i_y])."""
+    return _scan(cfg, [x, y], [np.asarray(x_grid, dtype=float), np.asarray(y_grid, dtype=float)], best,
+                 data_centre, workers, checkpoint, max_passes, log)
