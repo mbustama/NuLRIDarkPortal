@@ -51,8 +51,9 @@ the Earth; it is validated at four benchmark parameter points and runs in $0.32$
 production defaults. The statistical analysis fits the predicted flavor composition to a
 projected 2050 measurement; it carries no explicit systematic uncertainties yet. The next
 stage, agreed on 2026-10-12, adds IceCube event rates, systematic uncertainties and coverage
-tests (Sec.~\ref{sec:plan}). Two physics inputs, the cosmological and Milky Way neutron
-densities, await a decision (Sec.~\ref{sec:open}).
+tests (Sec.~\ref{sec:plan}). We corrected two physics inputs on 2026-10-12, the relic-neutrino
+temperature and the cosmological and Galactic neutron densities (Appendix~\ref{app:corrections});
+the neutron numbers of the Sun, the Moon and the Earth await a decision (Sec.~\ref{sec:open}).
 \end{minipage}}
 \end{center}
 
@@ -79,7 +80,7 @@ Earth transit & Phase-exact stepping with a step-count certificate; 25 steps & \
 Flavor-ratio analysis & Profile scans and exclusion planes run; no explicit systematics & \ref{sec:stats} \\
 IceCube event rates & Planned; data sets and folding method chosen & \ref{sec:rates} \\
 Systematics and coverage & Planned; list and procedure agreed & \ref{sec:syst}, \ref{sec:soundness} \\
-Neutron densities & Cosmological and Milky Way values in question & \ref{sec:open} \\
+Neutron densities & Cosmological and Galactic values corrected; Sun, Moon, Earth in question & \ref{sec:inputs}, \ref{sec:open} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -131,7 +132,7 @@ $f_{e,S}, f_{\mu,S}, f_{\tau,S}$ & Source flavor composition & $1/3, 2/3, 0$ & \
 $z_{\max}$ & Largest source redshift & $4$ & \texttt{source.z\_max} \\
 $m_{\rm lightest}$ & Lightest neutrino mass & $0.01$ & \texttt{cosmology.m\_lightest\_eV} \\
 $\Tnu$ & Relic-neutrino temperature today & $1.676389\times10^{-4}$ & \texttt{cosmology.T\_nu0\_eV} \\
-$n_{n,0}$ & Cosmological neutron density & $2.5\times10^{-7}$~cm$^{-3}$ & \texttt{cosmology.n\_n0\_cm3} \\
+$n_{n,0}$ & Cosmological neutron density & $3.091\times10^{-8}$~cm$^{-3}$ & \texttt{cosmology.n\_n0\_cm3} \\
 $\theta_{12}, \theta_{13}, \theta_{23}$ & Mixing angles & $33.41^\circ, 8.58^\circ, 49.1^\circ$ & \texttt{standard\_mixing.th*\_deg} \\
 $\delta_{\rm CP}$ & Dirac phase & $132^\circ$ & \texttt{standard\_mixing.d\_cp\_deg} \\
 $\Delta m^2_{21}, \Delta m^2_{31}$ & Mass splittings [eV$^2$] & $7.41\times10^{-5}, 2.511\times10^{-3}$ & \texttt{standard\_mixing.dm*\_sq} \\
@@ -204,9 +205,13 @@ $T_{\rm CMB}=2.7255$~K. Until 2026-10-12 the code used $1.95\times10^{-4}$~eV
 (Appendix~\ref{app:tnu}).
 
 \textit{Neutron densities.}---The dark-portal potential is proportional to the neutron number
-density along the path. In the Earth the code takes half of the nucleons to be neutrons
-(density $\times\,3.011\times10^{23}$~g$^{-1}$), which suits rock. The cosmological and Milky
-Way densities are discussed in Sec.~\ref{sec:open}.
+density along the path, because the $Z$-like couplings of protons and electrons cancel in neutral
+matter. Cosmologically, the neutrons sit almost entirely in helium-4, $Y_p/2$ per baryon, so
+$n_{n,0} = n_b Y_p/2 = 3.091\times10^{-8}$~cm$^{-3}$ for $n_b = 2.515\times10^{-7}$~cm$^{-3}$
+(PDG 2024) and $Y_p = 0.2458$ (LBT $Y_p$ project, 2026). In the Galaxy we convert the stellar mass
+density at $0.20$ neutrons per nucleon and the electron density of the hot halo at $0.15$ neutrons
+per electron (Appendix~\ref{app:neutrons}). In the Earth the code takes half of the nucleons to be
+neutrons (density $\times\,3.011\times10^{23}$~g$^{-1}$), which suits rock.
 
 %==============================================================================
 \section{Numerical method}
@@ -368,6 +373,7 @@ Date, commit & Change & Result \\
 2026-07-29 \texttt{0d6392c} & Solver split into modules & Identical at inband, strong, cosmoX2; below at the $7\times10^{-12}$ floor \\
 2026-07-29 \texttt{95fef9f} & Earth steps $100\to25$ & below $1.0\times10^{-9}$ / $1.2\times10^{-10}$; inband $2.1\times10^{-11}$ / $2.3\times10^{-12}$; strong $6.2\times10^{-12}$ / $8.3\times10^{-13}$; cosmoX2 ratios $2.9\times10^{-3}$, dips unchanged \\
 2026-10-12 \texttt{5ecf10e} & Relic temperature corrected & A physics change; effects in Appendix~\ref{app:tnu} \\
+2026-10-12 (this revision) & Cosmological and Galactic neutron densities & No change at the four points beyond their floors; effects at light mediators in Appendix~\ref{app:neutrons} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -525,19 +531,18 @@ against the laptop's results.
 \section{Open items}
 \label{sec:open}
 
-\textit{Cosmological neutron density.}---The default $n_{n,0} = 2.5\times10^{-7}$~cm$^{-3}$,
-documented as the neutron density, equals the present baryon density
-($\Omega_b h^2 = 0.02237$ gives $2.53\times10^{-7}$~cm$^{-3}$). Neutrons are bound almost
-entirely in helium-4; with a helium mass fraction $Y_p = 0.245$ they number $Y_p/2 = 0.1225$
-per baryon, i.e., $3.10\times10^{-8}$~cm$^{-3}$. If the potential (T9) is sourced by neutrons
-alone, as the theory notes state, the cosmological potential is 8.1 times too large.
-\note{VERIFY: intended value; awaiting decision, 2026-10-12}
+\textit{Neutron numbers of the Sun, the Moon and the Earth.}---These bodies enter as point
+sources of the potential, which matters only for light mediators. Per nucleon, the code uses
+$0.248$ neutrons for the Sun, whose present bulk composition ($Y \approx 0.307$, $Z = 0.0142$)
+gives $0.161$, a factor of $1.55$ too high; $0.248$ for the Moon, whose silicate rock gives
+$0.504$, a factor of $2$ too low; and $0.496$ for the Earth, against $0.514$ when the iron core
+is included. Along Earth chords the code uses $0.500$, against $0.504$ in the mantle and $0.534$
+in the core. \note{VERIFY: awaiting decision, 2026-10-12}
 
-\textit{Milky Way neutron density.}---The Galactic model converts the stellar mass density
-(in $M_\odot$~pc$^{-3}$) with the factor $20.235$, which is half the nucleon density, and
-multiplies the hot-gas density by $0.5$; both take half of the nucleons to be neutrons. That
-fraction suits the Earth but not matter made mostly of hydrogen, where it is
-$\sim0.12$--$0.15$. \note{VERIFY: intended neutron fraction; awaiting decision, 2026-10-12}
+\textit{Cold disc gas.}---The Galactic model has no cold disc gas, although locally it amounts
+to $13.7\,M_\odot$~pc$^{-2}$ against $33.4\,M_\odot$~pc$^{-2}$ in stars and remnants
+(McKee, Parravano and Hollenbach 2015). At $\sim0.14$ neutrons per nucleon it would raise the
+local neutron density by roughly a quarter.
 
 \textit{Implementation queue.}---In order: the core-count fix, the Tycho setup and its
 validation job, the per-direction solver output, the muon channel, the starting-event channel
@@ -575,6 +580,43 @@ $3.6$, at the deepest ``strong'' dip by 36\%. The energy-averaged flavor fractio
 most $3.8\times10^{-4}$ (below), $1.8\times10^{-4}$ (inband), $7\times10^{-9}$ (strong) and
 $6.7\times10^{-5}$ (cosmoX2). Therefore, results of the flavor-ratio analysis obtained before the
 correction are almost unchanged, while spectra and event rates change substantially.
+
+\subsection{The cosmological and Galactic neutron densities (2026-10-12)}
+\label{app:neutrons}
+
+\textit{Cosmological.}---The default $n_{n,0}$ was $2.5\times10^{-7}$~cm$^{-3}$, documented as the
+neutron density but equal to the total baryon density ($2.515\times10^{-7}$~cm$^{-3}$, PDG 2024).
+The potential (T9) is sourced by neutrons alone: the vector couplings of the $Z$ to protons
+($\tfrac12 - 2\sin^2\theta_W$) and to electrons ($-\tfrac12 + 2\sin^2\theta_W$) cancel in neutral
+matter. The mediator $Z_D$ inherits them through the mass mixing. Neutrons sit almost entirely in
+helium-4, which holds a fraction $Y_p = 0.2458 \pm 0.0013$ of the baryons (LBT $Y_p$ project,
+2026), half of them neutrons; deuterium adds $\sim2\times10^{-5}$ per baryon. Therefore,
+$n_{n,0} = n_b Y_p/2 = 3.091\times10^{-8}$~cm$^{-3}$, and the cosmological potential was $8.1$
+times too strong.
+
+\textit{Galactic.}---The Galactic model converted the stellar mass density at half a neutron per
+nucleon (the factor $20.235 = 0.5\times40.464$ nucleons~cm$^{-3}$ per $M_\odot$~pc$^{-3}$) and
+the hot-halo density of Miller and Bregman (2013), which is an electron density, at $0.5$
+neutrons per electron. We now use $0.20$ neutrons per nucleon for stars. Locally, stars and
+remnants amount to $33.4\,M_\odot$~pc$^{-2}$, of which 81\% are visible stars, 15\% white dwarfs and
+4\% brown dwarfs (McKee, Parravano and Hollenbach 2015). With $(Y+Z)/2 = 0.146$ for disc stars
+($Y\approx0.275$, $Z\approx0.017$), $0.5$ for carbon--oxygen white dwarfs and $0.142$ for brown
+dwarfs, the weighted fraction is $0.20$. For the hot gas ($Y \approx 0.26$, $Z \approx 0.3\,Z_\odot$,
+fully ionized) we use $(Y+Z)/2$ neutrons per $1-(Y+Z)/2$ electrons, i.e., $0.15$. The Galactic
+potential was thus $2.5$ times (stars) and $3.3$ times (gas) too strong.
+
+\textit{Effect.}---At the four benchmark points neither change alters the results beyond their
+floors: ``below'', ``inband'' and ``strong'' agree to $\le4\times10^{-11}$ in flux and
+$\le10^{-13}$ in flavor fractions; ``cosmoX2'' moves by $1.4\times10^{-3}$ pointwise and
+$1.0\times10^{-4}$ in the energy-averaged fractions, its known sensitivity to the last digit.
+At mediator masses of order MeV the coherent potentials are $\sim10^{-22}$ of the vacuum term, so
+only the resonant absorption acts. The corrections matter for light mediators, where the
+potential grows as $1/\mzd^2$; we compared the old and new code at three such masses, with the
+default couplings. At $\mzd = 10^{-2}$~eV the total flux changes by up to 32\%, the flavor
+fractions at single energies by up to $0.074$ and the energy-averaged fractions by up to
+$0.013$ ($f_\tau$: $0.315\to0.328$). At $10^{-5}$~eV the changes are 69\%, $0.144$ and $0.004$.
+At $10^{-8}$~eV, where the potential is so large that the flavor evolution is fully averaged,
+they are 3\%, $0.008$ and $10^{-4}$.
 
 \subsection{The mixing-parameter priors (found 2026-10-12, not yet fixed)}
 \label{app:priors}

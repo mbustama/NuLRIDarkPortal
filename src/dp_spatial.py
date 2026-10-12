@@ -22,9 +22,30 @@ from dp_thermal import _GL10_X, _GL10_W
 # SPATIAL HANDOVER HELPER FUNCTIONS
 # =============================================================================
 
+# Neutrons per nucleon of the Galaxy's stellar mass, and per electron of its hot gas.
+# Stars: McKee, Parravano & Hollenbach (2015, arXiv:1509.05334) put the local stars and
+# remnants at 33.4 Msun/pc^2 -- 81% visible stars, 15% white dwarfs, 4% brown dwarfs. With
+# neutrons per nucleon (Y + Z)/2 = 0.146 for disc stars (Y ~ 0.275, Z ~ 0.017), 0.5 for
+# carbon/oxygen white dwarfs and 0.142 for brown dwarfs, the mass-weighted fraction is 0.20.
+# Hot gas: the Miller & Bregman (2013) profile is an ELECTRON density; fully ionized gas with
+# Y ~ 0.26 and Z ~ 0.3 Zsun has (Y + Z)/2 / (1 - (Y + Z)/2) = 0.15 neutrons per electron.
+# Until 2026-10-12 both were 0.5 (half of all nucleons as neutrons, right for rock but not
+# for hydrogen-dominated matter), which made the Galactic potential ~2.5x (stars) and ~3.3x
+# (gas) too strong.
+_MW_NEUTRONS_PER_NUCLEON_STARS = 0.20
+_MW_NEUTRONS_PER_ELECTRON_GAS = 0.15
+# Nucleons per cm^3 in 1 Msun/pc^3: 1.98847e33 g / (3.08568e18 cm)^3 / m_p = 40.464.
+_NUCLEONS_PER_CM3_PER_MSUN_PC3 = 40.464
+
+
 @njit("float64(float64, float64, float64)", fastmath=True, cache=True)
 def calc_MW_neutron_density(r_kpc: float, theta: float, phi: float) -> float:
-    """Calculates the Milky Way neutron number density at a given location."""
+    """Calculates the Milky Way neutron number density (cm^-3) at a given location.
+
+    Arguments: r_kpc, theta, phi -- position relative to the Sun (kpc, rad, rad). The
+    stellar bulge and discs (McMillan) are mass densities in Msun/pc^3, converted to
+    neutrons with _MW_NEUTRONS_PER_NUCLEON_STARS; the hot-gas halo (Miller & Bregman 2013)
+    is an electron density, converted with _MW_NEUTRONS_PER_ELECTRON_GAS (see above)."""
     R_0 = 8.33
     sth = np.sin(theta)
     # The law-of-cosines argument is mathematically >= 0, but evaluating it as a
@@ -43,9 +64,11 @@ def calc_MW_neutron_density(r_kpc: float, theta: float, phi: float) -> float:
     rho_bulge = (94.1 / (1.0 + rp / 0.075)**1.8) * np.exp(-(rp / 2.1)**2)
     rho_thin = (753.0 / 600.0) * np.exp(-np.abs(z_gal) / 0.3 - np.abs(R_gal) / 3.0)
     rho_thick = (182.0 / 1800.0) * np.exp(-np.abs(z_gal) / 0.9 - np.abs(R_gal) / 3.5)
-    n_gas = 0.5 * 0.46 * (1.0 + (r_gal / 0.35)**2)**(-1.065) 
-    
-    n_n_MW = (rho_bulge + rho_thin + rho_thick) * 20.235 + n_gas
+    n_e_gas = 0.46 * (1.0 + (r_gal / 0.35)**2)**(-1.065)    # Miller & Bregman 2013, cm^-3
+
+    n_n_MW = ((rho_bulge + rho_thin + rho_thick) * _NUCLEONS_PER_CM3_PER_MSUN_PC3
+              * _MW_NEUTRONS_PER_NUCLEON_STARS
+              + n_e_gas * _MW_NEUTRONS_PER_ELECTRON_GAS)
     return n_n_MW
 
 @njit("float64(float64)", fastmath=True, cache=True)

@@ -2148,6 +2148,45 @@ def test_default_relic_neutrino_temperature_is_physical():
         assert abs(T_cfg / T_expected - 1.0) < 1e-5, f"{name} carries T_nu0_eV = {T_cfg}"
 
 
+def test_default_cosmological_neutron_density_is_physical():
+    """The cosmological dark-portal potential is sourced by neutrons only, which sit almost
+    entirely in helium-4: n_n0 = n_b * Y_p / 2. Until 2026-10-12 the default was the total
+    baryon density (0.25e-6 cm^-3), 8.1x too large. Pins the default and the three analysis
+    configurations, each of which carries its own copy."""
+    n_b, Y_p = 2.515e-7, 0.2458             # PDG 2024 (CMB); LBT Y_p project (2026)
+    expected = n_b * Y_p / 2.0
+    assert abs(dps.DEFAULT_CONFIG["cosmology"]["n_n0_cm3"] / expected - 1.0) < 1e-3
+
+    cfg_dir = os.path.join(_FREQ_DIR, "config")
+    for name in ("pion_2050_case_5_fixed_nuisance.json", "pion_2050_case_5_fixed_nuisance_mZD.json",
+                 os.path.join("tests", "dark_portal_frequentist_config.json")):
+        with open(os.path.join(cfg_dir, name)) as f:
+            n_cfg = json.load(f)["physics_constants"]["n_n0_cm3"]
+        assert abs(n_cfg / expected - 1.0) < 1e-3, f"{name} carries n_n0_cm3 = {n_cfg}"
+
+
+def test_milky_way_neutron_fractions():
+    """The Galactic model must convert stellar mass at 0.20 neutrons per nucleon and the hot
+    halo's electron density at 0.15 neutrons per electron (not the 0.5 of rock used until
+    2026-10-12). Checked at the Sun's position against the model's own components."""
+    import dp_spatial
+    assert dp_spatial._MW_NEUTRONS_PER_NUCLEON_STARS == 0.20
+    assert dp_spatial._MW_NEUTRONS_PER_ELECTRON_GAS == 0.15
+    # Msun/pc^3 -> nucleons/cm^3
+    msun_g, pc_cm, m_p_g = 1.98847e33, 3.08568e18, 1.67262e-24
+    assert abs(dp_spatial._NUCLEONS_PER_CM3_PER_MSUN_PC3 / (msun_g / pc_cm**3 / m_p_g) - 1.0) < 1e-4
+
+    # At the Sun (r = 0): R_gal = R_0 = 8.33 kpc, z = 0.
+    R0 = 8.33
+    rho_bulge = (94.1 / (1.0 + R0 / 0.075)**1.8) * np.exp(-(R0 / 2.1)**2)
+    rho_thin = (753.0 / 600.0) * np.exp(-R0 / 3.0)
+    rho_thick = (182.0 / 1800.0) * np.exp(-R0 / 3.5)
+    n_e_gas = 0.46 * (1.0 + (R0 / 0.35)**2)**(-1.065)
+    expected = (rho_bulge + rho_thin + rho_thick) * 40.464 * 0.20 + n_e_gas * 0.15
+    got = dp_spatial.calc_MW_neutron_density(0.0, 0.0, 0.0)
+    assert abs(got / expected - 1.0) < 1e-6, (got, expected)
+
+
 def test_resonant_absorption_scales_with_relic_temperature():
     """The absorption lives in the resonant dip, and the relic density there comes from the
     kernel's Fermi-Dirac integral, so the ENERGY-INTEGRATED dip scales as T^3 while the

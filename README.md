@@ -110,7 +110,7 @@ $$F_{n+1} = F_n e^{-\Gamma \Delta t} + \frac{\text{Total Source}}{\Gamma} \left(
 ### 3.2 Spatial Handover (Local Universe Transit)
 To accurately capture the potentials of gravitationally bound local structures, the solver executes a two-phase integration. Once the cosmological baseline flux arrives at $z=0$, the resulting density matrix is passed into a pure spatial ODE solver utilizing flat-space path-length steps $dr$.
 
-* **The Milky Way (Extended Source):** The local neutron density is evaluated using McMillan (2011) multi-component models (bulge, thin disc, thick disc) and the Miller & Bregman (2013) hot gas halo profile.
+* **The Milky Way (Extended Source):** The local neutron density is evaluated using McMillan (2011) multi-component models (bulge, thin disc, thick disc) and the Miller & Bregman (2013) hot gas halo profile. Stellar mass is converted at 0.20 neutrons per nucleon (visible stars, white dwarfs and brown dwarfs in the local proportions of McKee, Parravano & Hollenbach 2015) and the halo's electron density at 0.15 neutrons per electron; until 2026-10-12 both used 0.5, appropriate for rock but not for hydrogen-dominated matter. Cold disc gas is not included.
 * **Milky Way Solid-Angle Averaging:** The solver computes an ensemble average over `n_mw_paths` trajectories. For arbitrary path counts it generates a **Fibonacci Spherical Lattice** (Golden Spiral) guaranteeing isotropic solid-angle coverage.
 * **The Sun & Moon (Point Sources):** Exponentially decaying Yukawa potential envelopes $\propto e^{-m_{eff}r}/r$ tied to their precise nucleon counts.
 * **The Earth (PREM & MSW Effect):** The final transit solves the density matrix through the 10-layer polynomials of the Preliminary Reference Earth Model (PREM), averaged over `n_earth_chords` evenly-spaced chords from core-crossing to grazing, resolved at a parameterized detector depth (`detector_depth_km`).
@@ -230,7 +230,7 @@ The scanner's spatial-averaging defaults follow the convergence study (Section 1
 * `--Omega_m` (float): Cosmological matter density parameter (Default: `0.315`).
 * `--Omega_L` (float): Cosmological dark energy density parameter (Default: `0.685`).
 * `--T_nu0_eV` (float): Present-day C$\nu$B temperature in eV (Default: `1.676389e-4`, i.e. $(4/11)^{1/3}\,T_{\rm CMB} = 1.9454$ K; until 2026-10-12 the default was `1.95e-4`, "1.95 K" entered as eV, which made the relic neutrinos 16% too hot and the absorption rates ~57% too high).
-* `--n_n0_cm3` (float): Present-day cosmological background neutron density in cm$^{-3}$ (Default: `0.25e-6`).
+* `--n_n0_cm3` (float): Present-day cosmological background neutron density in cm$^{-3}$ (Default: `3.091e-8` = $n_b\,Y_p/2$, the PDG 2024 baryon density $2.515\times10^{-7}$ cm$^{-3}$ times the neutrons per baryon bound in helium-4, $Y_p/2 = 0.1229$; until 2026-10-12 the default was `0.25e-6`, the baryon density itself, which made the cosmological potential 8.1x too strong).
 * `--m_lightest_eV` (float): Mass of the lightest neutrino eigenstate in eV (Default: `0.01`).
 * `--mass_ordering` (str): `"normal"` or `"inverted"` (Default: `"normal"`).
 * `--eta_e`, `--eta_mu`, `--eta_tau` (float): C$\nu$B flavor asymmetry multipliers (Default: `1.0`).

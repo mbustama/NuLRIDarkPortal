@@ -79,7 +79,13 @@ def _build_default_config() -> Dict:
             # thermal kernel's relic density follows from the Fermi-Dirac integral (~T^3),
             # the absorption rates were ~57% too high.
             "T_nu0_eV": 1.676389e-4,
-            "n_n0_cm3": 0.25e-6,
+            # Cosmological NEUTRON density today. Neutrons are bound almost entirely in He-4,
+            # Y_p/2 per baryon: n_b = 2.515e-7 cm^-3 (PDG 2024, CMB) x 0.2458/2 (Y_p, LBT Y_p
+            # project 2026) = 3.091e-8 cm^-3. The value was 0.25e-6 until 2026-10-12 -- the
+            # total BARYON density, which made the cosmological dark-portal potential 8.1x too
+            # strong (it is sourced by neutrons only: Z-like couplings of protons and electrons
+            # cancel in neutral matter).
+            "n_n0_cm3": 3.091e-8,
             "m_lightest_eV": 0.01,
             "mass_ordering": "normal",
             "eta_e": 1.0,

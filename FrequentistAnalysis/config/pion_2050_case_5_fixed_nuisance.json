@@ -8,7 +8,7 @@
         "Omega_m": 0.315,
         "Omega_L": 0.685,
         "T_nu0_eV": 1.676389e-4,
-        "n_n0_cm3": 2.5e-07,
+        "n_n0_cm3": 3.091e-8,
         "m_lightest_eV": 0.01,
         "mass_ordering": "normal",
         "eta_e": 1.0,
