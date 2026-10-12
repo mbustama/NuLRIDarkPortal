@@ -88,6 +88,31 @@ def calc_earth_density(r_km: float) -> float:
     else: return 0.0
 
 
+# Neutrons per gram of Earth matter, by PREM region: (1 - Y_e) nucleons per gram, where Y_e is
+# the electron (= proton) fraction per nucleon -- 0.4656 in the iron-nickel core and 0.4957
+# in the silicate mantle and crust, the values used with PREM in neutrino-oscillation
+# tomography -- and 8/18.015 per molecular mass for the water (ice) of PREM's top layer.
+# Until 2026-10-12 every layer used 0.5 (3.011e23 per gram): the core was 6.9% low, the
+# mantle 0.9% low and the ocean 12.6% high.
+_AVOGADRO = 6.02214076e23                       # nucleons per gram (1/m_u)
+_EARTH_YE_CORE = 0.4656
+_EARTH_YE_MANTLE = 0.4957
+_EARTH_R_CORE_KM = 3480.0
+_EARTH_R_OCEAN_FLOOR_KM = 6368.0
+
+
+@njit("float64(float64)", fastmath=True, cache=True)
+def earth_neutrons_per_gram(r_km: float) -> float:
+    """Neutrons per gram of PREM matter at geocentric radius r_km: core, mantle and crust
+    from their electron fractions, the top layer as water (see the constants above)."""
+    if r_km <= _EARTH_R_CORE_KM:
+        return (1.0 - _EARTH_YE_CORE) * _AVOGADRO
+    elif r_km <= _EARTH_R_OCEAN_FLOOR_KM:
+        return (1.0 - _EARTH_YE_MANTLE) * _AVOGADRO
+    else:
+        return 8.0 / 18.015 * _AVOGADRO
+
+
 @njit("float64(float64, float64)", fastmath=True, cache=True)
 def get_baseline_earth(d_km: float, costh: float) -> float:
     """Calculates the exact baseline distance traversed inside the Earth."""
@@ -134,7 +159,7 @@ def spatial_total_density_earth(l_km: float, baseline_km: float, costh: float,
     r_center_km = np.sqrt(f1**2 + f2**2 + 2.0 * f1 * f2 * costh)
 
     rho_earth_g = calc_earth_density(r_center_km)
-    n_n_earth_cm3 = rho_earth_g * 3.011e23
+    n_n_earth_cm3 = rho_earth_g * earth_neutrons_per_gram(r_center_km)
 
     return n_n_amb_eV3 + n_n_earth_cm3 * cm_inv3_to_eV3
 
@@ -606,7 +631,7 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
     # with the PREM-core density (the worst case along any chord).
     if verbose >= 1:
         s_lri = float(np.max(np.abs(np.linalg.eigvalsh(U_LRI_struct))))
-        n_core_eV3 = 13.0885 * 3.011e23 * cm_inv3_to_eV3
+        n_core_eV3 = 13.0885 * earth_neutrons_per_gram(0.0) * cm_inv3_to_eV3
         dr_core_eV_inv = (get_baseline_earth(detector_depth_km, -1.0) / N_steps_earth) * 1e3 * m_to_eV_inv
         if 2.2e-16 * abs(Coef) * n_core_eV3 * s_lri * dr_core_eV_inv > 0.1:
             safe_print(

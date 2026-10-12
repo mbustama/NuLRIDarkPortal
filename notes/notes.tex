@@ -210,8 +210,9 @@ matter. Cosmologically, the neutrons sit almost entirely in helium-4, $Y_p/2$ pe
 $n_{n,0} = n_b Y_p/2 = 3.091\times10^{-8}$~cm$^{-3}$ for $n_b = 2.515\times10^{-7}$~cm$^{-3}$
 (PDG 2024) and $Y_p = 0.2458$ (LBT $Y_p$ project, 2026). In the Galaxy we convert the stellar mass
 density at $0.20$ neutrons per nucleon and the electron density of the hot halo at $0.15$ neutrons
-per electron (Appendix~\ref{app:neutrons}). In the Earth the code takes half of the nucleons to be
-neutrons (density $\times\,3.011\times10^{23}$~g$^{-1}$), which suits rock.
+per electron (Appendix~\ref{app:neutrons}). In the Earth we use $1-Y_e$ neutrons per nucleon, with electron fractions
+$Y_e = 0.4656$ in the core and $0.4957$ in the mantle and crust, and the composition of water for
+PREM's top layer (Appendix~\ref{app:earthchords}).
 
 %==============================================================================
 \section{Numerical method}
@@ -373,7 +374,8 @@ Date, commit & Change & Result \\
 2026-07-29 \texttt{0d6392c} & Solver split into modules & Identical at inband, strong, cosmoX2; below at the $7\times10^{-12}$ floor \\
 2026-07-29 \texttt{95fef9f} & Earth steps $100\to25$ & below $1.0\times10^{-9}$ / $1.2\times10^{-10}$; inband $2.1\times10^{-11}$ / $2.3\times10^{-12}$; strong $6.2\times10^{-12}$ / $8.3\times10^{-13}$; cosmoX2 ratios $2.9\times10^{-3}$, dips unchanged \\
 2026-10-12 \texttt{5ecf10e} & Relic temperature corrected & A physics change; effects in Appendix~\ref{app:tnu} \\
-2026-10-12 (this revision) & Cosmological and Galactic neutron densities & No change at the four points beyond their floors; effects at light mediators in Appendix~\ref{app:neutrons} \\
+2026-10-12 \texttt{0db8111} & Cosmological and Galactic neutron densities & No change at the four points beyond their floors; effects at light mediators in Appendix~\ref{app:neutrons} \\
+2026-10-12 (this revision) & Neutron fractions along Earth chords & Flavor fractions move by up to $0.026$, as much as adding one chord (Appendix~\ref{app:earthchords}) \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -536,13 +538,24 @@ sources of the potential, which matters only for light mediators. Per nucleon, t
 $0.248$ neutrons for the Sun, whose present bulk composition ($Y \approx 0.307$, $Z = 0.0142$)
 gives $0.161$, a factor of $1.55$ too high; $0.248$ for the Moon, whose silicate rock gives
 $0.504$, a factor of $2$ too low; and $0.496$ for the Earth, against $0.514$ when the iron core
-is included. Along Earth chords the code uses $0.500$, against $0.504$ in the mantle and $0.534$
-in the core. \note{VERIFY: awaiting decision, 2026-10-12}
+is included. \note{VERIFY: awaiting decision, 2026-10-12}
 
 \textit{Cold disc gas.}---The Galactic model has no cold disc gas, although locally it amounts
 to $13.7\,M_\odot$~pc$^{-2}$ against $33.4\,M_\odot$~pc$^{-2}$ in stars and remnants
 (McKee, Parravano and Hollenbach 2015). At $\sim0.14$ neutrons per nucleon it would raise the
 local neutron density by roughly a quarter.
+
+\textit{Earth-chord sampling floor.}---In the Earth the dark-portal potential exceeds the vacuum
+term by $\sim10^9$ at MeV mediator masses, so the phase accumulated along a chord is
+$\sim10^8$~rad. These phases are effectively random from chord to chord, and the residual
+$\nu_e$--$\nu_\mu$ conversion left by a finite chord average is sampling noise. We measured it
+with the code of commit \texttt{0db8111}: adding a thirteenth chord to the default twelve moves the
+energy-averaged flavor fractions by $0.048$ (below), $0.022$ (inband), $0.007$ (strong) and
+$1.6\times10^{-3}$ (cosmoX2). Scaled to the analysis's 50 chords this is $\sim10^{-2}$, which
+exceeds the projected 2050 width of $f_\mu$ ($\approx0.005$). Over a continuum of zenith angles
+the physical answer is the decoherent average, which a finite chord sum only approximates; an
+analytic average over the phases, where they vary by many cycles across a zenith bin, would
+remove this floor. \note{Open, 2026-10-12}
 
 \textit{Implementation queue.}---In order: the core-count fix, the Tycho setup and its
 validation job, the per-direction solver output, the muon channel, the starting-event channel
@@ -617,6 +630,27 @@ fractions at single energies by up to $0.074$ and the energy-averaged fractions 
 $0.013$ ($f_\tau$: $0.315\to0.328$). At $10^{-5}$~eV the changes are 69\%, $0.144$ and $0.004$.
 At $10^{-8}$~eV, where the potential is so large that the flavor evolution is fully averaged,
 they are 3\%, $0.008$ and $10^{-4}$.
+
+\subsection{Neutron fractions along Earth chords (2026-10-12)}
+\label{app:earthchords}
+
+Along Earth chords the code counted half of the nucleons as neutrons in every PREM layer
+($3.011\times10^{23}$~g$^{-1}$). For neutral matter the neutrons per nucleon are $1-Y_e$, where
+$Y_e$ is the electron (equal to proton) fraction. We now use $Y_e = 0.4656$ in the iron--nickel
+core and $0.4957$ in the silicate mantle and crust, the values used with PREM in
+neutrino-oscillation tomography, and the composition of water ($8/18.015$ neutrons per
+molecular mass) for PREM's top layer. The core was thus 6.9\% low, the mantle 0.9\% low and the
+water layer 12.6\% high. The regional boundaries coincide with PREM layer boundaries, so the
+phase-exact Earth steps stay exact (test \file{test_earth_neutrons_per_gram_by_layer}).
+
+\textit{Effect.}---The four benchmark points move: the energy-averaged $\nu_e$ and $\nu_\mu$
+fractions change by $0.025$ (below), $0.026$ (inband), $0.009$ (strong) and $0.032$ (cosmoX2),
+with the $\nu_\tau$ fraction unchanged, and the flux at single energies by up to 21\%. A change of
+a few per cent in the potential shifts the chord phases by $\sim10^6$~rad, which redraws the
+residual conversion left by the 12-chord average. Adding one chord to the old code moves the
+same fractions by comparable amounts (Sec.~\ref{sec:open}). At light mediators the changes are
+smaller: up to $3.8\times10^{-3}$ in the energy-averaged fractions at $\mzd = 10^{-2}$~eV and
+below $10^{-5}$ at $10^{-5}$ and $10^{-8}$~eV.
 
 \subsection{The mixing-parameter priors (found 2026-10-12, not yet fixed)}
 \label{app:priors}

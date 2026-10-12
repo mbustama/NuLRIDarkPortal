@@ -2187,6 +2187,23 @@ def test_milky_way_neutron_fractions():
     assert abs(got / expected - 1.0) < 1e-6, (got, expected)
 
 
+def test_earth_neutrons_per_gram_by_layer():
+    """Along Earth chords the neutron density is rho * (1 - Y_e) * N_A, with Y_e = 0.4656 in the
+    core, 0.4957 in the mantle and crust, and water (8/18.015 per molecular mass) in PREM's top
+    layer; until 2026-10-12 every layer used 0.5. The regional boundaries must coincide with
+    PREM layer boundaries, or the 'avg' Earth scheme's layer-split integration would straddle a
+    discontinuity and lose its exactness."""
+    import dp_spatial
+    NA = 6.02214076e23
+    cases = {1000.0: 1 - 0.4656, 3000.0: 1 - 0.4656, 3480.0: 1 - 0.4656,
+             3480.1: 1 - 0.4957, 5000.0: 1 - 0.4957, 6360.0: 1 - 0.4957, 6368.0: 1 - 0.4957,
+             6370.0: 8.0 / 18.015}
+    for r, f_n in cases.items():
+        assert abs(dp_spatial.earth_neutrons_per_gram(r) / (f_n * NA) - 1.0) < 1e-12, r
+    for boundary in (dp_spatial._EARTH_R_CORE_KM, dp_spatial._EARTH_R_OCEAN_FLOOR_KM):
+        assert boundary in dp_spatial._PREM_BOUNDARIES_KM
+
+
 def test_resonant_absorption_scales_with_relic_temperature():
     """The absorption lives in the resonant dip, and the relic density there comes from the
     kernel's Fermi-Dirac integral, so the ENERGY-INTEGRATED dip scales as T^3 while the
