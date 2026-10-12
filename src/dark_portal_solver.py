@@ -43,7 +43,7 @@ from dp_propagator import propagator_3x3, eigenvectors_3x3  # noqa: F401
 from dp_thermal import (  # noqa: F401
     thermal_averaged_rates_flavor, _seg_moment_atan, _seg_moment_log,
     thermal_averaged_rates_flavor_analytic, precompute_all_thermal_rates_analytic,
-    precompute_all_thermal_rates, _interp_thermal_grid_z, build_thermal_grid,
+    precompute_all_thermal_rates, _interp_thermal_grid_z, build_thermal_grid, absorption_normalization,
     thermal_grid_cached, _tc_cache, _tc_try_fit, compute_gamma_grid_inputs,
     _GL16_X, _GL16_W, _GL10_X, _GL10_W, _FD16,
 )

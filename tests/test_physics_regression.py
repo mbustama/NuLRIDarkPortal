@@ -1006,7 +1006,9 @@ def test_build_thermal_grid_exact_and_interpolated():
     # z-interpolation MECHANICS, independently of the (now default) semi-analytic
     # momentum kernel, whose own routing is covered by
     # test_build_thermal_grid_analytic_switch.
-    exact = dps.precompute_all_thermal_rates(E_bins, z_bins, sum_G, sum_G_alpha, 2.0e6, m_nu, 1.95e-4, eta_mass)
+    # build_thermal_grid returns the raw kernel grid times the physical normalization
+    exact = (dps.precompute_all_thermal_rates(E_bins, z_bins, sum_G, sum_G_alpha, 2.0e6, m_nu, 1.95e-4, eta_mass)
+             * dps.absorption_normalization(sum_G))
     for n_sub in (0, 21, 100):
         got = dps.build_thermal_grid(E_bins, z_bins, sum_G, sum_G_alpha, 2.0e6, m_nu, 1.95e-4, eta_mass, n_z_thermal=n_sub,
                                      thermal_analytic=False)
@@ -1644,8 +1646,8 @@ def test_build_thermal_grid_analytic_switch():
     E_bins = np.logspace(13, np.log10(3e16), 40)
     z_bins = np.linspace(4.0, 0.0, 40)
 
-    ref = dps.precompute_all_thermal_rates(E_bins, z_bins, sum_G, sum_G_alpha, 2e6,
-                                           m_nu, 1.95e-4, eta_mass)
+    ref = (dps.precompute_all_thermal_rates(E_bins, z_bins, sum_G, sum_G_alpha, 2e6,
+                                            m_nu, 1.95e-4, eta_mass) * dps.absorption_normalization(sum_G))
     off = dps.build_thermal_grid(E_bins, z_bins, sum_G, sum_G_alpha, 2e6, m_nu, 1.95e-4,
                                  eta_mass, thermal_analytic=False)
     np.testing.assert_array_equal(off, ref)
@@ -2734,3 +2736,81 @@ def test_core_count_respects_slurm_allocation_and_affinity(monkeypatch):
     assert dp_core.available_cores() == n_aff == dp_core.default_n_cores()
     monkeypatch.setenv("SLURM_CPUS_PER_TASK", "not-a-number")
     assert dp_core.available_cores() == n_aff
+
+
+# =============================================================================
+# Normalization of the resonant absorption (2026-10-12)
+# =============================================================================
+
+def _rate_inputs(u, g_D, eps=0.1):
+    U = dps.construct_PMNS(np.radians(33.41), np.radians(8.58), np.radians(49.1), np.radians(132.0))
+    return dps.compute_gamma_grid_inputs(U, np.array([u, u, 0.0], dtype=np.complex128), g_D, eps, np.ones(3))
+
+
+def test_absorption_strength_scales_with_the_couplings():
+    """The resonant absorption must scale with the couplings: at fixed flavor ratios the
+    integrated rate grows with Sum G (Breit-Wigner with Gamma_in Gamma_tot in the numerator)
+    and vanishes with it. Until 2026-10-12 the integrated rate was identical from Sum G =
+    7.6e-4 down to 3e-19: a vanishing coupling only narrowed the resonance."""
+    E = np.geomspace(1e13, 3e16, 60)
+    z = np.linspace(4.0, 0.0, 60)
+    m_nu = dps.get_mass_eigenvalues(0.01, 7.41e-5, 2.511e-3, "normal")
+    totals = []
+    for g_D in (1e-6, 1e-8, 1e-10):
+        sG, sGa, em = _rate_inputs(0.5, g_D)
+        G = dps.build_thermal_grid(E, z, sG, sGa, 2e6, m_nu, 1.676389e-4, em)
+        totals.append((sG, G.sum()))
+    (s1, t1), (s2, t2), (s3, t3) = totals
+    assert abs((t1 / t2) / (s1 / s2) - 1.0) < 1e-3, (t1 / t2, s1 / s2)
+    assert abs((t2 / t3) / (s2 / s3) - 1.0) < 1e-3
+    sG, sGa, em = _rate_inputs(0.0, 1e-4)
+    assert dps.build_thermal_grid(E, z, sG, sGa, 2e6, m_nu, 1.676389e-4, em).max() == 0.0
+
+
+def test_absorption_narrow_width_limit():
+    """At a narrow width the rate must equal the delta-function limit of
+    sigma_alpha = (Sum G)_alpha (Sum G) s / (3 pi [(s - M^2)^2 + M^2 Gamma^2]), whose integral over
+    s is 4 pi (Sum G)_alpha: Gamma_alpha = sum_i eta_i (Sum G)_alpha / pi * int dp p^2 f_i (1 - c*)/B,
+    with c* = (A - M^2)/B the angle where s = M^2 (A = m_i^2 + 2 x E_bg, B = 2 x p). The kernel's
+    (1 - cos theta) flux factor is kept, as in Eq. (7) of the theory notes."""
+    from scipy.integrate import quad
+    m_nu = dps.get_mass_eigenvalues(0.01, 7.41e-5, 2.511e-3, "normal")
+    sG, sGa, em = _rate_inputs(0.5, 1e-12)          # width ~1e-16 of M: deep in the narrow limit
+    T0, M = 1.676389e-4, 2e6
+    for E0, z in ((2.2e14, 0.3), (6.0e13, 1.1), (4.1e13, 0.0)):
+        got = dps.build_thermal_grid(np.array([E0, E0 * 1.0001]), np.array([z, z]), sG, sGa, M, m_nu, T0, em)[0, 0]
+        x = E0 * (1.0 + z)
+        ref = np.zeros(3)
+        for i in range(3):
+            m, Ti = m_nu[i], T0 * (1.0 + z) * em[i] ** (1.0 / 3.0)
+
+            def integrand(p):
+                E_bg = np.sqrt(m * m + p * p)
+                A, B = m * m + 2 * x * E_bg, 2 * x * p
+                c = (A - M * M) / B
+                return 0.0 if abs(c) > 1 else p * p / (np.exp(p / Ti) + 1.0) * (1.0 - c) / B
+            # the integrand jumps where c* = +-1: E_bg -+ p = delta = (M^2 - m^2)/(2x)
+            d = (M * M - m * m) / (2 * x)
+            edges = [abs(m * m - d * d) / (2 * d)]
+            pts = sorted({*np.linspace(0, 20 * Ti, 41)[1:-1], *[e for e in edges if 0 < e < 20 * Ti]})
+            val = quad(integrand, 0.0, 20 * Ti, limit=800, points=pts, epsabs=0, epsrel=1e-10)[0]
+            ref += em[i] * sGa / np.pi * val
+        assert ref.max() > 0, (E0, z)
+        np.testing.assert_allclose(got, ref, rtol=2e-3, err_msg=f"E0={E0}, z={z}")
+
+
+def test_vanishing_sterile_mixing_recovers_standard_propagation(tmp_path):
+    """As the sterile mixing goes to zero the dark sector must switch off continuously: the
+    flux at u = 1e-10 equals the one at u = 0 (no interactions). Until 2026-10-12 any nonzero
+    u, however small, kept the full resonant absorption and its runaway cascade."""
+    import copy
+    base = dps.create_default_config(str(tmp_path / "cfg.json"))
+    base["grid"].update(dict(n_E_bins=60, n_z_bins=60, n_mw_paths=1, n_earth_chords=2,
+                             N_steps_MW=3, N_steps_earth=10))
+    base["execution"].update(dict(n_cores=1, verbose=0))
+    out = []
+    for u in (0.0, 1e-10):
+        c = copy.deepcopy(base)
+        c["dark_portal"].update(u_e=u, u_mu=u)
+        out.append(dps.run_solver(c)[1])
+    np.testing.assert_allclose(out[1], out[0], rtol=1e-8)

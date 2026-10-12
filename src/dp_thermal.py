@@ -415,12 +415,50 @@ def _interp_thermal_grid_z(Gamma_sub: np.ndarray, N_z: int) -> np.ndarray:
                 out[k, i, a] = (1.0 - w) * Gamma_sub[i0, i, a] + w * Gamma_sub[i0 + 1, i, a]
     return out
 
+# =============================================================================
+# NORMALIZATION OF THE RESONANT CROSS SECTION
+# =============================================================================
+# The kernels above integrate, per flavor alpha, the angular and momentum average of
+#     sigma_raw(s) = 2 pi (Sum G)_alpha s / [(s - M^2)^2 + M^2 Gamma^2],
+# Gamma = (Sum G) M / (12 pi) (theory notes, Eqs. 11-12): only the production coupling sits
+# in the numerator. Integrated across the resonance this gives the same strength,
+# 12 pi^2 (Sum G)_alpha / Sum G, whatever the size of the couplings -- a vanishing coupling
+# only narrowed the resonance -- so the absorption did not switch off as u or g_D -> 0
+# (until 2026-10-12: identical integrated rates from Sum G = 7.6e-4 down to 3e-19). The
+# Breit-Wigner of a vector resonance formed by nu_L + nubar_R carries both widths,
+#     sigma_alpha(s) = 48 pi Gamma_in,alpha Gamma_tot s / (M^2 [(s - M^2)^2 + M^2 Gamma^2])
+#                    = (Sum G)_alpha (Sum G) s / (3 pi [(s - M^2)^2 + M^2 Gamma^2]),
+# with Gamma_in,alpha = (Sum G)_alpha M / (12 pi): integrated, 4 pi (Sum G)_alpha, which
+# vanishes with the couplings. (For the Z boson the same formula gives the classic resonant
+# annihilation cross section on the relic background, <sigma> = 2 sqrt(2) pi G_F.) The
+# physical rates are therefore the raw kernels times Sum G / (6 pi^2), applied where the grids
+# leave this module (build_thermal_grid, thermal_grid_cached); the kernels and the coupling
+# cache's unit-weight grids stay in the raw normalization.
+
+
+def absorption_normalization(sum_G: float) -> float:
+    """Factor turning the raw kernel rates into the physical ones (see the NOTE above).
+    Argument: sum_G -- the total coupling Sum G."""
+    return float(sum_G) / (6.0 * np.pi**2)
+
+
 def build_thermal_grid(E_bins: np.ndarray, z_bins: np.ndarray, sum_G: float,
                        sum_G_alpha: np.ndarray, m_Zd: float, m_nu_bg_arr: np.ndarray,
                        T_nu0: float, eta_mass: np.ndarray, n_z_thermal: int = 0,
                        thermal_analytic: bool = True) -> np.ndarray:
-    """Builds the (N_z, N_E, 3) thermal attenuation-rate grid, optionally via a coarse
-    z-subgrid plus linear interpolation.
+    """The physical (N_z, N_E, 3) attenuation-rate grid: _build_thermal_grid_raw times
+    absorption_normalization(sum_G). Arguments as for _build_thermal_grid_raw."""
+    return _build_thermal_grid_raw(E_bins, z_bins, sum_G, sum_G_alpha, m_Zd, m_nu_bg_arr, T_nu0,
+                                   eta_mass, n_z_thermal, thermal_analytic) * absorption_normalization(sum_G)
+
+
+def _build_thermal_grid_raw(E_bins: np.ndarray, z_bins: np.ndarray, sum_G: float,
+                            sum_G_alpha: np.ndarray, m_Zd: float, m_nu_bg_arr: np.ndarray,
+                            T_nu0: float, eta_mass: np.ndarray, n_z_thermal: int = 0,
+                            thermal_analytic: bool = True) -> np.ndarray:
+    """Builds the (N_z, N_E, 3) thermal attenuation-rate grid in the kernels' raw
+    normalization (see the NOTE above), optionally via a coarse z-subgrid plus linear
+    interpolation.
 
     thermal_analytic (config key grid.thermal_analytic, default True) selects the
     semi-analytic momentum integration (thermal_averaged_rates_flavor_analytic:
@@ -562,7 +600,8 @@ def thermal_grid_cached(E_bins: np.ndarray, z_bins: np.ndarray, sum_G: float,
                         thermal_analytic: bool = True) -> np.ndarray:
     """build_thermal_grid with the two-component coupling cache in front (see the
     NOTE above). Exact-path results differ from build_thermal_grid only by the
-    factoring of the sum_G_alpha weights out of the state sum (ulp level).
+    factoring of the sum_G_alpha weights out of the state sum (ulp level). The cache
+    stores raw unit-weight grids; the physical normalization rides on the weights.
 
     Arguments:
       E_bins, z_bins: the (E, z) grid the rates are tabulated on.
@@ -580,7 +619,8 @@ def thermal_grid_cached(E_bins: np.ndarray, z_bins: np.ndarray, sum_G: float,
                                   m_nu_bg_arr, T_nu0, eta_mass,
                                   n_z_thermal=n_z_thermal, thermal_analytic=thermal_analytic)
 
-    weights = np.asarray(sum_G_alpha, dtype=np.float64)
+    # physical weights: the unit-weight grids below are in the raw normalization
+    weights = np.asarray(sum_G_alpha, dtype=np.float64) * absorption_normalization(sum_G)
     key = (float(m_Zd), tuple(float(v) for v in m_nu_bg_arr), float(T_nu0),
            tuple(float(v) for v in eta_mass), len(E_bins), float(E_bins[0]),
            float(E_bins[-1]), len(z_bins), float(z_bins[0]), float(z_bins[-1]))
@@ -605,8 +645,8 @@ def thermal_grid_cached(E_bins: np.ndarray, z_bins: np.ndarray, sum_G: float,
         return np.ascontiguousarray(U[:, :, None] * weights[None, None, :])
 
     # exact unit-weight build (the couplings enter the kernel only through sum_G)
-    U = build_thermal_grid(E_bins, z_bins, s, np.ones(3), m_Zd, m_nu_bg_arr, T_nu0,
-                           eta_mass, thermal_analytic=True)[:, :, 0].copy()
+    U = _build_thermal_grid_raw(E_bins, z_bins, s, np.ones(3), m_Zd, m_nu_bg_arr, T_nu0,
+                                eta_mass, thermal_analytic=True)[:, :, 0].copy()
 
     if not state["disabled"]:
         pts = [(ps, pu) for (ps, pu) in state["points"] if ps != s]
