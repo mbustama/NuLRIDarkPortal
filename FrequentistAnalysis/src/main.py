@@ -17,7 +17,7 @@ import argparse
 import multiprocessing
 import numpy as np
 from iminuit import Minuit
-from multiprocessing import Pool, cpu_count
+from multiprocessing import Pool
 
 
 def global_fit_identity(config, param_names, asimov=False):
@@ -61,6 +61,7 @@ os.environ["NUMEXPR_NUM_THREADS"] = "1"
 from src.core.defaults import DEFAULT_SCAN_SETTINGS, DEFAULT_REPAIR_SETTINGS
 from src.core.config import load_config
 from src.core.likelihood import GenericLikelihoodWrapper
+from dp_core import available_cores          # importable once likelihood has set the solver path
 from src.engines.optimizers import estimate_param_names, estimate_start_values, run_mcmc_warm_start, perform_sanity_check
 from src.engines.scanner import scan_parameter_parallel, scan_pair_parallel
 from src.topology.repair import repair_scan_outliers, repair_scan_continuity, repair_steep_gradients, repair_2d_scan_outliers
@@ -272,8 +273,8 @@ def main():
             
     scan_settings = config.get("scan_settings", {})
     validate_config(config)
-    req_cores = scan_settings.get("num_cores", cpu_count())
-    actual_cores = len(os.sched_getaffinity(0)) if hasattr(os, 'sched_getaffinity') else int(os.environ.get("SLURM_CPUS_PER_TASK", cpu_count()))
+    actual_cores = available_cores()   # affinity mask capped by the SLURM allocation
+    req_cores = scan_settings.get("num_cores", actual_cores)
     num_cores = max(1, min(req_cores, actual_cores))
     print(f"\nUsing up to {num_cores} CPU core(s) (Requested: {req_cores}, Available: {actual_cores}).")
 

@@ -54,7 +54,7 @@ import json
 import copy
 import argparse
 import multiprocessing
-from multiprocessing import Pool, cpu_count
+from multiprocessing import Pool
 
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
@@ -65,6 +65,7 @@ from iminuit import Minuit
 
 from src.core.config import load_config
 from src.core.likelihood import GenericLikelihoodWrapper
+from dp_core import available_cores          # importable once likelihood has set the solver path
 from src.engines.optimizers import estimate_param_names, estimate_start_values
 from src.engines.scanner import scan_pair_parallel
 from src.topology.repair import repair_2d_scan_outliers
@@ -318,8 +319,8 @@ def main():
     output_dir = args.output_dir or os.path.join(config.get("output_dir", "./results"), "limits")
     os.makedirs(output_dir, exist_ok=True)
 
-    req_cores = args.num_cores or config.get("scan_settings", {}).get("num_cores", cpu_count())
-    actual = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else cpu_count()
+    actual = available_cores()   # affinity mask capped by the SLURM allocation
+    req_cores = args.num_cores or config.get("scan_settings", {}).get("num_cores", actual)
     num_cores = max(1, min(int(req_cores), actual))
     print(f"Limits scan: {len(pairs)} plane(s), {num_cores} core(s), output -> {output_dir}")
 

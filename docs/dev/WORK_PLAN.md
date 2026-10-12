@@ -11,7 +11,10 @@ work on Tycho; show the statistical analysis is sound with coverage tests.
 
 ## Order of work
 
-1. **Core-count fix.** The solver side sizes its pools with `cpu_count()`, which on a SLURM node
+1. **Core-count fix** -- **done** 2026-10-12: `dp_core.available_cores()` (affinity mask capped by
+   `SLURM_CPUS_PER_TASK`) and `default_n_cores()` (all but one core locally, the whole allocation
+   under SLURM) now size every pool, FrequentistAnalysis included. Original note: the solver side
+   sized its pools with `cpu_count()`, which on a SLURM node
    reports the whole node (128 cores) regardless of the allocation: `DEFAULT_CONFIG
    execution.n_cores`, the clamp in `dp_spatial.propagate_earth_spatial`, `dark_portal_scanner`,
    and `tools/convergence_study.py`. Use `SLURM_CPUS_PER_TASK`, then `os.sched_getaffinity`, then

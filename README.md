@@ -281,7 +281,7 @@ The scanner's spatial-averaging defaults follow the convergence study (Section 1
 
 ### `[output]` & `[execution]`
 * `--flux_filename`, `--plot_filename` (str): Output paths.
-* `--n_cores` (int): Cores used to parallelize the Milky Way paths / Earth chords of the spatial handover within a single run (Default: available cores − 1). The scanner reads the same key for its own process pool.
+* `--n_cores` (int): Cores used to parallelize the Milky Way paths / Earth chords of the spatial handover within a single run (Default: available cores − 1 on a workstation, the whole allocation inside a SLURM job). "Available" is the process's CPU affinity mask capped by `SLURM_CPUS_PER_TASK` (`dp_core.available_cores`), never `cpu_count()`, which reports a whole cluster node whatever the job was given. The scanner, the convergence tool and FrequentistAnalysis size their pools the same way.
 * `--verbose` (int): `1` standard, `2` granular milestones (Default: `1`).
 
 ---

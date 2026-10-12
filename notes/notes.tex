@@ -407,7 +407,7 @@ Date, commit & Change & Result \\
 2026-10-12 \texttt{2dec771} & Point sources and cold disc gas & No change at the four points beyond their floors; effects at light mediators in Appendix~\ref{app:pointsources} \\
 2026-10-12 \texttt{5866227} & Exact length of the Earth chords & Flavor fractions move by $9\times10^{-4}$ (below) and $\le5\times10^{-5}$ (inband, strong); dips unchanged (Appendix~\ref{app:baseline}) \\
 2026-10-12 \texttt{70ef709} & The Earth's potential as its Yukawa integral & Bit-identical at the four points; effects where the range reaches the Earth's scale in Appendix~\ref{app:yukawa} \\
-2026-10-12 (this revision) & Phase-aware zenith average of the Earth chords & Chord-sampling floor removed; flavor fractions move by up to $0.029$ (Appendix~\ref{app:zenith}) \\
+2026-10-12 \texttt{8f1910b} & Phase-aware zenith average of the Earth chords & Chord-sampling floor removed; flavor fractions move by up to $0.029$ (Appendix~\ref{app:zenith}) \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -580,10 +580,11 @@ moved by up to $0.03$. They should be recomputed, which is the first use planned
 cross only the overburden, are not in the average. The per-direction output of
 Sec.~\ref{sec:plan} will give both. \note{Open}
 
-\textit{Implementation queue.}---In order: the core-count fix, the Tycho setup and its
-validation job, the per-direction solver output, the muon channel, the starting-event channel
-with the systematic uncertainties, then the statistical tests of Sec.~\ref{sec:soundness}.
-The details are in \file{docs/dev/WORK_PLAN.md}.
+\textit{Implementation queue.}---The core-count fix is done (2026-10-12): pools are sized from the
+process's CPU affinity capped by the SLURM allocation, not from the machine's core count. Next,
+in order: the Tycho setup and its validation job, the per-direction solver output, the muon
+channel, the starting-event channel with the systematic uncertainties, then the statistical
+tests of Sec.~\ref{sec:soundness}. The details are in \file{docs/dev/WORK_PLAN.md}.
 
 %==============================================================================
 \appendix

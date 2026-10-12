@@ -96,6 +96,29 @@ except ImportError:
     print("Warning: 'tqdm' not found. Progress bars will be disabled.")
     def tqdm(iterable, *args, **kwargs): return iterable
 
+def available_cores() -> int:
+    """Cores this process may use: its CPU affinity mask, capped by SLURM_CPUS_PER_TASK when
+    SLURM sets it, else os.cpu_count(). cpu_count() alone reports the whole machine -- 128 cores
+    on a Tycho node, whatever the job was given -- which oversubscribed every pool sized from it."""
+    try:
+        n = len(os.sched_getaffinity(0))
+    except (AttributeError, OSError):
+        n = os.cpu_count() or 1
+    slurm = os.environ.get("SLURM_CPUS_PER_TASK", "").strip()
+    if slurm.isdigit() and int(slurm) > 0:
+        n = min(n, int(slurm))
+    return max(1, n)
+
+
+def default_n_cores() -> int:
+    """Default pool size: every available core inside a SLURM job (the allocation is the
+    job's to use), all but one elsewhere, so a laptop stays responsive."""
+    n = available_cores()
+    if os.environ.get("SLURM_JOB_ID"):
+        return n
+    return n - 1 if n > 1 else 1
+
+
 def safe_print(msg: str):
     """Prints output safely without breaking the tqdm progress bar alignment."""
     if HAS_TQDM and hasattr(tqdm, 'write'):

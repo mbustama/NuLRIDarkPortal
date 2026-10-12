@@ -2635,3 +2635,23 @@ def test_zenith_average_options_and_numba_crossings():
         dps.propagate_earth_spatial(*args, N_steps_MW=2, N_steps_earth=4, show_progress=False,
                                     verbose=0, earth_step_scheme="avg", earth_zenith_average="median")
     assert dps.DEFAULT_CONFIG["grid"]["earth_zenith_average"] == "phase"
+
+
+def test_core_count_respects_slurm_allocation_and_affinity(monkeypatch):
+    """Pools are sized from dp_core.available_cores(): the affinity mask, capped by
+    SLURM_CPUS_PER_TASK. os.cpu_count() alone reports a whole Tycho node (128 cores) whatever
+    the job was given. The default pool keeps one core free on a laptop and uses the whole
+    allocation inside a SLURM job."""
+    import dp_core
+    n_aff = len(os.sched_getaffinity(0))
+    for var in ("SLURM_CPUS_PER_TASK", "SLURM_JOB_ID"):
+        monkeypatch.delenv(var, raising=False)
+    assert dp_core.available_cores() == n_aff
+    assert dp_core.default_n_cores() == max(1, n_aff - 1)
+    monkeypatch.setenv("SLURM_JOB_ID", "1")
+    monkeypatch.setenv("SLURM_CPUS_PER_TASK", "1")
+    assert dp_core.available_cores() == 1 == dp_core.default_n_cores()
+    monkeypatch.setenv("SLURM_CPUS_PER_TASK", str(n_aff + 100))
+    assert dp_core.available_cores() == n_aff == dp_core.default_n_cores()
+    monkeypatch.setenv("SLURM_CPUS_PER_TASK", "not-a-number")
+    assert dp_core.available_cores() == n_aff

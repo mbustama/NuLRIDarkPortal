@@ -8,12 +8,11 @@ verbatim out of dark_portal_solver.py.
 import os
 import copy
 import json
-import multiprocessing
 
 import numpy as np
 from typing import Dict
 
-from dp_core import safe_print
+from dp_core import safe_print, default_n_cores
 
 # =============================================================================
 # MULTIPROCESSING WRAPPER & CONFIGURATION MANAGER
@@ -149,7 +148,9 @@ def _build_default_config() -> Dict:
             "plot_filename": "../output/plots/flux_plot.png"
         },
         "execution": {
-            "n_cores": multiprocessing.cpu_count() - 1 if multiprocessing.cpu_count() > 1 else 1,
+            # all cores but one on a laptop, the whole allocation in a SLURM job
+            # (dp_core.default_n_cores; cpu_count() would report a whole Tycho node)
+            "n_cores": default_n_cores(),
             "verbose": 1,
             "use_gpu": False
         }

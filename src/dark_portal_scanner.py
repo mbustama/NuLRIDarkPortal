@@ -139,7 +139,8 @@ def run_parameter_scan(param_name: str, param_values: np.ndarray, base_config: D
         described below lives next to it.
 
     The pool size is driven by base_config['execution']['n_cores'] (falling back to
-    cpu_count()-1 if unset), clamped to the cores actually available. Previously this
+    dp_core.default_n_cores() if unset), clamped to dp_core.available_cores() -- the
+    affinity mask capped by the SLURM allocation, not the whole machine. Previously this
     function always recomputed its own hardcoded cpu_count()-1 pool size regardless of
     what base_config['execution']['n_cores'] said, so that config field was silently
     dropped -- setting it in __main__ had no effect on the actual scan parallelism.
@@ -151,9 +152,9 @@ def run_parameter_scan(param_name: str, param_values: np.ndarray, base_config: D
     changed grid simply recomputes the points that differ. The file is removed after
     the final sorted output is written.
     """
-    available_cores = multiprocessing.cpu_count()
-    requested_cores = int(base_config.get('execution', {}).get('n_cores', available_cores - 1 if available_cores > 1 else 1))
-    n_cores = max(1, min(requested_cores, available_cores))
+    n_available = dp_core.available_cores()
+    requested_cores = int(base_config.get('execution', {}).get('n_cores', dp_core.default_n_cores()))
+    n_cores = max(1, min(requested_cores, n_available))
 
     header = _scan_checkpoint_header(param_name, base_config)
     checkpoint_file = output_file + ".partial.jsonl"
@@ -369,8 +370,8 @@ if __name__ == "__main__":
                              "percent-level ratios).")
     parser.add_argument("--N_steps_MW", type=int, default=25,
                         help="25 agrees with a 400-step reference to ~1e-10 (tools/convergence_study.py).")
-    parser.add_argument("--n_cores", type=int,
-                        default=multiprocessing.cpu_count() - 1 if multiprocessing.cpu_count() > 1 else 1)
+    parser.add_argument("--n_cores", type=int, default=dp_core.default_n_cores(),
+                        help="Pool size (default: all cores but one, or the whole SLURM allocation).")
     parser.add_argument("--output_dir", type=str, default="../output",
                         help="Scan data goes to <output_dir>/data/, the figure to <output_dir>/plots/.")
     parser.add_argument("--no_plot", action="store_true", help="Skip the 2x2 summary figure.")

@@ -313,7 +313,7 @@ def main():
     parser.add_argument("--param_points", type=str, default=None,
                         help="JSON file with a list of dark_portal override dicts; defaults "
                              "to three points placing the resonance below/inside/above band.")
-    parser.add_argument("--n_cores", type=int, default=max(1, os.cpu_count() - 1))
+    parser.add_argument("--n_cores", type=int, default=dp_core.default_n_cores())
     parser.add_argument("--output_dir", type=str, default=os.path.join(_TOOL_DIR, "..", "output", "convergence"))
     args = parser.parse_args()
 

@@ -24,6 +24,7 @@ _current_dir = os.path.dirname(os.path.abspath(__file__))
 _dark_portal_dir = os.path.abspath(os.path.join(_current_dir, "../../../src/"))
 if _dark_portal_dir not in sys.path:
     sys.path.insert(0, _dark_portal_dir)
+from dp_core import available_cores  # affinity mask capped by the SLURM allocation
 from dark_portal_solver import (construct_PMNS, get_mass_eigenvalues, parse_structure_matrix_3x3,
                                 cm_inv3_to_eV3, m_to_eV_inv, Mpc_to_eV_inv, km_per_s,
                                 DEFAULT_CONFIG)
@@ -111,7 +112,7 @@ class GenericLikelihoodWrapper:
         # run_propagation, which is the only place that reads this back out of static_data.
         # Mirrors main.py's own num_cores derivation (scan_settings.num_cores, clamped to
         # actually-available cores) so the two don't drift apart.
-        _actual_cores = len(os.sched_getaffinity(0)) if hasattr(os, 'sched_getaffinity') else int(os.environ.get("SLURM_CPUS_PER_TASK", multiprocessing.cpu_count()))
+        _actual_cores = available_cores()
         _req_cores = int(config.get("scan_settings", {}).get("num_cores", _actual_cores))
         self.n_cores_standalone = max(1, min(_req_cores, _actual_cores))
 

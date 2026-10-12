@@ -12,7 +12,7 @@ import multiprocessing
 import numpy as np
 
 import dp_core
-from dp_core import (njit, HAS_NUMBA, numba, safe_print, tqdm, m_to_eV_inv,
+from dp_core import (njit, HAS_NUMBA, numba, safe_print, tqdm, m_to_eV_inv, available_cores,
                      cm_inv3_to_eV3, GeV, G_F, calc_debye_mass_sq,
                      d_sun_eV_inv, d_moon_eV_inv, N_n_sun, N_n_earth, N_n_moon)
 from dp_propagator import propagator_3x3
@@ -1293,7 +1293,7 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
     """
     N_E = len(E_bins)
     lbl = "Anti-Nu" if is_antineutrino else "Nu"
-    n_workers = max(1, min(int(n_cores), multiprocessing.cpu_count()))
+    n_workers = max(1, min(int(n_cores), available_cores()))
     if earth_zenith_average not in _ZENITH_AVERAGES:
         raise ValueError(f"earth_zenith_average must be one of {_ZENITH_AVERAGES}, got {earth_zenith_average!r}")
     if earth_zenith_average == "phase" and earth_step_scheme != "avg":
