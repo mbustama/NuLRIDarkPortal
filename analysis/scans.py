@@ -258,6 +258,8 @@ def _scan(cfg: AnalysisConfig, names: List[str], grids: List[np.ndarray], best: 
     params = [cfg.parameter(n) for n in names]
     shape = tuple(len(g) for g in grids)
     indices = list(np.ndindex(*shape))
+    if len(names) == len(cfg.parameters):
+        max_passes = 0            # nothing left to fit: every point is one evaluation, nothing to repair
 
     def held_of(index):
         return {n: float(g[i]) for n, g, i in zip(names, grids, index)}

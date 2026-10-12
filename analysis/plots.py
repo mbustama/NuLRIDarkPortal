@@ -8,6 +8,7 @@ as horizontal lines (profiles) or contour levels (planes).
 import matplotlib
 
 matplotlib.use("Agg")
+import matplotlib.lines  # noqa: E402
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 
@@ -54,20 +55,28 @@ def plot_profile(summary: dict, path: str):
 
 
 def plot_plane(summary: dict, path: str):
-    """Contours of Delta chi^2 over a plane at the configuration's 2D thresholds, and the
-    lowest point of the plane."""
+    """Delta chi^2 over a plane (grey scale), its contours at the configuration's 2D
+    thresholds, and the lowest point of the plane."""
     xn, yn = summary["names"]
     x = np.asarray(summary["grids"][0])
     y = np.asarray(summary["grids"][1])
     d = np.asarray(summary["dchi2"], dtype=float)          # [i_x, i_y]
     logx, logy = summary.get("log", [False, False])
-    fig, ax = plt.subplots(figsize=(4.6, 3.8))
+    fig, ax = plt.subplots(figsize=(5.4, 3.9))
     levels = sorted(summary["thresholds"].items(), key=lambda kv: kv[1])
     X, Y = np.meshgrid(x, y, indexing="ij")
     dm = np.where(np.isfinite(d), d, 1e9)
-    for (lab, t), (c, ls) in zip(levels, STYLES):
-        cs = ax.contour(X, Y, dm, levels=[t], colors=[c], linestyles=[ls], linewidths=1.2)
-        ax.clabel(cs, fmt={t: lab}, fontsize=7)
+    top = 2.0 * levels[-1][1]
+    mesh = ax.pcolormesh(X, Y, np.clip(dm, 0.0, top), cmap="Greys", vmin=0.0, vmax=top, shading="nearest",
+                         rasterized=True)
+    cb = fig.colorbar(mesh, ax=ax, pad=0.02)
+    cb.set_label(r"$\Delta\chi^2$ (clipped at %.3g)" % top)
+    contour_colors = ["tab:blue", "tab:orange", "tab:red"]
+    handles = []
+    for (lab, t), c in zip(levels, contour_colors):
+        ax.contour(X, Y, dm, levels=[t], colors=[c], linewidths=1.2)
+        handles.append(matplotlib.lines.Line2D([], [], color=c, lw=1.2, label=f"{lab} ($\\Delta\\chi^2$ = {t:g})"))
+    ax.legend(handles=handles, fontsize=7, loc="lower right", framealpha=0.85)
     i, j = np.unravel_index(np.argmin(dm), dm.shape)
     ax.plot(x[i], y[j], "k*", ms=8)
     if logx:

@@ -260,12 +260,15 @@ def test_checkpoints_of_another_configuration_are_ignored(synthetic, tmp_path):
 
 
 def test_plane_of_the_synthetic_objective(synthetic):
+    """With both parameters held, every point is one evaluation and no repair pass runs."""
     cfg, obj = synthetic
     xa, xb = np.linspace(0.5, 1.5, 5), np.linspace(0.0, 2.0, 4)
+    n = obj.calls
     res = scans.plane(cfg, "a", "b", xa, xb, {"a": 1.0, "b": 1.0}, workers=1, log=lambda *a: None)
     A, B = np.meshgrid(xa, xb, indexing="ij")
     exact = np.minimum((A - 1) ** 2 / 0.04 + 25 * (B - A * A) ** 2, 3 + (A - 1) ** 2 / 0.04 + 25 * (B + 1) ** 2)
     np.testing.assert_allclose(res.chi2_array(), exact, atol=1e-12)
+    assert res.passes == 0 and obj.calls - n == xa.size * xb.size
 
 
 # ---------------------------------------------------------------------------------------
