@@ -1772,9 +1772,13 @@ def test_avg_earth_density_matches_dense_average():
     cross = dps._earth_layer_crossings(baseline, costh, depth)
 
     totals = {}
+    contact, heavy = dps.earth_yukawa_table(None), dps.earth_yukawa_table(2e6)
     for N in (37, 250):
         nbar = dps._avg_earth_density_seq(baseline, costh, N, depth, n_amb, cross,
-                                          dps._GL10_X, dps._GL10_W)
+                                          dps._GL10_X, dps._GL10_W, contact)
+        # at MeV masses the Earth's Yukawa integral is its contact limit, bit for bit
+        assert np.array_equal(nbar, dps._avg_earth_density_seq(baseline, costh, N, depth, n_amb,
+                                                               cross, dps._GL10_X, dps._GL10_W, heavy))
         dr = baseline / N
         # dense referee for a few steps, including ones containing a layer crossing
         check = {0, N // 2, N - 1}
@@ -2316,3 +2320,221 @@ def test_exact_chord_baseline_starts_on_the_surface():
     assert abs(dps.get_baseline_earth(depth, -1.0) - (2 * 6371.0 - depth)) < 1e-9
     # the horizontal chord no longer meets the surface a second time inside the chord
     assert len(dps._earth_layer_crossings(dps.get_baseline_earth(depth, 0.0), 0.0, depth)) == 0
+
+
+# =============================================================================
+# The Earth's own potential: the spherical Yukawa integral (2026-10-12)
+# =============================================================================
+
+def _prem_neutrons_cm3(r):
+    """PREM neutron density (cm^-3) the contact way: calc_earth_density x neutrons per gram."""
+    import dp_spatial
+    return dp_spatial.calc_earth_density(r) * dp_spatial.earth_neutrons_per_gram(r)
+
+
+def test_prem_coefficient_table_matches_calc_earth_density():
+    """The Yukawa integral reads PREM from _PREM_RHO_COEFFS / _PREM_F_COEFFS, the contact form from
+    calc_earth_density: the two copies must be one profile, boundary convention included, or the
+    heavy-mass limit would not reproduce the contact form."""
+    import dp_spatial
+    edges = dps._PREM_EDGES_KM
+    assert np.array_equal(dps._PREM_BOUNDARIES_KM, edges[1:])
+    rng = np.random.default_rng(7)
+    radii = np.concatenate([rng.uniform(0.0, 6371.0, 4000), edges[1:], edges[1:-1] + 1e-7, [1e-3]])
+    for r in radii:
+        s = dp_spatial._yk_shell(r, edges)
+        c = dps._PREM_RHO_COEFFS[s]
+        x = r / 6371.0
+        rho = c[0] + c[1] * x + c[2] * x**2 + c[3] * x**3
+        assert abs(rho - dps.calc_earth_density(r)) <= 1e-13 * rho, r
+        f = sum(dps._PREM_F_COEFFS[s, k] * r**k for k in range(5))
+        assert abs(f / r / _prem_neutrons_cm3(r) - 1.0) < 1e-13, r
+
+
+def test_yukawa_uniform_ball_closed_form():
+    """A uniform ball has a closed form at any mediator mass (NuOscProbExact notebook 20),
+    n_eff = n [1 - (R + 1/m) e^{-mR} sinh(mr)/r] inside and n e^{-mr} [R cosh(mR) - sinh(mR)/m]/r
+    outside. The 'direct' evaluation must reproduce it to fp RELATIVE accuracy (it has no
+    cancellation, so the long-range limit n (mR)^2/2 is resolved too); the 'heavy' one to fp
+    accuracy in units of n, from m R = 1 up to the MeV-like 1e8."""
+    import mpmath
+    import dp_spatial
+    mpmath.mp.dps = 40
+    R, n = 6371.0, 1e24
+    F = np.array([[0.0, n, 0.0, 0.0, 0.0]])                    # f(r) = r n
+    radii = np.concatenate([np.linspace(0.0, R, 41), [1e-6, R * (1 - 1e-9)],
+                            R * np.array([1.0 + 1e-9, 1.001, 1.1, 1.5])])
+
+    def exact(m, r):
+        m, r, Rm = mpmath.mpf(m), mpmath.mpf(r), mpmath.mpf(R)
+        if r == 0:
+            return n * (1 - (Rm + 1 / m) * mpmath.exp(-m * Rm) * m)
+        if r <= Rm:
+            return n * (1 - (Rm + 1 / m) * mpmath.exp(-m * Rm) * mpmath.sinh(m * r) / r)
+        return n * mpmath.exp(-m * r) * (Rm * mpmath.cosh(m * Rm) - mpmath.sinh(m * Rm) / m) / r
+
+    for mR in (1e-7, 1e-3, 0.3, 1.0, 10.0, 49.0, 51.0, 300.0, 1e4, 1e8):
+        m = mR / R
+        modes = ([dp_spatial._YUKAWA_DIRECT] if mR <= 300.0 else []) + \
+                ([dp_spatial._YUKAWA_HEAVY] if mR >= 1.0 else [])
+        for mode in modes:
+            yk = dps.yukawa_profile_table(np.array([0.0, R]), F, m, mode=mode)
+            for r in radii:
+                got, ref = dps.yukawa_profile_density(r, yk), float(exact(m, r))
+                if mode == dp_spatial._YUKAWA_DIRECT:
+                    assert abs(got - ref) <= 1e-12 * abs(ref), (mR, mode, r, got, ref)
+                else:
+                    assert abs(got - ref) <= 1e-13 * n + 1e-12 * abs(ref), (mR, mode, r, got, ref)
+    # the default choice switches at m R = 50
+    assert int(dps.yukawa_profile_table(np.array([0.0, R]), F, 49.0 / R)[0][0]) == dp_spatial._YUKAWA_DIRECT
+    assert int(dps.yukawa_profile_table(np.array([0.0, R]), F, 51.0 / R)[0][0]) == dp_spatial._YUKAWA_HEAVY
+
+
+def test_earth_yukawa_heavy_limit_is_contact_form_bit_for_bit():
+    """At the masses of every current analysis point the mediator range is far below any PREM
+    length, so the Yukawa integral must return the contact density EXACTLY, not to a tolerance:
+    Earth phases are ~1e5-1e8 rad there, and the phase-noise regime (tens of eV) redraws its
+    realization under any ulp change. Checked pointwise, along chords, and for the step averages
+    of every chord of the 12-, 13- and 50-chord grids at the default 25 steps -- each against the
+    contact table through the same compiled code (a separately compiled product can differ by an
+    ulp through fused multiply-adds, which says nothing about the Yukawa term)."""
+    import dp_spatial
+    rng = np.random.default_rng(11)
+    radii = rng.uniform(0.0, 6371.0, 3000)
+    radii = radii[np.min(np.abs(radii[:, None] - dps._PREM_EDGES_KM[None, :]), axis=1) > 1e-6]
+    contact = dps.earth_yukawa_table(None)
+    for m_eV in (3e5, 2e6, 2e7, 40.0):
+        yk = dps.earth_yukawa_table(m_eV)
+        assert int(yk[0][0]) == dp_spatial._YUKAWA_HEAVY
+        for r in radii:
+            assert dps.earth_neutron_density_cm3(r, yk) == dps.earth_neutron_density_cm3(r, contact)
+            assert abs(dps.earth_neutron_density_cm3(r, yk) / _prem_neutrons_cm3(r) - 1) < 1e-15
+        for n_ch in (12, 13, 50):
+            for costh in np.linspace(-1.0, 0.0, n_ch):
+                B = dps.get_baseline_earth(1.5, costh)
+                cross = dps._earth_layer_crossings(B, costh, 1.5)
+                for l in rng.uniform(0.0, B, 10):
+                    assert (dps.earth_total_density(l, B, costh, 1.5, 1.36e-14, yk)
+                            == dps.earth_total_density(l, B, costh, 1.5, 1.36e-14, contact))
+                args = (B, costh, 25, 1.5, 1.36e-14, cross, dps._GL10_X, dps._GL10_W)
+                assert np.array_equal(dps._avg_earth_density_seq(*args, yk),
+                                      dps._avg_earth_density_seq(*args, contact)), (m_eV, n_ch, costh)
+
+
+def test_earth_yukawa_matches_bruteforce_shell_kernel():
+    """n_eff from the tables against direct quadrature of the shell-averaged Yukawa kernel,
+    n_eff(r) = (m/2r) int_0^R r' n(r') [e^{-m|r-r'|} - e^{-m(r+r')}] dr', with n taken from
+    calc_earth_density (independent of the coefficient table), for ranges from beyond R_E to
+    200 m -- both evaluations -- at radii on both sides of PREM boundaries and at the surface."""
+    edges = [e for e in dps._PREM_EDGES_KM if 0.0 < e < 6371.0]
+    for m_eV in (3e-14, 3e-13, 1e-11, 1e-9):
+        yk = dps.earth_yukawa_table(m_eV)
+        m = yk[0][1]
+        for r in (0.5, 700.0, 1221.4, 1221.6, 3000.0, 3479.9, 3480.1, 5000.0,
+                  6360.0, 6367.99, 6368.01, 6370.0, 6371.0):
+            near = [x for x in r + np.array([0, -1, 1, -3, 3, -10, 10, -30, 30]) / m if 0 < x < 6371.0]
+            pts = [0.0] + sorted(set(edges) | set(near)) + [6371.0]
+            kern = lambda x: x * _prem_neutrons_cm3(x) * (np.exp(-m * abs(r - x)) - np.exp(-m * (r + x)))
+            ref = sum(integrate.quad(kern, a, b, epsabs=0, epsrel=1e-12, limit=200)[0]
+                      for a, b in zip(pts[:-1], pts[1:]) if b > a) * m / (2.0 * r)
+            got = dps.earth_neutron_density_cm3(r, yk)
+            assert abs(got / ref - 1.0) < 1e-9, (m_eV, r, got, ref)
+
+
+def test_earth_yukawa_long_range_limit_and_exterior():
+    """For a range far beyond the Earth (m R = 1e-12; the corrections are O(m R)) the potential
+    takes the enclosed-charge form n_eff/m^2 = N(<r)/(4 pi r) + int_r^R r' n dr'. Outside, the
+    Earth is a point source of
+    N_eff = 4 pi int r'^2 n shc(m r') dr' neutrons, which at such a range is the Earth's neutron
+    number -- so the Earth chords now meet the Milky Way phase's Earth point source (N_n_earth)."""
+    import dp_core
+    import dp_spatial
+    m_km = 1e-12 / 6371.0
+    yk = dps.earth_yukawa_table(m_km / dp_spatial._KM_IN_EV_INV)
+    assert int(yk[0][0]) == dp_spatial._YUKAWA_DIRECT
+    edges = [e for e in dps._PREM_EDGES_KM if 0.0 < e < 6371.0]
+
+    def piecewise(fun, a, b):
+        p = [a] + [e for e in edges if a < e < b] + [b]
+        return sum(integrate.quad(fun, lo, hi, epsabs=0, epsrel=1e-13)[0] for lo, hi in zip(p[:-1], p[1:]))
+
+    for r in (1.0, 1000.0, 1221.5, 3000.0, 3480.0, 5000.0, 6000.0, 6370.0, 6371.0):
+        ref = m_km**2 * (piecewise(lambda x: x * x * _prem_neutrons_cm3(x), 0.0, r) / r
+                         + piecewise(lambda x: x * _prem_neutrons_cm3(x), r, 6371.0))
+        assert abs(dps.earth_neutron_density_cm3(r, yk) / ref - 1.0) < 1e-9, r
+    for r in (6371.0 * (1 + 1e-9), 2 * 6371.0):
+        N_eff = dps.earth_neutron_density_cm3(r, yk) * 4 * np.pi * r * np.exp(m_km * r) / m_km**2 * 1e15
+        assert abs(N_eff / dp_core.N_n_earth - 1.0) < 1e-3, (r, N_eff)
+
+
+def test_earth_yukawa_evaluations_agree_across_the_switch():
+    """'heavy' (integration by parts) and 'direct' (tabulated P, Q) are both exact for PREM's
+    polynomials, so forced to the same mass they must agree everywhere -- inside, at every
+    boundary, outside -- across the m R = 50 switch."""
+    import dp_spatial
+    radii = np.concatenate([np.linspace(0.0, 6371.0, 997), dps._PREM_EDGES_KM, [6371.5, 7000.0]])
+    for mR in (10.0, 50.0, 300.0):
+        m_eV = mR / 6371.0 / dp_spatial._KM_IN_EV_INV
+        hv = dps.earth_yukawa_table(m_eV, mode=dp_spatial._YUKAWA_HEAVY)
+        di = dps.earth_yukawa_table(m_eV, mode=dp_spatial._YUKAWA_DIRECT)
+        for r in radii:
+            a, b = dps.earth_neutron_density_cm3(r, hv), dps.earth_neutron_density_cm3(r, di)
+            assert abs(a - b) <= 1e-12 * abs(b) + 1e-14 * 4.2e24, (mR, r, a, b)
+
+
+def test_avg_scheme_step_count_independent_with_yukawa():
+    """With a mediator range anywhere from 200 m to beyond R_E the boundary layers along the
+    chords (crossings, the surface at entry and above the detector) must be resolved, so the
+    step-summed path integral stays independent of the step count -- the 'avg' scheme's
+    certificate -- and equals an independent dense integral of n_eff (composite 20-point
+    Gauss-Legendre graded toward every layer at ratio 1.1)."""
+    depth = 1.5
+    f2 = 6371.0 - depth
+    x20, w20 = np.polynomial.legendre.leggauss(20)
+    import dp_spatial
+    for m_eV in (1e-9, 1e-11, 1e-13, 3e-14, 1e-16):
+        yk = dps.earth_yukawa_table(m_eV)
+        for costh in (-1.0, -0.83, -0.3, -0.02, 0.0):
+            B = dps.get_baseline_earth(depth, costh)
+            cross = dps._earth_layer_crossings(B, costh, depth)
+            tot = {}
+            for N in (8, 25, 1000):
+                nbar = dps._avg_earth_density_seq(B, costh, N, depth, 0.0, cross,
+                                                  dps._GL10_X, dps._GL10_W, yk)
+                tot[N] = np.sum(nbar) * (B / N)
+            assert abs(tot[8] / tot[1000] - 1) < 1e-12, (m_eV, costh, tot)
+            assert abs(tot[25] / tot[1000] - 1) < 1e-12, (m_eV, costh, tot)
+            if costh in (-0.83, 0.0):
+                fl, fw = dp_spatial._earth_chord_features(B, costh, depth, cross, yk)
+                E = {0.0, B} | set(cross)
+                for lf, w in zip(fl, fw):
+                    x = w / 64
+                    while x < B:
+                        E |= {e for e in (lf - x, lf + x) if 0.0 < e < B}
+                        x *= 1.1
+                E = np.array(sorted(E))
+                ref = 0.0
+                for lo, hi in zip(E[:-1], E[1:]):
+                    l = 0.5 * (lo + hi) + 0.5 * (hi - lo) * x20
+                    r = np.sqrt((B - l)**2 + f2**2 + 2 * (B - l) * f2 * costh)
+                    ref += 0.5 * (hi - lo) * np.sum(w20 * np.array(
+                        [dps.earth_neutron_density_cm3(x, yk) for x in r]))
+                assert abs(tot[25] / (ref * dps.cm_inv3_to_eV3) - 1) < 1e-11, (m_eV, costh)
+
+
+def test_earth_range_mediator_end_to_end(tmp_path):
+    """A mediator whose range is the Earth's radius (direct mode), at couplings that keep the
+    Earth transit coherent (phases of tens of rad): the solver must run, return finite
+    non-negative fluxes, and keep the 'avg' step-count certificate end to end."""
+    import copy
+    cfg = dps.create_default_config(str(tmp_path / "cfg.json"))
+    cfg["grid"].update(dict(n_E_bins=24, n_z_bins=16, n_mw_paths=1, n_earth_chords=3, N_steps_MW=3))
+    cfg["execution"].update(dict(n_cores=1, verbose=0))
+    cfg["dark_portal"].update(dict(m_Zd_eV=3.1e-14, g_D=1e-24, epsilon_prime=1e-25))
+    flux = {}
+    for n in (25, 200):
+        c = copy.deepcopy(cfg)
+        c["grid"]["N_steps_earth"] = n
+        _, flux[n] = dps.run_solver(c)
+    assert np.isfinite(flux[25]).all() and (flux[25] >= 0).all()
+    assert np.max(np.abs(flux[200] - flux[25])) <= 1e-8 * np.max(np.abs(flux[200]))

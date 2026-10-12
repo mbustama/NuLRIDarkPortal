@@ -57,6 +57,9 @@ from dp_spatial import (  # noqa: F401
     _evolve_rho_all_bins, step_mw_approach, step_earth_transit,
     _mw_path_worker, _earth_chord_worker, _PREM_BOUNDARIES_KM,
     _earth_layer_crossings, _avg_earth_density_seq, _split_E_blocks,
+    _PREM_EDGES_KM, _PREM_RHO_COEFFS, _PREM_F_COEFFS, yukawa_profile_table,
+    earth_yukawa_table, yukawa_profile_density, earth_neutron_density_cm3,
+    earth_total_density, _earth_chord_features, _yk_extra_cm3,
     _run_spatial_tasks, _get_spatial_pool, _close_spatial_pool,
     propagate_earth_spatial,
 )

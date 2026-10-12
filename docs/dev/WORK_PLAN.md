@@ -115,5 +115,8 @@ linear in it), so it can float. Backgrounds included from the start.
 
 - 2026-10-12: relic-neutrino temperature fixed, 1.95e-4 -> 1.676389e-4 eV (`5ecf10e`); spectra
   and event rates change materially, energy-averaged flavor fractions by <= 3.8e-4.
+- 2026-10-12: Earth chords start exactly on the surface (`get_baseline_earth` had dropped the d^2
+  terms); the Earth's own potential is its spherical Yukawa integral (Magnus/NuOscProbExact
+  method), bit-identical at the benchmark points, 7-8% on the Earth effect at ranges >~ 100 km.
 - 2026-10-12: `N_steps_earth` default 100 -> 25 (`95fef9f`); scan/plane checkpointing,
   global-fit checkpoint, `min_segment_length`, `minuit_maxcall`, thermal-cache fix (round 8).

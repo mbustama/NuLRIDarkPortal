@@ -117,6 +117,24 @@ def calc_earth_density(r_km: float) -> float:
     else: return 0.0
 
 
+# The same PREM, as data: shell edges (km) and, per shell (edge_s, edge_s+1], the coefficients
+# of rho(x) = c0 + c1 x + c2 x^2 + c3 x^3 (g/cm^3, x = r/6371 km) that calc_earth_density
+# spells out branch by branch. The Yukawa integral below needs the polynomials themselves;
+# a regression test holds the two copies equal.
+_PREM_EDGES_KM = np.array([0.0, 1221.5, 3480.0, 5701.0, 5771.0, 5971.0, 6151.0,
+                           6346.6, 6356.0, 6368.0, 6371.0])
+_PREM_RHO_COEFFS = np.array([[13.0885, 0.0, -8.8381, 0.0],
+                             [12.5815, -1.2638, -3.6426, -5.5281],
+                             [7.9565, -6.4761, 5.5283, -3.0807],
+                             [5.3197, -1.4836, 0.0, 0.0],
+                             [11.2494, -8.0298, 0.0, 0.0],
+                             [7.1089, -3.8045, 0.0, 0.0],
+                             [2.691, 0.6924, 0.0, 0.0],
+                             [2.9, 0.0, 0.0, 0.0],
+                             [2.6, 0.0, 0.0, 0.0],
+                             [1.02, 0.0, 0.0, 0.0]])
+
+
 # Neutrons per gram of Earth matter, by PREM region: (1 - Y_e) nucleons per gram, where Y_e is
 # the electron (= proton) fraction per nucleon -- 0.4656 in the iron-nickel core and 0.4957
 # in the silicate mantle and crust, the values used with PREM in neutrino-oscillation
@@ -203,6 +221,433 @@ def spatial_total_density_earth(l_km: float, baseline_km: float, costh: float,
 
     return n_n_amb_eV3 + n_n_earth_cm3 * cm_inv3_to_eV3
 
+
+# =============================================================================
+# THE EARTH'S OWN POTENTIAL: THE SPHERICAL YUKAWA INTEGRAL
+# =============================================================================
+# The dark-portal potential of a body is a Yukawa integral over its neutrons,
+#     V(x) = Coef m^2 int d^3x' n(x') exp(-m |x - x'|) / (4 pi |x - x'|),   m = m_eff,
+# where Coef (built in propagate_earth_spatial) already carries 1/m^2, so V = Coef n_eff with
+# n_eff the neutron density smoothed over the mediator range 1/m. Until 2026-10-12 the Earth
+# chords used the contact limit n_eff = n(r). That limit holds while 1/m is far below every
+# length over which PREM varies (a 1e-9 eV mediator already reaches only 200 m), but a
+# mediator whose range rivals the Earth's radius sees the enclosed neutrons instead, and the
+# contact form then overstates the Earth's potential by ~1/(m R)^2 -- 1e13 at 1e-20 eV.
+#
+# For a spherical profile the angular integral is elementary and the potential becomes
+# one-dimensional -- the method of Magnus (docs/dev/measurements/issue192_sec6_numbers/D/lri.py,
+# for the Sun) and of NuOscProbExact (notebooks/20_arbitrary_hamiltonian.ipynb, for the Earth):
+#     n_eff(r) = m^2 [ e^{-mr} I_in(r)/r + shc(mr) I_out(r) ],   shc(x) = sinh(x)/x,
+#     I_in(r) = int_0^r r'^2 n shc(m r') dr',   I_out(r) = int_r^R r' n e^{-m r'} dr'.
+# Here it is written with f(r) = r n(r) and decaying exponentials only,
+#     n_eff(r) = (m/r) [ P(r) + (1 - e^{-2mr}) Q(r)/2 ],
+#     P(r) = int_0^r g(r') e^{-m(r - r')} dr',   g = f (1 - e^{-2mr'})/2,
+#     Q(r) = int_r^R f(r') e^{-m(r' - r)} dr',
+# since e^{mR} itself is 10^(10^19) at MeV masses. Two evaluations cover every mass, both
+# exact for PREM's piecewise polynomials:
+#   'direct' (m R < 50): P and Q accumulated over sub-intervals no longer than 1/m with
+#     10-point Gauss-Legendre, Q inward from the surface (as NuOscProbExact does: written as
+#     the total minus the interior part, it would vanish into round-off);
+#   'heavy' (m R >= 50): integrating by parts, exact for a polynomial f, gives in a shell (a, b]
+#         n_eff(r) = n(r) + [f''(r)/m^2 + f''''(r)/m^4]/r + (m/r) E(r),
+#         E(r) = e^{-m(r-a)} delta + (1 - e^{-2mr})/2 e^{-m(b-r)} gamma,
+#     with per-shell constants delta = P(a) - D_-(a)/2 - e^{-2ma} D_+(a)/2 and
+#     gamma = Q(b) - D_+(b), where D_+-(x) = sum_k (+-1)^k f^(k)(x)/m^(k+1). (delta folds the
+#     image term e^{-m(r+a)} into the first: kept apart, the two nearly cancel in the centre
+#     shell, where fastmath's fused multiply-adds round them differently and 1/r magnifies
+#     the residue. For PREM, whose centre density is even in r, delta is exactly zero
+#     there.) E holds the boundary layers: half-way between the two densities at a jump,
+#     relaxing over 1/m. Away from them every exponential underflows and n_eff is n(r) to
+#     O((m R)^-2): at MeV masses the result is bit-identical to the contact form.
+# A table is the tuple (par, edges, F, abg, nodes): par = [mode, m (1/km), R (km), P(R)];
+# shell edges (km); F[s, k], the coefficients of f(r) = sum_k F[s, k] r^k (cm^-3 km); the
+# heavy-mode delta, D_+(a)/2 (kept for diagnostics) and gamma per shell; the direct-mode nodes
+# (r, P, Q, shell). Densities are in cm^-3 and lengths in km throughout.
+_YUKAWA_CONTACT = 0
+_YUKAWA_HEAVY = 1
+_YUKAWA_DIRECT = 2
+_YUKAWA_HEAVY_MIN_MR = 50.0
+_KM_IN_EV_INV = 1e3 * m_to_eV_inv            # 1 km in eV^-1, so m [1/km] = m [eV] * this
+# Boundary layers thinner than this fraction of an Earth step are left unresolved along the
+# chords: each contributes below this fraction of the step's phase.
+_YUKAWA_LAYER_REL_TOL = 1e-10
+
+
+def _yukawa_D(F_s: np.ndarray, x: float, m: float, sign: float) -> float:
+    """D_+-(x) = sum_k (+-1)^k f^(k)(x) / m^(k+1) for f(r) = sum_k F_s[k] r^k (degree <= 4).
+
+    Arguments: F_s -- the shell's five coefficients; x -- radius (km); m -- mediator mass
+    (1/km); sign -- +1 or -1. Evaluated in Horner form in sign/m, so no power of m is formed.
+    """
+    f0 = F_s[0] + x * (F_s[1] + x * (F_s[2] + x * (F_s[3] + x * F_s[4])))
+    f1 = F_s[1] + x * (2.0 * F_s[2] + x * (3.0 * F_s[3] + x * 4.0 * F_s[4]))
+    f2 = 2.0 * F_s[2] + x * (6.0 * F_s[3] + x * 12.0 * F_s[4])
+    f3 = 6.0 * F_s[3] + x * 24.0 * F_s[4]
+    f4 = 24.0 * F_s[4]
+    u = sign / m
+    return (f0 + u * (f1 + u * (f2 + u * (f3 + u * f4)))) / m
+
+
+def yukawa_profile_table(edges_km, fcoef, m_km, mode=None):
+    """Builds the Yukawa table of a spherical profile (see the section notes above).
+
+    Arguments:
+      edges_km: shell edges (km), increasing from 0 to the body's radius R.
+      fcoef: (n_shells, 5) coefficients of f(r) = r n(r) = sum_k fcoef[s, k] r^k (cm^-3 km),
+        the density n being a polynomial of degree <= 3 on each shell (edge_s, edge_s+1].
+      m_km: mediator mass (1/km); None gives the contact table (n_eff = n).
+      mode: None (choose by m R), or force _YUKAWA_HEAVY / _YUKAWA_DIRECT (tests).
+
+    Returns: the tuple (par, edges, F, abg, nodes) read by the numba kernels below.
+    """
+    edges = np.ascontiguousarray(edges_km, dtype=np.float64)
+    F = np.ascontiguousarray(fcoef, dtype=np.float64)
+    S = len(edges) - 1
+    R = float(edges[-1])
+    abg = np.zeros((S, 3))
+    nodes = np.zeros((1, 4))
+    if m_km is None:
+        return (np.array([_YUKAWA_CONTACT, 0.0, R, 0.0]), edges, F, abg, nodes)
+    m = float(m_km)
+    if not (np.isfinite(m) and m > 0.0):
+        raise ValueError(f"The Yukawa mediator mass must be positive and finite (got {m_km} /km).")
+    if mode is None:
+        mode = _YUKAWA_HEAVY if m * R >= _YUKAWA_HEAVY_MIN_MR else _YUKAWA_DIRECT
+    if mode == _YUKAWA_HEAVY:
+        P = 0.0
+        for s in range(S):
+            a, b = edges[s], edges[s + 1]
+            Dm_a, Dm_b = _yukawa_D(F[s], a, m, -1.0), _yukawa_D(F[s], b, m, -1.0)
+            Dp_a, Dp_b = _yukawa_D(F[s], a, m, 1.0), _yukawa_D(F[s], b, m, 1.0)
+            abg[s, 0] = (P - 0.5 * Dm_a) - np.exp(-2.0 * m * a) * (0.5 * Dp_a)
+            abg[s, 1] = 0.5 * Dp_a
+            e_ba = np.exp(-m * (b - a))
+            P = (e_ba * P + 0.5 * (Dm_b - e_ba * Dm_a)
+                 - 0.5 * (np.exp(-m * (b + a)) * Dp_a - np.exp(-2.0 * m * b) * Dp_b))
+        P_R = P
+        Q = 0.0
+        for s in range(S - 1, -1, -1):
+            a, b = edges[s], edges[s + 1]
+            Dp_a, Dp_b = _yukawa_D(F[s], a, m, 1.0), _yukawa_D(F[s], b, m, 1.0)
+            abg[s, 2] = Q - Dp_b
+            e_ba = np.exp(-m * (b - a))
+            Q = e_ba * Q + Dp_a - e_ba * Dp_b
+    elif mode == _YUKAWA_DIRECT:
+        r_list, s_list = [0.0], []
+        for s in range(S):
+            k = max(1, int(np.ceil(m * (edges[s + 1] - edges[s]))))
+            r_list.extend(np.linspace(edges[s], edges[s + 1], k + 1)[1:])
+            s_list.extend([s] * k)
+        J = len(s_list)
+        nodes = np.zeros((J + 1, 4))
+        nodes[:, 0] = r_list
+        nodes[:J, 3] = s_list
+        for j in range(J):                    # P outward from the centre
+            s, lo, hi = s_list[j], nodes[j, 0], nodes[j + 1, 0]
+            half, x = 0.5 * (hi - lo), 0.5 * (hi + lo) + 0.5 * (hi - lo) * _GL10_X
+            f = F[s, 0] + x * (F[s, 1] + x * (F[s, 2] + x * (F[s, 3] + x * F[s, 4])))
+            g = f * (-0.5 * np.expm1(-2.0 * m * x))
+            nodes[j + 1, 1] = (np.exp(-m * (hi - lo)) * nodes[j, 1]
+                               + half * np.sum(_GL10_W * g * np.exp(-m * (hi - x))))
+        for j in range(J - 1, -1, -1):        # Q inward from the surface
+            s, lo, hi = s_list[j], nodes[j, 0], nodes[j + 1, 0]
+            half, x = 0.5 * (hi - lo), 0.5 * (hi + lo) + 0.5 * (hi - lo) * _GL10_X
+            f = F[s, 0] + x * (F[s, 1] + x * (F[s, 2] + x * (F[s, 3] + x * F[s, 4])))
+            nodes[j, 2] = (np.exp(-m * (hi - lo)) * nodes[j + 1, 2]
+                           + half * np.sum(_GL10_W * f * np.exp(-m * (x - lo))))
+        P_R = nodes[J, 1]
+    else:
+        raise ValueError(f"Unknown Yukawa table mode {mode}.")
+    return (np.array([float(mode), m, R, P_R]), edges, F, abg, nodes)
+
+
+def _prem_f_coeffs() -> np.ndarray:
+    """f(r) = r n(r) coefficients (cm^-3 km) of the PREM neutron profile, shell by shell:
+    the rho(x) polynomials of _PREM_RHO_COEFFS times earth_neutrons_per_gram, which is
+    constant on every shell (its regions end on PREM boundaries)."""
+    F = np.zeros((len(_PREM_EDGES_KM) - 1, 5))
+    for s in range(len(F)):
+        npg = earth_neutrons_per_gram(0.5 * (_PREM_EDGES_KM[s] + _PREM_EDGES_KM[s + 1]))
+        c = _PREM_RHO_COEFFS[s]
+        F[s, 1:] = npg * np.array([c[0], c[1] / 6371.0, c[2] / 6371.0**2, c[3] / 6371.0**3])
+    return F
+
+
+_PREM_F_COEFFS = _prem_f_coeffs()
+
+
+def earth_yukawa_table(m_eff_eV, mode=None):
+    """The Earth's Yukawa table (PREM neutrons, see the section notes above).
+
+    Arguments: m_eff_eV -- the mediator's effective mass sqrt(m_Zd^2 + m_D^2) (eV), or None
+    for the contact table (the pre-2026-10-12 local density); mode -- None, or a forced
+    _YUKAWA_HEAVY / _YUKAWA_DIRECT (tests). Returns the table tuple.
+    """
+    m_km = None if m_eff_eV is None else float(m_eff_eV) * _KM_IN_EV_INV
+    return yukawa_profile_table(_PREM_EDGES_KM, _PREM_F_COEFFS, m_km, mode)
+
+
+@njit(fastmath=True, cache=True)
+def _yk_shell(r: float, edges: np.ndarray) -> int:
+    """Index s of the shell (edges[s], edges[s+1]] holding r, with calc_earth_density's
+    convention that a boundary radius belongs to the shell below it."""
+    S = len(edges) - 1
+    for s in range(S - 1):
+        if r <= edges[s + 1]:
+            return s
+    return S - 1
+
+
+@njit(fastmath=True, cache=True)
+def _yk_delta_heavy(r: float, yk) -> float:
+    """Heavy-mode n_eff(r) - n(r) (cm^-3) for 0 <= r <= R: the polynomial correction plus the
+    boundary layers E(r) of the section notes. Arguments: r -- radius (km); yk -- a table."""
+    par, edges, F, abg, nodes = yk
+    m = par[1]
+    s = _yk_shell(r, edges)
+    a = edges[s]
+    b = edges[s + 1]
+    rr = max(r, 1e-9)
+    f2 = 2.0 * F[s, 2] + rr * (6.0 * F[s, 3] + rr * 12.0 * F[s, 4])
+    f4 = 24.0 * F[s, 4]
+    im2 = 1.0 / (m * m)
+    E = (np.exp(-m * (rr - a)) * abg[s, 0]
+         - 0.5 * np.expm1(-2.0 * m * rr) * np.exp(-m * (b - rr)) * abg[s, 2])
+    return (f2 + f4 * im2) * im2 / rr + (m / rr) * E
+
+
+@njit(fastmath=True, cache=True)
+def _yk_direct(r: float, yk) -> float:
+    """Direct-mode n_eff(r) (cm^-3) for 0 <= r <= R: P and Q at the node below and above r,
+    plus Gauss-Legendre over the partial sub-interval. Arguments: r (km); yk -- a table."""
+    par, edges, F, abg, nodes = yk
+    m = par[1]
+    rr = max(r, 1e-9)
+    lo = 0
+    hi = nodes.shape[0] - 1
+    while hi - lo > 1:
+        mid = (lo + hi) // 2
+        if nodes[mid, 0] <= rr:
+            lo = mid
+        else:
+            hi = mid
+    j = lo
+    rj = nodes[j, 0]
+    rj1 = nodes[j + 1, 0]
+    s = int(nodes[j, 3])
+    hp = 0.5 * (rr - rj)
+    mp = 0.5 * (rr + rj)
+    hq = 0.5 * (rj1 - rr)
+    mq = 0.5 * (rj1 + rr)
+    acc_p = 0.0
+    acc_q = 0.0
+    for q in range(len(_GL10_X)):
+        x = mp + hp * _GL10_X[q]
+        fx = F[s, 0] + x * (F[s, 1] + x * (F[s, 2] + x * (F[s, 3] + x * F[s, 4])))
+        acc_p += _GL10_W[q] * fx * (-0.5 * np.expm1(-2.0 * m * x)) * np.exp(-m * (rr - x))
+        y = mq + hq * _GL10_X[q]
+        fy = F[s, 0] + y * (F[s, 1] + y * (F[s, 2] + y * (F[s, 3] + y * F[s, 4])))
+        acc_q += _GL10_W[q] * fy * np.exp(-m * (y - rr))
+    P = np.exp(-m * (rr - rj)) * nodes[j, 1] + hp * acc_p
+    Q = np.exp(-m * (rj1 - rr)) * nodes[j + 1, 2] + hq * acc_q
+    return (m / rr) * (P - 0.5 * np.expm1(-2.0 * m * rr) * Q)
+
+
+@njit(fastmath=True, cache=True)
+def _yk_extra_cm3(r: float, yk) -> float:
+    """The part of n_eff (cm^-3) that the contact density n(r) leaves out: zero for the
+    contact table, n_eff - n in heavy mode, all of n_eff in direct mode, and the exterior
+    potential (m/r) e^{-m(r-R)} P(R) outside the body, where n = 0. Arguments: r (km), yk."""
+    par = yk[0]
+    mode = int(par[0])
+    if mode == _YUKAWA_CONTACT:
+        return 0.0
+    m = par[1]
+    R = par[2]
+    if r > R:
+        return (m / r) * np.exp(-m * (r - R)) * par[3]
+    if mode == _YUKAWA_DIRECT:
+        return _yk_direct(r, yk)
+    return _yk_delta_heavy(r, yk)
+
+
+@njit(fastmath=True, cache=True)
+def yukawa_profile_density(r: float, yk) -> float:
+    """n_eff(r) (cm^-3) of the profile a table was built from, its local density taken from the
+    table's own polynomials. Arguments: r -- radius (km); yk -- a yukawa_profile_table."""
+    par = yk[0]
+    mode = int(par[0])
+    if mode == _YUKAWA_DIRECT or r > par[2]:
+        return _yk_extra_cm3(r, yk)
+    F = yk[2]
+    s = _yk_shell(r, yk[1])
+    rr = max(r, 1e-9)
+    n = F[s, 0] / rr + F[s, 1] + rr * (F[s, 2] + rr * (F[s, 3] + rr * F[s, 4]))
+    if mode == _YUKAWA_HEAVY:
+        n += _yk_delta_heavy(r, yk)
+    return n
+
+
+@njit(fastmath=True, cache=True)
+def earth_neutron_density_cm3(r_km: float, yk) -> float:
+    """The Earth's effective neutron density n_eff (cm^-3) at geocentric radius r_km: the
+    density whose contact potential Coef * n_eff equals the Yukawa potential of all of PREM's
+    neutrons. Arguments: r_km -- radius (km); yk -- an earth_yukawa_table. The local part is
+    calc_earth_density * earth_neutrons_per_gram, exactly as the contact form computes it."""
+    mode = int(yk[0][0])
+    if mode == _YUKAWA_DIRECT or r_km > yk[0][2]:
+        return _yk_extra_cm3(r_km, yk)
+    n = calc_earth_density(r_km) * earth_neutrons_per_gram(r_km)
+    if mode == _YUKAWA_HEAVY:
+        d = _yk_delta_heavy(r_km, yk)
+        if d != 0.0:
+            n = n + d
+    return n
+
+
+@njit(fastmath=True, cache=True)
+def earth_total_density(l_km: float, baseline_km: float, costh: float,
+                        detector_depth_km: float, n_n_amb_eV3: float, yk) -> float:
+    """spatial_total_density_earth with the Earth's own neutrons entering through their
+    Yukawa integral (eV^3). Arguments: as spatial_total_density_earth, plus yk -- an
+    earth_yukawa_table. Where the Yukawa correction underflows (always, at MeV masses) the
+    result is spatial_total_density_earth's, bit for bit."""
+    mode = int(yk[0][0])
+    f1 = baseline_km - l_km
+    f2 = 6371.0 - detector_depth_km
+    if mode == _YUKAWA_DIRECT:
+        r_center_km = np.sqrt(f1**2 + f2**2 + 2.0 * f1 * f2 * costh)
+        return n_n_amb_eV3 + _yk_extra_cm3(r_center_km, yk) * cm_inv3_to_eV3
+    n_tot = spatial_total_density_earth(l_km, baseline_km, costh, detector_depth_km, n_n_amb_eV3)
+    if mode == _YUKAWA_HEAVY:
+        r_center_km = np.sqrt(f1**2 + f2**2 + 2.0 * f1 * f2 * costh)
+        d = _yk_extra_cm3(r_center_km, yk)
+        if d != 0.0:
+            n_tot = n_tot + d * cm_inv3_to_eV3
+    return n_tot
+
+
+@njit(fastmath=True, cache=True)
+def _yk_layer_width(m: float, r_b: float, t_abs: float) -> float:
+    """Width along a chord of the boundary layer at radius r_b, met at distance t_abs from the
+    chord's closest approach to the centre: 1/(m |dr/dl|) with |dr/dl| = t_abs/r_b, capped at
+    the grazing-incidence width sqrt(r_b/m)/2. Arguments: m (1/km), r_b (km), t_abs (km)."""
+    w_graze = 0.5 * np.sqrt(r_b / m)
+    s = t_abs / r_b
+    if s * m * w_graze > 1.0:
+        return 1.0 / (m * s)
+    return w_graze
+
+
+@njit(fastmath=True, cache=True)
+def _earth_chord_features(baseline_km: float, costh: float, detector_depth_km: float,
+                          cross_ls: np.ndarray, yk):
+    """Positions along an Earth chord (km) where n_eff has structure on the scale of the
+    mediator range, with that structure's width along the chord: the surface at entry, every
+    PREM boundary crossing, the surface just above the detector (when within 40/m of it), and
+    the closest approach when it passes within 40/m of a boundary. Arguments: as
+    _avg_earth_density_seq; yk -- a non-contact earth_yukawa_table. Returns (l_f, w_f)."""
+    m = yk[0][1]
+    edges = yk[1]
+    R = edges[len(edges) - 1]
+    f2 = R - detector_depth_km
+    r_min = f2 * np.sqrt(max(1.0 - costh * costh, 0.0))
+    l_t = baseline_km + f2 * costh
+    nc = len(cross_ls)
+    feat_l = np.empty(nc + 3)
+    feat_w = np.empty(nc + 3)
+    feat_l[0] = 0.0
+    feat_w[0] = _yk_layer_width(m, R, abs(l_t))
+    n = 1
+    for i in range(nc):
+        f1 = baseline_km - cross_ls[i]
+        r_c = np.sqrt(f1 * f1 + f2 * f2 + 2.0 * f1 * f2 * costh)
+        feat_l[n] = cross_ls[i]
+        feat_w[n] = _yk_layer_width(m, r_c, abs(cross_ls[i] - l_t))
+        n += 1
+    if m * detector_depth_km < 40.0:
+        feat_l[n] = baseline_km
+        feat_w[n] = _yk_layer_width(m, f2, abs(baseline_km - l_t))
+        n += 1
+    if 0.0 < l_t < baseline_km:
+        for k in range(1, len(edges)):
+            if abs(r_min - edges[k]) < 40.0 / m:
+                feat_l[n] = l_t
+                feat_w[n] = 0.5 * np.sqrt(max(r_min, 1e-9) / m)
+                n += 1
+                break
+    return feat_l[:n].copy(), feat_w[:n].copy()
+
+
+@njit(fastmath=True, cache=True)
+def _yk_graded_integral(A: float, B: float, feat_l: np.ndarray, feat_w: np.ndarray,
+                        w_min: float, baseline_km: float, costh: float,
+                        detector_depth_km: float, yk, glx: np.ndarray, glw: np.ndarray) -> float:
+    """Integral over l in [A, B] (km) of _yk_extra_cm3 along an Earth chord (cm^-3 km), with
+    Gauss-Legendre sub-segments graded toward every boundary layer that is thinner than a
+    quarter of the segment but thicker than w_min: edges at l_f +- w (1, 2, 3, 4, then
+    sqrt(2) apart), so each sub-segment is at most ~1/2.4 of its distance from the layer
+    and 10 points integrate its exponential to fp accuracy. Layers wider than a quarter of
+    the segment need no grading. Arguments: A, B -- the segment; feat_l, feat_w -- from
+    _earth_chord_features; w_min -- the thinnest layer resolved; the chord geometry; yk;
+    glx, glw -- Gauss-Legendre nodes and weights on [-1, 1]."""
+    L = B - A
+    nf = len(feat_l)
+    buf = np.empty(4 + 160 * nf)
+    cap = len(buf) - 2
+    buf[0] = A
+    buf[1] = B
+    n = 2
+    for f in range(nf):
+        w = feat_w[f]
+        if w < w_min or w >= 0.25 * L:
+            continue
+        lf = feat_l[f]
+        dist = 0.0
+        if lf < A:
+            dist = A - lf
+        elif lf > B:
+            dist = lf - B
+        if dist > 40.0 * w:
+            continue
+        if A < lf < B:
+            buf[n] = lf
+            n += 1
+        x = w
+        i = 1
+        while x < L + dist and n < cap:
+            e1 = lf - x
+            e2 = lf + x
+            if A < e1 < B:
+                buf[n] = e1
+                n += 1
+            if A < e2 < B:
+                buf[n] = e2
+                n += 1
+            if i < 4:
+                x = (i + 1) * w
+            else:
+                x *= 1.4142135623730951
+            i += 1
+    edges = np.sort(buf[:n])
+    f2 = 6371.0 - detector_depth_km
+    total = 0.0
+    for i in range(n - 1):
+        lo = edges[i]
+        hi = edges[i + 1]
+        if hi <= lo:
+            continue
+        mid = 0.5 * (lo + hi)
+        half = 0.5 * (hi - lo)
+        acc = 0.0
+        for q in range(len(glx)):
+            f1 = baseline_km - (mid + half * glx[q])
+            r = np.sqrt(f1 * f1 + f2 * f2 + 2.0 * f1 * f2 * costh)
+            acc += glw[q] * _yk_extra_cm3(r, yk)
+        total += acc * half
+    return total
+
+
 @njit(fastmath=True, cache=True)
 def init_mw_density_matrix(r_start_kpc: float, theta: float, phi: float, E_bins: np.ndarray, F_mass_arrival: np.ndarray,
                            M_rot: np.ndarray, m_eff: float, Coef: float, U_LRI_struct: np.ndarray) -> np.ndarray:
@@ -288,16 +733,17 @@ def step_earth_transit(l_km: float, baseline_km: float, costh: float, dr_earth_e
                        E_bins: np.ndarray, rho_earth: np.ndarray, M_rot: np.ndarray,
                        n_n_amb_eV3: float, Coef: float, U_LRI_struct: np.ndarray,
                        V_SM: np.ndarray, detector_depth_km: float,
-                       U_step_buffer: np.ndarray, H_buf: np.ndarray, T_buf: np.ndarray):
+                       U_step_buffer: np.ndarray, H_buf: np.ndarray, T_buf: np.ndarray, yk):
     """Executes a single path-length step through the Earth interior using pre-allocated contiguous matrix buffers.
 
     V_SM is the complete, prebuilt 3x3 SM matter potential (zeros when use_SM_potential is
     off). It is constant along the entire chord -- it depends only on the configured
     electron density and the antineutrino sign convention, never on position -- so it is
     built exactly once in propagate_earth_spatial rather than being reconstructed here on
-    every single path-length step as it previously was.
+    every single path-length step as it previously was. yk is the Earth's Yukawa table
+    (earth_yukawa_table): the density is sampled at the step's left endpoint ('left' scheme).
     """
-    n_tot_eV3 = spatial_total_density_earth(l_km, baseline_km, costh, detector_depth_km, n_n_amb_eV3)
+    n_tot_eV3 = earth_total_density(l_km, baseline_km, costh, detector_depth_km, n_n_amb_eV3, yk)
     V_LRI = (Coef * n_tot_eV3) * U_LRI_struct + V_SM
 
     _evolve_rho_all_bins(E_bins, rho_earth, M_rot, V_LRI, dr_earth_eV_inv, H_buf, U_step_buffer, T_buf)
@@ -326,8 +772,7 @@ def _mw_path_worker(args) -> np.ndarray:
     return rho_f
 
 # PREM layer boundary radii (km) -- the breakpoints of calc_earth_density
-_PREM_BOUNDARIES_KM = np.array([1221.5, 3480.0, 5701.0, 5771.0, 5971.0, 6151.0,
-                                6346.6, 6356.0, 6368.0, 6371.0])
+_PREM_BOUNDARIES_KM = _PREM_EDGES_KM[1:].copy()
 
 
 def _earth_layer_crossings(baseline_km: float, costh: float, detector_depth_km: float) -> np.ndarray:
@@ -359,22 +804,38 @@ def _earth_layer_crossings(baseline_km: float, costh: float, detector_depth_km: 
 @njit(fastmath=True, cache=True)
 def _avg_earth_density_seq(baseline_km: float, costh: float, N_steps: int,
                            detector_depth_km: float, n_n_amb_eV3: float,
-                           cross_ls: np.ndarray, glx: np.ndarray, glw: np.ndarray) -> np.ndarray:
+                           cross_ls: np.ndarray, glx: np.ndarray, glw: np.ndarray,
+                           yk) -> np.ndarray:
     """Per-step EXACT path-averaged total density along an Earth chord:
-    nbar_s = (1/dr) * integral of spatial_total_density_earth over [l_s, l_{s+1}],
+    nbar_s = (1/dr) * integral of earth_total_density over [l_s, l_{s+1}],
     with the integral split at PREM layer crossings (cross_ls, sorted) so every
     Gauss-Legendre subsegment integrates a smooth piecewise-polynomial -- the density
     is then exact to fp accuracy for any step count. This is what makes the 'avg'
     stepping scheme's accumulated LRI phase equal Coef * integral(n dl) EXACTLY,
-    independent of N_steps -- see propagate_earth_spatial's scheme note."""
+    independent of N_steps -- see propagate_earth_spatial's scheme note.
+
+    yk is the Earth's Yukawa table (earth_yukawa_table). The contact part (ambient plus the
+    local PREM density) is integrated exactly as before 2026-10-12; the Yukawa remainder
+    (_yk_extra_cm3) is added from _yk_graded_integral, whose sub-segments resolve the boundary
+    layers near crossings, the surface and the detector. At MeV masses that remainder
+    underflows to zero and nbar is bit-identical to the contact form. In direct mode (a
+    mediator range beyond R/50) n_eff replaces the local density entirely."""
     dr = baseline_km / N_steps
     nbar = np.empty(N_steps, dtype=np.float64)
     n_cross = len(cross_ls)
     n_gl = len(glx)
+    mode = int(yk[0][0])
+    if mode != _YUKAWA_CONTACT:
+        feat_l, feat_w = _earth_chord_features(baseline_km, costh, detector_depth_km, cross_ls, yk)
+    else:
+        feat_l = np.empty(0)
+        feat_w = np.empty(0)
+    w_min = _YUKAWA_LAYER_REL_TOL * dr
     for s in range(N_steps):
         a = s * dr
         b = a + dr
         total = 0.0
+        extra = 0.0
         seg_a = a
         for k in range(n_cross + 1):
             seg_b = b
@@ -388,18 +849,24 @@ def _avg_earth_density_seq(baseline_km: float, costh: float, N_steps: int,
                     seg_b = b
             if seg_b <= seg_a:
                 continue
-            mid = 0.5 * (seg_a + seg_b)
-            half = 0.5 * (seg_b - seg_a)
-            acc = 0.0
-            for q in range(n_gl):
-                l = mid + half * glx[q]
-                acc += glw[q] * spatial_total_density_earth(l, baseline_km, costh,
-                                                           detector_depth_km, n_n_amb_eV3)
-            total += acc * half
+            if mode != _YUKAWA_DIRECT:
+                mid = 0.5 * (seg_a + seg_b)
+                half = 0.5 * (seg_b - seg_a)
+                acc = 0.0
+                for q in range(n_gl):
+                    l = mid + half * glx[q]
+                    acc += glw[q] * spatial_total_density_earth(l, baseline_km, costh,
+                                                               detector_depth_km, n_n_amb_eV3)
+                total += acc * half
+            if mode != _YUKAWA_CONTACT:
+                extra += _yk_graded_integral(seg_a, seg_b, feat_l, feat_w, w_min, baseline_km,
+                                             costh, detector_depth_km, yk, glx, glw)
             seg_a = seg_b
             if seg_a >= b:
                 break
-        nbar[s] = total / dr
+        if mode == _YUKAWA_DIRECT:
+            total = n_n_amb_eV3 * dr
+        nbar[s] = (total + extra * cm_inv3_to_eV3) / dr
     return nbar
 
 
@@ -421,7 +888,7 @@ def _earth_chord_worker(args) -> np.ndarray:
                 kernel; only the V value per step differs.
     """
     (costh, baseline_km, N_steps_earth, E_bins, rho_surf_avg, M_rot, n_n_amb_eV3, Coef,
-     U_LRI_struct, V_SM, detector_depth_km, earth_scheme) = args
+     U_LRI_struct, V_SM, detector_depth_km, earth_scheme, earth_yk) = args
 
     dr_earth_km = baseline_km / N_steps_earth
     dr_earth_eV_inv = dr_earth_km * 1e3 * m_to_eV_inv
@@ -432,7 +899,7 @@ def _earth_chord_worker(args) -> np.ndarray:
     if earth_scheme == "avg":
         cross_ls = _earth_layer_crossings(baseline_km, costh, detector_depth_km)
         nbar = _avg_earth_density_seq(baseline_km, costh, N_steps_earth, detector_depth_km,
-                                      n_n_amb_eV3, cross_ls, _GL10_X, _GL10_W)
+                                      n_n_amb_eV3, cross_ls, _GL10_X, _GL10_W, earth_yk)
         for step in range(N_steps_earth):
             V_LRI = np.ascontiguousarray((Coef * nbar[step]) * U_LRI_struct + V_SM)
             _evolve_rho_all_bins(E_bins, rho_earth, M_rot, V_LRI, dr_earth_eV_inv,
@@ -442,7 +909,7 @@ def _earth_chord_worker(args) -> np.ndarray:
             l_km = step * dr_earth_km
             step_earth_transit(l_km, baseline_km, costh, dr_earth_eV_inv, E_bins, rho_earth, M_rot,
                                n_n_amb_eV3, Coef, U_LRI_struct, V_SM,
-                               detector_depth_km, U_step_buffer, H_buf, T_buf)
+                               detector_depth_km, U_step_buffer, H_buf, T_buf, earth_yk)
     return rho_earth
 
 def _split_E_blocks(N_E: int, n_units: int, n_workers: int):
@@ -581,6 +1048,11 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
     external_pool, if given, is a caller-managed multiprocessing.Pool reused across many
     calls instead of creating a fresh one each time -- see _run_spatial_tasks's docstring.
 
+    The Earth's own neutrons enter through their spherical Yukawa integral over the mediator
+    range 1/m_eff (earth_yukawa_table, built once per call from m_eff); at MeV masses that is
+    the local density bit for bit, and it differs once the range approaches PREM's layer
+    thicknesses (m_eff <~ 1e-9 eV).
+
     U_LRI_struct / V_SM_struct, if given, are dimensionless 3x3 Hermitian flavor structure
     matrices overriding the default LRI texture (u_i * conj(u_j)) and SM matter-potential
     texture (diag(1, 0, 0)) respectively. IMPORTANT CONVENTION: this function expects them
@@ -632,6 +1104,10 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
     if is_antineutrino:
         Coef = -Coef
 
+    # The Earth's own neutrons enter through their spherical Yukawa integral over the mediator
+    # range 1/m_eff (see earth_yukawa_table); at MeV masses this is the contact density.
+    earth_yk = earth_yukawa_table(m_eff)
+
     if U_LRI_struct is None:
         # Default texture: outer product of the sterile mixing vector. u_arr arrives
         # pre-conjugated for antineutrinos, so this construction is automatically in the
@@ -675,7 +1151,7 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
     # with the PREM-core density (the worst case along any chord).
     if verbose >= 1:
         s_lri = float(np.max(np.abs(np.linalg.eigvalsh(U_LRI_struct))))
-        n_core_eV3 = 13.0885 * earth_neutrons_per_gram(0.0) * cm_inv3_to_eV3
+        n_core_eV3 = earth_neutron_density_cm3(0.0, earth_yk) * cm_inv3_to_eV3
         dr_core_eV_inv = (get_baseline_earth(detector_depth_km, -1.0) / N_steps_earth) * 1e3 * m_to_eV_inv
         if 2.2e-16 * abs(Coef) * n_core_eV3 * s_lri * dr_core_eV_inv > 0.1:
             safe_print(
@@ -725,11 +1201,13 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
                     cross_ls = _earth_layer_crossings(baselines[c], earth_costh[c], detector_depth_km)
                     n_seq_earth[c, :] = _avg_earth_density_seq(baselines[c], earth_costh[c],
                                                                N_steps_earth, detector_depth_km,
-                                                               n_n_amb_eV3, cross_ls, _GL10_X, _GL10_W)
+                                                               n_n_amb_eV3, cross_ls, _GL10_X, _GL10_W,
+                                                               earth_yk)
                 else:
                     for s in range(N_steps_earth):
-                        n_seq_earth[c, s] = spatial_total_density_earth(s * dr_earth_km[c], baselines[c],
-                                                                        earth_costh[c], detector_depth_km, n_n_amb_eV3)
+                        n_seq_earth[c, s] = earth_total_density(s * dr_earth_km[c], baselines[c],
+                                                                earth_costh[c], detector_depth_km,
+                                                                n_n_amb_eV3, earth_yk)
             rho0_chords = np.broadcast_to(rho_surf_avg, (len(earth_costh), N_E, 3, 3)).copy()
             rho_chords = run_spatial_handover_gpu(E_bins, rho0_chords, n_seq_earth,
                                                   dr_earth_km * 1e3 * m_to_eV_inv,
@@ -803,7 +1281,8 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
     earth_blocks = _split_E_blocks(N_E, len(earth_costh), n_workers)
     earth_tasks = [(costh, get_baseline_earth(detector_depth_km, costh), N_steps_earth, E_bins[b0:b1],
                     rho_surf_avg[b0:b1], M_rot, n_n_amb_eV3, Coef, U_LRI_struct, V_SM,
-                    detector_depth_km, earth_step_scheme) for costh in earth_costh for (b0, b1) in earth_blocks]
+                    detector_depth_km, earth_step_scheme, earth_yk)
+                   for costh in earth_costh for (b0, b1) in earth_blocks]
     earth_block_results = _run_spatial_tasks(_earth_chord_worker, earth_tasks, f"Earth chords ({lbl})", n_workers, show_progress, external_pool=external_pool)
     earth_results = []
     for c in range(len(earth_costh)):
