@@ -2182,9 +2182,48 @@ def test_milky_way_neutron_fractions():
     rho_thin = (753.0 / 600.0) * np.exp(-R0 / 3.0)
     rho_thick = (182.0 / 1800.0) * np.exp(-R0 / 3.5)
     n_e_gas = 0.46 * (1.0 + (R0 / 0.35)**2)**(-1.065)
-    expected = (rho_bulge + rho_thin + rho_thick) * 40.464 * 0.20 + n_e_gas * 0.15
+    # cold HI + H2 discs (McMillan 2017) at the mid-plane: sech^2(0) = 1
+    rho_cold = (53.1 / (4 * 85.0) * np.exp(-4.0 / R0 - R0 / 7.0)
+                + 2180.0 / (4 * 45.0) * np.exp(-12.0 / R0 - R0 / 1.5))
+    expected = ((rho_bulge + rho_thin + rho_thick) * 40.464 * 0.20 + rho_cold * 40.464 * 0.142
+                + n_e_gas * 0.15)
     got = dp_spatial.calc_MW_neutron_density(0.0, 0.0, 0.0)
     assert abs(got / expected - 1.0) < 1e-6, (got, expected)
+
+
+def test_cold_gas_discs_reproduce_mcmillan_surface_densities():
+    """Integrated over height, each McMillan (2017) gas disc must return its surface density
+    Sigma_0 exp(-R_m/R - R/R_d): about 10 (HI) and 2 (H2) Msun/pc^2 at the Sun. The sech^2 form
+    must stay finite far from the plane, and the density must vanish on the axis."""
+    import dp_spatial
+    z_kpc = np.linspace(-3.0, 3.0, 600001)
+    for disc, sigma_sun in ((dp_spatial._HI_DISC, 10.0), (dp_spatial._H2_DISC, 2.0)):
+        Sigma_0, R_d, R_m, z_d = disc
+        rho = np.array([dp_spatial._gas_disc_density(8.33, z, Sigma_0, R_d, R_m, z_d) for z in z_kpc])
+        sigma = np.trapz(rho, z_kpc * 1e3)                      # Msun/pc^2
+        assert abs(sigma / (Sigma_0 * np.exp(-R_m / 8.33 - 8.33 / R_d)) - 1.0) < 1e-6
+        assert abs(sigma / sigma_sun - 1.0) < 0.07, (disc, sigma)
+        assert dp_spatial._gas_disc_density(8.33, 100.0, Sigma_0, R_d, R_m, z_d) == 0.0
+        assert dp_spatial._gas_disc_density(0.0, 0.0, Sigma_0, R_d, R_m, z_d) == 0.0
+
+
+def test_point_source_neutron_numbers():
+    """The Sun, Moon and Earth enter as point sources of the potential. Their neutron numbers
+    must match their compositions: the Earth's is PREM integrated with the same per-layer
+    fractions the chords use; the Sun's is 0.161 neutrons per nucleon (present bulk Y = 0.308,
+    Z = 0.0142), the Moon's 0.505 (rock with a small iron core). Until 2026-10-12 the Sun and the
+    Moon both used 0.248 per nucleon."""
+    from scipy.integrate import quad
+    import dp_core
+    import dp_spatial
+    m_u = 1.66054e-24
+    edges = [0.0, 1221.5, 3480.0, 5701.0, 5771.0, 5971.0, 6151.0, 6346.6, 6356.0, 6368.0, 6371.0]
+    N_earth = sum(quad(lambda r: 4 * np.pi * r * r * dp_spatial.calc_earth_density(r)
+                       * dp_spatial.earth_neutrons_per_gram(r), a, b, epsrel=1e-10)[0]
+                  for a, b in zip(edges[:-1], edges[1:])) * 1e15
+    assert abs(dp_core.N_n_earth / N_earth - 1.0) < 1e-3, (dp_core.N_n_earth, N_earth)
+    assert abs(dp_core.N_n_sun * m_u / 1.98847e33 - 0.161) < 1e-3
+    assert abs(dp_core.N_n_moon * m_u / 7.342e25 - 0.505) < 1e-3
 
 
 def test_earth_neutrons_per_gram_by_layer():

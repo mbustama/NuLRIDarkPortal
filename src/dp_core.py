@@ -129,10 +129,19 @@ d_moon_eV_inv = 3.84e8 * m_to_eV_inv
 R_earth_eV_inv = 6371e3 * m_to_eV_inv
 R_core_eV_inv = 3480e3 * m_to_eV_inv
 
-# Total number of neutrons per celestial body (assuming Y_n = Y_p = 0.5 where applicable)
-N_n_sun = 2.972e56    
-N_n_earth = 1.785e51  
-N_n_moon = 1.098e49   
+# Total number of neutrons per celestial body -- point sources of the dark-portal potential,
+# which matter only for mediators light enough to reach across AU-scale distances.
+# Sun: present bulk composition, the protosolar X/Y/Z = 0.7154/0.2703/0.0142 (Asplund et al.
+#   2009) plus the ~0.038 Msun of hydrogen burned to helium (integrated luminosity, ~0.85 L_sun
+#   over 4.57 Gyr): Y = 0.308, i.e. 0.161 neutrons per nucleon.
+# Earth: PREM integrated with dp_spatial.earth_neutrons_per_gram (core Y_e 0.4656, mantle and
+#   crust 0.4957, top layer water): 0.514 neutrons per nucleon (PREM's mass is 5.973e27 g).
+# Moon: silicate rock (Y_e 0.4957) with a ~1.5% iron core (0.4656): 0.505 neutrons per nucleon.
+# Until 2026-10-12 the Sun and the Moon used 0.248 per nucleon (2.972e56, 1.098e49) and the
+# Earth 0.496 (1.785e51).
+N_n_sun = 1.929e56
+N_n_earth = 1.849e51
+N_n_moon = 2.232e49
 
 
 @njit(cache=True)

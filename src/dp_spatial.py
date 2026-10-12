@@ -36,6 +36,29 @@ _MW_NEUTRONS_PER_NUCLEON_STARS = 0.20
 _MW_NEUTRONS_PER_ELECTRON_GAS = 0.15
 # Nucleons per cm^3 in 1 Msun/pc^3: 1.98847e33 g / (3.08568e18 cm)^3 / m_p = 40.464.
 _NUCLEONS_PER_CM3_PER_MSUN_PC3 = 40.464
+# Cold disc gas: the HI and H2 discs of McMillan (2017, MNRAS 465, 76; arXiv:1608.00971),
+#   rho = Sigma_0 / (4 z_d) exp(-R_m/R - R/R_d) sech^2(z / 2 z_d),
+# with Sigma_0 in Msun/pc^2 INCLUDING helium and metals (so no further correction) -- HI:
+# 53.1, R_d 7, R_m 4, z_d 0.085 kpc; H2: 2180, R_d 1.5, R_m 12, z_d 0.045 kpc. At the Sun they give
+# 10 and 2 Msun/pc^2 (McKee et al. 2015 measure 13.7 in all gas). Neutrons per nucleon (Y + Z)/2
+# for protosolar Y = 0.2703, Z = 0.0142 (Asplund et al. 2009). Absent before 2026-10-12.
+_MW_NEUTRONS_PER_NUCLEON_COLD_GAS = 0.142
+_HI_DISC = (53.1, 7.0, 4.0, 0.085)      # Sigma_0 [Msun/pc^2], R_d, R_m, z_d [kpc]
+_H2_DISC = (2180.0, 1.5, 12.0, 0.045)
+
+
+@njit("float64(float64, float64, float64, float64, float64, float64)", fastmath=True, cache=True)
+def _gas_disc_density(R_kpc: float, z_kpc: float, Sigma_0: float, R_d: float, R_m: float,
+                      z_d: float) -> float:
+    """Mass density (Msun/pc^3) of a McMillan (2017) gas disc at cylindrical radius R_kpc and
+    height z_kpc. sech^2 is written as 4 e^{-2|x|} / (1 + e^{-2|x|})^2, which cannot overflow,
+    and the central hole exp(-R_m/R) is taken as zero on the axis."""
+    if R_kpc < 1e-3:
+        return 0.0
+    x = np.abs(z_kpc) / (2.0 * z_d)
+    e = np.exp(-2.0 * x)
+    sech2 = 4.0 * e / ((1.0 + e) * (1.0 + e))
+    return Sigma_0 / (4.0 * z_d * 1e3) * np.exp(-R_m / R_kpc - R_kpc / R_d) * sech2
 
 
 @njit("float64(float64, float64, float64)", fastmath=True, cache=True)
@@ -45,7 +68,9 @@ def calc_MW_neutron_density(r_kpc: float, theta: float, phi: float) -> float:
     Arguments: r_kpc, theta, phi -- position relative to the Sun (kpc, rad, rad). The
     stellar bulge and discs (McMillan) are mass densities in Msun/pc^3, converted to
     neutrons with _MW_NEUTRONS_PER_NUCLEON_STARS; the hot-gas halo (Miller & Bregman 2013)
-    is an electron density, converted with _MW_NEUTRONS_PER_ELECTRON_GAS (see above)."""
+    is an electron density, converted with _MW_NEUTRONS_PER_ELECTRON_GAS; the cold HI and H2
+    discs (McMillan 2017) are mass densities, converted with _MW_NEUTRONS_PER_NUCLEON_COLD_GAS
+    (see above)."""
     R_0 = 8.33
     sth = np.sin(theta)
     # The law-of-cosines argument is mathematically >= 0, but evaluating it as a
@@ -66,8 +91,12 @@ def calc_MW_neutron_density(r_kpc: float, theta: float, phi: float) -> float:
     rho_thick = (182.0 / 1800.0) * np.exp(-np.abs(z_gal) / 0.9 - np.abs(R_gal) / 3.5)
     n_e_gas = 0.46 * (1.0 + (r_gal / 0.35)**2)**(-1.065)    # Miller & Bregman 2013, cm^-3
 
+    rho_cold = (_gas_disc_density(R_gal, z_gal, _HI_DISC[0], _HI_DISC[1], _HI_DISC[2], _HI_DISC[3])
+                + _gas_disc_density(R_gal, z_gal, _H2_DISC[0], _H2_DISC[1], _H2_DISC[2], _H2_DISC[3]))
+
     n_n_MW = ((rho_bulge + rho_thin + rho_thick) * _NUCLEONS_PER_CM3_PER_MSUN_PC3
               * _MW_NEUTRONS_PER_NUCLEON_STARS
+              + rho_cold * _NUCLEONS_PER_CM3_PER_MSUN_PC3 * _MW_NEUTRONS_PER_NUCLEON_COLD_GAS
               + n_e_gas * _MW_NEUTRONS_PER_ELECTRON_GAS)
     return n_n_MW
 

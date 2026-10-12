@@ -51,9 +51,9 @@ the Earth; it is validated at four benchmark parameter points and runs in $0.32$
 production defaults. The statistical analysis fits the predicted flavor composition to a
 projected 2050 measurement; it carries no explicit systematic uncertainties yet. The next
 stage, agreed on 2026-10-12, adds IceCube event rates, systematic uncertainties and coverage
-tests (Sec.~\ref{sec:plan}). We corrected two physics inputs on 2026-10-12, the relic-neutrino
-temperature and the cosmological and Galactic neutron densities (Appendix~\ref{app:corrections});
-the neutron numbers of the Sun, the Moon and the Earth await a decision (Sec.~\ref{sec:open}).
+tests (Sec.~\ref{sec:plan}). On 2026-10-12 we corrected the relic-neutrino temperature and every
+neutron number that sources the potential (Appendix~\ref{app:corrections}); a chord-sampling
+floor in the Earth transit remains open (Sec.~\ref{sec:open}).
 \end{minipage}}
 \end{center}
 
@@ -80,7 +80,8 @@ Earth transit & Phase-exact stepping with a step-count certificate; 25 steps & \
 Flavor-ratio analysis & Profile scans and exclusion planes run; no explicit systematics & \ref{sec:stats} \\
 IceCube event rates & Planned; data sets and folding method chosen & \ref{sec:rates} \\
 Systematics and coverage & Planned; list and procedure agreed & \ref{sec:syst}, \ref{sec:soundness} \\
-Neutron densities & Cosmological and Galactic values corrected; Sun, Moon, Earth in question & \ref{sec:inputs}, \ref{sec:open} \\
+Neutron densities & All corrected 2026-10-12 & \ref{sec:inputs}, \ref{app:corrections} \\
+Earth-chord sampling & Floor of $\sim10^{-2}$ in flavor fractions; open & \ref{sec:open} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -209,8 +210,11 @@ density along the path, because the $Z$-like couplings of protons and electrons 
 matter. Cosmologically, the neutrons sit almost entirely in helium-4, $Y_p/2$ per baryon, so
 $n_{n,0} = n_b Y_p/2 = 3.091\times10^{-8}$~cm$^{-3}$ for $n_b = 2.515\times10^{-7}$~cm$^{-3}$
 (PDG 2024) and $Y_p = 0.2458$ (LBT $Y_p$ project, 2026). In the Galaxy we convert the stellar mass
-density at $0.20$ neutrons per nucleon and the electron density of the hot halo at $0.15$ neutrons
-per electron (Appendix~\ref{app:neutrons}). In the Earth we use $1-Y_e$ neutrons per nucleon, with electron fractions
+density at $0.20$ neutrons per nucleon, the electron density of the hot halo at $0.15$ neutrons per
+electron, and the cold HI and H$_2$ discs of McMillan (2017) at $0.142$ neutrons per nucleon
+(Appendices~\ref{app:neutrons} and~\ref{app:pointsources}). The Sun, the Moon and the Earth
+also act as point sources, with $1.929\times10^{56}$, $2.232\times10^{49}$ and
+$1.849\times10^{51}$ neutrons. In the Earth we use $1-Y_e$ neutrons per nucleon, with electron fractions
 $Y_e = 0.4656$ in the core and $0.4957$ in the mantle and crust, and the composition of water for
 PREM's top layer (Appendix~\ref{app:earthchords}).
 
@@ -375,7 +379,8 @@ Date, commit & Change & Result \\
 2026-07-29 \texttt{95fef9f} & Earth steps $100\to25$ & below $1.0\times10^{-9}$ / $1.2\times10^{-10}$; inband $2.1\times10^{-11}$ / $2.3\times10^{-12}$; strong $6.2\times10^{-12}$ / $8.3\times10^{-13}$; cosmoX2 ratios $2.9\times10^{-3}$, dips unchanged \\
 2026-10-12 \texttt{5ecf10e} & Relic temperature corrected & A physics change; effects in Appendix~\ref{app:tnu} \\
 2026-10-12 \texttt{0db8111} & Cosmological and Galactic neutron densities & No change at the four points beyond their floors; effects at light mediators in Appendix~\ref{app:neutrons} \\
-2026-10-12 (this revision) & Neutron fractions along Earth chords & Flavor fractions move by up to $0.026$, as much as adding one chord (Appendix~\ref{app:earthchords}) \\
+2026-10-12 \texttt{9c025e6} & Neutron fractions along Earth chords & Flavor fractions move by up to $0.026$, as much as adding one chord (Appendix~\ref{app:earthchords}) \\
+2026-10-12 (this revision) & Point sources and cold disc gas & No change at the four points beyond their floors; effects at light mediators in Appendix~\ref{app:pointsources} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -533,18 +538,6 @@ against the laptop's results.
 \section{Open items}
 \label{sec:open}
 
-\textit{Neutron numbers of the Sun, the Moon and the Earth.}---These bodies enter as point
-sources of the potential, which matters only for light mediators. Per nucleon, the code uses
-$0.248$ neutrons for the Sun, whose present bulk composition ($Y \approx 0.307$, $Z = 0.0142$)
-gives $0.161$, a factor of $1.55$ too high; $0.248$ for the Moon, whose silicate rock gives
-$0.504$, a factor of $2$ too low; and $0.496$ for the Earth, against $0.514$ when the iron core
-is included. \note{VERIFY: awaiting decision, 2026-10-12}
-
-\textit{Cold disc gas.}---The Galactic model has no cold disc gas, although locally it amounts
-to $13.7\,M_\odot$~pc$^{-2}$ against $33.4\,M_\odot$~pc$^{-2}$ in stars and remnants
-(McKee, Parravano and Hollenbach 2015). At $\sim0.14$ neutrons per nucleon it would raise the
-local neutron density by roughly a quarter.
-
 \textit{Earth-chord sampling floor.}---In the Earth the dark-portal potential exceeds the vacuum
 term by $\sim10^9$ at MeV mediator masses, so the phase accumulated along a chord is
 $\sim10^8$~rad. These phases are effectively random from chord to chord, and the residual
@@ -651,6 +644,38 @@ residual conversion left by the 12-chord average. Adding one chord to the old co
 same fractions by comparable amounts (Sec.~\ref{sec:open}). At light mediators the changes are
 smaller: up to $3.8\times10^{-3}$ in the energy-averaged fractions at $\mzd = 10^{-2}$~eV and
 below $10^{-5}$ at $10^{-5}$ and $10^{-8}$~eV.
+
+\subsection{Point sources and cold disc gas (2026-10-12)}
+\label{app:pointsources}
+
+The Sun, the Moon and the Earth enter the Milky Way and Earth phases as point sources of a Yukawa
+potential, which reaches the detector only when the mediator's range, $1/\sqrt{\mzd^2+m_D^2}$,
+spans the distance to the body. Their neutron numbers were inconsistent: $0.248$ neutrons per
+nucleon for both the Sun and the Moon, $0.496$ for the Earth. The Sun's present bulk composition
+is the protosolar one ($X$, $Y$, $Z$ $= 0.7154$, $0.2703$, $0.0142$; Asplund et al.\ 2009) plus the
+$\sim0.038\,M_\odot$ of hydrogen it has burned into helium, which we estimate from its luminosity
+integrated over $4.57$~Gyr; that gives $Y = 0.308$ and $(Y+Z)/2 = 0.161$ neutrons per nucleon,
+$1.929\times10^{56}$ in all. The Moon is silicate rock with a small iron core, $0.505$ per
+nucleon, $2.232\times10^{49}$. For the Earth we integrate PREM with the per-layer fractions of
+the chords (Appendix~\ref{app:earthchords}); PREM's mass comes out at $5.973\times10^{27}$~g,
+within $0.02\%$ of the Earth's, with $1.849\times10^{51}$ neutrons ($0.514$ per nucleon).
+
+The Galactic model had no cold gas. We add the HI and H$_2$ discs of McMillan (2017,
+arXiv:1608.00971), $\rho = \Sigma_0/(4z_d)\,e^{-R_m/R - R/R_d}\,{\rm sech}^2(z/2z_d)$ with
+$(\Sigma_0, R_d, R_m, z_d) = (53.1\,M_\odot\,{\rm pc}^{-2}, 7, 4, 0.085~{\rm kpc})$ and
+$(2180\,M_\odot\,{\rm pc}^{-2}, 1.5, 12, 0.045~{\rm kpc})$. Their surface densities already
+include helium and metals; at the Sun they give $10$ and $2\,M_\odot$~pc$^{-2}$, against the
+$13.7\,M_\odot$~pc$^{-2}$ that McKee et al.\ (2015) measure in all gas. We convert them at
+$(Y+Z)/2 = 0.142$ neutrons per nucleon (protosolar composition).
+
+\textit{Effect.}---At the four benchmark points nothing changes beyond the floors
+($\le4\times10^{-11}$ in flux; ``cosmoX2'' $9\times10^{-4}$ pointwise), because at MeV masses the
+point sources are out of range and the Galactic potential is negligible. At light mediators the
+changes appear at individual energies: at $\mzd = 10^{-2}$~eV up to 18\% in flux and $0.064$ in
+the flavor fractions, at $10^{-8}$~eV up to 3\% and $0.008$. We also ran $\mzd = 10^{-20}$~eV,
+where the bodies are within range: with Debye screening off the flux changes by up to 27\% and
+the flavor fractions by up to $0.13$; with $\gd = 10^{-12}$, by 1.6\% and $0.004$. The
+energy-averaged fractions move by at most $1.2\times10^{-3}$ in all these runs.
 
 \subsection{The mixing-parameter priors (found 2026-10-12, not yet fixed)}
 \label{app:priors}
