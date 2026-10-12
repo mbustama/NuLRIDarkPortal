@@ -366,12 +366,14 @@ def save_flux_to_file(E_array: np.ndarray, Flux_array: np.ndarray, filename: str
     safe_print(f"\nFlux data saved to: {os.path.abspath(filename)}")
 
 
-def propagation_worker(args) -> Tuple[np.ndarray, np.ndarray]:
-    """Unpacks arguments and executes the physics simulation."""
-    E_bins, params = args
-    show_progress = params.get('show_progress', True)
-    verbose = params.get('verbose', 1)
-    
+def _flux_setup(E_bins: np.ndarray, params: Dict) -> Dict:
+    """Per-run quantities shared by every flux of one parameter point: the redshift grid,
+    the source vector, the mass and mixing matrices and the thermal-rate grid (identical
+    for neutrinos and antineutrinos, and independent of the source composition).
+
+    Arguments: E_bins -- energy grid (eV); params -- the dict built by build_solver_params.
+    Returns: a dict of those quantities for _flux_from_setup.
+    """
     z_bins = np.linspace(params['z_max'], 0.0, int(params['n_z_bins']))
     rho_src = np.array([params['f_e_S'], params['f_mu_S'], params['f_tau_S']], dtype=np.float64)
     
@@ -405,29 +407,77 @@ def propagation_worker(args) -> Tuple[np.ndarray, np.ndarray]:
                                          n_z_thermal=params.get('n_z_thermal', 0),
                                          thermal_analytic=params.get('thermal_analytic', True))
 
-    def compute_flux(is_anti: bool) -> np.ndarray:
-        # Enforce C-contiguous alignment when passing matrices to Numba kernels
-        U_pmns = np.ascontiguousarray(np.conjugate(U_pmns_base)) if is_anti else U_pmns_base
-        u_arr = np.ascontiguousarray(np.conjugate(u_arr_base)) if is_anti else u_arr_base
+    return dict(z_bins=z_bins, rho_src=rho_src, M_sq=M_sq, u_arr_base=u_arr_base, eta_bg=eta_bg,
+                U_pmns_base=U_pmns_base, Gamma_grid_all=Gamma_grid_all)
 
-        return propagate_spectrum(
-            E_bins, z_bins, rho_src,
-            params['H0_eV'], params['Omega_m'], params['Omega_L'],
-            U_pmns, M_sq, u_arr, params['m_Zd_eV'], params['g_D'], params['epsilon_prime'],
-            params['m_nu_bg_arr'], params['n_n0_eV3'], params['T_nu0_eV'],
-            params['use_debye_screening'], params['detector_depth_km'],
-            params['use_SM_potential'], params['n_e_earth_eV3'],
-            is_anti, params['p_index'], params['rho_evol'], params['Phi_0'], eta_bg,
-            params['n_mw_paths'], params['n_earth_chords'],
-            params['N_steps_MW'], params['r_start_kpc'],
-            show_progress=show_progress, verbose=verbose, n_cores=params.get('n_cores', 1),
-            precomputed_Gamma_grid_all=Gamma_grid_all, N_steps_earth=params.get('N_steps_earth', 500),
-            U_LRI_struct=params.get('U_LRI_struct', None), V_SM_struct=params.get('V_SM_struct', None),
-            use_gpu=params.get('use_gpu', False),
-            thermal_analytic=params.get('thermal_analytic', True),
-            earth_step_scheme=params.get('earth_step_scheme', 'left'),
-            earth_zenith_average=params.get('earth_zenith_average', 'plain')
-        )
+
+def _flux_from_setup(E_bins: np.ndarray, params: Dict, setup: Dict, is_anti: bool,
+                     rho_src: np.ndarray = None) -> np.ndarray:
+    """One flux at the detector, (N_E, 3), from a _flux_setup.
+
+    Arguments: E_bins, params, setup -- as for _flux_setup; is_anti -- antineutrinos
+    (conjugated mixing); rho_src -- source flavor composition (default: the configured one).
+    """
+    show_progress = params.get('show_progress', True)
+    verbose = params.get('verbose', 1)
+    z_bins = setup['z_bins']
+    M_sq = setup['M_sq']
+    eta_bg = setup['eta_bg']
+    Gamma_grid_all = setup['Gamma_grid_all']
+    if rho_src is None:
+        rho_src = setup['rho_src']
+    # Enforce C-contiguous alignment when passing matrices to Numba kernels
+    U_pmns = np.ascontiguousarray(np.conjugate(setup['U_pmns_base'])) if is_anti else setup['U_pmns_base']
+    u_arr = np.ascontiguousarray(np.conjugate(setup['u_arr_base'])) if is_anti else setup['u_arr_base']
+
+    return propagate_spectrum(
+        E_bins, z_bins, rho_src,
+        params['H0_eV'], params['Omega_m'], params['Omega_L'],
+        U_pmns, M_sq, u_arr, params['m_Zd_eV'], params['g_D'], params['epsilon_prime'],
+        params['m_nu_bg_arr'], params['n_n0_eV3'], params['T_nu0_eV'],
+        params['use_debye_screening'], params['detector_depth_km'],
+        params['use_SM_potential'], params['n_e_earth_eV3'],
+        is_anti, params['p_index'], params['rho_evol'], params['Phi_0'], eta_bg,
+        params['n_mw_paths'], params['n_earth_chords'],
+        params['N_steps_MW'], params['r_start_kpc'],
+        show_progress=show_progress, verbose=verbose, n_cores=params.get('n_cores', 1),
+        precomputed_Gamma_grid_all=Gamma_grid_all, N_steps_earth=params.get('N_steps_earth', 500),
+        U_LRI_struct=params.get('U_LRI_struct', None), V_SM_struct=params.get('V_SM_struct', None),
+        use_gpu=params.get('use_gpu', False),
+        thermal_analytic=params.get('thermal_analytic', True),
+        earth_step_scheme=params.get('earth_step_scheme', 'left'),
+        earth_zenith_average=params.get('earth_zenith_average', 'plain')
+    )
+
+
+def propagate_nu_nubar(E_bins: np.ndarray, params: Dict, sources=None):
+    """Neutrino and antineutrino fluxes at the detector, separately, for one parameter
+    point -- for callers that weight them (or the source flavors) themselves, such as the
+    analysis package, which keeps both and makes the ratio and the source composition
+    free parameters (the solver is linear in the source composition).
+
+    Arguments:
+      E_bins: energy grid (eV); params: the dict built by build_solver_params.
+      sources: None for the configured source composition, or a sequence of (3,)
+        compositions sharing one thermal-rate grid.
+    Returns: (F_nu, F_nubar), each (N_E, 3) -- or (n_sources, N_E, 3) when sources is given.
+    """
+    setup = _flux_setup(E_bins, params)
+    if sources is None:
+        return (_flux_from_setup(E_bins, params, setup, False),
+                _flux_from_setup(E_bins, params, setup, True))
+    srcs = [np.ascontiguousarray(np.asarray(r, dtype=np.float64)) for r in sources]
+    return (np.stack([_flux_from_setup(E_bins, params, setup, False, r) for r in srcs]),
+            np.stack([_flux_from_setup(E_bins, params, setup, True, r) for r in srcs]))
+
+
+def propagation_worker(args) -> Tuple[np.ndarray, np.ndarray]:
+    """Unpacks arguments and executes the physics simulation."""
+    E_bins, params = args
+    setup = _flux_setup(E_bins, params)
+
+    def compute_flux(is_anti: bool) -> np.ndarray:
+        return _flux_from_setup(E_bins, params, setup, is_anti)
 
     flag_val = str(params.get('is_antineutrino', 'sum')).strip().lower()
     
@@ -452,21 +502,15 @@ def propagation_worker(args) -> Tuple[np.ndarray, np.ndarray]:
     return E_bins, flux_at_earth
 
 
-def run_solver(config: Dict) -> Tuple[np.ndarray, np.ndarray]:
-    """Orchestrates configuration and parallelization.
+def build_solver_params(config: Dict) -> Tuple[np.ndarray, Dict]:
+    """Validates a (possibly partial) configuration and converts it into the energy grid
+    and the parameter dict the flux computation reads -- run_solver's parsing, without its
+    console output, for callers that evaluate many parameter points (the analysis package
+    overrides the varied parameters in a solver config and calls this per evaluation, so
+    the solver's defaults and checks stay the single source of truth).
 
-    Arguments:
-      config: (possibly partial) configuration dict with the DEFAULT_CONFIG section
-        layout -- cosmology, standard_mixing, dark_portal, source, grid, output,
-        execution (see dp_config.DEFAULT_CONFIG for every key and its default,
-        including grid.N_steps_earth = 25 under the certified 'avg' Earth step
-        scheme). It is first overlaid onto DEFAULT_CONFIG with unknown-key
-        rejection (see merge_config_with_defaults), so every read below can index
-        directly -- no per-call fallback literals to drift out of sync.
-
-    Returns:
-      (E_bins, Flux_array): the energy grid (eV) and the (N_E, 3) flavor fluxes at
-      the detector, weighted across neutrinos/antineutrinos per source.is_antineutrino.
+    Arguments: config -- as for run_solver.
+    Returns: (E_bins, params).
     """
     config = merge_config_with_defaults(config)
     params = {}
@@ -625,7 +669,27 @@ def run_solver(config: Dict) -> Tuple[np.ndarray, np.ndarray]:
     params['use_gpu'] = bool(config['execution']['use_gpu'])
     params['show_progress'] = True
     params['verbose'] = int(config['execution']['verbose'])
+    return E_bins, params
 
+
+def run_solver(config: Dict) -> Tuple[np.ndarray, np.ndarray]:
+    """Orchestrates configuration and parallelization.
+
+    Arguments:
+      config: (possibly partial) configuration dict with the DEFAULT_CONFIG section
+        layout -- cosmology, standard_mixing, dark_portal, source, grid, output,
+        execution (see dp_config.DEFAULT_CONFIG for every key and its default,
+        including grid.N_steps_earth = 25 under the certified 'avg' Earth step
+        scheme). It is first overlaid onto DEFAULT_CONFIG with unknown-key
+        rejection (see merge_config_with_defaults), so every read below can index
+        directly -- no per-call fallback literals to drift out of sync.
+
+    Returns:
+      (E_bins, Flux_array): the energy grid (eV) and the (N_E, 3) flavor fluxes at
+      the detector, weighted across neutrinos/antineutrinos per source.is_antineutrino.
+    """
+    E_bins, params = build_solver_params(config)
+    n_cores = params['n_cores']
     safe_print(f"Initializing solver across {len(E_bins)} coupled energy bins...")
     if n_cores > 1:
         safe_print(f"Using up to {n_cores} core(s) to parallelize the Milky Way / Earth spatial handover.")
