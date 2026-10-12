@@ -144,9 +144,20 @@ def earth_neutrons_per_gram(r_km: float) -> float:
 
 @njit("float64(float64, float64)", fastmath=True, cache=True)
 def get_baseline_earth(d_km: float, costh: float) -> float:
-    """Calculates the exact baseline distance traversed inside the Earth."""
+    """Path length (km) inside the Earth from the surface to a detector at depth d_km, for a
+    neutrino arriving at zenith cosine costh (-1: up through the centre, 0: horizontal).
+
+    The chord from the detector, at radius f2 = R - d, meets the surface where
+    u^2 + 2 f2 costh u - d (2R - d) = 0. Until 2026-10-12 this was evaluated with the d^2
+    terms dropped, which made the chords too long by up to 8 m (horizontal), starting them in
+    vacuum above the surface. The root is written without cancellation for either sign of
+    costh."""
     R_E = 6371.0
-    return np.sqrt((R_E**2 - 2.0*R_E*d_km) * costh**2 + 2.0*R_E*d_km) - (R_E - d_km) * costh
+    f2 = R_E - d_km
+    sq = np.sqrt(d_km * (2.0 * R_E - d_km) + (f2 * costh)**2)
+    if costh <= 0.0:
+        return sq - f2 * costh
+    return d_km * (2.0 * R_E - d_km) / (sq + f2 * costh)
 
 # =============================================================================
 # EXTRACTED NUMBA KERNELS FOR PROGRESS TRACKING
@@ -335,7 +346,11 @@ def _earth_layer_crossings(baseline_km: float, costh: float, detector_depth_km: 
             l = baseline_km - u
             # margin excludes the entry-point artifact: every chord ENTERS exactly on
             # the r = 6371 surface boundary, so that root lands at l = O(fp noise);
-            # genuine slivers below ~1e-6 * baseline are integration-negligible anyway
+            # genuine slivers below ~1e-6 * baseline are integration-negligible anyway.
+            # (Exactly true only since get_baseline_earth became exact, 2026-10-12: the
+            # chords used to start up to 8 m above the surface, and where that vacuum
+            # lead-in fell inside this margin the 'avg' integration ran the top layer
+            # out to l = 0.)
             if 1e-6 * baseline_km < l < baseline_km * (1.0 - 1e-6):
                 ls.append(l)
     return np.array(sorted(ls), dtype=np.float64)

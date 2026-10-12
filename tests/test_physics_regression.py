@@ -2295,3 +2295,24 @@ def test_retry_seed_deterministic_and_default_preserved():
 if __name__ == "__main__":
     import sys as _sys
     _sys.exit(pytest.main([__file__, "-v"]))
+
+
+# =============================================================================
+# Earth chord geometry (2026-10-12)
+# =============================================================================
+
+def test_exact_chord_baseline_starts_on_the_surface():
+    """get_baseline_earth must put every chord's entry point on the surface. Until 2026-10-12 it
+    dropped the d^2 terms of the root, so chords started up to 8 m above the ground; where that
+    vacuum lead-in fell inside _earth_layer_crossings' end margin, the 'avg' integration silently
+    ran the top layer out to l = 0. Down-going chords (costh > 0) use the cancellation-free form."""
+    depth = 1.5
+    f2 = 6371.0 - depth
+    for costh in np.linspace(-1.0, 1.0, 201):
+        B = dps.get_baseline_earth(depth, costh)
+        r_entry = np.sqrt(B**2 + f2**2 + 2.0 * B * f2 * costh)
+        assert abs(r_entry - 6371.0) < 1e-11, (costh, r_entry)
+    assert abs(dps.get_baseline_earth(depth, 1.0) - depth) < 1e-12
+    assert abs(dps.get_baseline_earth(depth, -1.0) - (2 * 6371.0 - depth)) < 1e-9
+    # the horizontal chord no longer meets the surface a second time inside the chord
+    assert len(dps._earth_layer_crossings(dps.get_baseline_earth(depth, 0.0), 0.0, depth)) == 0
