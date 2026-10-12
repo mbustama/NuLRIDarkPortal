@@ -34,6 +34,51 @@ os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "1")
 os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
 
 
+# =============================================================================
+# NUMBA CACHE KEYED BY THE SOURCES (must run before numba is imported)
+# =============================================================================
+# numba validates an on-disk cache entry against the stamp of the function's OWN source
+# file only, so a jitted function calling a jitted function from another module
+# (dp_spatial -> dp_propagator.propagator_3x3, dp_cosmo -> eigenvectors_3x3, every kernel
+# -> the helpers below) keeps the callee's old machine code after the callee's module is
+# edited -- silently: on 2026-10-12 the spatial kernels kept running a replaced
+# propagator. The cache directory is therefore keyed by a hash of every source file in
+# this directory, so any edit starts a fresh cache (one full recompile). Directories of
+# other versions left unused for a day are removed. A NUMBA_CACHE_DIR set by the user is
+# respected as is.
+def _source_digest() -> str:
+    import hashlib
+    src = os.path.dirname(os.path.abspath(__file__))
+    h = hashlib.sha256()
+    for name in sorted(os.listdir(src)):
+        if name.endswith(".py"):
+            h.update(name.encode())
+            with open(os.path.join(src, name), "rb") as fh:
+                h.update(fh.read())
+    return h.hexdigest()[:16]
+
+
+def _configure_numba_cache():
+    if os.environ.get("NUMBA_CACHE_DIR"):
+        return
+    import shutil
+    import time
+    base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "__pycache__", "numba")
+    digest = _source_digest()
+    os.environ["NUMBA_CACHE_DIR"] = os.path.join(base, digest)    # inherited by pool children
+    try:
+        now = time.time()
+        for name in os.listdir(base):
+            path = os.path.join(base, name)
+            if name != digest and now - os.path.getmtime(path) > 86400.0:
+                shutil.rmtree(path, ignore_errors=True)
+    except OSError:
+        pass
+
+
+_configure_numba_cache()
+
+
 import numpy as np
 
 # =============================================================================
@@ -75,6 +120,8 @@ except ImportError:
 try:
     import numba
     from numba import njit, prange
+    # numba reads NUMBA_CACHE_DIR once, at its own import, which may have come first
+    numba.config.CACHE_DIR = os.environ["NUMBA_CACHE_DIR"]
     HAS_NUMBA = True
 except ImportError:
     HAS_NUMBA = False

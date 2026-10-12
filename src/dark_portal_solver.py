@@ -3,7 +3,7 @@ dark_portal_solver.py -- public facade of the dark-portal solver.
 
 The implementation was split (2026-07, pure verbatim move) into:
     dp_core.py        environment guards, constants, shared physics utilities
-    dp_propagator.py  the v3 deflation-based divided-difference propagator
+    dp_propagator.py  the exactly unitary 3x3 propagator (deflated eigenbasis)
     dp_thermal.py     thermal attenuation rates + two-component coupling cache
     dp_cosmo.py       cosmological-phase kernels (z-stepper, sigma table)
     dp_spatial.py     Milky Way / Earth transit, workers, persistent pool
@@ -300,8 +300,8 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
 
     # DOMAIN CHECK: same contract as the thermal-grid check above -- never return NaN
     # silently. (The known non-finite mechanism here, unitarity loss of the spatial
-    # propagator in the phase-noise regime, is guarded inside propagator_3x3 itself; this
-    # is the safety net for anything not yet diagnosed.)
+    # propagator at large phases, is excluded by propagator_3x3's exactly unitary form
+    # since 2026-10-12; this is the safety net for anything not yet diagnosed.)
     if not np.isfinite(F_earth).all():
         raise ValueError(
             f"Non-finite flux out of the spatial handover at m_Zd_eV={m_Zd:.6g}, "

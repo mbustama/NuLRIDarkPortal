@@ -730,8 +730,8 @@ def _propagator_via_eigh(H, t):
 
 
 def test_propagator_3x3_matches_eigh_at_physics_scales():
-    """propagator_3x3 (closed-form trigonometric eigenvalues + Lagrange spectral
-    interpolation) must agree with the eigh construction to fp noise across random
+    """propagator_3x3 (spectral sum over the deflated eigenbasis) must agree with the
+    eigh construction to fp noise across random
     Hermitian Hamiltonians at the magnitudes and step lengths the spatial transit
     actually uses (|H| ~ 1e-20..1e-12 eV, dr ~ 1e8..1e13 eV^-1), and must stay unitary."""
     rng = np.random.default_rng(7)
@@ -754,10 +754,9 @@ def test_propagator_3x3_near_degenerate_stability():
     """Near-degenerate spectra are exactly what an MSW-like matter resonance produces --
     and, with the rank-1 LRI structure (u_tau = 0), what the Earth-transit Hamiltonian
     looks like at essentially EVERY step wherever the matter potential rivals the vacuum
-    term. The Newton divided-difference form (sinc first differences + Taylor branch for
-    tiny phase spread) must therefore stay accurate across gaps from harmless (1e-4
-    relative) down to essentially exact degeneracy (1e-14) with no eigendecomposition
-    fallback at all."""
+    term. The deflated eigenbasis must therefore stay accurate across gaps from harmless
+    (1e-4 relative) down to essentially exact degeneracy (1e-14), where the splitting is
+    below double-precision resolution and the pair is propagated as degenerate."""
     rng = np.random.default_rng(11)
     out = np.zeros((3, 3), dtype=np.complex128)
     worst = 0.0
@@ -776,8 +775,8 @@ def test_propagator_3x3_near_degenerate_stability():
 def test_propagator_3x3_rank1_dominated_hamiltonian():
     """The production regime that previously forced a 100% eigh-fallback rate: a rank-1
     potential dominating a small vacuum term gives H two eigenvalues degenerate by
-    construction. The divided-difference propagator must handle it at full accuracy and
-    stay unitary, across the potential-to-vacuum ratio range the Earth transit spans."""
+    construction. The propagator must handle it at full accuracy and stay unitary, across
+    the potential-to-vacuum ratio range the Earth transit spans."""
     rng = np.random.default_rng(21)
     U_pmns = dps.construct_PMNS(np.radians(33.41), np.radians(8.58), np.radians(49.1), np.radians(132.0))
     M_sq = np.diag([0.0, 7.41e-5, 2.511e-3]).astype(np.complex128)
@@ -796,18 +795,15 @@ def test_propagator_3x3_rank1_dominated_hamiltonian():
         worst = max(worst, float(np.max(np.abs(out - _propagator_via_eigh(H, t)))))
         worst_unit = max(worst_unit, float(np.max(np.abs(out @ out.conj().T - np.eye(3)))))
     assert worst < 1e-10
-    assert worst_unit < 1e-11
+    assert worst_unit < 1e-14
 
 
-def test_propagator_3x3_large_phase_node_exactness():
+def test_propagator_3x3_unitary_at_milky_way_phases():
     """Milky-Way-regime regression: per-step phases lam*t reach ~1e10 radians (gap phases
-    ~1e9), where double precision defines a phase only to ~1e-5 rad. The propagator must
-    still interpolate the COMPUTED e^{-i lam t} exactly at the eigenvalue nodes -- i.e.
-    remain unitary to fp precision -- because a coefficient form that only satisfies the
-    interpolation conditions approximately (the pure sinc form did, at ~1e-5 per step)
-    turns phase-representation noise into a cumulative AMPLITUDE error (measured 1.3e-4
-    end-to-end before the node-exact branch existed). Checks eigenvalue-wise
-    |U's spectrum| = 1 and agreement with the eigh construction."""
+    ~1e9), where double precision defines a phase only to ~1e-5 rad. U must stay unitary
+    to rounding regardless -- any amplitude error compounds over the steps (an earlier
+    polynomial form that only approximately interpolated the computed phases gave 1.3e-4
+    end-to-end) -- and agree with the eigh construction on |U|."""
     rng = np.random.default_rng(33)
     U_pmns = dps.construct_PMNS(np.radians(33.41), np.radians(8.58), np.radians(49.1), np.radians(132.0))
     M_sq = np.diag([0.0, 7.41e-5, 2.511e-3]).astype(np.complex128)
@@ -826,7 +822,7 @@ def test_propagator_3x3_large_phase_node_exactness():
         # at ~1e-5 rad, i.e. ~1e-5 absolute on elements is the shared representation
         # limit -- the unitarity assertion above is the strict one)
         worst_vs_eigh = max(worst_vs_eigh, float(np.max(np.abs(np.abs(out) - np.abs(_propagator_via_eigh(H, t))))))
-    assert worst_unit < 1e-12, f"non-unitary at large phases: {worst_unit:.3e}"
+    assert worst_unit < 1e-14, f"non-unitary at large phases: {worst_unit:.3e}"
     assert worst_vs_eigh < 1e-4
 
 
@@ -1408,45 +1404,137 @@ def test_calculate_intervals_ignores_sentinel_boundaries():
 
 
 # =============================================================================
-# Extreme-mediator-mass domain: phase-noise guard + loud NaN contract (task #3)
+# Extreme potentials: exact unitarity at every potential + loud NaN contract
 # =============================================================================
 
-def test_propagator_3x3_phase_noise_regime_stays_unitary():
-    """The all-NaN-flux bug at extreme mediator masses (m_Zd ~ 1e-6 eV): the
-    1/m_Zd^2-enhanced Earth potential reaches ~1e17 eV, the rank-1 LRI texture makes the
-    Hamiltonian doubly degenerate, and per-step phases spread*t reach ~1e27 rad -- far
-    beyond the ~1/eps radians double precision can represent. The deflation branch's
-    polynomial coefficients are then evaluated at cancellation-noise-limited nodes and
-    the propagator came out non-unitary by ~11 orders of magnitude (measured singular
-    values ~5e11); 500 such steps overflowed rho to Inf/NaN. The phase-noise guard must
-    keep U exactly unitary across the whole potential ladder, at both Earth- and
-    Milky-Way-scale step lengths, and must preserve the far eigenvector's ray."""
+def test_propagator_3x3_unitary_at_every_potential():
+    """U = exp(-i H t) must be unitary to rounding for every potential the transit can
+    meet, from vacuum-dominated to the 1/m_Zd^2-enhanced Earth potential at m_Zd ~ 1e-6 eV
+    (~1e17 eV, spread*t ~ 1e28 rad), at Earth- and Milky-Way-scale steps, for two- and
+    three-flavor and single-flavor sterile textures. History: the polynomial form (v3,
+    until 2026-10-12) was non-unitary by ~eps * spread * min(t, 2/gap) -- 5e-3 per Earth
+    step at 70 eV (the m_Zd = 40 eV benchmark), and ~5e11 (overflowing rho to NaN in 500
+    steps) at m_Zd = 1e-6 eV before a guard for that extreme; its complement basis divided
+    by zero for u_mu = 0 or u_e = 0 above ~1e7 eV. The far eigenvector (the rank-1
+    potential's direction) must map to itself up to a phase wherever the potential
+    dominates."""
     U_pmns = dps.construct_PMNS(np.radians(33.41), np.radians(8.58), np.radians(49.1), np.radians(132.0))
     M_sq = np.diag([0.0, 7.41e-5, 2.511e-3]).astype(np.complex128)
     M_rot = U_pmns @ M_sq @ np.conjugate(U_pmns).T
-    u = np.array([0.5, 0.5, 0.0], dtype=np.complex128)
-    S = np.outer(u, np.conjugate(u))
-    v_far = (u / np.linalg.norm(u)).reshape(3)
     out = np.zeros((3, 3), dtype=np.complex128)
-
     worst_unit = 0.0
     worst_ray = 0.0
-    # V ladders start where the phase-noise guard governs (eps * spread * t > 0.1);
-    # below that the pre-existing (unguarded) deflation path applies, whose small
-    # non-unitarity band is pinned as-is by the pipeline validation, not by this test.
-    for t, logV_min in ((1.29e11, 6), (6.25e32, 2)):    # Earth step / Milky Way step
-        for logV in range(logV_min, 23, 2):
-            for E in (1e13, 3e16):
-                V_scale = 10.0 ** logV
-                H = np.ascontiguousarray(M_rot / (2.0 * E) + V_scale * S)
-                dps.propagator_3x3(H, t, out)
-                assert np.isfinite(out).all(), f"non-finite U at V={V_scale:.0e}, t={t:.2e}"
-                worst_unit = max(worst_unit, float(np.max(np.abs(out @ out.conj().T - np.eye(3)))))
-                # the far (rank-1) eigenvector must map to itself up to a phase
-                w = out @ v_far
-                worst_ray = max(worst_ray, abs(1.0 - abs(np.vdot(v_far, w))))
-    assert worst_unit < 1e-12, f"non-unitary in phase-noise regime: {worst_unit:.3e}"
+    for u in ([0.5, 0.5, 0.0], [0.3, 0.1, 0.2], [0.7, 0.0, 0.0], [0.0, 0.4, 0.0]):
+        u = np.array(u, dtype=np.complex128)
+        S = np.outer(u, np.conjugate(u))
+        v_far = u / np.linalg.norm(u)
+        for t in (1e9, 1.29e11, 1e12, 1e26, 6.25e32):           # Earth steps / Milky Way steps
+            for logV in range(-24, 23):
+                for E in (1e13, 3e16):
+                    H = np.ascontiguousarray(M_rot / (2.0 * E) + 10.0 ** logV * S)
+                    dps.propagator_3x3(H, t, out)
+                    assert np.isfinite(out).all(), f"non-finite U at V=1e{logV}, t={t:.2e}, u={u.real}"
+                    worst_unit = max(worst_unit, float(np.max(np.abs(out @ out.conj().T - np.eye(3)))))
+                    if logV >= 0:
+                        worst_ray = max(worst_ray, abs(1.0 - abs(np.vdot(v_far, out @ v_far))))
+    assert worst_unit < 1e-14, f"non-unitary: {worst_unit:.3e}"
     assert worst_ray < 1e-10, f"far-eigenvector ray not preserved: {worst_ray:.3e}"
+
+
+def test_propagator_3x3_unresolved_pair_is_not_rotated_by_rounding():
+    """Under a rank-1 potential 1e18 times the vacuum term, the two states orthogonal to
+    the potential's direction are split by the vacuum term alone, far below what H
+    resolves in double precision (eps * potential). Their true rotation over an Earth
+    step is ~1e-5 rad; propagating the rounding-level splitting instead would rotate them
+    by tens of radians per step. The propagator must evolve the pair as degenerate."""
+    U_pmns = dps.construct_PMNS(np.radians(33.41), np.radians(8.58), np.radians(49.1), np.radians(132.0))
+    M_rot = U_pmns @ np.diag([0.0, 7.41e-5, 2.511e-3]).astype(np.complex128) @ np.conjugate(U_pmns).T
+    u = np.array([0.5, 0.5, 0.0], dtype=np.complex128)
+    S = np.outer(u, np.conjugate(u))
+    w1 = np.array([1.0, -1.0, 0.0], dtype=np.complex128) / np.sqrt(2.0)   # orthogonal to u
+    w2 = np.array([0.0, 0.0, 1.0], dtype=np.complex128)
+    out = np.zeros((3, 3), dtype=np.complex128)
+    worst = 0.0
+    for logV in (2, 6, 10, 17):
+        for E in (1e13, 3e16):
+            H = np.ascontiguousarray(M_rot / (2.0 * E) + 10.0 ** logV * S)
+            dps.propagator_3x3(H, 1.29e11, out)
+            for w in (w1, w2, (w1 + 1j * w2) / np.sqrt(2.0)):
+                worst = max(worst, 1.0 - abs(np.vdot(w, out @ w)))
+    assert worst < 1e-9, f"pair rotated by rounding noise: 1 - |<w|U|w>| = {worst:.3e}"
+
+
+def test_propagator_3x3_matches_extended_precision():
+    """Against exp(-i H t) of the same floating-point H evaluated with 50 digits
+    (mpmath), for random Hermitian H and production textures with |H| t up to 1e3 rad:
+    the error must stay at the rounding level of the phases, ~eps |H| t, above the 1e-13
+    truncation of the Taylor branch that serves spreads below 1.2e-4 / t."""
+    mp = pytest.importorskip("mpmath")
+    mp.mp.dps = 50
+    U_pmns = dps.construct_PMNS(np.radians(33.41), np.radians(8.58), np.radians(49.1), np.radians(132.0))
+    M_rot = U_pmns @ np.diag([0.0, 7.41e-5, 2.511e-3]).astype(np.complex128) @ np.conjugate(U_pmns).T
+    u = np.array([0.5, 0.5, 0.0], dtype=np.complex128)
+    S = np.outer(u, np.conjugate(u))
+    rng = np.random.default_rng(41)
+    out = np.zeros((3, 3), dtype=np.complex128)
+    worst = 0.0
+    for k in range(120):
+        if k % 2 == 0:
+            A = rng.normal(size=(3, 3)) + 1j * rng.normal(size=(3, 3))
+            scale = 10.0 ** rng.uniform(-20, -12)
+            H = np.ascontiguousarray((A + A.conj().T) / 2 * scale)
+            t = 10.0 ** rng.uniform(-1, 3) / scale
+        else:
+            E = 10.0 ** rng.uniform(13, 16.5)
+            H = np.ascontiguousarray(M_rot / (2.0 * E) + 10.0 ** rng.uniform(-19, -15) * S)
+            t = 10.0 ** rng.uniform(9, 12)
+        M = mp.matrix(3, 3)
+        for i in range(3):
+            M[i, i] = mp.mpf(H[i, i].real)
+            for j in range(i + 1, 3):
+                M[i, j] = mp.mpc(H[i, j].real, H[i, j].imag)
+                M[j, i] = mp.conj(M[i, j])
+        X = mp.expm(-1j * mp.mpf(t) * M)
+        ref = np.array([[complex(X[i, j]) for j in range(3)] for i in range(3)])
+        dps.propagator_3x3(H, t, out)
+        phase = float(np.max(np.abs(np.linalg.eigvalsh(H)))) * t
+        worst = max(worst, float(np.max(np.abs(out - ref))) / (1e-13 + 2e-15 * phase))
+    assert worst < 1.0, f"error beyond the phases' rounding level: {worst:.2f} x tolerance"
+
+
+def test_spatial_handover_conserves_every_total():
+    """The Milky Way and Earth transits are unitary evolutions: every energy bin's total
+    flux must leave the spatial handover unchanged, including where the potential
+    dominates (m_Zd = 40 eV; until 2026-10-12 the totals came out 0.995-1.0066) and at
+    m_Zd = 1e-6 eV with single-flavor mixing (previously a ZeroDivisionError)."""
+    E_bins = np.geomspace(1e13, 3e16, 24)
+    rng = np.random.default_rng(8)
+    F_mass = rng.uniform(0.5, 2.0, size=(24, 3)) * 1e-8
+    U_pmns = dps.construct_PMNS(np.radians(33.41), np.radians(8.58), np.radians(49.1), np.radians(132.0))
+    M_rot = U_pmns @ np.diag([0.0, 7.41e-5, 2.511e-3]).astype(np.complex128) @ np.conjugate(U_pmns).T
+    for m_Zd, g_D, eps_p, u in ((40.0, 1e-6, 0.1, (0.5, 0.5, 0.0)), (1e-6, 1e-4, 0.1, (0.5, 0.0, 0.0))):
+        u_arr = np.array(u, dtype=np.complex128)
+        for anti in (False, True):
+            F = dps.propagate_earth_spatial(E_bins, F_mass, M_rot, u_arr, m_Zd, g_D, eps_p,
+                                            1.676e-4, True, np.ones(3), 1.5, False, 0.0, anti, 2, 3,
+                                            N_steps_MW=40, show_progress=False, verbose=0, n_cores=1,
+                                            N_steps_earth=60, earth_step_scheme="avg",
+                                            earth_zenith_average="phase")
+            ratio = F.sum(axis=1) / F_mass.sum(axis=1)
+            assert np.all(np.abs(ratio - 1.0) < 1e-12), (m_Zd, anti, float(np.max(np.abs(ratio - 1.0))))
+
+
+def test_numba_cache_is_keyed_by_the_sources():
+    """numba validates a cached function against its own file only, so a kernel that
+    calls a jitted function from another module would keep the callee's old machine code
+    after an edit (it happened: dp_spatial's kernels kept the replaced propagator). The
+    cache directory must be keyed by a digest of every source file."""
+    import dp_core
+    import numba
+    if os.environ.get("NUMBA_CACHE_DIR", "").rstrip("/").endswith(dp_core._source_digest()) is False:
+        pytest.skip("NUMBA_CACHE_DIR set by the user")
+    assert numba.config.CACHE_DIR == os.environ["NUMBA_CACHE_DIR"]
+    assert dps.propagator_3x3._cache._cache_path.startswith(os.environ["NUMBA_CACHE_DIR"])
 
 
 def test_extreme_mediator_mass_flux_is_finite(tmp_path):
@@ -1939,17 +2027,18 @@ def test_earth_avg_scheme_step_count_certificate(tmp_path):
 
 
 # =============================================================================
-# GPU spatial path: v3 propagator port, mathematics validated with numpy backend
+# GPU spatial path: propagator port, mathematics validated with numpy backend
 # =============================================================================
 
 def test_gpu_batched_propagator_matches_cpu_numpy_backend():
     """_batched_propagator_gpu takes its array backend as a parameter and uses only
-    numpy-compatible operations, so the v3 port's MATHEMATICS is validated here on the
+    numpy-compatible operations, so the port's MATHEMATICS is validated here on the
     CPU by running it with numpy as the backend against propagator_3x3, one batch
     mixing every branch regime (masks must coexist within a single call):
-    generic well-separated, rank-1-dominated deflation, constructed near-degenerate,
-    Milky-Way-scale phases (node-exactness), and the phase-noise projector regime.
-    Only execution under cupy itself remains for the skipped-on-CPU device test."""
+    generic well-separated, rank-1-dominated, constructed near-degenerate, Milky-Way-scale
+    phases, and pairs below double-precision resolution (including single-flavor
+    textures). Only execution under cupy itself remains for the skipped-on-CPU device
+    test."""
     from gpu_spatial import _batched_propagator_gpu
 
     rng = np.random.default_rng(17)
@@ -1978,15 +2067,20 @@ def test_gpu_batched_propagator_matches_cpu_numpy_backend():
         Hs.append((Hd + Hd.conj().T) / 2)
         ts.append(1e11)
         regimes.append("generic")
-    for _ in range(40):                                   # MW-scale phases (node-exact)
+    for _ in range(40):                                   # MW-scale phases
         E = 10.0 ** rng.uniform(13, 16)
         Hs.append(M_rot / (2.0 * E))
         ts.append(10.0 ** rng.uniform(25, 27))
         regimes.append("large_phase")
-    for logV in range(6, 23, 2):                          # phase-noise projector regime
+    for logV in range(6, 23, 2):                          # unresolved pair
         Hs.append(M_rot / (2.0 * 1e13) + (10.0 ** logV) * S)
         ts.append(1.29e11)
         regimes.append("noise")
+    u1 = np.array([0.7, 0.0, 0.0], dtype=np.complex128)   # single-flavor texture
+    for logV in range(-2, 23, 4):
+        Hs.append(M_rot / (2.0 * 1e14) + (10.0 ** logV) * np.outer(u1, u1))
+        ts.append(1.29e11)
+        regimes.append("noise1")
     Hs.append(np.eye(3, dtype=np.complex128) * 2.5e-16)   # pure-phase branch
     ts.append(1e11)
     regimes.append("generic")
@@ -2017,15 +2111,16 @@ def test_gpu_batched_propagator_matches_cpu_numpy_backend():
             # meaningful invariants are unitarity and the |U| structure
             worst_abs = max(worst_abs, float(np.max(np.abs(np.abs(Ub) - np.abs(out)))))
         else:
-            # phase-noise projector regime: even |U| depends on the (machine-noise)
-            # relative phase between the far and pair eigenvalues, so scalar and
-            # batched legitimately disagree there; the meaningful invariants are
-            # unitarity (checked above) and preservation of the far eigenvector's ray
-            worst_ray = max(worst_ray, abs(1.0 - abs(np.vdot(v_far, Ub @ v_far))))
+            # potential-dominated: even |U| depends on the (rounding-level) relative
+            # phase between the far and pair eigenvalues, so scalar and batched
+            # legitimately disagree there; the meaningful invariants are unitarity
+            # (checked above) and preservation of the far eigenvector's ray
+            vf = v_far if regimes[k] == "noise" else np.array([1.0, 0.0, 0.0], dtype=np.complex128)
+            worst_ray = max(worst_ray, abs(1.0 - abs(np.vdot(vf, Ub @ vf))))
     assert worst_direct < 1e-9, f"batched vs scalar propagator: {worst_direct:.3e}"
-    assert worst_unit < 1e-11, f"batched propagator non-unitary: {worst_unit:.3e}"
+    assert worst_unit < 1e-14, f"batched propagator non-unitary: {worst_unit:.3e}"
     assert worst_abs < 1e-4, f"batched |U| structure off at large phases: {worst_abs:.3e}"
-    assert worst_ray < 1e-10, f"batched projector far-ray not preserved: {worst_ray:.3e}"
+    assert worst_ray < 1e-10, f"batched far-eigenvector ray not preserved: {worst_ray:.3e}"
 
 
 # =============================================================================

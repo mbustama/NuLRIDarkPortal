@@ -1,78 +1,93 @@
 """
 dp_propagator.py
 
-The deflation-based divided-difference 3x3 propagator (v3) and the closed-form
-eigenvector routine -- the most delicate numerics in the repository; read the
-docstrings before touching anything. Split verbatim out of dark_portal_solver.py.
+The 3x3 propagator (exactly unitary spectral sum over a deflated eigenbasis) and the
+closed-form eigenvector routine -- the most delicate numerics in the repository; read
+the docstrings before touching anything.
 """
 import numpy as np
 
 from dp_core import njit
 
+# A pair half-gap below this many eps * (|q| + p) is not resolved by a double-precision
+# Hamiltonian: rounding when H is formed already splits an exact degeneracy by up to
+# 3.1 eps * (|q| + p) (measured on 1500 random rotated degenerate spectra), and the
+# half-gap computed below is accurate to 0.5 eps * spread (both against 60-digit
+# arithmetic). Such pairs are propagated as exactly degenerate.
+PAIR_FLOOR = 16.0
+_EPS = 2.220446049250313e-16
+
+
 @njit(cache=True)
 def propagator_3x3(H: np.ndarray, t: float, out: np.ndarray):
-    """Writes exp(-i H t) for a Hermitian 3x3 H into out. No eigendecomposition, no
-    fallback -- uniformly accurate at any eigenvalue gap. Three cooperating pieces:
+    """Writes exp(-i H t) for a Hermitian 3x3 H into out, as the spectral sum
+    sum_k e^{-i lam_k t} v_k v_k^dag over an orthonormal eigenbasis built so that it stays
+    orthonormal to rounding at any eigenvalue gap. U is therefore unitary to ~1e-15 at any
+    phase (spread * t up to 1e30 rad and beyond); errors in the eigenvalues only shift
+    phases. H is read as the Hermitian matrix of its upper triangle and real diagonal.
 
-    1. Everything runs on the traceless shift D = H - q I (q = tr(H)/3), with the global
-       phase e^{-i q t} factored out, so all degeneracy logic is scale-invariant.
-    2. NODES. Closed-form trigonometric roots of D are used when well-separated. Near a
-       double root the cubic formula's roots carry the classic sqrt(eps)-conditioned
-       error -- measured on a production Earth-transit Hamiltonian, the close-pair GAP
-       came out 257x too large (5.1e-15 vs a true 2.0e-17), which rotates the
-       near-degenerate subspace by a wildly wrong angle each step and accumulated to a
-       1e-4-level flux error. So whenever the trig roots' closest pair sits below 1e-4
-       of the spread, the pair is recomputed by DEFLATION: the well-separated root and
-       the pair mean (= -far/2, since tr D = 0) are accurate, the far eigenvector comes
-       from the stable projector (D - mean I)^2 (pair contamination suppressed by
-       (gap/separation)^2), and the pair's mean and half-gap are read off the 2x2
-       complement block -- whose gap formula sqrt(((b11-b22)/2)^2 + |b12|^2) is a sum of
-       squares, cancellation-free.
-    3. COEFFICIENTS. Newton divided differences of f(x) = e^{-i x t} over the nodes,
-       closest pair first: f[a,b] via the exact sinc form when |(a-b)t/2| < 0.5 (where
-       the direct difference cancels), and via the direct node-exact quotient
-       (f_a - f_b)/(a - b) otherwise -- at large gap phases (Milky Way steps reach
-       ~1e9 rad) only the direct form keeps the polynomial interpolating the COMPUTED
-       exponentials exactly, which is what keeps the propagator unitary. A second-order
-       Taylor branch handles total phase spreads below 1.2e-4 (truncation < 3e-13).
-    4. PHASE-NOISE GUARD. Within the deflation branch only: when the pair splitting is
-       at the cancellation floor AND the amplification factor eps * spread * min(|t|,
-       1/delta) reaches O(0.1) -- e.g. the 1/m_Zd^2-enhanced Earth potential at
-       m_Zd ~ 1e-6 eV, where spread*t ~ 1e27 rad -- polynomial evaluation at the
-       noise-limited nodes is non-unitary by many orders (measured singular values
-       ~5e11; 500 steps overflowed rho to NaN, the pre-2026-07 all-NaN flux bug at
-       extreme mediator masses). The propagator then switches to the exactly-unitary
-       spectral-projector form built from the stable far eigenvector, dropping the
-       (machine-noise) pair-splitting phase. Outside the deflation branch this hazard
-       is unreachable (gap >= 1e-4 * spread bounds the amplification at ~2e-12).
+    1. SHIFT. D = H - q I with q = tr(H)/3, and the rounding residue of tr(D) moved back
+       into q, so D is traceless to rounding -- which the trigonometric roots assume -- and
+       e^{-i q t} factors out.
+    2. ORDER. Closed-form trigonometric roots of D give the closest pair (a, b) and the
+       loner c. Near a double root the pair's roots carry the cubic formula's
+       sqrt(eps)-conditioned error (measured: a 2.0e-17 gap came out 5.1e-15), but the
+       loner is accurate to eps * spread at any gap.
+    3. LONER EIGENVECTOR. The largest column of (D - a I)(D - b I), normalized. The pair's
+       admixture is (lam - a)(lam - b) / ((c - a)(c - b)) for its eigenvalues lam: the
+       roots' error times the gap, ~eps p^2 at any gap (the roots are off by
+       ~eps p^2 / gap, and by sqrt(eps) p only once the gap itself is below
+       sqrt(eps) p), so the admixture stays at the eps level.
+    4. COMPLEMENT. x = the coordinate axis least aligned with v, Gram-Schmidted against it
+       (norm >= sqrt(2/3)), and y = conj(v cross x), orthonormal to both.
+    5. PAIR. D restricted to {x, y} is a 2x2 Hermitian block whose eigenvalues
+       mean +- delta (delta = sqrt(((bxx - byy)/2)^2 + |bxy|^2), a sum of squares) and
+       eigenvectors are cancellation-free. When delta is below PAIR_FLOOR eps (|q| + p)
+       the pair is propagated as degenerate, U = e^{-iqt} [e^{-ict} v v^dag +
+       e^{-i mean t} (1 - v v^dag)]: its splitting is not resolved by H in double
+       precision (e.g. the vacuum term under a rank-1 potential 1e17 times larger), and
+       evolving it would rotate the pair by rounding noise.
+    6. Spreads below 1.2e-4 / t use the second-order Taylor series (truncation < 1e-13,
+       unitary to |X|^4/4), and H ~ q I is a pure phase.
+
+    History: until 2026-10-12 (v3) U was a polynomial in D through Newton divided
+    differences of e^{-ixt} at the eigenvalues. A polynomial evaluated at rounded nodes is
+    unitary only to ~eps * spread * min(t, 2/gap): up to 5e-3 per Earth step at
+    potentials of 70 eV (the cosmoX2 benchmark), where the spatial phase then created up
+    to 0.7% of the flux. A guard switched to the degenerate projector form above
+    eps * spread * min(t, 1/delta) = 0.1 only. v3 also read both triangles of an H that
+    is Hermitian only to rounding (M_rot = U M U^dag), and its complement basis divided
+    by zero for single-flavor sterile mixing (u_mu = 0 or u_e = 0) at potentials above
+    ~1e7 eV.
 
     NOTE: deliberately compiled WITHOUT fastmath -- its approximate-function flag
     degrades sin/cos/exp at these argument sizes.
     """
     q = (H[0, 0].real + H[1, 1].real + H[2, 2].real) / 3.0
-    p1 = (H[0, 1].real**2 + H[0, 1].imag**2 +
-          H[0, 2].real**2 + H[0, 2].imag**2 +
-          H[1, 2].real**2 + H[1, 2].imag**2)
     d0 = H[0, 0].real - q
     d1 = H[1, 1].real - q
     d2 = H[2, 2].real - q
-    p2 = d0 * d0 + d1 * d1 + d2 * d2 + 2.0 * p1
-    p = np.sqrt(p2 / 6.0)
-
-    scale = np.abs(q) + p
-    if p <= 1e-14 * max(scale, 1e-300):
-        # H ~ q * I: the propagator is a pure global phase
-        phase = np.exp(-1j * q * t)
-        out.fill(0.0 + 0.0j)
-        out[0, 0] = phase
-        out[1, 1] = phase
-        out[2, 2] = phase
-        return
-
-    # Trigonometric roots of the traceless D = H - q I
+    tau = (d0 + d1 + d2) / 3.0
+    d0 -= tau
+    d1 -= tau
+    d2 -= tau
+    q += tau
     b01 = H[0, 1]
     b02 = H[0, 2]
     b12 = H[1, 2]
+    p1 = (b01.real**2 + b01.imag**2 + b02.real**2 + b02.imag**2 + b12.real**2 + b12.imag**2)
+    p = np.sqrt((d0 * d0 + d1 * d1 + d2 * d2 + 2.0 * p1) / 6.0)
+    scale = np.abs(q) + p
+    gp = np.exp(-1j * q * t)
+
+    if p <= 1e-14 * max(scale, 1e-300):
+        # H ~ q * I: the propagator is a pure global phase
+        out.fill(0.0 + 0.0j)
+        out[0, 0] = gp
+        out[1, 1] = gp
+        out[2, 2] = gp
+        return
+
     detB = (d0 * (d1 * d2 - (b12.real**2 + b12.imag**2))
             - (b01 * (np.conjugate(b01) * d2 - b12 * np.conjugate(b02))).real
             + (b02 * (np.conjugate(b01) * np.conjugate(b12) - d1 * np.conjugate(b02))).real)
@@ -82,38 +97,37 @@ def propagator_3x3(H: np.ndarray, t: float, out: np.ndarray):
     elif r > 1.0:
         r = 1.0
     phi = np.arccos(r) / 3.0
-
     e_hi = 2.0 * p * np.cos(phi)
     e_lo = 2.0 * p * np.cos(phi + 2.0 * np.pi / 3.0)
     e_mid = -e_hi - e_lo
-
     spread = e_hi - e_lo
-    global_phase = np.exp(-1j * q * t)
+
+    c01 = np.conjugate(b01)
+    c02 = np.conjugate(b02)
+    c12 = np.conjugate(b12)
 
     if abs(spread * t) < 1.2e-4:
-        # Tiny total phase spread: second-order Taylor in X = -i t D around the global
-        # phase; truncation ||X||^3 / 6 < 3e-13. Covers every all-three-close case.
-        for a in range(3):
-            for b in range(3):
-                x_ab = -1j * t * H[a, b]
-                if a == b:
-                    x_ab += 1j * t * q
-                x2_ab = 0.0 + 0.0j
-                for k in range(3):
-                    x_ak = -1j * t * H[a, k]
-                    x_kb = -1j * t * H[k, b]
-                    if a == k:
-                        x_ak += 1j * t * q
-                    if k == b:
-                        x_kb += 1j * t * q
-                    x2_ab += x_ak * x_kb
-                val = x_ab + 0.5 * x2_ab
-                if a == b:
-                    val += 1.0
-                out[a, b] = global_phase * val
+        # U = e^{-iqt} (1 - i t D - t^2 D^2 / 2)
+        s00 = d0 * d0 + (b01.real**2 + b01.imag**2) + (b02.real**2 + b02.imag**2)
+        s11 = (b01.real**2 + b01.imag**2) + d1 * d1 + (b12.real**2 + b12.imag**2)
+        s22 = (b02.real**2 + b02.imag**2) + (b12.real**2 + b12.imag**2) + d2 * d2
+        s01 = d0 * b01 + b01 * d1 + b02 * c12
+        s02 = d0 * b02 + b01 * b12 + b02 * d2
+        s12 = c01 * b02 + d1 * b12 + b12 * d2
+        h = -0.5 * t * t
+        it = -1j * t
+        out[0, 0] = gp * (1.0 + it * d0 + h * s00)
+        out[1, 1] = gp * (1.0 + it * d1 + h * s11)
+        out[2, 2] = gp * (1.0 + it * d2 + h * s22)
+        out[0, 1] = gp * (it * b01 + h * s01)
+        out[0, 2] = gp * (it * b02 + h * s02)
+        out[1, 2] = gp * (it * b12 + h * s12)
+        out[1, 0] = gp * (it * c01 + h * np.conjugate(s01))
+        out[2, 0] = gp * (it * c02 + h * np.conjugate(s02))
+        out[2, 1] = gp * (it * c12 + h * np.conjugate(s12))
         return
 
-    # Order so the closest pair is (a, b); c is the loner.
+    # Closest pair (a, b); c is the loner.
     if (e_hi - e_mid) <= (e_mid - e_lo):
         a_ = e_hi
         b_ = e_mid
@@ -123,179 +137,119 @@ def propagator_3x3(H: np.ndarray, t: float, out: np.ndarray):
         b_ = e_lo
         c_ = e_hi
 
-    if abs(a_ - b_) < 1e-4 * spread:
-        # DEFLATION: trig roots of a near-double pair are sqrt(eps)-conditioned; rebuild
-        # the pair from the 2x2 complement of the (accurately known) far eigenvector.
-        mean_pair = -0.5 * c_          # tr D = 0  =>  a + b = -c
-        # Far eigenvector: largest column of M = (D - mean_pair I)^2; the pair's
-        # contribution is (±gap/2)^2 vs (c - mean_pair)^2 for the far root.
-        m00 = complex(d0 - mean_pair, 0.0)
-        m11 = complex(d1 - mean_pair, 0.0)
-        m22 = complex(d2 - mean_pair, 0.0)
-        # M columns (M = Dm @ Dm with Dm Hermitian)
-        v0 = np.zeros(3, dtype=np.complex128)
-        best_norm = -1.0
-        for col in range(3):
-            if col == 0:
-                y0 = m00
-                y1 = np.conjugate(b01)
-                y2 = np.conjugate(b02)
-            elif col == 1:
-                y0 = b01
-                y1 = m11
-                y2 = np.conjugate(b12)
-            else:
-                y0 = b02
-                y1 = b12
-                y2 = m22
-            c0 = m00 * y0 + b01 * y1 + b02 * y2
-            c1 = np.conjugate(b01) * y0 + m11 * y1 + b12 * y2
-            c2 = np.conjugate(b02) * y0 + np.conjugate(b12) * y1 + m22 * y2
-            nrm = (c0.real**2 + c0.imag**2 + c1.real**2 + c1.imag**2 + c2.real**2 + c2.imag**2)
-            if nrm > best_norm:
-                best_norm = nrm
-                v0[0] = c0
-                v0[1] = c1
-                v0[2] = c2
-        inv = 1.0 / np.sqrt(best_norm)
-        v0[0] *= inv
-        v0[1] *= inv
-        v0[2] *= inv
-        # Orthonormal complement {x1, x2}: Gram-Schmidt the least-aligned axis, then a
-        # second axis orthogonalized against both.
-        a0 = v0[0].real**2 + v0[0].imag**2
-        a1 = v0[1].real**2 + v0[1].imag**2
-        a2 = v0[2].real**2 + v0[2].imag**2
-        if a0 <= a1 and a0 <= a2:
-            k1 = 0
-        elif a1 <= a2:
-            k1 = 1
+    # Loner eigenvector: the largest column of (D - a I)(D - b I)
+    best = -1.0
+    v0 = 0.0 + 0.0j
+    v1 = 0.0 + 0.0j
+    v2 = 0.0 + 0.0j
+    for col in range(3):
+        if col == 0:
+            y0 = complex(d0 - b_, 0.0)
+            y1 = c01
+            y2 = c02
+        elif col == 1:
+            y0 = b01
+            y1 = complex(d1 - b_, 0.0)
+            y2 = c12
         else:
-            k1 = 2
-        x1 = np.zeros(3, dtype=np.complex128)
-        x1[k1] = 1.0
-        ov = np.conjugate(v0[k1])
-        x1[0] -= ov * v0[0]
-        x1[1] -= ov * v0[1]
-        x1[2] -= ov * v0[2]
-        n1 = np.sqrt(x1[0].real**2 + x1[0].imag**2 + x1[1].real**2 + x1[1].imag**2 + x1[2].real**2 + x1[2].imag**2)
-        x1[0] /= n1
-        x1[1] /= n1
-        x1[2] /= n1
-        k2 = 0 if k1 != 0 else 1
-        x2 = np.zeros(3, dtype=np.complex128)
-        x2[k2] = 1.0
-        ov = np.conjugate(v0[k2])
-        x2[0] -= ov * v0[0]
-        x2[1] -= ov * v0[1]
-        x2[2] -= ov * v0[2]
-        ox = np.conjugate(x1[0]) * x2[0] + np.conjugate(x1[1]) * x2[1] + np.conjugate(x1[2]) * x2[2]
-        x2[0] -= ox * x1[0]
-        x2[1] -= ox * x1[1]
-        x2[2] -= ox * x1[2]
-        n2 = np.sqrt(x2[0].real**2 + x2[0].imag**2 + x2[1].real**2 + x2[1].imag**2 + x2[2].real**2 + x2[2].imag**2)
-        x2[0] /= n2
-        x2[1] /= n2
-        x2[2] /= n2
-        # 2x2 block of D in the {x1, x2} basis (D applied via its Hermitian elements)
-        # D @ x vectors
-        Dx1_0 = complex(d0, 0.0) * x1[0] + b01 * x1[1] + b02 * x1[2]
-        Dx1_1 = np.conjugate(b01) * x1[0] + complex(d1, 0.0) * x1[1] + b12 * x1[2]
-        Dx1_2 = np.conjugate(b02) * x1[0] + np.conjugate(b12) * x1[1] + complex(d2, 0.0) * x1[2]
-        Dx2_0 = complex(d0, 0.0) * x2[0] + b01 * x2[1] + b02 * x2[2]
-        Dx2_1 = np.conjugate(b01) * x2[0] + complex(d1, 0.0) * x2[1] + b12 * x2[2]
-        Dx2_2 = np.conjugate(b02) * x2[0] + np.conjugate(b12) * x2[1] + complex(d2, 0.0) * x2[2]
-        b11_ = (np.conjugate(x1[0]) * Dx1_0 + np.conjugate(x1[1]) * Dx1_1 + np.conjugate(x1[2]) * Dx1_2).real
-        b22_ = (np.conjugate(x2[0]) * Dx2_0 + np.conjugate(x2[1]) * Dx2_1 + np.conjugate(x2[2]) * Dx2_2).real
-        b12_ = (np.conjugate(x1[0]) * Dx2_0 + np.conjugate(x1[1]) * Dx2_1 + np.conjugate(x1[2]) * Dx2_2)
-        mean_b = 0.5 * (b11_ + b22_)
-        half_diff = 0.5 * (b11_ - b22_)
-        delta = np.sqrt(half_diff * half_diff + b12_.real**2 + b12_.imag**2)
+            y0 = b02
+            y1 = b12
+            y2 = complex(d2 - b_, 0.0)
+        z0 = (d0 - a_) * y0 + b01 * y1 + b02 * y2
+        z1 = c01 * y0 + (d1 - a_) * y1 + b12 * y2
+        z2 = c02 * y0 + c12 * y1 + (d2 - a_) * y2
+        nrm = z0.real**2 + z0.imag**2 + z1.real**2 + z1.imag**2 + z2.real**2 + z2.imag**2
+        if nrm > best:
+            best = nrm
+            v0 = z0
+            v1 = z1
+            v2 = z2
+    inv = 1.0 / np.sqrt(best)
+    v0 *= inv
+    v1 *= inv
+    v2 *= inv
 
-        # PHASE-NOISE GUARD (piece 4 of the docstring). Every quantity above carries an
-        # absolute cancellation floor ~ eps * spread from arithmetic on O(spread) matrix
-        # entries. Evaluating the interpolating polynomial at D's true eigenvalues (which
-        # sit within that floor of the nodes) amplifies by ~ node_error * |p'|, with
-        # |p'| ~ |t| on the sinc branch (pair phase < O(1)) and ~ 1/delta on the direct-
-        # quotient branch. When eps * spread * min(|t|, 1/delta) reaches O(0.1), NO
-        # polynomial in D can remain unitary -- measured 5e11 singular values at
-        # m_Zd = 1e-6 eV, where the 1/m_Zd^2-enhanced Earth potential reaches ~1e17 eV
-        # and spread*t ~ 6e27 rad; 500 such steps overflow rho to Inf/NaN. In that
-        # regime the pair-splitting phase is machine noise whatever we do, so the only
-        # meaningful propagator is the exactly-unitary projector form
-        #     U = e^{-iqt} [ f_c v0 v0^dag + f_pair (I - v0 v0^dag) ],
-        # which drops the sub-noise splitting but preserves unitarity exactly (the flux
-        # then carries decoherence-averaged information, the best double precision can
-        # represent there). The far eigenvector v0 is already computed stably above.
-        slope = np.abs(t)
-        if delta > 0.0 and delta * slope > 1.0:
-            slope = 1.0 / delta
-        if 2.2e-16 * spread * slope > 0.1:
-            f_c = np.exp(-1j * c_ * t)
-            f_p = np.exp(-1j * mean_b * t)
-            df = f_c - f_p
-            for a in range(3):
-                for b in range(3):
-                    val = df * (v0[a] * np.conjugate(v0[b]))
-                    if a == b:
-                        val += f_p
-                    out[a, b] = global_phase * val
-            return
-
-        a_ = mean_b + delta
-        b_ = mean_b - delta
-
-    f_a = np.exp(-1j * a_ * t)
-    f_b = np.exp(-1j * b_ * t)
-    f_c = np.exp(-1j * c_ * t)
-
-    # First divided differences: sinc form only where the direct difference cancels
-    # (|gap phase| < 0.5); the direct node-exact quotient everywhere else (mandatory at
-    # large gap phases -- see docstring).
-    u_half = 0.5 * (a_ - b_) * t
-    if abs(u_half) < 0.5:
-        sinc_ab = np.sin(u_half) / u_half if u_half != 0.0 else 1.0
-        dd_ab = np.exp(-0.5j * (a_ + b_) * t) * (-1j * t) * sinc_ab
+    # Complement {x, y}: the least-aligned axis minus its projection on v; y = conj(v cross x)
+    n0 = v0.real**2 + v0.imag**2
+    n1 = v1.real**2 + v1.imag**2
+    n2 = v2.real**2 + v2.imag**2
+    if n0 <= n1 and n0 <= n2:
+        x0 = complex(1.0 - n0, 0.0)
+        x1 = -np.conjugate(v0) * v1
+        x2 = -np.conjugate(v0) * v2
+    elif n1 <= n2:
+        x0 = -np.conjugate(v1) * v0
+        x1 = complex(1.0 - n1, 0.0)
+        x2 = -np.conjugate(v1) * v2
     else:
-        dd_ab = (f_a - f_b) / (a_ - b_)
+        x0 = -np.conjugate(v2) * v0
+        x1 = -np.conjugate(v2) * v1
+        x2 = complex(1.0 - n2, 0.0)
+    inv = 1.0 / np.sqrt(x0.real**2 + x0.imag**2 + x1.real**2 + x1.imag**2 + x2.real**2 + x2.imag**2)
+    x0 *= inv
+    x1 *= inv
+    x2 *= inv
+    y0 = np.conjugate(v1 * x2 - v2 * x1)
+    y1 = np.conjugate(v2 * x0 - v0 * x2)
+    y2 = np.conjugate(v0 * x1 - v1 * x0)
 
-    v_half = 0.5 * (b_ - c_) * t
-    if abs(v_half) < 0.5:
-        sinc_bc = np.sin(v_half) / v_half if v_half != 0.0 else 1.0
-        dd_bc = np.exp(-0.5j * (b_ + c_) * t) * (-1j * t) * sinc_bc
+    # The pair's 2x2 block of D on {x, y}
+    Dx0 = d0 * x0 + b01 * x1 + b02 * x2
+    Dx1 = c01 * x0 + d1 * x1 + b12 * x2
+    Dx2 = c02 * x0 + c12 * x1 + d2 * x2
+    Dy0 = d0 * y0 + b01 * y1 + b02 * y2
+    Dy1 = c01 * y0 + d1 * y1 + b12 * y2
+    Dy2 = c02 * y0 + c12 * y1 + d2 * y2
+    bxx = (np.conjugate(x0) * Dx0 + np.conjugate(x1) * Dx1 + np.conjugate(x2) * Dx2).real
+    byy = (np.conjugate(y0) * Dy0 + np.conjugate(y1) * Dy1 + np.conjugate(y2) * Dy2).real
+    bxy = np.conjugate(x0) * Dy0 + np.conjugate(x1) * Dy1 + np.conjugate(x2) * Dy2
+    mean = 0.5 * (bxx + byy)
+    hd = 0.5 * (bxx - byy)
+    delta = np.sqrt(hd * hd + bxy.real**2 + bxy.imag**2)
+
+    gc = gp * np.exp(-1j * c_ * t)
+    if delta <= PAIR_FLOOR * _EPS * scale:
+        # Unresolved pair: U = e^{-iqt} [f_m 1 + (f_c - f_m) v v^dag]
+        gm = gp * np.exp(-1j * mean * t)
+        dg = gc - gm
+        out[0, 0] = gm + dg * n0
+        out[1, 1] = gm + dg * n1
+        out[2, 2] = gm + dg * n2
+        out[0, 1] = dg * (v0 * np.conjugate(v1))
+        out[0, 2] = dg * (v0 * np.conjugate(v2))
+        out[1, 2] = dg * (v1 * np.conjugate(v2))
+        out[1, 0] = dg * (v1 * np.conjugate(v0))
+        out[2, 0] = dg * (v2 * np.conjugate(v0))
+        out[2, 1] = dg * (v2 * np.conjugate(v1))
+        return
+
+    # Pair eigenvectors: w+ = al x + be y (eigenvalue mean + delta), w- = -conj(be) x + conj(al) y
+    if hd >= 0.0:
+        al = complex(hd + delta, 0.0)
+        be = np.conjugate(bxy)
     else:
-        dd_bc = (f_b - f_c) / (b_ - c_)
-
-    dd_abc = (dd_ab - dd_bc) / (a_ - c_)
-
-    # Newton -> power basis in D: U = e^{-iqt} (A2 D^2 + A1 D + A0 I)
-    A2 = dd_abc
-    A1 = dd_ab - (a_ + b_) * dd_abc
-    A0 = f_a - a_ * dd_ab + a_ * b_ * dd_abc
-
-    # Evaluate on D = H - q I without materializing it: fully unrolled straight-line
-    # code, operation-for-operation identical to the original a/b/k loop nest (same
-    # products, same summation order -- bit-identical by construction), with the D
-    # entries hoisted into locals once instead of re-read per (a, b) pair.
-    e00 = H[0, 0] - q
-    e11 = H[1, 1] - q
-    e22 = H[2, 2] - q
-    e01 = H[0, 1]
-    e02 = H[0, 2]
-    e12 = H[1, 2]
-    e10 = H[1, 0]
-    e20 = H[2, 0]
-    e21 = H[2, 1]
-
-    out[0, 0] = global_phase * (A2 * (e00 * e00 + e01 * e10 + e02 * e20) + A1 * e00 + A0)
-    out[0, 1] = global_phase * (A2 * (e00 * e01 + e01 * e11 + e02 * e21) + A1 * e01)
-    out[0, 2] = global_phase * (A2 * (e00 * e02 + e01 * e12 + e02 * e22) + A1 * e02)
-    out[1, 0] = global_phase * (A2 * (e10 * e00 + e11 * e10 + e12 * e20) + A1 * e10)
-    out[1, 1] = global_phase * (A2 * (e10 * e01 + e11 * e11 + e12 * e21) + A1 * e11 + A0)
-    out[1, 2] = global_phase * (A2 * (e10 * e02 + e11 * e12 + e12 * e22) + A1 * e12)
-    out[2, 0] = global_phase * (A2 * (e20 * e00 + e21 * e10 + e22 * e20) + A1 * e20)
-    out[2, 1] = global_phase * (A2 * (e20 * e01 + e21 * e11 + e22 * e21) + A1 * e21)
-    out[2, 2] = global_phase * (A2 * (e20 * e02 + e21 * e12 + e22 * e22) + A1 * e22 + A0)
+        al = bxy
+        be = complex(delta - hd, 0.0)
+    inv = 1.0 / np.sqrt(al.real**2 + al.imag**2 + be.real**2 + be.imag**2)
+    al *= inv
+    be *= inv
+    p0 = al * x0 + be * y0
+    p1_ = al * x1 + be * y1
+    p2 = al * x2 + be * y2
+    m0 = np.conjugate(al) * y0 - np.conjugate(be) * x0
+    m1 = np.conjugate(al) * y1 - np.conjugate(be) * x1
+    m2 = np.conjugate(al) * y2 - np.conjugate(be) * x2
+    ga = gp * np.exp(-1j * (mean + delta) * t)
+    gb = gp * np.exp(-1j * (mean - delta) * t)
+    out[0, 0] = gc * n0 + ga * (p0.real**2 + p0.imag**2) + gb * (m0.real**2 + m0.imag**2)
+    out[1, 1] = gc * n1 + ga * (p1_.real**2 + p1_.imag**2) + gb * (m1.real**2 + m1.imag**2)
+    out[2, 2] = gc * n2 + ga * (p2.real**2 + p2.imag**2) + gb * (m2.real**2 + m2.imag**2)
+    out[0, 1] = gc * (v0 * np.conjugate(v1)) + ga * (p0 * np.conjugate(p1_)) + gb * (m0 * np.conjugate(m1))
+    out[0, 2] = gc * (v0 * np.conjugate(v2)) + ga * (p0 * np.conjugate(p2)) + gb * (m0 * np.conjugate(m2))
+    out[1, 2] = gc * (v1 * np.conjugate(v2)) + ga * (p1_ * np.conjugate(p2)) + gb * (m1 * np.conjugate(m2))
+    out[1, 0] = gc * (v1 * np.conjugate(v0)) + ga * (p1_ * np.conjugate(p0)) + gb * (m1 * np.conjugate(m0))
+    out[2, 0] = gc * (v2 * np.conjugate(v0)) + ga * (p2 * np.conjugate(p0)) + gb * (m2 * np.conjugate(m0))
+    out[2, 1] = gc * (v2 * np.conjugate(v1)) + ga * (p2 * np.conjugate(p1_)) + gb * (m2 * np.conjugate(m1))
 
 
 @njit(fastmath=True, cache=True)

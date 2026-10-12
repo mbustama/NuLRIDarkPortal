@@ -1372,10 +1372,10 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
 
     # PHASE-NOISE ADVISORY: when the LRI potential is so large (1/m_Zd^2-enhanced at tiny
     # mediator masses) that a single Earth step accrues more phase than double precision
-    # can represent (eps * spread * dr > 0.1 rad of pure node noise), propagator_3x3's
-    # projector guard keeps the evolution unitary but the oscillation phases carry no
-    # information -- the returned fluxes are decoherence-averaged only. Estimated here
-    # with the PREM-core density (the worst case along any chord).
+    # can represent (eps * spread * dr > 0.1 rad of rounding noise), propagator_3x3 keeps
+    # the evolution exactly unitary but the oscillation phases carry no information --
+    # the returned fluxes are decoherence-averaged only. Estimated here with the
+    # PREM-core density (the worst case along any chord).
     if verbose >= 1:
         s_lri = float(np.max(np.abs(np.linalg.eigvalsh(U_LRI_struct))))
         n_core_eV3 = earth_neutron_density_cm3(0.0, earth_yk) * cm_inv3_to_eV3
@@ -1386,7 +1386,7 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
                 f"is phase-noise-dominated for the Earth transit at these parameters "
                 f"(m_Zd_eV={m_Zd:.3g}, g_D={g_D:.3g}, epsilon_prime={eps_prime:.3g}): "
                 f"per-step phases exceed double precision. Fluxes are unitary but "
-                f"decoherence-averaged only (see propagator_3x3's phase-noise guard).")
+                f"decoherence-averaged only (see propagator_3x3's docstring).")
 
     # PHASE 1: Milky Way & Solar System Approach
     r_end_kpc = 6371.0 / 3.08567758e16
@@ -1394,7 +1394,7 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
     dr_MW_eV_inv = dr_kpc * 3.08567758e16 * 1e3 * m_to_eV_inv
 
     # Optional CUDA path: the whole handover as one batched GPU workload (same physics --
-    # shared density helpers, same closed-form propagator and degeneracy guard; see
+    # shared density helpers, same propagator algorithm ported to batched arrays; see
     # gpu_spatial.py, including its validation-status note). Falls back to the CPU path
     # with a warning when cupy or a CUDA device is missing.
     if use_gpu:
@@ -1483,10 +1483,11 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
     # step's left endpoint) carries a Riemann-sum phase error of thousands of radians
     # that RE-ALIASES the Earth-transit fringes on every step-count change (500 vs 501
     # measured 1.6-17% pointwise flux / up to 1.7e-2 energy-averaged-ratio scatter);
-    # everything in the historical note below applies to THAT scheme. Phase-noise-
-    # regime points (e.g. m_Zd ~ 40 eV, potential-dominated Earth transit) remain
-    # pointwise-unconvergeable under ANY scheme (decoherence-averaged only, see
-    # propagator_3x3's phase-noise guard).
+    # everything in the historical note below applies to THAT scheme. Potential-
+    # dominated points (m_Zd = 40 eV) were long thought pointwise-unconvergeable
+    # (2.9e-3 between step counts); that was the non-unitary propagator before
+    # 2026-10-12, and they now agree across 8, 25 and 100 steps and 12, 24 and 50
+    # chords to 1e-14.
     #
     # HISTORICAL NOTE ('left' scheme): an earlier version scaled n_steps_earth down for
     # shorter chords (same physical km/step as the costh=-1 chord, since that seemed to only cost

@@ -13,16 +13,12 @@ to the CPU path with a warning. The physics is identical by construction:
 
 - the per-step densities come from the same numba helpers the CPU kernels use
   (spatial_total_density_mw / spatial_total_density_earth -- single source of truth);
-- the propagator is the v3 deflation-based divided-difference scheme of
-  propagator_3x3, ported branch-for-branch to batched array operations (masks in
-  place of branches, NO eigendecomposition anywhere): traceless shift with the
+- the propagator is propagator_3x3's spectral sum over a deflated eigenbasis, ported
+  to batched array operations (masks in place of branches): traceless shift with the
   global phase factored out, the pure-phase and second-order-Taylor branches, the
-  closest-pair ordering with node-exact first divided differences (sinc form only
-  below |gap*t/2| = 0.5, direct quotient otherwise), the deflation of
-  sqrt(eps)-conditioned near-double trig roots via the far eigenvector's 2x2
-  complement block, and the phase-noise projector guard for potentials beyond
-  double-precision phase tracking. Read propagator_3x3's docstring for why every
-  one of those pieces exists;
+  loner's eigenvector from (D - a I)(D - b I), the orthonormal complement and the pair's
+  2x2 block, and the degenerate form for pair splittings below double-precision
+  resolution. Read propagator_3x3's docstring for why every one of those pieces exists;
 - everything runs in complex128; no reduced-precision intrinsics.
 
 VALIDATION STATUS: this module was developed on a machine without a CUDA device.
@@ -38,6 +34,8 @@ production-like settings):
 """
 
 import numpy as np
+
+from dp_propagator import PAIR_FLOOR, _EPS
 
 _CUPY = None
 
@@ -63,36 +61,56 @@ def gpu_available() -> bool:
 
 
 def _batched_propagator_gpu(cp, H, t):
-    """exp(-i H t) for a batch of Hermitian 3x3 matrices: the v3 propagator_3x3
-    ported branch-for-branch to batched array operations.
+    """exp(-i H t) for a batch of Hermitian 3x3 matrices: propagator_3x3 (the spectral sum
+    over a deflated eigenbasis, exactly unitary at any phase) ported to batched array
+    operations.
 
-    H: (B, 3, 3) complex128; t: (B,) float64. Returns (B, 3, 3) complex128.
+    H: (B, 3, 3) complex128, read as the Hermitian matrix of its upper triangle and real
+    diagonal; t: (B,) float64. Returns (B, 3, 3) complex128.
     `cp` is the array backend -- cupy on the GPU, or numpy for the CPU validation of
     this port's mathematics (every operation used exists identically in both).
     Branches become masks; lanes a mask will overwrite still compute with safe
-    substituted denominators. Override priority (last write wins): polynomial ->
-    phase-noise projector -> Taylor -> pure phase, matching the CPU early-returns
-    in reverse. See propagator_3x3's docstring for why each piece exists.
+    substituted denominators. Override priority (last write wins): resolved pair ->
+    unresolved pair -> Taylor -> pure phase, matching the CPU early-returns in reverse.
+    See propagator_3x3's docstring for why each piece exists.
     """
     eye = cp.eye(3, dtype=cp.complex128)
+
+    def sq(z):
+        return z.real**2 + z.imag**2
 
     q = cp.real(H[:, 0, 0] + H[:, 1, 1] + H[:, 2, 2]) / 3.0
     d0 = cp.real(H[:, 0, 0]) - q
     d1 = cp.real(H[:, 1, 1]) - q
     d2 = cp.real(H[:, 2, 2]) - q
+    tau = (d0 + d1 + d2) / 3.0
+    d0 = d0 - tau
+    d1 = d1 - tau
+    d2 = d2 - tau
+    q = q + tau
     b01 = H[:, 0, 1]
     b02 = H[:, 0, 2]
     b12 = H[:, 1, 2]
-    p1 = cp.abs(b01)**2 + cp.abs(b02)**2 + cp.abs(b12)**2
-    p2 = d0 * d0 + d1 * d1 + d2 * d2 + 2.0 * p1
-    p = cp.sqrt(p2 / 6.0)
-
+    p = cp.sqrt((d0 * d0 + d1 * d1 + d2 * d2 + 2.0 * (sq(b01) + sq(b02) + sq(b12))) / 6.0)
     scale = cp.abs(q) + p
     iso_mask = p <= 1e-14 * cp.maximum(scale, 1e-300)
     p_safe = cp.where(iso_mask, 1.0, p)
+    gp = cp.exp(-1j * q * t)
 
-    # Trigonometric roots of the traceless D = H - q I
-    detB = (d0 * (d1 * d2 - cp.abs(b12)**2)
+    # Hermitian D from the upper triangle
+    D = cp.empty_like(H)
+    D[:, 0, 0] = d0
+    D[:, 1, 1] = d1
+    D[:, 2, 2] = d2
+    D[:, 0, 1] = b01
+    D[:, 0, 2] = b02
+    D[:, 1, 2] = b12
+    D[:, 1, 0] = cp.conj(b01)
+    D[:, 2, 0] = cp.conj(b02)
+    D[:, 2, 1] = cp.conj(b12)
+
+    # Trigonometric roots of D: ordering and the loner
+    detB = (d0 * (d1 * d2 - sq(b12))
             - cp.real(b01 * (cp.conj(b01) * d2 - b12 * cp.conj(b02)))
             + cp.real(b02 * (cp.conj(b01) * cp.conj(b12) - d1 * cp.conj(b02))))
     r = cp.clip(detB / (2.0 * p_safe**3), -1.0, 1.0)
@@ -100,90 +118,62 @@ def _batched_propagator_gpu(cp, H, t):
     e_hi = 2.0 * p * cp.cos(phi)
     e_lo = 2.0 * p * cp.cos(phi + 2.0 * np.pi / 3.0)
     e_mid = -e_hi - e_lo
-
     spread = e_hi - e_lo
-    gp = cp.exp(-1j * q * t)
-    D = H - q[:, None, None] * eye
-
     taylor_mask = cp.abs(spread * t) < 1.2e-4
-
-    # Closest-pair ordering: (a_, b_) the close pair, c_ the loner
     upper = (e_hi - e_mid) <= (e_mid - e_lo)
     a_ = cp.where(upper, e_hi, e_mid)
     b_ = cp.where(upper, e_mid, e_lo)
     c_ = cp.where(upper, e_lo, e_hi)
 
-    # DEFLATION (computed for every lane, selected by mask): far eigenvector from the
-    # largest column of (D - mean_pair I)^2, Gram-Schmidt complement, pair mean and
-    # half-gap from the cancellation-free 2x2 block.
-    defl_mask = (cp.abs(a_ - b_) < 1e-4 * spread) & (~iso_mask)
-    mean_pair = -0.5 * c_
-    Dm = D - mean_pair[:, None, None] * eye
-    M = cp.matmul(Dm, Dm)
-    col_norm = cp.sum(cp.abs(M)**2, axis=1)                       # (B, 3) per column
-    csel = cp.argmax(col_norm, axis=1)
-    v0 = cp.take_along_axis(M, csel[:, None, None], axis=2)[:, :, 0]
-    v0 = v0 / cp.sqrt(cp.maximum(cp.sum(cp.abs(v0)**2, axis=1), 1e-300))[:, None]
-    k1 = cp.argmin(cp.abs(v0)**2, axis=1)
-    x1 = eye[k1] - cp.conj(cp.take_along_axis(v0, k1[:, None], axis=1)) * v0
-    x1 = x1 / cp.sqrt(cp.maximum(cp.sum(cp.abs(x1)**2, axis=1), 1e-300))[:, None]
-    k2 = cp.where(k1 != 0, 0, 1)
-    x2 = eye[k2] - cp.conj(cp.take_along_axis(v0, k2[:, None], axis=1)) * v0
-    ox = cp.sum(cp.conj(x1) * x2, axis=1)
-    x2 = x2 - ox[:, None] * x1
-    x2 = x2 / cp.sqrt(cp.maximum(cp.sum(cp.abs(x2)**2, axis=1), 1e-300))[:, None]
-    Dx1 = cp.einsum('bij,bj->bi', D, x1)
-    Dx2 = cp.einsum('bij,bj->bi', D, x2)
-    b11_ = cp.real(cp.sum(cp.conj(x1) * Dx1, axis=1))
-    b22_ = cp.real(cp.sum(cp.conj(x2) * Dx2, axis=1))
-    b12_ = cp.sum(cp.conj(x1) * Dx2, axis=1)
-    mean_b = 0.5 * (b11_ + b22_)
-    half_diff = 0.5 * (b11_ - b22_)
-    delta = cp.sqrt(half_diff * half_diff + cp.abs(b12_)**2)
-    a_ = cp.where(defl_mask, mean_b + delta, a_)
-    b_ = cp.where(defl_mask, mean_b - delta, b_)
+    # Loner eigenvector: the largest column of (D - a I)(D - b I)
+    M = cp.matmul(D - a_[:, None, None] * eye, D - b_[:, None, None] * eye)
+    csel = cp.argmax(cp.sum(sq(M), axis=1), axis=1)
+    v = cp.take_along_axis(M, csel[:, None, None], axis=2)[:, :, 0]
+    v = v / cp.sqrt(cp.maximum(cp.sum(sq(v), axis=1), 1e-300))[:, None]
 
-    # PHASE-NOISE PROJECTOR GUARD (v3 piece 4), inside the deflation branch only
-    abs_t = cp.abs(t)
-    slope = cp.where(delta * abs_t > 1.0, 1.0 / cp.maximum(delta, 1e-300), abs_t)
-    noise_mask = defl_mask & (2.2e-16 * spread * slope > 0.1)
+    # Complement {x, y}: least-aligned axis minus its projection on v; y = conj(v cross x)
+    k1 = cp.argmin(sq(v), axis=1)
+    x = eye[k1] - cp.conj(cp.take_along_axis(v, k1[:, None], axis=1)) * v
+    x = x / cp.sqrt(cp.maximum(cp.sum(sq(x), axis=1), 1e-300))[:, None]
+    y = cp.conj(cp.stack([v[:, 1] * x[:, 2] - v[:, 2] * x[:, 1],
+                          v[:, 2] * x[:, 0] - v[:, 0] * x[:, 2],
+                          v[:, 0] * x[:, 1] - v[:, 1] * x[:, 0]], axis=1))
 
-    # Newton divided differences of e^{-i x t}: node-exact branch selection
-    f_a = cp.exp(-1j * a_ * t)
-    f_b = cp.exp(-1j * b_ * t)
-    f_c = cp.exp(-1j * c_ * t)
+    # The pair's 2x2 block on {x, y}
+    Dx = cp.einsum('bij,bj->bi', D, x)
+    Dy = cp.einsum('bij,bj->bi', D, y)
+    bxx = cp.real(cp.sum(cp.conj(x) * Dx, axis=1))
+    byy = cp.real(cp.sum(cp.conj(y) * Dy, axis=1))
+    bxy = cp.sum(cp.conj(x) * Dy, axis=1)
+    mean = 0.5 * (bxx + byy)
+    hd = 0.5 * (bxx - byy)
+    delta = cp.sqrt(hd * hd + sq(bxy))
+    unresolved = delta <= PAIR_FLOOR * _EPS * scale
 
-    u_half = 0.5 * (a_ - b_) * t
-    u_safe = cp.where(u_half != 0.0, u_half, 1.0)
-    sinc_ab = cp.where(u_half != 0.0, cp.sin(u_safe) / u_safe, 1.0)
-    dd_ab = cp.where(cp.abs(u_half) < 0.5,
-                     cp.exp(-0.5j * (a_ + b_) * t) * (-1j * t) * sinc_ab,
-                     (f_a - f_b) / cp.where(a_ != b_, a_ - b_, 1.0))
+    gc = gp * cp.exp(-1j * c_ * t)
+    vv = v[:, :, None] * cp.conj(v)[:, None, :]
 
-    v_half = 0.5 * (b_ - c_) * t
-    v_safe = cp.where(v_half != 0.0, v_half, 1.0)
-    sinc_bc = cp.where(v_half != 0.0, cp.sin(v_safe) / v_safe, 1.0)
-    dd_bc = cp.where(cp.abs(v_half) < 0.5,
-                     cp.exp(-0.5j * (b_ + c_) * t) * (-1j * t) * sinc_bc,
-                     (f_b - f_c) / cp.where(b_ != c_, b_ - c_, 1.0))
-
-    dd_abc = (dd_ab - dd_bc) / cp.where(a_ != c_, a_ - c_, 1.0)
-
-    A2 = dd_abc
-    A1 = dd_ab - (a_ + b_) * dd_abc
-    A0 = f_a - a_ * dd_ab + a_ * b_ * dd_abc
-
-    D2 = cp.matmul(D, D)
-    U = gp[:, None, None] * (A2[:, None, None] * D2 + A1[:, None, None] * D
-                             + A0[:, None, None] * eye)
+    # Resolved pair: w+ = al x + be y (mean + delta), w- = conj(al) y - conj(be) x
+    pos = hd >= 0.0
+    al = cp.where(pos, hd + delta + 0j, bxy)
+    be = cp.where(pos, cp.conj(bxy), delta - hd + 0j)
+    nrm = cp.sqrt(sq(al) + sq(be))
+    nrm = cp.where(nrm > 0.0, nrm, 1.0)
+    al = al / nrm
+    be = be / nrm
+    wp = al[:, None] * x + be[:, None] * y
+    wm = cp.conj(al)[:, None] * y - cp.conj(be)[:, None] * x
+    ga = gp * cp.exp(-1j * (mean + delta) * t)
+    gb = gp * cp.exp(-1j * (mean - delta) * t)
+    U = (gc[:, None, None] * vv
+         + ga[:, None, None] * (wp[:, :, None] * cp.conj(wp)[:, None, :])
+         + gb[:, None, None] * (wm[:, :, None] * cp.conj(wm)[:, None, :]))
 
     # Overrides, lowest to highest priority
-    if bool(cp.any(noise_mask)):
-        f_p = cp.exp(-1j * mean_b * t)
-        P = v0[:, :, None] * cp.conj(v0)[:, None, :]
-        U_proj = gp[:, None, None] * (f_p[:, None, None] * eye
-                                      + (f_c - f_p)[:, None, None] * P)
-        U = cp.where(noise_mask[:, None, None], U_proj, U)
+    if bool(cp.any(unresolved)):
+        gm = gp * cp.exp(-1j * mean * t)
+        U_deg = gm[:, None, None] * eye + (gc - gm)[:, None, None] * vv
+        U = cp.where(unresolved[:, None, None], U_deg, U)
 
     if bool(cp.any(taylor_mask)):
         X = (-1j * t)[:, None, None] * D
