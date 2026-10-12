@@ -23,11 +23,13 @@ work on Tycho; show the statistical analysis is sound with coverage tests.
    below/inband, the ~7.5e-8 floor at strong, cosmoX2 on energy-averaged ratios and dips only).
    Partitions `astro3_devel` / `astro3_short` / `astro3_long`; 16 cores by default, up to 32 per
    job, more only on request. Installs and large downloads go on Tycho, not the laptop.
-3. **Per-direction solver output.** The solver returns one flux, the plain average over up-going
+3. **Per-direction solver output.** The solver returns one flux, the average over up-going
    Earth chords. The detector responses depend strongly on direction (DR2: straight up-going is
    ~20x below horizontal at 1 PeV), and starting events also come from above. Return the flux
-   per chord and add down-going chords (their path is only the overburden; the geometry code
-   already handles them).
+   per zenith bin and add down-going chords (their path is only the overburden; the geometry code
+   already handles them). Per bin, not per chord: a single chord's flux carries its own random
+   Earth phase, so each bin needs the phase-aware integral of `average_earth_chords` restricted to
+   its range in cos(zenith) (the same weights, computed on the bin's sub-range).
 4. **Northern-Hemisphere muons** (through-going tracks).
    - Response: IceCube's IceTracks-DR2 release (2008-2022; doi:10.7910/DVN/MMIIZA): per-season
      effective areas (IC40, IC59, IC79, IC86) and 5D smearing tables -- per true (energy,
@@ -115,6 +117,12 @@ linear in it), so it can float. Backgrounds included from the start.
 
 - 2026-10-12: relic-neutrino temperature fixed, 1.95e-4 -> 1.676389e-4 eV (`5ecf10e`); spectra
   and event rates change materially, energy-averaged flavor fractions by <= 3.8e-4.
+- 2026-10-12: chord-sampling floor removed: the Earth chords are combined with the phase-aware
+  zenith average (`grid.earth_zenith_average = "phase"`), which integrates each block of their
+  density matrices against its dark-portal phase over cos(zenith). 12 chords agree with 50 to
+  <= 1.4e-7 at below/inband/strong (was ~1e-3-4e-3 between 12 and 13); fractions move by up to
+  0.029. Residual ~6e-4 at cosmoX2 (propagator precision in the phase-noise regime). The analysis
+  must be rerun; its 200-step redshift grid (~1.1e-2) is now its largest numerical error.
 - 2026-10-12: Earth chords start exactly on the surface (`get_baseline_earth` had dropped the d^2
   terms); the Earth's own potential is its spherical Yukawa integral (Magnus/NuOscProbExact
   method), bit-identical at the benchmark points, 7-8% on the Earth effect at ranges >~ 100 km.

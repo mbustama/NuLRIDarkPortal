@@ -54,8 +54,9 @@ stage, agreed on 2026-10-12, adds IceCube event rates, systematic uncertainties 
 tests (Sec.~\ref{sec:plan}). On 2026-10-12 we corrected the relic-neutrino temperature, every
 neutron number that sources the potential and the length of the Earth chords, and we now compute
 the Earth's own potential as the full Yukawa integral over its neutrons
-(Appendix~\ref{app:corrections}); a chord-sampling floor in the Earth transit remains open
-(Sec.~\ref{sec:open}).
+(Appendix~\ref{app:corrections}). The same day we removed the chord-sampling floor of the Earth
+transit, which had left $\sim10^{-2}$ of noise in the predicted flavor fractions
+(Appendix~\ref{app:zenith}).
 \end{minipage}}
 \end{center}
 
@@ -83,7 +84,7 @@ Flavor-ratio analysis & Profile scans and exclusion planes run; no explicit syst
 IceCube event rates & Planned; data sets and folding method chosen & \ref{sec:rates} \\
 Systematics and coverage & Planned; list and procedure agreed & \ref{sec:syst}, \ref{sec:soundness} \\
 Neutron densities & All corrected 2026-10-12 & \ref{sec:inputs}, \ref{app:corrections} \\
-Earth-chord sampling & Floor of $\sim10^{-2}$ in flavor fractions; open & \ref{sec:open} \\
+Earth-chord sampling & Floor removed by the phase-aware zenith average (2026-10-12) & \ref{sec:earth}, \ref{app:zenith} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -259,19 +260,20 @@ Setting & Solver default & Analysis & Evidence \\
 Energy bins $N_E$ (10~TeV--30~PeV) & 1000 & 200 & $\sim6\times10^{-3}$ on flavor ratios at 200 \\
 Redshift steps $N_z$ ($z \le 4$) & 1000 & 200 & $\sim1.1\times10^{-2}$ at 200 \\
 Milky Way paths $n_{\rm MW}$ & 6 & 50 & \\
-Earth chords $n_\oplus$ & 12 & 50 & Fringe floor $\sim1.1\times10^{-2}$ at 50 (in-band) \\
+Earth chords $n_\oplus$ & 12 & 50 & 12 agree with 50 to $\le1.4\times10^{-7}$ (Appendix~\ref{app:zenith}) \\
 Milky Way steps $N_{\rm MW}$ & 25 & 25 & Converged to $\sim10^{-10}$ \\
 Earth steps $N_{\rm Earth}$ & 25 & 25 & Certified, Sec.~\ref{sec:earth} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\textit{The Earth-chord floor.}---The Earth transit imprints interference fringes in energy that
-are finer than the energy grid. Therefore, at in-band parameter points, changing the number of
-chords moves the energy-averaged flavor ratios pseudo-randomly at the $10^{-2}$ level instead of
-converging. We treat this scatter as a numerical systematic of the unsmeared observable
-(\file{README.md}, Sec.~11). Folding through a detector's energy resolution, as the event rates
-of Sec.~\ref{sec:rates} will do, smooths these fringes.
+\textit{The Earth-chord floor.}---Until 2026-10-12, changing the number of chords moved the
+energy-averaged flavor ratios pseudo-randomly at the $10^{-2}$ level instead of converging. We
+had attributed this to energy fringes finer than the grid; it was sampling noise of the
+dark-portal phase, which does not depend on energy, in the equal-weight chord mean. The
+phase-aware zenith average removes it (Appendix~\ref{app:zenith}). With the chord floor gone,
+the largest numerical error left at the analysis settings is the redshift grid of 200 steps,
+$\sim1.1\times10^{-2}$ on the ratios. \note{Revisit the analysis grid.}
 
 \subsection{Thermal absorption rates}
 \label{sec:thermal}
@@ -331,6 +333,10 @@ independence of the step count shows that the result is converged. The earlier
 left-endpoint scheme accumulated a phase error of thousands of radians, which moved the fluxes
 by up to $10^{-2}$ whenever the step count changed. The default is $25$ steps since
 2026-07-29 (commit \texttt{95fef9f}, Table~\ref{tab:changes}).
+
+\textit{Zenith average.}---The chords are combined by integrating each block of their density
+matrices against its dark-portal phase over $\cos\theta_z$ (Appendix~\ref{app:zenith}), not by
+an equal-weight mean.
 
 \subsection{Parallelism and cost}
 
@@ -400,7 +406,8 @@ Date, commit & Change & Result \\
 2026-10-12 \texttt{9c025e6} & Neutron fractions along Earth chords & Flavor fractions move by up to $0.026$, as much as adding one chord (Appendix~\ref{app:earthchords}) \\
 2026-10-12 \texttt{2dec771} & Point sources and cold disc gas & No change at the four points beyond their floors; effects at light mediators in Appendix~\ref{app:pointsources} \\
 2026-10-12 \texttt{5866227} & Exact length of the Earth chords & Flavor fractions move by $9\times10^{-4}$ (below) and $\le5\times10^{-5}$ (inband, strong); dips unchanged (Appendix~\ref{app:baseline}) \\
-2026-10-12 (this revision) & The Earth's potential as its Yukawa integral & Bit-identical at the four points; effects where the range reaches the Earth's scale in Appendix~\ref{app:yukawa} \\
+2026-10-12 \texttt{70ef709} & The Earth's potential as its Yukawa integral & Bit-identical at the four points; effects where the range reaches the Earth's scale in Appendix~\ref{app:yukawa} \\
+2026-10-12 (this revision) & Phase-aware zenith average of the Earth chords & Chord-sampling floor removed; flavor fractions move by up to $0.029$ (Appendix~\ref{app:zenith}) \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -558,18 +565,20 @@ against the laptop's results.
 \section{Open items}
 \label{sec:open}
 
-\textit{Earth-chord sampling floor.}---In the Earth the dark-portal potential exceeds the vacuum
-term by $\sim10^9$ at MeV mediator masses, so the phase accumulated along a chord is
-$\sim10^8$~rad. These phases are effectively random from chord to chord, and the residual
-$\nu_e$--$\nu_\mu$ conversion left by a finite chord average is sampling noise. We measured it
-with the code of commit \texttt{0db8111}: adding a thirteenth chord to the default twelve moves the
-energy-averaged flavor fractions by $0.048$ (below), $0.022$ (inband), $0.007$ (strong) and
-$1.6\times10^{-3}$ (cosmoX2). Scaled to the analysis's 50 chords this is $\sim10^{-2}$, which
-exceeds the projected 2050 width of $f_\mu$ ($\approx0.005$). Over a continuum of zenith angles
-the physical answer is the decoherent average, which a finite chord sum only approximates; an
-analytic average over the phases, where they vary by many cycles across a zenith bin, would
-remove this floor. The Yukawa integral of Appendix~\ref{app:yukawa} does not change it: at these
-masses the range is $\sim10^{-13}$~m and the potential is local. \note{Open, 2026-10-12}
+\textit{Residual in the phase-noise regime.}---At ``cosmoX2'' the chord count still moves the
+averaged fractions by $\sim6\times10^{-4}$: the potential, $\sim70$~eV in the core, is so large
+that the propagator's eigenvalues, precise to $\sim10^{-14}$~eV, cannot resolve the vacuum
+splitting inside the potential's degenerate subspace, whose phases are therefore noise. Evolving
+that regime analytically, as $e^{-i\Psi S}$ times the vacuum Hamiltonian's block-diagonal part,
+would remove it and the Earth steps along with it. \note{Open, 2026-10-12}
+
+\textit{Analyses to rerun.}---Profiles and limits computed before 2026-10-12 used the old
+neutron inputs and the equal-weight chord mean; at MeV masses the predicted flavor fractions
+moved by up to $0.03$. They should be recomputed, which is the first use planned for Tycho.
+
+\textit{Up-going only.}---The chords span the up-going hemisphere; down-going neutrinos, which
+cross only the overburden, are not in the average. The per-direction output of
+Sec.~\ref{sec:plan} will give both. \note{Open}
 
 \textit{Implementation queue.}---In order: the core-count fix, the Tycho setup and its
 validation job, the per-direction solver output, the muon channel, the starting-event channel
@@ -774,6 +783,60 @@ $+0.0224$ at all three, because it depends only on $\gd\epsp/m^2$. The Yukawa in
 $+0.0240$, $+0.0207$ and $+0.0224$: the Earth's effect changes by 7--8\% once the range reaches
 $100$~km. At these points 25 and 200 steps agree to $1.8\times10^{-10}$ in flux and
 $2.6\times10^{-11}$ in the fractions.
+
+\subsection{The zenith average of the Earth chords (2026-10-12)}
+\label{app:zenith}
+
+The flux at the detector is the average over the up-going hemisphere, uniform in $\cos\theta_z$,
+which we take from a finite set of chords. Wherever the dark-portal phase across the Earth matters,
+the potential dominates the vacuum term: a phase of $1$~rad over the Earth needs
+$V\sim10^{-14}$~eV, against $\Delta m^2/2E \lesssim 10^{-16}$~eV above 10~TeV. Therefore a chord
+evolves as $U(c) = \sum_g e^{-i\lambda_g\Psi(c)}P_g$, with $P_g$ the eigenprojectors of the
+texture (eigenvalues $\lambda_g$) and $\Psi(c) = \mathrm{Coef}\int n\,dl$ the chord's column of
+potential, and each block of the evolved density matrix is
+$P_g\rho P_h = A_{gh}(c)\,e^{-i\omega_{gh}\Psi(c)}$, $\omega_{gh} = \lambda_g-\lambda_h$, with an
+amplitude $A_{gh}$ that varies slowly with $c$ (the vacuum term's own phases across the Earth are
+below $10^{-2}$~rad). At MeV masses $\Psi$ reaches $10^5$--$10^8$~rad, so the cross blocks have
+effectively random phases from chord to chord, and the equal-weight mean we used kept them as
+sampling noise. Adding a thirteenth chord to twelve moved the averaged fractions by up to $0.048$
+(commit \texttt{0db8111}), $\sim10^{-2}$ at the analysis's 50 chords, which exceeds the projected
+2050 width of $f_\mu$ ($\approx0.005$). The phase does not depend on energy, so the noise did not
+average out over the spectrum.
+
+\textit{Method.}---We now integrate each block against its known phase. $A_{gh}$ is interpolated
+linearly between the chords, and the oscillatory factor is integrated exactly on a fine grid of
+$\Psi(c)$ with the phase linear on each subinterval (a Filon-type rule). The result is a complex
+weight per chord and block,
+$w_k^{gh} = \int \mathrm{hat}_k(c)\,e^{-i\omega_{gh}[\Psi(c)-\Psi(c_k)]}\,dc$, the same for
+every energy. The fine grid has 4096 chords, with points added toward the cosines at which a chord
+starts to cross a PREM boundary, where $\Psi'$ diverges; their columns take $\sim10$~ms once per
+process. For $\omega = 0$ the weights are the trapezoid rule. Where the phase turns many times
+between neighbouring chords they fall to $\sim1/(\omega\Psi')$, and the average becomes the
+decoherent $\sum_g P_g\rho P_g$ that the continuum of zeniths produces. In between they resolve
+the oscillation that a chord sum aliases. The rule needs the phase-exact steps: under the
+historical left-endpoint scheme, which keeps the equal-weight mean, each chord's phase carries a
+Riemann error of thousands of radians.
+
+\textit{Tests.}---For chords evolved exactly as $e^{-i\Psi S}$, the average of 12 or 13 chords
+matches the integral over $\cos\theta_z$ to $\lesssim10^{-5}$ for Earth phases from $0.1$ to
+$10^8$~rad (a dense trapezoid over 200,001 chords up to $10^3$~rad, the block-diagonal limit at
+$10^8$~rad; at $10^5$~rad the continuum keeps a cross term of $3\times10^{-4}$, which the weights
+reproduce to $10^{-5}$). The equal-weight mean misses by $10^{-3}$--$10^{-1}$. The suite also
+checks the trapezoid limit, Hermiticity for a full-rank complex texture, and the options.
+
+\textit{Effect.}---At production settings, 12, 13 and 25 chords agree with 50 to $6\times10^{-9}$
+(below), $1.4\times10^{-7}$ (inband) and $5\times10^{-8}$ (strong) in the energy-averaged
+fractions; with the equal-weight mean, 12 and 13 chords differed by $4.1\times10^{-3}$,
+$1.2\times10^{-3}$ and $5.6\times10^{-4}$. The step-count certificate tightens to
+$\le1.2\times10^{-10}$ in flux. Against the equal-weight mean of 12 chords, the fractions move by
+$0.029$ (below), $0.018$ (inband) and $0.0057$ (strong). At ``below'' they become
+$(0.3192, 0.3192, 0.3617)$, against $(0.2904, 0.3480, 0.3617)$: with $u_e = u_\mu$ the random
+Earth phases mix $\nu_e$ and $\nu_\mu$ equally, and the asymmetry was noise. At
+$\mzd = 10^{-2}$~eV the chord count no longer matters at all ($10^{-16}$), and in the coherent
+window of Appendix~\ref{app:yukawa} the fractions move by $10^{-3}$--$4.5\times10^{-3}$ and agree
+across chord counts to $5\times10^{-9}$. ``cosmoX2'' keeps a residual of $\sim6\times10^{-4}$, down
+from $5\times10^{-3}$, for the reason given in Sec.~\ref{sec:open}. A solver run costs the same
+as before.
 
 \subsection{The mixing-parameter priors (found 2026-10-12, not yet fixed)}
 \label{app:priors}

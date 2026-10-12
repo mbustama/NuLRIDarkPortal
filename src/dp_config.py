@@ -136,6 +136,11 @@ def _build_default_config() -> Dict:
             "n_z_thermal": 0,
             "thermal_analytic": True,
             "earth_step_scheme": "avg",
+            # Average over the Earth chords: "phase" integrates each block of the chords'
+            # density matrices against its dark-portal phase over cos(zenith), removing the
+            # chord-sampling floor; "plain" is the historical equal-weight mean (see
+            # dp_spatial.average_earth_chords).
+            "earth_zenith_average": "phase",
             "N_steps_earth": 25,
             "r_start_kpc": 100.0
         },

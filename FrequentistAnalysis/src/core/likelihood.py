@@ -154,11 +154,12 @@ class GenericLikelihoodWrapper:
         # caller relies on repeat-evaluation identity (perform_sanity_check compares
         # against Minuit's stored fval, and the emcee wrapper re-evaluates by design).
 
-        # Ensure the tuple expects 36 elements now (spatial tracking overrides plus
+        # Ensure the tuple expects 37 elements now (spatial tracking overrides plus
         # use_SM_potential/n_e_earth/use_debye_screening/n_cores_standalone/
-        # V_SM_struct/U_LRI_struct/n_z_thermal/thermal_analytic/earth_step_scheme)
+        # V_SM_struct/U_LRI_struct/n_z_thermal/thermal_analytic/earth_step_scheme/
+        # earth_zenith_average)
         self.static_data = self.config.get("static_data_tuple", None)
-        if self.static_data is None or len(self.static_data) != 36:
+        if self.static_data is None or len(self.static_data) != 37:
             try:
                 # Direct read from the flat physics_constants dict in the active frequentist config
                 pc = self.config.get("physics_constants", {})
@@ -274,6 +275,12 @@ class GenericLikelihoodWrapper:
                 # _earth_chord_worker: 'avg' = exact step-averaged, step-count-
                 # independent LRI phase; 'left' = historical scheme).
                 earth_step_scheme = str(pc.get("earth_step_scheme", _PC_DEFAULTS["earth_step_scheme"]))
+                # Average over the Earth chords ('phase' = exact integration of each block's
+                # LRI phase over cos(zenith), removing the chord-sampling floor; 'plain' =
+                # historical equal-weight mean) -- see dp_spatial.average_earth_chords.
+                earth_zenith_average = str(pc.get("earth_zenith_average", _PC_DEFAULTS["earth_zenith_average"]))
+                if earth_step_scheme == "left":
+                    earth_zenith_average = "plain"   # 'left' reproduces historical results
                 
                 # Computed structures
                 E_bins = np.logspace(np.log10(E_min_eV), np.log10(E_max_eV), n_E_bins)
@@ -287,7 +294,7 @@ class GenericLikelihoodWrapper:
                 
                 m_nu_bg_arr = np.ascontiguousarray(get_mass_eigenvalues(m_lightest_eV, dm21_sq, dm31_sq, mass_ordering), dtype=np.float64)
                 
-                # Construct expanded 36-element static_data tuple
+                # Construct expanded 37-element static_data tuple
                 self.static_data = (
                     0.33,                           # 0. obs_f_e (not used)
                     0.33,                           # 1. obs_f_mu (not used)
@@ -324,7 +331,8 @@ class GenericLikelihoodWrapper:
                     U_LRI_struct,                    # 32. U_LRI_struct (None = outer(u, conj(u)))
                     n_z_thermal,                     # 33. n_z_thermal (z-interp; 0 = off/exact)
                     thermal_analytic,                # 34. thermal_analytic (semi-analytic p-integral)
-                    earth_step_scheme                # 35. earth_step_scheme ('avg' | 'left')
+                    earth_step_scheme,               # 35. earth_step_scheme ('avg' | 'left')
+                    earth_zenith_average             # 36. earth_zenith_average ('phase' | 'plain')
                 )
                 print(f"  [Server] Successfully loaded physical constants from active config.")
             except Exception as e:
@@ -332,7 +340,7 @@ class GenericLikelihoodWrapper:
                 self.static_data = None
 
         if self.static_data is None:
-            print("  [Warning] Valid 36-element 'static_data_tuple' not found in config. Injecting mock tuple for initialization.")
+            print("  [Warning] Valid 37-element 'static_data_tuple' not found in config. Injecting mock tuple for initialization.")
             self.static_data = (
                 0.33, 0.33, 0.05, 0.05,
                 np.logspace(5, 8, 10), np.linspace(0, 4, 10),
@@ -346,7 +354,7 @@ class GenericLikelihoodWrapper:
                 1.0, 6, 3, 100, 100.0, 25,
                 False, 1.5e24 * cm_inv3_to_eV3, True,
                 self.n_cores_standalone,
-                None, None, 0, True, "avg"
+                None, None, 0, True, "avg", "phase"
             )
 
         # PHASE-NOISE DOMAIN ADVISORY (from the task-#3 diagnosis in

@@ -151,7 +151,8 @@ def prewarm_worker():
             1.5, False, 2.5, 0.0, 1.0, 1.0,
             1, 1, 2, 100.0, 2,          # n_mw_paths, n_earth_chords, N_steps_MW, r_start_kpc, N_steps_earth
             False, 0.0, True, 1,        # use_SM_potential, n_e_earth, use_debye_screening, n_cores_standalone
-            None, None, 0, True, "avg")  # V_SM_struct, U_LRI_struct, n_z_thermal, thermal_analytic, earth_step_scheme
+            None, None, 0, True, "avg",  # V_SM_struct, U_LRI_struct, n_z_thermal, thermal_analytic, earth_step_scheme
+            "phase")                     # earth_zenith_average
         compute_user_model_single({"m_Zd_eV": 2.0e6, "g_D": 1e-4, "epsilon_prime": 0.1}, static)
     except Exception:
         pass
@@ -168,17 +169,17 @@ def compute_user_model_single(params, static_data):
         dm*_sq, ... -- anything omitted falls back to the static defaults), or a
         positional array (m_Zd_eV, g_D, epsilon_prime, u_e, u_mu, u_tau) for
         backwards compatibility.
-      static_data: the 36-element immutable tuple built by GenericLikelihoodWrapper
+      static_data: the 37-element immutable tuple built by GenericLikelihoodWrapper
         (observations, grids, cosmology, mixing matrices, spatial settings,
-        structure overrides, thermal/earth-scheme knobs -- element meanings are
+        structure overrides, thermal/earth-scheme/zenith-average knobs -- element meanings are
         unpacked and commented below; shorter historical tuples get safe defaults).
 
     Returns: (f_e, f_mu, f_tau) energy-averaged flavor fractions at the detector.
     """
-    # Unpack the immutable data tuple (currently 36 elements; every element beyond the
+    # Unpack the immutable data tuple (currently 37 elements; every element beyond the
     # original 26 -- N_steps_earth, use_SM_potential, n_e_earth, use_debye_screening,
     # n_cores_standalone, V_SM_struct, U_LRI_struct, n_z_thermal, thermal_analytic,
-    # earth_step_scheme --
+    # earth_step_scheme, earth_zenith_average --
     # defaults to a safe value for any caller still passing an older, shorter tuple.
     # N_steps_earth defaults to 25 under the certified step-count-independent 'avg'
     # scheme; the historical 'left' scheme needed the pinned 500 -- see
@@ -212,6 +213,13 @@ def compute_user_model_single(params, static_data):
     # Earth-transit potential discretization ('avg' = exact step-averaged, the default;
     # 'left' = historical left-endpoint sampling) -- see _earth_chord_worker.
     earth_step_scheme = str(static_data[35]) if len(static_data) > 35 else _DC['grid']['earth_step_scheme']
+    # Average over the Earth chords ('phase' = exact integration of each block's LRI phase
+    # over cos(zenith); 'plain' = historical equal-weight mean). An older 36-element tuple
+    # gets the historical 'plain', which is also the only choice its 'left' scheme allows.
+    if len(static_data) > 36:
+        earth_zenith_average = str(static_data[36])
+    else:
+        earth_zenith_average = _DC['grid']['earth_zenith_average'] if earth_step_scheme == 'avg' else 'plain'
 
     # 1. Unpack scanning parameters from the generic Minuit engine wrapper.
     #    Handles backwards compatibility if passed as a positional array.
@@ -396,7 +404,8 @@ def compute_user_model_single(params, static_data):
             show_progress, verbose, n_cores_for_call, Gamma_grid_all, N_steps_earth,
             external_pool=persistent_pool,
             U_LRI_struct=U_LRI_struct, V_SM_struct=V_SM_struct,
-            earth_step_scheme=earth_step_scheme
+            earth_step_scheme=earth_step_scheme,
+            earth_zenith_average=earth_zenith_average
         )
 
     # Evaluate flags to match solver's native worker capabilities

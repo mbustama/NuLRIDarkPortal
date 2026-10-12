@@ -529,7 +529,7 @@ def test_frequentist_static_data_wires_use_SM_potential_and_n_e_earth():
     func_lo = GenericLikelihoodWrapper(cfg_lo, [])
     func_hi = GenericLikelihoodWrapper(cfg_hi, [])
 
-    assert len(func_off.static_data) == 36
+    assert len(func_off.static_data) == 37
     assert func_off.static_data[27] is False or func_off.static_data[27] == False  # noqa: E712
     assert func_lo.static_data[27] is True or func_lo.static_data[27] == True  # noqa: E712
     assert func_lo.static_data[28] != func_hi.static_data[28]
@@ -1078,7 +1078,7 @@ def test_frequentist_n_cores_standalone_wired_from_scan_settings():
     cfg = _make_frequentist_config()
     cfg["scan_settings"] = {"num_cores": 4}
     func = GenericLikelihoodWrapper(cfg, [])
-    assert len(func.static_data) == 36
+    assert len(func.static_data) == 37
     assert func.static_data[30] == 4
 
     # Clamped to what's actually available, never silently allowed above it.
@@ -2538,3 +2538,100 @@ def test_earth_range_mediator_end_to_end(tmp_path):
         _, flux[n] = dps.run_solver(c)
     assert np.isfinite(flux[25]).all() and (flux[25] >= 0).all()
     assert np.max(np.abs(flux[200] - flux[25])) <= 1e-8 * np.max(np.abs(flux[200]))
+
+
+# =============================================================================
+# Zenith average of the Earth chords (2026-10-12)
+# =============================================================================
+
+def _synthetic_chords(nodes, alpha, rho_in, S):
+    """Chord density matrices exp(-i Psi S) rho_in exp(+i Psi S) with Psi = alpha * column,
+    the potential-dominated evolution the 'phase' rule assumes, plus the projectors of S."""
+    import dp_spatial
+    P, lam = dp_spatial._lri_texture_projectors(S)
+    col = dp_spatial._earth_columns(nodes, 1.5, 0.0, dps.earth_yukawa_table(None))
+
+    def evolve(psi):
+        U = sum(np.exp(-1j * l * psi) * p for l, p in zip(lam, P))
+        return U @ rho_in @ U.conj().T
+    return np.array([evolve(alpha * c) for c in col])[:, None], evolve, P
+
+
+def test_zenith_weights_reduce_to_trapezoid_and_stay_hermitian():
+    """With no phase the 'phase' weights are the trapezoid rule over the chord nodes, and the
+    averaged density matrix is Hermitian with unit trace for any texture, including a
+    full-rank complex one with three distinct eigenvalues."""
+    import dp_spatial
+    nodes = np.linspace(-1.0, 0.0, 12)
+    c_fine, idx = dp_spatial._earth_zenith_fine_grid(nodes, 1.5, 512)
+    w = dp_spatial._zenith_filon_weights(c_fine, idx, np.zeros_like(c_fine))
+    h = nodes[1] - nodes[0]
+    trap = np.full(12, h)
+    trap[[0, -1]] = h / 2
+    np.testing.assert_allclose(w.real, trap, rtol=0, atol=1e-14)
+    assert np.max(np.abs(w.imag)) < 1e-15
+    rng = np.random.default_rng(5)
+    A = rng.normal(size=(3, 3)) + 1j * rng.normal(size=(3, 3))
+    S = A + A.conj().T
+    B = rng.normal(size=(3, 3)) + 1j * rng.normal(size=(3, 3))
+    rho_in = B @ B.conj().T
+    rho_in /= np.trace(rho_in).real
+    rho_k, _, P = _synthetic_chords(nodes, 3e-8, rho_in, S)
+    assert len(P) == 3
+    avg = dps.average_earth_chords(rho_k, nodes, 3e-8 / dp_spatial._KM_IN_EV_INV, S, 1.5, 0.0,
+                                   1.0, dps.earth_yukawa_table(None), "phase")[0]
+    assert np.max(np.abs(avg - avg.conj().T)) < 1e-14
+    assert abs(np.trace(avg).real - 1.0) < 1e-13
+
+
+def test_zenith_phase_average_matches_continuum():
+    """The 'phase' average of 12 or 13 chords must equal the exact integral over costh of
+    the potential-dominated evolution -- a dense trapezoid over 200,001 chords up to Earth
+    phases of 1e3 rad, the decoherent block-diagonal limit sum_g P_g rho P_g at 1e8 rad --
+    while the historical equal-weight mean misses by 1e-3 to 1e-1 (the chord-sampling floor)."""
+    import dp_spatial
+    S = np.outer([0.5, 0.5, 0.0], [0.5, 0.5, 0.0]).astype(complex)
+    rng = np.random.default_rng(3)
+    B = rng.normal(size=(3, 3)) + 1j * rng.normal(size=(3, 3))
+    rho_in = B @ B.conj().T
+    rho_in /= np.trace(rho_in).real
+    c_dense = np.linspace(-1.0, 0.0, 200_001)
+    col_dense = dp_spatial._earth_columns(c_dense, 1.5, 0.0, dps.earth_yukawa_table(None))
+    for K in (12, 13):
+        nodes = np.linspace(-1.0, 0.0, K)
+        for psi_max in (0.1, 3.0, 52.0, 1e3, 1e8):
+            alpha = psi_max / col_dense[0]
+            rho_k, evolve, P = _synthetic_chords(nodes, alpha, rho_in, S)
+            got = dps.average_earth_chords(rho_k, nodes, alpha / dp_spatial._KM_IN_EV_INV, S, 1.5,
+                                           0.0, 1.0, dps.earth_yukawa_table(None), "phase")[0]
+            if psi_max <= 1e3:
+                ref = np.trapz(np.array([evolve(alpha * c) for c in col_dense]), c_dense, axis=0)
+            else:
+                ref = sum(p @ rho_in @ p for p in P)
+            assert np.max(np.abs(got - ref)) < 1e-5, (K, psi_max, np.max(np.abs(got - ref)))
+            if psi_max >= 3.0:
+                assert np.max(np.abs(rho_k[:, 0].mean(axis=0) - ref)) > 1e-3
+
+
+def test_zenith_average_options_and_numba_crossings():
+    """'phase' needs the phase-exact 'avg' steps (direct callers asking otherwise get an
+    error; run_solver maps 'left' to the historical 'plain'), unknown options are rejected,
+    and the numba crossing finder used for the fine grid agrees with the chords' own."""
+    import dp_spatial
+    for costh in np.linspace(-1.0, 0.0, 41):
+        B = dps.get_baseline_earth(1.5, costh)
+        np.testing.assert_allclose(dp_spatial._earth_layer_crossings_nb(B, costh, 1.5),
+                                   dps._earth_layer_crossings(B, costh, 1.5), rtol=0, atol=1e-9)
+    E = np.geomspace(1e13, 1e14, 3)
+    F = np.ones((3, 3)) / 3
+    M_rot = np.zeros((3, 3), dtype=complex)
+    u = np.array([0.5, 0.5, 0.0], dtype=complex)
+    args = (E, F, M_rot, u, 2e6, 1e-4, 0.1, 1.676389e-4, True, np.ones(3), 1.5, False, 0.0,
+            False, 1, 2)
+    with pytest.raises(ValueError, match="phase"):
+        dps.propagate_earth_spatial(*args, N_steps_MW=2, N_steps_earth=4, show_progress=False,
+                                    verbose=0, earth_step_scheme="left", earth_zenith_average="phase")
+    with pytest.raises(ValueError, match="earth_zenith_average"):
+        dps.propagate_earth_spatial(*args, N_steps_MW=2, N_steps_earth=4, show_progress=False,
+                                    verbose=0, earth_step_scheme="avg", earth_zenith_average="median")
+    assert dps.DEFAULT_CONFIG["grid"]["earth_zenith_average"] == "phase"

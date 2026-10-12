@@ -59,7 +59,7 @@ from dp_spatial import (  # noqa: F401
     _earth_layer_crossings, _avg_earth_density_seq, _split_E_blocks,
     _PREM_EDGES_KM, _PREM_RHO_COEFFS, _PREM_F_COEFFS, yukawa_profile_table,
     earth_yukawa_table, yukawa_profile_density, earth_neutron_density_cm3,
-    earth_total_density, _earth_chord_features, _yk_extra_cm3,
+    earth_total_density, _earth_chord_features, _yk_extra_cm3, average_earth_chords,
     _run_spatial_tasks, _get_spatial_pool, _close_spatial_pool,
     propagate_earth_spatial,
 )
@@ -92,7 +92,8 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                        external_pool=None, U_LRI_struct=None, V_SM_struct=None,
                        n_z_thermal: int = 0, use_gpu: bool = False,
                        thermal_analytic: bool = True,
-                       earth_step_scheme: str = "left") -> np.ndarray:
+                       earth_step_scheme: str = "left",
+                       earth_zenith_average: str = "plain") -> np.ndarray:
     """
     Executes the complete spectrum integration, driving the underlying JIT kernels.
     Includes verbose level 2 for periodic redshift status updates.
@@ -303,7 +304,8 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                                       show_progress=show_progress, verbose=verbose, n_cores=n_cores,
                                       N_steps_earth=N_steps_earth, external_pool=external_pool,
                                       U_LRI_struct=U_LRI_struct_eff, V_SM_struct=V_SM_struct_eff,
-                                      use_gpu=use_gpu, earth_step_scheme=earth_step_scheme)
+                                      use_gpu=use_gpu, earth_step_scheme=earth_step_scheme,
+                                      earth_zenith_average=earth_zenith_average)
 
     # DOMAIN CHECK: same contract as the thermal-grid check above -- never return NaN
     # silently. (The known non-finite mechanism here, unitarity loss of the spatial
@@ -423,7 +425,8 @@ def propagation_worker(args) -> Tuple[np.ndarray, np.ndarray]:
             U_LRI_struct=params.get('U_LRI_struct', None), V_SM_struct=params.get('V_SM_struct', None),
             use_gpu=params.get('use_gpu', False),
             thermal_analytic=params.get('thermal_analytic', True),
-            earth_step_scheme=params.get('earth_step_scheme', 'left')
+            earth_step_scheme=params.get('earth_step_scheme', 'left'),
+            earth_zenith_average=params.get('earth_zenith_average', 'plain')
         )
 
     flag_val = str(params.get('is_antineutrino', 'sum')).strip().lower()
@@ -578,6 +581,18 @@ def run_solver(config: Dict) -> Tuple[np.ndarray, np.ndarray]:
     params['earth_step_scheme'] = str(config['grid']['earth_step_scheme']).strip().lower()
     if params['earth_step_scheme'] not in ('left', 'avg'):
         raise ValueError(f"grid.earth_step_scheme must be 'left' or 'avg', got {params['earth_step_scheme']!r}")
+    # Average over the Earth chords: 'phase' (exact integration of each block's LRI phase
+    # over cos(zenith)) or 'plain' (historical equal-weight mean) -- see
+    # dp_spatial.average_earth_chords. 'phase' needs the phase-exact 'avg' steps.
+    params['earth_zenith_average'] = str(config['grid']['earth_zenith_average']).strip().lower()
+    if params['earth_zenith_average'] not in ('phase', 'plain'):
+        raise ValueError(f"grid.earth_zenith_average must be 'phase' or 'plain', got {params['earth_zenith_average']!r}")
+    if params['earth_zenith_average'] == 'phase' and params['earth_step_scheme'] != 'avg':
+        # 'left' exists to reproduce historical results, which used the plain mean (and its
+        # Riemann phase errors defeat the 'phase' rule), so it implies 'plain'.
+        params['earth_zenith_average'] = 'plain'
+        if int(config['execution'].get('verbose', 1)) >= 1:
+            safe_print("[NOTE] earth_step_scheme = 'left' uses the historical 'plain' zenith average.")
     params['N_steps_earth'] = int(config['grid']['N_steps_earth'])
     params['r_start_kpc'] = float(config['grid']['r_start_kpc'])
     paths_mw = config['grid']['n_mw_paths']
@@ -736,6 +751,7 @@ if __name__ == "__main__":
     parser.add_argument("--n_z_thermal", type=int, default=None, help="Coarse z-samples for the thermal-rate grid (default 0 = exact, no interpolation; see build_thermal_grid before enabling)")
     parser.add_argument("--thermal_analytic", type=str, default=None, help="Set to 'false' to use the 100-point midpoint reference kernel for the thermal rates instead of the semi-analytic default (see build_thermal_grid)")
     parser.add_argument("--earth_step_scheme", type=str, default=None, help="Earth-transit potential discretization: 'avg' (default: exact step-averaged potential, step-count-independent LRI phase -- see dp_spatial._earth_chord_worker) or 'left' (historical left-endpoint sampling, kept for reproducing pre-2026-07 results)")
+    parser.add_argument("--earth_zenith_average", type=str, default=None, help="Average over the Earth chords: 'phase' (default: integrate each block of the chords' density matrices against its dark-portal phase over cos(zenith), removing the chord-sampling floor) or 'plain' (historical equal-weight mean; required with --earth_step_scheme left)")
     parser.add_argument("--n_mw_paths", type=int, default=None, help="Number of Milky Way trajectories for solid-angle average")
     parser.add_argument("--n_earth_chords", type=int, default=None, help="Number of Earth chords for PREM evaluation")
     parser.add_argument("--N_steps_MW", type=int, default=None, help="Number of spatial integration steps in the Milky Way")
@@ -824,6 +840,7 @@ if __name__ == "__main__":
     if args.n_z_thermal is not None: config["grid"]["n_z_thermal"] = args.n_z_thermal
     if args.thermal_analytic is not None: config["grid"]["thermal_analytic"] = str_to_bool(args.thermal_analytic)
     if args.earth_step_scheme is not None: config["grid"]["earth_step_scheme"] = args.earth_step_scheme
+    if args.earth_zenith_average is not None: config["grid"]["earth_zenith_average"] = args.earth_zenith_average
     if args.n_mw_paths is not None: config["grid"]["n_mw_paths"] = args.n_mw_paths
     if args.n_earth_chords is not None: config["grid"]["n_earth_chords"] = args.n_earth_chords
     if args.N_steps_MW is not None: config["grid"]["N_steps_MW"] = args.N_steps_MW
