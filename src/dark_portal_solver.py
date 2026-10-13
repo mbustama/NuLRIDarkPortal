@@ -78,6 +78,23 @@ def __getattr__(name):
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
+def _species_matrices(U_pmns, M_sq, u_arr, U_LRI_struct, V_SM_struct, anti: bool):
+    """One kind's matrices, with the antineutrino transform (U -> conj U, u -> conj u, structure matrices
+    conjugated) applied here, centrally: (u_s, M_rot = U M_sq U^dag, S_eff (the LRI texture), V_SM_eff or None)."""
+    U_s = np.ascontiguousarray(np.conjugate(U_pmns)) if anti else np.ascontiguousarray(U_pmns)
+    u_s = np.ascontiguousarray(np.conjugate(u_arr)) if anti else np.ascontiguousarray(u_arr)
+    M_rot = np.ascontiguousarray(U_s @ M_sq @ np.ascontiguousarray(np.conjugate(U_s).T))
+    if U_LRI_struct is None:
+        S_eff = np.outer(u_s, np.conjugate(u_s))
+    else:
+        S_eff = np.conjugate(U_LRI_struct) if anti else U_LRI_struct
+    S_eff = np.ascontiguousarray(S_eff, dtype=np.complex128)
+    V_SM_eff = None
+    if V_SM_struct is not None:
+        V_SM_eff = np.ascontiguousarray(np.conjugate(V_SM_struct) if anti else V_SM_struct, dtype=np.complex128)
+    return u_s, M_rot, S_eff, V_SM_eff
+
+
 def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarray,
                        H0: float, Omega_m: float, Omega_L: float,
                        U_pmns: np.ndarray, M_sq: np.ndarray,
@@ -98,7 +115,7 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                        earth_sky: str = "up",
                        host_galaxy_scale: float = 0.0,
                        earth_band_costh=None, earth_nodes_per_band: int = 2, sun_path_cos=None,
-                       arrival_flavor=None):
+                       arrival_flavor=None, arrival_basis: str = "flavor"):
     """
     Executes the complete spectrum integration, driving the underlying JIT kernels.
     Neutrinos and antineutrinos are evolved together through the cosmological phase (an
@@ -150,7 +167,9 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         each kind arrives with these flavor fractions times its injection weight at every energy
         (unit spectrum), decohered in the local eigenstates (dp_transit.flavor_populations), then
         crosses the Sun and the Earth as the extragalactic flux does. The result is the flux at the
-        detector per unit flux emitted, per energy.
+        detector per unit flux emitted, per energy. arrival_basis = 'eigen': arrival_flavor holds instead
+        the populations of the local eigenstates (ascending eigenvalues) -- the Sun and the Earth's response
+        to each of them, for emission points elsewhere in the Galaxy (step 6, _galactic_transfer).
 
     Returns: (F_nu, F_nb), the (N_E, 3) flavor fluxes of neutrinos and of antineutrinos
     at the detector; a detector without charge separation sees their sum.
@@ -262,17 +281,7 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
     # and the sigma-table of the cosmological mixing.
     species = []
     for anti in (False, True):
-        U_s = np.ascontiguousarray(np.conjugate(U_pmns)) if anti else np.ascontiguousarray(U_pmns)
-        u_s = np.ascontiguousarray(np.conjugate(u_arr)) if anti else np.ascontiguousarray(u_arr)
-        M_rot = np.ascontiguousarray(U_s @ M_sq @ np.ascontiguousarray(np.conjugate(U_s).T))
-        if U_LRI_struct is None:
-            S_eff = np.outer(u_s, np.conjugate(u_s))
-        else:
-            S_eff = np.conjugate(U_LRI_struct) if anti else U_LRI_struct
-        S_eff = np.ascontiguousarray(S_eff, dtype=np.complex128)
-        V_SM_eff = None
-        if V_SM_struct is not None:
-            V_SM_eff = np.ascontiguousarray(np.conjugate(V_SM_struct) if anti else V_SM_struct, dtype=np.complex128)
+        u_s, M_rot, S_eff, V_SM_eff = _species_matrices(U_pmns, M_sq, u_arr, U_LRI_struct, V_SM_struct, anti)
         c_z = -c_z_arr if anti else c_z_arr
         c_inj = -c_inj_arr if anti else c_inj_arr
         # H(sigma) = M_rot + sigma * S_signed, tabulated over |sigma| with the sign folded into S
@@ -324,10 +333,12 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
     if arrival_flavor is not None:
         f_arr = np.asarray(arrival_flavor, dtype=np.float64)
         if f_arr.shape != (3,) or np.any(f_arr < 0.0):
-            raise ValueError(f"arrival_flavor must be a (3,) non-negative flavor composition, got {arrival_flavor!r}")
+            raise ValueError(f"arrival_flavor must be a (3,) non-negative composition, got {arrival_flavor!r}")
+        if arrival_basis not in ("flavor", "eigen"):
+            raise ValueError(f"arrival_basis must be 'flavor' or 'eigen', got {arrival_basis!r}")
         for sp, w_s in zip(species, (w_nu, w_nb)):
             sp["F"] = np.ascontiguousarray(np.broadcast_to(w_s * f_arr, (N_E, 3)))
-        arrival = "flavor"
+        arrival = arrival_basis
 
     out = []
     bands = []
@@ -471,7 +482,8 @@ def _flux_setup(E_bins: np.ndarray, params: Dict) -> Dict:
 
 
 def _flux_from_setup(E_bins: np.ndarray, params: Dict, setup: Dict, injection,
-                     rho_src: np.ndarray = None, band_costh=None, arrival_flavor=None):
+                     rho_src: np.ndarray = None, band_costh=None, arrival_flavor=None,
+                     arrival_basis: str = "flavor"):
     """The neutrino and antineutrino fluxes at the detector, each (N_E, 3), from a _flux_setup.
 
     Arguments: E_bins, params, setup -- as for _flux_setup; injection -- (w_nu, w_nb), the
@@ -479,8 +491,9 @@ def _flux_from_setup(E_bins: np.ndarray, params: Dict, setup: Dict, injection,
     (default: the configured one); band_costh -- None, or the cos(zenith) edges of declination
     bands (per-direction output): then also the per-band fluxes, (F_nu, F_nb, B_nu, B_nb) with
     B (N_b, N_E, 3). Secret interactions are isotropic: every band is the whole sky.
-    arrival_flavor -- dark portal only: sources inside the Galaxy at the local potential with this
-    (3,) flavor composition (propagate_spectrum; the Galactic component, _galactic_transfer).
+    arrival_flavor, arrival_basis -- dark portal only: sources inside the Galaxy at the local potential with
+    this (3,) flavor composition, or ('eigen') these local-eigenstate populations (propagate_spectrum; the
+    Galactic component, _galactic_transfer).
     """
     if rho_src is None:
         rho_src = setup['rho_src']
@@ -540,20 +553,25 @@ def _flux_from_setup(E_bins: np.ndarray, params: Dict, setup: Dict, injection,
         earth_band_costh=band_costh,
         earth_nodes_per_band=params.get('sky', {}).get('earth_nodes_per_band', 2),
         sun_path_cos=params.get('sun_path_cos', None),
-        arrival_flavor=arrival_flavor
+        arrival_flavor=arrival_flavor, arrival_basis=arrival_basis
     )
 
 
-def _galactic_transfer(E_bins: np.ndarray, params: Dict, setup: Dict, band_costh) -> Tuple[np.ndarray, np.ndarray]:
-    """The Galactic component's flavor transfer per declination band (docs/dev/DIRECTIONS_PLAN.md, step 5):
-    (T_nu, T_nb), each (N_b, N_E, 3) in the order of band_costh (cos(zenith), increasing), the flavor flux
-    at the detector per unit flux emitted inside the Galaxy (all flavors, per kind) by sources of
-    composition (x, 1 - x, 0), x = galactic.f_e_S_gal.
+def _galactic_transfer(E_bins: np.ndarray, params: Dict, setup: Dict, band_costh, nside: int = 16):
+    """The Galactic component's flavor transfer (docs/dev/DIRECTIONS_PLAN.md, steps 5 and 6), for sources of
+    composition (x, 1 - x, 0), x = galactic.f_e_S_gal, per unit flux emitted inside the Galaxy (all flavors,
+    per kind); bands in the order of band_costh (cos(zenith), increasing).
 
-    Secret interactions: the averaged oscillation probabilities, the same in every band (the Galactic
-    relic column is ~1e-5 of the cosmological one: unattenuated; Section 3.5). Dark portal, emission
-    'local': emitted at the local potential, then the Sun and the Earth per band (propagate_spectrum's
-    arrival_flavor). Emission '3d' (emission points along each line of sight) is step 6."""
+    Secret interactions: the averaged oscillation probabilities, the same in every band (the Galactic relic
+    column is ~1e-5 of the cosmological one: unattenuated; Section 3.5). Dark portal, emission 'local': emitted
+    at the local potential, then the Sun and the Earth per band (propagate_spectrum's arrival_flavor). Both
+    return (T_nu, T_nb), each (N_b, N_E, 3).
+
+    Dark portal, emission '3d' (step 6): emitted at points along each line of sight (dp_galactic's emission
+    weights and Yukawa-smoothed densities), adiabatically to the local eigenstates: returns a dict with
+    F_nu, F_nb (N_pix, N_E, 3), each pixel's local-eigenstate populations, and R_nu, R_nb (N_b, N_E, 3, 3),
+    each band's flavor response to a unit population of each local eigenstate (three spatial runs per kind,
+    arrival_basis 'eigen')."""
     import dp_galactic
     gal = params['galactic']
     f_S = dp_galactic.source_composition(gal['f_e_S_gal'])
@@ -561,12 +579,54 @@ def _galactic_transfer(E_bins: np.ndarray, params: Dict, setup: Dict, band_costh
     if setup.get('si', False):
         T = np.broadcast_to(dp_galactic.averaged_transfer(setup['U_pmns_base']) @ f_S, (n_b, len(E_bins), 3))
         return np.ascontiguousarray(T), np.ascontiguousarray(T)
-    if gal['emission'] != 'local':
-        raise NotImplementedError("galactic.emission = '3d' (emission points along each line of sight) is step 6 "
-                                  "of docs/dev/DIRECTIONS_PLAN.md; set galactic.emission = 'local' until then.")
-    _, _, T_nu, T_nb = _flux_from_setup(E_bins, params, setup, (1.0, 1.0), band_costh=band_costh,
-                                        arrival_flavor=f_S)
-    return T_nu, T_nb
+    if gal['emission'] == 'local':
+        _, _, T_nu, T_nb = _flux_from_setup(E_bins, params, setup, (1.0, 1.0), band_costh=band_costh,
+                                            arrival_flavor=f_S)
+        return T_nu, T_nb
+    R = np.empty((2, n_b, len(E_bins), 3, 3))
+    for k in range(3):
+        e_k = np.zeros(3)
+        e_k[k] = 1.0
+        _, _, B_nu, B_nb = _flux_from_setup(E_bins, params, setup, (1.0, 1.0), band_costh=band_costh,
+                                            arrival_flavor=e_k, arrival_basis='eigen')
+        R[0, :, :, k, :], R[1, :, :, k, :] = B_nu, B_nb
+    F = _galactic_emission_populations(E_bins, params, setup, nside)
+    return dict(F_nu=F[0], F_nb=F[1], R_nu=R[0], R_nb=R[1])
+
+
+def _galactic_emission_populations(E_bins: np.ndarray, params: Dict, setup: Dict, nside: int):
+    """(F_nu, F_nb), each (N_pix, N_E, 3): per pixel, the local-eigenstate populations of the Galactic flux
+    emitted at its line of sight's emission points (dp_galactic.emission_populations), each kind with its
+    own potential sign, texture and frame table -- the same ones the transit uses (lri_coefficient,
+    _species_matrices, dp_transit.frame_table)."""
+    import dp_galactic
+    import dp_transit
+    from dp_spatial import lri_coefficient
+    gal = params['galactic']
+    f_S = dp_galactic.source_composition(gal['f_e_S_gal'])
+    E_GeV = np.asarray(E_bins, dtype=np.float64) / 1e9
+    # Coarser maps (e.g. N_side 8 for cascades) are averaged from the stored resolution's pixels, each along its
+    # own line of sight and weighted by its emitted intensity: a coarse pixel's centre can lie degrees off the
+    # plane its gas column contains, which would misplace its emission points.
+    work = max(int(nside), 16)
+    w_gas = dp_galactic.gas_share(gal['template'], E_GeV, work)
+    q_gas, q_src = dp_galactic.emission_weights(work)
+    _, _, R, z = dp_galactic.emission_geometry(work)
+    out = []
+    for anti in (False, True):
+        u_s, M_rot, S_eff, _ = _species_matrices(setup['U_pmns_base'], setup['M_sq'], setup['u_arr_base'],
+                                                 params.get('U_LRI_struct', None), params.get('V_SM_struct', None),
+                                                 anti)
+        Coef, m_eff = lri_coefficient(params['m_Zd_eV'], params['g_D'], params['epsilon_prime'], u_s,
+                                      params['T_nu0_eV'], params['use_debye_screening'], setup['eta_bg'], anti)
+        S_signed = np.ascontiguousarray(np.sign(Coef) * S_eff if Coef != 0.0 else S_eff)
+        tab = dp_transit.frame_table(M_rot, S_signed, params['transit_dtheta'])
+        n_emit = dp_galactic.effective_density(R, z, m_eff, params['n_n0_eV3'], 1.0 / params['H0_eV'])
+        F = dp_galactic.emission_populations(E_bins, f_S, w_gas, q_gas, q_src, n_emit, 2.0 * abs(Coef), tab)
+        if work != nside:
+            F = dp_galactic.degrade_weighted(F, dp_galactic.intensity(gal['template'], E_GeV, work), work, nside)
+        out.append(F)
+    return out
 
 
 def injection_weights(params: Dict) -> Tuple[float, float]:
@@ -646,10 +706,11 @@ def propagate_sky(E_bins: np.ndarray, params: Dict) -> Dict:
     gal = params.get('galactic') or dict(enabled=False)
     if not params.get('si') and params.get('earth_sky', 'up') != 'full':
         raise ValueError("propagate_sky needs grid.earth_sky = 'full' (bands cover the whole sky).")
-    if gal.get('enabled', False) and not params.get('si') and gal['emission'] != 'local':
-        raise NotImplementedError("galactic.emission = '3d' (emission points along each line of sight) is step 6 "
-                                  "of docs/dev/DIRECTIONS_PLAN.md; set galactic.emission = 'local' until then.")
     grid = dp_sky.SkyGrid(sky_p['nside'], sky_p['dec_band_edges'])
+    if gal.get('enabled', False) and np.any(np.bincount(grid.band, minlength=grid.n_bands) == 0):
+        raise ValueError(f"The Galactic component needs a pixel centre in every declination band: N_side "
+                         f"{grid.nside} leaves {int(np.sum(np.bincount(grid.band, minlength=grid.n_bands) == 0))} "
+                         f"of {grid.n_bands} bands empty (use a finer N_side or wider bands).")
     setup = _flux_setup(E_bins, params)
     F_nu, F_nb, B_nu, B_nb = _flux_from_setup(E_bins, params, setup, injection_weights(params),
                                               band_costh=grid.costh_edges)
@@ -666,20 +727,36 @@ def propagate_sky(E_bins: np.ndarray, params: Dict) -> Dict:
         out['pixel_band'] = grid.band
     if gal.get('enabled', False):
         import dp_galactic
-        T_nu, T_nb = _galactic_transfer(E_bins, params, setup, grid.costh_edges)
-        T_nu, T_nb = np.ascontiguousarray(T_nu[::-1]), np.ascontiguousarray(T_nb[::-1])
         em = dp_galactic.emitted(gal['template'], np.asarray(E_bins, dtype=np.float64) / 1e9, grid.nside,
                                  gal['norm_gal'])
-        em_b = dp_galactic.band_means(em, grid.band, grid.n_bands)
         share = np.bincount(grid.band, minlength=grid.n_bands) / grid.npix
-        for kind, T in (("nu", T_nu), ("nubar", T_nb)):
-            out['galactic_bands_' + kind] = em_b[:, :, None] * T
-            out['galactic_allsky_' + kind] = np.tensordot(share, out['galactic_bands_' + kind], axes=(0, 0))
-        if sky_p['output'] == 'healpix':
-            out.update(galactic_emitted=em, galactic_transfer_nu=T_nu, galactic_transfer_nubar=T_nb)
+        res = _galactic_transfer(E_bins, params, setup, grid.costh_edges, grid.nside)
+        if isinstance(res, dict):
+            # emission points in 3-D: populations per pixel, responses per band (declination order)
+            for kind, key in (("nu", "nu"), ("nubar", "nb")):
+                F, Rb = res['F_' + key], np.ascontiguousarray(res['R_' + key][::-1])
+                G = dp_galactic.band_means(em[:, :, None] * F, grid.band, grid.n_bands)
+                out['galactic_bands_' + kind] = np.einsum('bek,bekf->bef', G, Rb)
+                out['galactic_allsky_' + kind] = np.tensordot(share, out['galactic_bands_' + kind], axes=(0, 0))
+                if sky_p['output'] == 'healpix':
+                    out['galactic_populations_' + kind] = F
+                    out['galactic_response_' + kind] = Rb
+            if sky_p['output'] == 'healpix':
+                out['galactic_emitted'] = em
+        else:
+            T_nu, T_nb = np.ascontiguousarray(res[0][::-1]), np.ascontiguousarray(res[1][::-1])
+            em_b = dp_galactic.band_means(em, grid.band, grid.n_bands)
+            for kind, T in (("nu", T_nu), ("nubar", T_nb)):
+                out['galactic_bands_' + kind] = em_b[:, :, None] * T
+                out['galactic_allsky_' + kind] = np.tensordot(share, out['galactic_bands_' + kind], axes=(0, 0))
+            if sky_p['output'] == 'healpix':
+                out.update(galactic_emitted=em, galactic_transfer_nu=T_nu, galactic_transfer_nubar=T_nb)
         out['meta']['galactic'] = dict(
             template=gal['template'], norm_gal=gal['norm_gal'], f_S=dp_galactic.source_composition(gal['f_e_S_gal']).tolist(),
             emission='unattenuated, averaged oscillations' if params.get('si') else gal['emission'],
+            emission_model=None if (params.get('si') or gal['emission'] != '3d') else dict(
+                dp_galactic.SOURCES, gas="Soding et al. 2025 x CRINGE nucleon flux at 20 x 100 TeV",
+                neff="src/data/mw_neff_tables.npz", nodes_per_decade=dp_galactic.NEFF_NODES_PER_DECADE),
             nu_to_nubar="1:1", units="GeV^-1 cm^-2 s^-1 sr^-1, per flavor, per kind (nu or nubar)",
             band_means="pixel means (pixels assigned to bands by their centres)",
             source=dp_galactic.load_template(gal['template'], grid.nside)[2]['source'])

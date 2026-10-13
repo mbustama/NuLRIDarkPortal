@@ -1419,6 +1419,24 @@ def _run_spatial_tasks(worker_fn, tasks, desc, n_workers, show_progress, externa
         results = [worker_fn(t) for t in iterator]
     return results
 
+def lri_coefficient(m_Zd: float, g_D: float, eps_prime: float, u_arr: np.ndarray, T_nu0: float,
+                    use_debye_screening: bool, eta_bg: np.ndarray, is_antineutrino: bool):
+    """(Coef, m_eff): the dark-portal potential per unit neutron density today, Coef = g_D eps' / m_eff^2 x
+    4 c_W m_Z^2 / g x G_F / sqrt(2) (eV^-2; negative for antineutrinos), and the mediator's effective mass
+    m_eff = sqrt(m_Zd^2 + m_D^2) with the relic neutrinos' Debye mass when screening is on. Shared by the
+    spatial handover and the Galactic emission points (dp_galactic)."""
+    m_D_sq = calc_debye_mass_sq(g_D, u_arr, T_nu0, eta_bg) if use_debye_screening else 0.0
+    m_eff = np.sqrt(m_Zd**2 + m_D_sq)
+
+    c_W = 0.88
+    m_Z = 91.18 * GeV
+    g_weak = 0.65
+    Coef = (g_D * eps_prime) / (m_Zd**2 + m_D_sq) * (4.0 * c_W * m_Z**2 / g_weak) * (np.sqrt(2.0)/2.0 * G_F)
+    if is_antineutrino:
+        Coef = -Coef
+    return Coef, m_eff
+
+
 def transit_to_earth(E_bins: np.ndarray, F_mass_arrival: np.ndarray, M_rot: np.ndarray,
                      U_LRI_struct: np.ndarray, Coef: float, m_eff: float, n_n0_eV3: float,
                      R_H_eV_inv: float, earth_yk, n_sun_paths: int = 8,
@@ -1436,9 +1454,9 @@ def transit_to_earth(E_bins: np.ndarray, F_mass_arrival: np.ndarray, M_rot: np.n
     cosine of one angle to the Sun, for that single path (per-direction Sun weighting: the average is
     linear, so the paths' results weighted by w_p return the isotropic one; DIRECTIONS_PLAN step 4);
     arrival -- 'eigen' (F_mass_arrival as above) or 'flavor': F_mass_arrival holds instead the flavor
-    fractions of neutrinos emitted inside the Galaxy at the local potential, which reach the Sun
-    decohered in the local eigenstates (dp_transit.flavor_populations; the Galactic component,
-    DIRECTIONS_PLAN step 5).
+    fractions of neutrinos emitted inside the Galaxy at the local Galactic potential (n_gal, without the
+    Moon's, which only the Earth-Moon system feels), which reach the Sun decohered in the local eigenstates
+    (dp_transit.flavor_populations; the Galactic component, DIRECTIONS_PLAN step 5).
 
     Returns (rho (N_E, 3, 3) at r_split, n_amb_eV3 -- the ambient density the chords add:
     Galaxy, Sun and Moon at the Earth -- and a dict of diagnostics).
@@ -1459,8 +1477,10 @@ def transit_to_earth(E_bins: np.ndarray, F_mass_arrival: np.ndarray, M_rot: np.n
     E_c = np.ascontiguousarray(E_bins, dtype=np.float64)
     F_arr = np.ascontiguousarray(F_mass_arrival, dtype=np.float64)
     if arrival == "flavor":
+        # born far from the Earth-Moon system, at the Galaxy's potential alone; the map below then carries the
+        # populations adiabatically onto the eigenstates at n_bg (which adds the Moon), as for every arrival
         F_pop = np.empty_like(F_arr)
-        dp_transit.flavor_populations(E_c, F_arr, 2.0 * coef_abs, n_bg, tab["Q"], tab["Mp"], tab["s"],
+        dp_transit.flavor_populations(E_c, F_arr, 2.0 * coef_abs, n_gal, tab["Q"], tab["Mp"], tab["s"],
                                       tab["floor"], F_pop)
         F_arr = F_pop
     elif arrival != "eigen":
@@ -1620,15 +1640,7 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
         up = np.linspace(-1.0, 0.0, int(n_earth_chords))
         earth_costh = up if earth_sky == "up" else np.concatenate([up, -up[-2::-1]])
 
-    m_D_sq = calc_debye_mass_sq(g_D, u_arr, T_nu0, eta_bg) if use_debye_screening else 0.0
-    m_eff = np.sqrt(m_Zd**2 + m_D_sq)
-
-    c_W = 0.88
-    m_Z = 91.18 * GeV
-    g_weak = 0.65
-    Coef = (g_D * eps_prime) / (m_Zd**2 + m_D_sq) * (4.0 * c_W * m_Z**2 / g_weak) * (np.sqrt(2.0)/2.0 * G_F)
-    if is_antineutrino:
-        Coef = -Coef
+    Coef, m_eff = lri_coefficient(m_Zd, g_D, eps_prime, u_arr, T_nu0, use_debye_screening, eta_bg, is_antineutrino)
 
     # The Earth's own neutrons enter through their spherical Yukawa integral over the mediator
     # range 1/m_eff (see earth_yukawa_table); at MeV masses this is the contact density.

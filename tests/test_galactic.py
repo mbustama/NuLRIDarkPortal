@@ -203,9 +203,8 @@ def test_flavor_populations_against_eigendecomposition():
     assert np.allclose(out.sum(1), 1.0, atol=1e-14)
 
 
-def test_galactic_config_and_emission_3d():
-    """norm_gal None takes the template's IceCube fit; templates are validated; the dark portal's '3d'
-    emission is step 6 (raises before any propagation)."""
+def test_galactic_config():
+    """norm_gal None takes the template's IceCube fit; templates and emission settings are validated."""
     for name, n in (("cringe", 0.91), ("pi0", 4.99), ("cringe_diffuse", 1.0)):
         _, params = dps.build_solver_params({"galactic": {"template": name}, "execution": {"verbose": 0}})
         assert params["galactic"]["norm_gal"] == n
@@ -214,6 +213,192 @@ def test_galactic_config_and_emission_3d():
     for bad in ({"template": "kra"}, {"norm_gal": -1.0}, {"emission": "volume"}):
         with pytest.raises(ValueError):
             dps.build_solver_params({"galactic": bad, "execution": {"verbose": 0}})
-    E, params = dps.build_solver_params(_cfg(galactic={"emission": "3d"}))
-    with pytest.raises(NotImplementedError):
-        dps.propagate_sky(E, params)
+
+
+# =============================================================================
+# Step 6: emission points in 3-D (tests T7 and the emission model)
+# =============================================================================
+
+def test_neff_table_against_the_suns_integral():
+    """T7: the table's n_eff at the Sun's node equals dp_transit.galactic_effective_density (the same integral
+    on the same distance nodes) at its masses, and between them to the log interpolation's 1e-3; above 1e-12 eV
+    it is the model's local density at any point, and at short ranges it follows it between the nodes. Far
+    beyond the Galaxy's size it is not uniform (the Galaxy's 'Coulomb' potential, deeper toward the Centre,
+    exceeds the cosmic floor down to ~4e-31 eV); beyond the Hubble radius it is uniform to the Galaxy's share
+    of the potential, ~1e-4."""
+    import dp_transit
+    from dp_core import cm_inv3_to_eV3
+    from dp_spatial import calc_MW_neutron_density
+    t = np.load(os.path.join(REPO, "src", "data", "mw_neff_tables.npz"))
+    n0 = float(t["n_n0_cm3"]) * cm_inv3_to_eV3
+    R_H = 1.0 / 1.4e-33
+    for lm in list(t["log10_m_eV"][::24]) + [-27.97, -25.53, -21.01, -14.4]:
+        m = 10.0 ** lm
+        mine = G.effective_density(np.array([G.R_SUN_KPC]), np.array([0.0]), m, n0, R_H)[0]
+        ref = dp_transit.galactic_effective_density(m, n0, R_H)
+        on_node = np.min(np.abs(t["log10_m_eV"] - lm)) < 1e-9
+        assert abs(mine / ref - 1) < (1e-9 if on_node else 1e-3), (lm, mine / ref - 1)
+    R, z = np.array([0.0, 3.2, 8.33, 14.0]), np.array([0.01, 0.37, 0.0, 2.5])
+    loc = G.effective_density(R, z, 1e-9, n0, R_H) / cm_inv3_to_eV3
+    for i in range(len(R)):
+        u = 8.33 - R[i]
+        r = np.hypot(u, z[i])
+        assert abs(loc[i] / calc_MW_neutron_density(r, np.arctan2(abs(u), z[i]), 0.0 if u >= 0 else np.pi) - 1) < 1e-12
+    v = G.effective_density(R, z, 1e-20, n0, R_H) / cm_inv3_to_eV3
+    assert np.all(np.abs(v / loc - 1) < 1e-4)
+    v = G.effective_density(R, z, 1e-29, n0, R_H)
+    assert v[0] > 3 * v[2] > 3 * v[3]                     # the Galactic Centre's potential is deeper
+    for m in (1e-34, 1e-36):
+        v = G.effective_density(R, z, m, n0, R_H)
+        assert np.ptp(v) / v[2] < 1e-3
+        assert abs(v[2] / dp_transit.galactic_effective_density(m, n0, R_H) - 1) < 1e-9
+
+
+def test_emission_model_reproduces_cringe_morphology():
+    """The emission distances' models, integrated along each line of sight, reproduce the morphology of the
+    maps they are used for: the gas (Soding et al. 2025) x CRINGE's cosmic rays vs CRINGE's diffuse map
+    (correlation of the logarithms over the sky 0.991), the Lorimer sources weighted by distance vs its
+    unresolved map (0.985). Emission is distant toward the Galactic Centre and near toward the anticentre."""
+    gas, src = G.emission_line_integrals(16)
+    I = G.intensity("cringe_diffuse", np.array([1e5]), 16)[:, 0]
+    U = G.intensity("cringe", np.array([1e5]), 16)[:, 0] - I
+    ok = U > 0
+    assert np.corrcoef(np.log(gas), np.log(I))[0, 1] > 0.985
+    assert np.corrcoef(np.log(src[ok]), np.log(U[ok]))[0, 1] > 0.98
+    q_gas, q_src = G.emission_weights(16)
+    s = G.emission_geometry(16)[0]
+    assert np.allclose(q_gas.sum(1), 1) and np.allclose(q_src.sum(1), 1)
+
+    def pixel(l, b):
+        ra, dec = dp_sky.galactic_to_equatorial(l, b)
+        return int(dp_sky.ang2pix_ring(16, 0.5 * np.pi - dec, ra))
+    gc, ac = pixel(0.0, 0.0), pixel(np.pi, 0.0)
+    assert 4.0 < (q_gas[gc] * s).sum() < 8.0 and (q_gas[ac] * s).sum() < 2.0
+    assert 8.0 < (q_src[gc] * s).sum() < 12.0 and (q_src[ac] * s).sum() < 5.0
+
+
+def test_emission_populations_on_nodes_and_mixing():
+    """dp_galactic.emission_populations: emission at one density gives that density's populations (exactly on
+    a node, to second order in the node spacing between nodes); a mixture of two densities is the weighted
+    mixture of their populations; the diffuse/sources split mixes the two weights linearly."""
+    import dp_transit
+    U = dps.construct_PMNS(np.radians(33.4), np.radians(8.6), np.radians(49.0), np.radians(197.0))
+    M_rot = U @ np.diag([0.0, 7.4e-5, 2.5e-3]).astype(complex) @ U.conj().T
+    S = np.outer([0.5, 0.5, 0.0], [0.5, 0.5, 0.0]).astype(complex)
+    tab = dp_transit.frame_table(M_rot, S, 0.002)
+    E = np.geomspace(1e13, 1e16, 9)
+    f = np.array([0.3, 0.7, 0.0])
+    coef2 = 2e-3 / 1e14
+
+    def direct(n):
+        out = np.empty((len(E), 3))
+        dp_transit.flavor_populations(E, np.ascontiguousarray(np.tile(f, (len(E), 1))), coef2, n, tab["Q"], tab["Mp"],
+                                      tab["s"], tab["floor"], out)
+        return out
+    n_node = 10.0 ** (7 / G.NEFF_NODES_PER_DECADE)
+    q = np.full((2, 4), 0.25)
+    F = G.emission_populations(E, f, np.ones((2, len(E))), q, q, np.full((2, 4), n_node), coef2, tab)
+    assert np.allclose(F, direct(n_node)[None], atol=1e-12)
+    F = G.emission_populations(E, f, np.ones((1, len(E))), q[:1], q[:1], np.array([[1.0, 1.0, 30.0, 30.0]]), coef2, tab)
+    ref = 0.5 * (direct(1.0) + direct(30.0))
+    assert np.max(np.abs(F[0] - ref)) < 2e-3
+    qa, qb = np.array([[1.0, 0.0, 0.0, 0.0]]), np.array([[0.0, 0.0, 0.0, 1.0]])
+    n = np.array([[1.0, 1.0, 1.0, 1e3]])
+    w = np.linspace(0, 1, len(E))[None]
+    F = G.emission_populations(E, f, w, qa, qb, n, coef2, tab)
+    Fa = G.emission_populations(E, f, np.ones_like(w), qa, qb, n, coef2, tab)
+    Fb = G.emission_populations(E, f, np.zeros_like(w), qa, qb, n, coef2, tab)
+    assert np.allclose(F, w[:, :, None] * Fa + (1 - w[:, :, None]) * Fb, atol=1e-14)
+    assert np.allclose(F.sum(-1), 1.0, atol=1e-13)
+
+
+def _cfg3d(**over):
+    cfg = _cfg(galactic={"emission": "3d"}, sky={"nside": 8})
+    for k, v in over.items():
+        cfg.setdefault(k, {}).update(v)
+    return cfg
+
+
+def test_galactic_3d_long_range_is_local_and_outputs_consistent():
+    """Emission points in 3-D: for ranges beyond the Hubble radius (m_Zd = 1e-36 eV) the cosmic mean dominates the
+    potential everywhere in the Galaxy (the Galaxy's share ~1e-4), so the pixel maps equal those of local
+    emission to that share's effect; the outputs are consistent (flux conserved per kind, band and all-sky means
+    of the pixel maps). The coupling puts the cosmic potential near the vacuum term in the band (the Sun's
+    potential at the Earth is 2e-6 of Delta m^2_31 / 2E at 100 TeV)."""
+    dp = {"u_e": 0.5, "u_mu": 0.5, "u_tau": 0.0, "m_Zd_eV": 1e-36, "g_D": 2e-6 * 1.66e-54 / 0.05, "epsilon_prime": 0.1}
+    E, params, out3 = _run(_cfg3d(dark_portal=dp))
+    _, _, outl = _run(_cfg3d(dark_portal=dp, galactic={"emission": "local"}))
+    for kind in ("nu", "nubar"):
+        a, b = G.pixel_flux(out3, kind), G.pixel_flux(outl, kind)
+        assert np.max(np.abs(a / b - 1)) < 1e-3
+        em = out3["galactic_emitted"]
+        assert np.max(np.abs(a.sum(-1) / em - 1)) < 1e-12
+        nb = len(out3["dec_band_edges"]) - 1
+        assert np.allclose(G.band_means(a, out3["pixel_band"], nb), out3["galactic_bands_" + kind], rtol=1e-12, atol=0)
+        assert np.allclose(a.mean(axis=0), out3["galactic_allsky_" + kind], rtol=1e-12, atol=0)
+    assert out3["meta"]["galactic"]["emission"] == "3d" and out3["meta"]["galactic"]["emission_model"]["B"] == 1.9
+
+
+def test_galactic_3d_direction_dependence():
+    """Emission points in 3-D at a short range (m_Zd = 1e-24 eV, range 6 pc: the potential at emission is close to
+    the local density there, ~10-700 cm^-3 in the inner Galaxy against ~1 near the Sun, and the Sun's own at the
+    Earth is comparable, ~3 cm^-3; kappa = 1 puts it at the vacuum term at 100 TeV): the Galactic flavors then
+    differ between the Galactic Centre's direction and the anticentre's, which local emission cannot produce."""
+    dp = {"u_e": 0.5, "u_mu": 0.5, "u_tau": 0.0, "m_Zd_eV": 1e-24, "g_D": 1.66e-54 / 0.05, "epsilon_prime": 0.1}
+    E, params, out3 = _run(_cfg3d(dark_portal=dp))
+    _, _, outl = _run(_cfg3d(dark_portal=dp, galactic={"emission": "local"}))
+
+    def pixel(l, b):
+        ra, dec = dp_sky.galactic_to_equatorial(l, b)
+        return int(dp_sky.ang2pix_ring(8, 0.5 * np.pi - dec, ra))
+    gc, ac = pixel(0.0, 0.0), pixel(np.pi, 0.0)
+    f3 = G.pixel_flux(out3, "nu") / G.pixel_flux(out3, "nu").sum(-1, keepdims=True)
+    fl = G.pixel_flux(outl, "nu") / G.pixel_flux(outl, "nu").sum(-1, keepdims=True)
+    band = out3["pixel_band"]
+    # local emission: two pixels in the same band have the same flavors; 3-D emission: GC and anticentre differ
+    assert np.max(np.abs(f3[gc] - f3[ac])) > 1e-3
+    same_band = np.nonzero(band == band[gc])[0]
+    assert np.max(np.abs(fl[same_band] - fl[gc])) < 1e-12
+
+
+def test_galactic_source_at_the_sun_is_the_host_galaxy_path():
+    """T10: a Galactic source at the Sun's position (emission 'local') and a source in a Milky-Way-like host at a
+    Sun-like position (source.host_galaxy_scale = 1) at z -> 0 are born into the same potential, so their flavors
+    at the detector agree in every band and energy. The two potentials differ by the cosmic mean, which the host
+    path adds on top of the Galaxy (3e-8 of the local density here; up to 1.2e-3 at 1e-31-1e-29 eV, where the
+    Galaxy's halo meets the cosmic mean and the local potential takes the larger of the two)."""
+    for m, kappa in ((1e-24, 1.0), (1e-27, 30.0)):
+        dp = {"u_e": 0.5, "u_mu": 0.5, "u_tau": 0.0, "m_Zd_eV": m, "g_D": kappa * 1.66e-54 / 0.05,
+              "epsilon_prime": 0.1}
+        _, _, host = _run(_cfg(dark_portal=dp, galactic={"enabled": False},
+                               source={"z_max": 1e-4, "host_galaxy_scale": 1.0, "f_e_S": 0.3, "f_mu_S": 0.7,
+                                       "f_tau_S": 0.0}))
+        _, _, gal = _run(_cfg(dark_portal=dp, galactic={"emission": "local", "f_e_S_gal": 0.3}))
+        for kind in ("nu", "nubar"):
+            fh = host["bands_" + kind] / host["bands_" + kind].sum(-1, keepdims=True)
+            fg = gal["galactic_transfer_" + kind]
+            assert np.max(np.abs(fh - fg)) < 1e-5, (m, kind, np.max(np.abs(fh - fg)))
+        _, params, vac = _run(_cfg(dark_portal=dict(dp, epsilon_prime=0.0), galactic={"emission": "local",
+                                                                                 "f_e_S_gal": 0.3}))
+        assert np.max(np.abs(gal["galactic_transfer_nu"] - vac["galactic_transfer_nu"])) > 1e-2   # the potential acts
+
+
+def test_galactic_at_coarse_resolution():
+    """HESE-like resolution (Mauricio, 2026-10-14: cascades can use coarser pixels than tracks): N_side 4 with MESE's
+    ten bands of 0.2 in sin(dec). The degraded template keeps the sky total (mean of the N_side 16 children); the
+    component with emission points in 3-D conserves the flux, and its all-sky flavors agree with N_side 8's to
+    < 1e-3 (the coarse pixels' band assignment): the populations are computed on the stored N_side 16 pixels,
+    each along its own line of sight, and averaged with their intensities (a coarse pixel's centre can lie
+    degrees off the plane its gas column contains; computed at the centre, the difference was 6e-3)."""
+    edges = list(np.degrees(np.arcsin(np.linspace(-1, 1, 11))))
+    dp = {"u_e": 0.5, "u_mu": 0.5, "u_tau": 0.0, "m_Zd_eV": 1e-24, "g_D": 300 * 1.66e-54 / 0.05, "epsilon_prime": 0.1}
+    outs = {}
+    for ns in (4, 8):
+        E, params, out = _run(_cfg3d(dark_portal=dp, sky={"nside": ns, "dec_band_edges_deg": edges}))
+        a = G.pixel_flux(out, "nu")
+        assert a.shape[0] == 12 * ns * ns and np.max(np.abs(a.sum(-1) / out["galactic_emitted"] - 1)) < 1e-12
+        outs[ns] = out
+        I16 = G.intensity("cringe", E / 1e9, 16)
+        assert np.allclose(G.intensity("cringe", E / 1e9, ns).mean(0), I16.mean(0), rtol=1e-12)
+    f = {ns: o["galactic_allsky_nu"] / o["galactic_allsky_nu"].sum(-1, keepdims=True) for ns, o in outs.items()}
+    assert np.max(np.abs(f[4] - f[8])) < 1e-3

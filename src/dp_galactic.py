@@ -30,6 +30,8 @@ import os
 import numpy as np
 
 import dp_sky
+from dp_core import njit
+from dp_spatial import calc_MW_neutron_density
 
 _DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 
@@ -135,12 +137,252 @@ def emitted(name, E_GeV, nside, norm):
 
 def pixel_flux(sky, kind="nu"):
     """The Galactic flux per pixel (N_pix, N_E, 3) from a dark_portal_solver.propagate_sky output with
-    sky.output = 'healpix': emitted intensity times the transfer of the pixel's band."""
-    T = sky["galactic_transfer_" + ("nu" if kind == "nu" else "nubar")]
-    return sky["galactic_emitted"][:, :, None] * T[sky["pixel_band"]]
+    sky.output = 'healpix': emitted intensity times the transfer of the pixel's band, or, for emission points
+    in 3-D, times the pixel's local-eigenstate populations through its band's response."""
+    k = "nu" if kind == "nu" else "nubar"
+    em, band = sky["galactic_emitted"], sky["pixel_band"]
+    if "galactic_populations_" + k in sky:
+        F, R = sky["galactic_populations_" + k], sky["galactic_response_" + k]
+        out = np.empty(F.shape)
+        for b in range(R.shape[0]):
+            m = band == b
+            out[m] = np.einsum("pek,ekf->pef", F[m], R[b])
+        return em[:, :, None] * out
+    return em[:, :, None] * sky["galactic_transfer_" + k][band]
 
 
 def inner_galaxy(grid, b_max_deg=15.0, l_max_deg=20.0):
     """Pixels of the inner Galaxy, |b| < b_max and |l| < l_max (arXiv:2607.25966 Fig. 4: 15 and 20 deg)."""
     l = np.where(grid.l > np.pi, grid.l - 2.0 * np.pi, grid.l)
     return (np.abs(grid.b) <= np.radians(b_max_deg)) & (np.abs(l) <= np.radians(l_max_deg))
+
+
+# =============================================================================
+# Emission points (step 6; DIRECTIONS_PLAN Section 3.6): the potential the Galactic neutrinos are born in
+# =============================================================================
+#
+# A Galactic neutrino is emitted at a point x of its line of sight and travels adiabatically to the Sun
+# (test T9), so the populations of its emission eigenstates -- those of H(E, sigma), sigma = 2 |Coef| E
+# n_eff(x), ascending eigenvalues -- become those of the local eigenstates. n_eff(x; m) is the Yukawa-smoothed
+# neutron density at x (src/data/mw_neff_tables.npz, tools/mw_neff_tables.py: the solver's Galactic model and
+# integral). Where along each line of sight the neutrinos are emitted (src/data/galactic_emission.npz,
+# tools/prepare_galactic.py --emission):
+#   diffuse (cosmic rays on gas): the hydrogen column n_HI + 2 n_H2 of Soding et al. (2025) times CRINGE's
+#     nucleon flux at E_PARENT_PER_NEUTRINO times the neutrino energy; the line-of-sight integral reproduces
+#     the morphology of CRINGE's diffuse map (correlation 0.99);
+#   unresolved sources (CRINGE's second map): the Lorimer et al. (2006) pulsar distribution with
+#     exp(-|z| / 0.2 kpc) (Vecchiotti et al. 2022, ApJ 928, 19, the model CRINGE adopts), weighted by s: with
+#     dN/dL ~ L^-1.5 and a flux threshold, the unresolved luminosity per source grows as the distance (the
+#     nearby sources are resolved and removed); correlation 0.985 with CRINGE's map, which is broader at high
+#     latitude and in the outer Galaxy (likely survey-dependent resolution there).
+# Per pixel and energy the two mix in the proportions of the template's components (CRINGE: diffuse I and
+# unresolved U; the pi0 template and cringe_diffuse are gas tracers, all diffuse).
+
+R_SUN_KPC = 8.33                  # the Sun in the solver's Galactic model (dp_spatial.calc_MW_neutron_density)
+E_PARENT_PER_NEUTRINO = 20.0      # nucleon energy per neutrino energy in pp collisions (E_nu ~ E_p / 20)
+E_REF_GEV = 1e5                   # the diffuse weights' cosmic-ray energy: 20 x 100 TeV per nucleon
+SOURCES = dict(B=1.9, C=5.0, R0_kpc=8.5, H_kpc=0.2, distance_power=1.0)
+NEFF_NODES_PER_DECADE = 20
+CONTACT_MIN_M_EV = 1e-12          # as dp_transit: above it n_eff is the local density
+_emission_cache = {}
+
+
+def _data_file(name):
+    if name not in _emission_cache:
+        _emission_cache[name] = dict(np.load(os.path.join(_DATA, name), allow_pickle=False))
+    return _emission_cache[name]
+
+
+def emission_geometry(nside=16):
+    """(s (N_s,), ds (N_s,), R (N_pix, N_s), |z| (N_pix, N_s)): the distance bins of each pixel's line of sight
+    (kpc, Sun-centred, as in galactic_emission.npz) and their galactocentric radius and height."""
+    key = ("geometry", int(nside))
+    if key not in _emission_cache:
+        e = _data_file("galactic_emission.npz")
+        edges = e["gas_s_edges_kpc"]
+        s, ds = np.sqrt(edges[1:] * edges[:-1]), np.diff(edges)
+        grid = dp_sky.SkyGrid(nside)
+        l, b = grid.l[:, None], grid.b[:, None]
+        X = R_SUN_KPC - s * np.cos(b) * np.cos(l)
+        Y = s * np.cos(b) * np.sin(l)
+        _emission_cache[key] = (s, ds, np.sqrt(X * X + Y * Y), np.abs(s * np.sin(b)))
+    return _emission_cache[key]
+
+
+def emission_weights(nside=16, E_ref_GeV=E_REF_GEV):
+    """(q_gas, q_src), each (N_pix, N_s) and normalized per pixel: where along each line of sight the diffuse
+    emission (gas column x nucleon flux at E_PARENT_PER_NEUTRINO x E_ref) and the unresolved sources' (Lorimer
+    density x exp(-|z|/H) x s ds) are emitted."""
+    key = ("weights", int(nside), float(E_ref_GeV))
+    if key in _emission_cache:
+        return _emission_cache[key]
+    from scipy.interpolate import RegularGridInterpolator
+    e = _data_file("galactic_emission.npz")
+    s, ds, R, z = emission_geometry(nside)
+    stored = sorted(int(n) for n in e["nsides"])
+    if nside not in stored:
+        if 16 % nside or 16 not in stored:
+            raise ValueError(f"galactic_emission.npz holds N_side {stored}; N_side {nside} needs "
+                             f"tools/prepare_galactic.py --emission --nside {nside}")
+        col = degrade(e["gas_column_nside16"].astype(np.float64), 16, nside)
+    else:
+        col = e[f"gas_column_nside{nside}"].astype(np.float64)
+    Ecr = e["cr_E_GeV_per_nucleon"]
+    k = int(np.argmin(np.abs(np.log(Ecr / (E_PARENT_PER_NEUTRINO * E_ref_GeV)))))
+    J = RegularGridInterpolator((e["cr_z_kpc"], e["cr_R_kpc"]), e["cr_nucleon_flux"][k].astype(np.float64),
+                                bounds_error=False, fill_value=0.0)
+    q_gas = col * J(np.stack([z.ravel(), R.ravel()], axis=-1)).reshape(R.shape)
+    S = SOURCES
+    q_src = ((R / S["R0_kpc"]) ** S["B"] * np.exp(-S["C"] * (R - S["R0_kpc"]) / S["R0_kpc"])
+             * np.exp(-z / S["H_kpc"]) * s ** S["distance_power"] * ds)
+    totals = []
+    for q in (q_gas, q_src):
+        tot = q.sum(axis=1, keepdims=True)
+        if np.any(tot <= 0):
+            raise ValueError("a pixel's line of sight carries no emission")
+        q /= tot
+        totals.append(tot[:, 0])
+    _emission_cache[key] = (q_gas, q_src)
+    _emission_cache[("totals",) + key[1:]] = tuple(totals)
+    return q_gas, q_src
+
+
+def emission_line_integrals(nside=16, E_ref_GeV=E_REF_GEV):
+    """(gas, sources), each (N_pix,): the two emission models integrated along each line of sight (arbitrary
+    units). Their morphology against CRINGE's diffuse and unresolved maps validates the emission distances
+    (tests/test_galactic.py)."""
+    emission_weights(nside, E_ref_GeV)
+    return _emission_cache[("totals", int(nside), float(E_ref_GeV))]
+
+
+@njit(cache=True)
+def _density_RZ(R, z, out):
+    """calc_MW_neutron_density (cm^-3) at galactocentric (R, z) kpc, through its Sun-centred coordinates."""
+    for i in range(R.size):
+        u = R_SUN_KPC - R.flat[i]
+        r = np.sqrt(u * u + z.flat[i] * z.flat[i])
+        if r == 0.0:
+            out.flat[i] = calc_MW_neutron_density(0.0, 0.5 * np.pi, 0.0)
+        else:
+            out.flat[i] = calc_MW_neutron_density(r, np.arctan2(np.abs(u), z.flat[i]), 0.0 if u >= 0.0 else np.pi)
+
+
+def effective_density(R, z, m_eff_eV, n_n0_eV3, R_H_eV_inv):
+    """The Yukawa-smoothed neutron density n_eff (eV^3) at galactocentric (R, |z|) kpc for the mediator mass
+    m_eff: the local density for m_eff >= 1e-12 eV (contact); below, the tabulated integral (log-linear in
+    m between the table's masses, and in z and R between its nodes) plus the cosmic tail beyond the table's
+    radius (the same everywhere: galactic_effective_density's tail). For ranges far beyond the Galaxy n_eff is
+    not uniform: the Galaxy's share is m^2 times its neutrons' 'Coulomb' potential at x, ~6 times deeper at
+    the Galactic Centre than at the Sun, and it exceeds the cosmic floor down to ~4e-31 eV. Below the table's
+    lowest mass (1e-34 eV, ranges beyond the Hubble radius) both scale as m^2 and the pattern is frozen: the
+    lowest mass's n_eff(x) / n_eff(Sun) times the Sun's exact value."""
+    from dp_core import cm_inv3_to_eV3
+    import dp_transit
+    R = np.asarray(R, dtype=np.float64)
+    z = np.abs(np.asarray(z, dtype=np.float64))
+    if m_eff_eV >= CONTACT_MIN_M_EV:
+        out = np.empty(R.shape)
+        _density_RZ(np.ascontiguousarray(R), np.ascontiguousarray(z), out)
+        return out * cm_inv3_to_eV3
+    t = _data_file("mw_neff_tables.npz")
+    lm = t["log10_m_eV"]
+    if np.log10(m_eff_eV) < lm[0]:
+        m0 = 10.0 ** lm[0]
+        pattern = (effective_density(R, z, m0, n_n0_eV3, R_H_eV_inv)
+                   / effective_density(np.array([R_SUN_KPC]), np.array([0.0]), m0, n_n0_eV3, R_H_eV_inv)[0])
+        return pattern * dp_transit.galactic_effective_density(m_eff_eV, n_n0_eV3, R_H_eV_inv)
+    if abs(float(t["n_n0_cm3"]) * cm_inv3_to_eV3 / n_n0_eV3 - 1) > 1e-9:
+        raise ValueError("mw_neff_tables.npz was made for another cosmic neutron density; rerun tools/mw_neff_tables.py")
+    a = min(int(np.searchsorted(lm, np.log10(m_eff_eV)) - 1), len(lm) - 2)
+    a = max(a, 0)
+    w = (np.log10(m_eff_eV) - lm[a]) / (lm[a + 1] - lm[a])
+    # Between the nodes in (R, z): interpolate log n_eff - beta log n_local and add back beta log n_local of the
+    # model at the point, exact. beta = 1 for ranges below ~6 pc (m >= 1e-24 eV), where n_eff follows the local
+    # density (whose sums of exponentials are not log-linear between the z nodes), 0 for ranges beyond ~6 kpc
+    # (m <= 1e-27 eV), where n_eff is smooth; log-linear in m between. Exact at the nodes either way.
+    beta = float(np.clip((np.log10(m_eff_eV) + 27.0) / 3.0, 0.0, 1.0))
+    logn = ((1.0 - w) * np.log(t["neff_cm3"][:, :, a]) + w * np.log(t["neff_cm3"][:, :, a + 1])
+            - beta * np.log(t["n_local_cm3"]))
+    Rn, zn = t["R_kpc"], t["z_kpc"]
+    iR = np.clip(np.searchsorted(Rn, R) - 1, 0, len(Rn) - 2)
+    iz = np.clip(np.searchsorted(zn, z) - 1, 0, len(zn) - 2)
+    tR = np.clip((R - Rn[iR]) / (Rn[iR + 1] - Rn[iR]), 0.0, 1.0)
+    tz = np.clip((z - zn[iz]) / (zn[iz + 1] - zn[iz]), 0.0, 1.0)
+    v = ((1 - tR) * (1 - tz) * logn[iR, iz] + tR * (1 - tz) * logn[iR + 1, iz]
+         + (1 - tR) * tz * logn[iR, iz + 1] + tR * tz * logn[iR + 1, iz + 1])
+    if beta > 0.0:
+        loc = np.empty(R.shape)
+        _density_RZ(np.ascontiguousarray(R), np.ascontiguousarray(z), loc)
+        v = v + beta * np.log(loc)
+    from dp_core import m_to_eV_inv
+    x1 = m_eff_eV * float(t["r_max_kpc"]) * 3.08567758e19 * m_to_eV_inv
+    xH = m_eff_eV * R_H_eV_inv
+    tail = n_n0_eV3 * ((1.0 + x1) * np.exp(-x1) - (1.0 + xH) * np.exp(-xH)) if xH > x1 else 0.0
+    return np.exp(v) * cm_inv3_to_eV3 + tail
+
+
+def emission_populations(E_eV, f_S, w_gas, q_gas, q_src, n_emit_eV3, coef2, tab):
+    """Populations (N_pix, N_E, 3) of the local eigenstates (ascending eigenvalues) per unit flux emitted with
+    flavors f_S, for emission points of density n_emit (N_pix, N_s) weighted by q_gas and q_src (N_pix, N_s)
+    and mixed per pixel and energy with w_gas (N_pix, N_E) (the diffuse share; 1 - w_gas the sources').
+    The emission densities are deposited on nodes NEFF_NODES_PER_DECADE per decade apart, linearly in
+    log n between the two nearest (cloud in cell: the populations are interpolated linearly in log sigma),
+    and each node's populations come from dp_transit.flavor_populations on the kind's frame table
+    (sigma = E coef2 n, coef2 = 2 |Coef|)."""
+    import dp_transit
+    E_eV = np.ascontiguousarray(E_eV, dtype=np.float64)
+    npix, ns = n_emit_eV3.shape
+    F_fl = np.ascontiguousarray(np.broadcast_to(np.asarray(f_S, dtype=np.float64), (len(E_eV), 3)))
+    out = np.empty((len(E_eV), 3))
+    if np.ptp(n_emit_eV3) == 0.0:
+        # one density everywhere (ranges beyond the Galaxy's reach): its populations, exactly
+        dp_transit.flavor_populations(E_eV, F_fl, coef2, float(n_emit_eV3.flat[0]), tab["Q"], tab["Mp"], tab["s"],
+                                      tab["floor"], out)
+        return np.ascontiguousarray(np.broadcast_to(out, (npix, len(E_eV), 3)))
+    logn = np.log10(np.maximum(n_emit_eV3, 1e-300))
+    d = 1.0 / NEFF_NODES_PER_DECADE
+    lo = np.floor(logn.min() / d) * d
+    x = (logn - lo) / d
+    j = np.floor(x).astype(np.int64)
+    t = x - j
+    n_nodes = int(j.max()) + 2
+    rows = np.repeat(np.arange(npix), ns).reshape(npix, ns)
+    H = np.zeros((2, npix, n_nodes))
+    for c, q in enumerate((q_gas, q_src)):
+        np.add.at(H[c], (rows, j), q * (1.0 - t))
+        np.add.at(H[c], (rows, j + 1), q * t)
+    used = np.nonzero(H.sum(axis=(0, 1)) > 0)[0]
+    P = np.empty((len(used), len(E_eV), 3))
+    for i, node in enumerate(used):
+        dp_transit.flavor_populations(E_eV, F_fl, coef2, 10.0 ** (lo + node * d), tab["Q"], tab["Mp"], tab["s"],
+                                      tab["floor"], out)
+        P[i] = out
+    P2 = P.reshape(len(used), -1)
+    A_gas = (H[0][:, used] @ P2).reshape(npix, len(E_eV), 3)
+    A_src = (H[1][:, used] @ P2).reshape(npix, len(E_eV), 3)
+    w = np.asarray(w_gas, dtype=np.float64)[:, :, None]
+    return w * A_gas + (1.0 - w) * A_src
+
+
+def degrade_weighted(F, w, nside_in, nside_out):
+    """Average per-pixel quantities F (N_pix_in, N_E, ...) onto N_side nside_out, weighted per energy by w
+    (N_pix_in, N_E) (e.g. the emitted intensity): sum_children w F / sum_children w."""
+    th, ph = dp_sky.pix2ang_ring(nside_in, np.arange(dp_sky.nside_to_npix(nside_in)))
+    p = dp_sky.ang2pix_ring(nside_out, th, ph)
+    npo = dp_sky.nside_to_npix(nside_out)
+    w = np.asarray(w, dtype=np.float64)
+    wF = (w.reshape(w.shape + (1,) * (F.ndim - 2)) * F).reshape(len(p), -1)
+    num = np.stack([np.bincount(p, weights=col, minlength=npo) for col in wF.T], axis=1).reshape((npo,) + F.shape[1:])
+    den = np.stack([np.bincount(p, weights=col, minlength=npo) for col in w.T], axis=1)
+    return num / den.reshape(den.shape + (1,) * (F.ndim - 2))
+
+
+def gas_share(name, E_GeV, nside=16):
+    """(N_pix, N_E): the diffuse (cosmic rays on gas) share of the template's intensity -- CRINGE's diffuse map
+    over the total; 1 for the gas tracers ('pi0', 'cringe_diffuse')."""
+    if name != "cringe":
+        return np.ones((dp_sky.nside_to_npix(nside), len(np.atleast_1d(E_GeV))))
+    tot = intensity("cringe", E_GeV, nside)
+    dif = intensity("cringe_diffuse", E_GeV, nside)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return np.where(tot > 0, np.clip(dif / tot, 0.0, 1.0), 1.0)

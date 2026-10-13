@@ -25,6 +25,14 @@ the equatorial frame (theta = pi/2 - dec), shape (N_E, N_pix), with provenance.
           arXiv:2607.25966 to 0.5%. Optionally checked against toise's copy of the map (Galactic frame),
           which tests the rotation used for CRINGE (correlation 0.997 at N_side 16).
 
+  emission  (step 6: where along each line of sight the neutrinos are emitted) src/data/galactic_emission.npz:
+          the gas of Soding et al., A&A 693, A139 (2025), Zenodo 12578443 (samples_densities_hpixr.fits: HI and
+          H2 number densities, 8 posterior samples, on Sun-centred HEALPix N_side 64 NESTED Galactic pixels x 388
+          log-spaced distances 0.05-30 kpc), reduced to columns of hydrogen nuclei n_HI + 2 n_H2 (mean of the
+          samples) per output pixel and per 4 merged distance bins; and CRINGE's cosmic rays
+          (Global_Hadronic_CR_Dist_CRINGE: DRAGON, R 0-20 kpc x z +-6 kpc x 63 kinetic energies per nucleon
+          1-1e9 GeV, fluxes GeV^-1 m^-2 s^-1 sr^-1), reduced to the nucleon flux (p + 4 He) from 1 TeV.
+
 The maps are rotated to the equatorial frame where needed and averaged onto the output pixels (every
 input pixel goes to the output pixel holding its centre; same frame: exact area averages, since the
 HEALPix hierarchy nests). Energies: the CRINGE nodes from 72 GeV to 1e8 GeV (44 nodes; the pi0 law on
@@ -32,7 +40,8 @@ the same nodes).
 
   python tools/prepare_galactic.py --cringe /lustre/astro/mbustama/external/galactic_data \
       --pi0 /lustre/astro/mbustama/external/galactic_data/IceCube_GP2023/Fermi-LAT_pi0_map.npy \
-      [--pi0-check .../fermi_galactic_emission.npy] [--nside 16]
+      [--pi0-check .../fermi_galactic_emission.npy] [--emission /lustre/astro/mbustama/external/galactic_data] \
+      [--nside 16]          (--emission needs astropy and healpy: Tycho's environment has them)
 """
 import argparse
 import gzip
@@ -232,26 +241,97 @@ def prepare_pi0(path, nsides, check_path=None):
     return out
 
 
+GAS_FILE = "samples_densities_hpixr.fits"
+CR_FILE = "Global_Hadronic_CR_Dist_CRINGE.fits.gz"
+GAS_MERGE = 4
+
+
+def prepare_emission(folder, nsides):
+    """Gas columns per output pixel and merged distance bin, and CRINGE's nucleon flux (step 6)."""
+    from astropy.io import fits
+    import healpy
+    gpath, cpath = os.path.join(folder, GAS_FILE), os.path.join(folder, CR_FILE)
+    out = dict(gas_source="Soding et al. 2025 (A&A 693, A139), Zenodo 12578443, " + GAS_FILE,
+               gas_sha256=sha256(gpath), cr_source="CRINGE (Schwefer, Mertsch, Wiebusch 2023) " + CR_FILE,
+               cr_sha256=sha256(cpath))
+    with fits.open(gpath, memmap=True) as h:
+        edges = np.array(h[2].data.field(0), dtype=np.float64)
+        hi, h2 = h["HI NUMBER DENSITY"], h["H2 NUMBER DENSITY"]
+        nside_g = int(hi.header["NSIDE"])
+        if hi.header["ORDERING"].lower() != "nest" or "galactic" not in hi.header["COMMENT3"].lower():
+            raise RuntimeError("gas file: expected NESTED pixels in the Galactic frame")
+        npix_g = 12 * nside_g ** 2
+        th, ph = healpy.pix2ang(nside_g, np.arange(npix_g), nest=True)
+        ra, dec = dp_sky.galactic_to_equatorial(ph, 0.5 * np.pi - th)
+        nb = (len(edges) - 1) // GAS_MERGE
+        e_m = edges[::GAS_MERGE][:nb + 1]
+        width = np.diff(edges)[:nb * GAS_MERGE]
+        out["gas_s_edges_kpc"] = e_m
+        for ns in nsides:
+            p = dp_sky.ang2pix_ring(ns, 0.5 * np.pi - dec, ra)
+            npo = dp_sky.nside_to_npix(ns)
+            col = np.zeros((npo, nb))
+            cnt = np.bincount(p, minlength=npo).astype(np.float64)
+            for a in range(0, npix_g, 2048):                     # chunks of pixels: ~200 MB per read
+                b = min(a + 2048, npix_g)
+                nH = (np.asarray(hi.section[a:b], dtype=np.float64).mean(axis=2)
+                      + 2.0 * np.asarray(h2.section[a:b], dtype=np.float64).mean(axis=2))[:, :nb * GAS_MERGE]
+                c = (nH * width).reshape(b - a, nb, GAS_MERGE).sum(axis=2)       # cm^-3 kpc
+                np.add.at(col, p[a:b], c)
+            out[f"gas_column_nside{ns}"] = (col / cnt[:, None]).astype(np.float32)
+    with fits.open(cpath, memmap=False) as h:
+        hd = h[0].header
+        R = np.linspace(float(hd["RMIN"]), float(hd["RMAX"]), int(hd["DIMR"]))
+        z = np.linspace(float(hd["ZMIN"]), float(hd["ZMAX"]), int(hd["DIMZ"]))
+        Ek = float(hd["EKMIN"]) * float(hd["EKIN_FAC"]) ** np.arange(int(hd["DIME"]))
+        flux = np.zeros((int(hd["DIMZ"]), int(hd["DIMR"]), int(hd["DIME"])))
+        used = []
+        for hdu in h[1:]:
+            Z_, A_ = int(hdu.header["Z_"]), int(hdu.header["A"])
+            if (Z_, A_) in ((1, 1), (2, 4)):                      # protons (primary and secondary), helium-4
+                flux += A_ * np.asarray(hdu.data, dtype=np.float64)
+                used.append((Z_, A_, int(hdu.header["SEC"])))
+        keep = Ek >= 1e3 * 0.999
+        out.update(cr_R_kpc=R, cr_z_kpc=z, cr_E_GeV_per_nucleon=Ek[keep],
+                   cr_nucleon_flux=np.moveaxis(flux[:, :, keep], 2, 0).astype(np.float32),
+                   cr_species=repr(used), cr_r_obs_kpc=float(hd["ROBS"]),
+                   cr_units="GeV^-1 m^-2 s^-1 sr^-1 per nucleon, p + 4 He (shape only is used)")
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--cringe", help="folder with " + CRINGE_FILE)
     ap.add_argument("--pi0", help="the IceCube 2023 release's MainResult/Fermi-LAT_pi0_map.npy")
     ap.add_argument("--pi0-check", help="toise's fermi_galactic_emission.npy (Galactic frame), a cross-check")
+    ap.add_argument("--emission", help="folder with " + GAS_FILE + " and " + CR_FILE)
     ap.add_argument("--nside", type=int, nargs="+", default=[16])
     ap.add_argument("--out", default=os.path.join(REPO, "src", "data"))
     a = ap.parse_args()
     commit = os.popen(f"git -C {REPO} rev-parse --short HEAD").read().strip()
     jobs = [("cringe", lambda: prepare_cringe(a.cringe, a.nside)) if a.cringe else None,
-            ("pi0", lambda: prepare_pi0(a.pi0, a.nside, a.pi0_check)) if a.pi0 else None]
+            ("pi0", lambda: prepare_pi0(a.pi0, a.nside, a.pi0_check)) if a.pi0 else None,
+            ("emission", lambda: prepare_emission(a.emission, a.nside)) if a.emission else None]
     for name, fn in filter(None, jobs):
         t0 = time.time()
         d = fn()
         d.update(commit=commit, host=os.uname().nodename, date=time.strftime("%Y-%m-%d %H:%M"),
-                 nsides=np.array(a.nside), units="GeV^-1 cm^-2 s^-1 sr^-1, per flavor, nu + nubar combined",
-                 frame="equatorial J2000, HEALPix RING, theta = pi/2 - dec; arrays (N_E, N_pix)",
-                 tool="tools/prepare_galactic.py")
+                 nsides=np.array(a.nside), tool="tools/prepare_galactic.py")
+        if name == "emission":
+            d.update(frame="equatorial J2000, HEALPix RING, theta = pi/2 - dec; gas columns (N_pix, N_s) in "
+                           "cm^-3 kpc of n_HI + 2 n_H2 along each pixel's line of sight from the Sun")
+        else:
+            d.update(units="GeV^-1 cm^-2 s^-1 sr^-1, per flavor, nu + nubar combined",
+                     frame="equatorial J2000, HEALPix RING, theta = pi/2 - dec; arrays (N_E, N_pix)")
         p = os.path.join(a.out, f"galactic_{name}.npz")
         np.savez_compressed(p, **d)
+        if name == "emission":
+            col = d[f"gas_column_nside{a.nside[0]}"]
+            print(f"emission: gas columns {col.shape} (total N_H per pixel: median {np.median(col.sum(1)):.3g}, "
+                  f"max {col.sum(1).max():.3g} cm^-3 kpc), CR {d['cr_nucleon_flux'].shape} from "
+                  f"{d['cr_E_GeV_per_nucleon'][0]:.3g} GeV per nucleon, species {d['cr_species']}; wrote {p} "
+                  f"({os.path.getsize(p) / 1e6:.2f} MB, {time.time() - t0:.0f} s)")
+            continue
         print(f"{name}: {d['frame_check']}")
         for k in sorted(d):
             if k.startswith(("sky_", "inner_", "unresolved_sky", "unresolved_inner", "total_")) or k in (

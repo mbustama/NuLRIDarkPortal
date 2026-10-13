@@ -1213,8 +1213,8 @@ makes the source distribution, not the gas, the main term above 30~TeV.
 (\file{src/dp_galactic.py}): sources of composition $(x, 1-x, 0)$ (decision D6, $x$ floated on its
 own; $1/3$ for pion decay), $\nu:\bar\nu = 1:1$. Under secret interactions the Galactic flux is
 unattenuated (the Galactic relic column is $\sim$$10^{-5}$ of the cosmological one) with oscillations
-averaged over kiloparsecs. For the dark portal, emission at the local potential (the 3-D emission points
-come in step 6): the flavors decohere into the local eigenstates, populations $\sum_\alpha
+averaged over kiloparsecs. For the dark portal, emission at the local potential (option \texttt{local}; the
+3-D emission points below are the default): the flavors decohere into the local eigenstates, populations $\sum_\alpha
 f_\alpha|W_{\alpha k}|^2$, and from there cross the Sun and the Earth as the extragalactic flux does, per
 declination band. \file{propagate_sky} returns the component in physical units next to the extragalactic
 one. Checks (\file{tests/test_galactic.py}): the transfer conserves the flux to $3\times10^{-14}$ and is
@@ -1231,6 +1231,48 @@ against IceCube's 2026 best fits (circles, arXiv:2607.25966 Fig.~4) and its all-
 (grey); the dotted line is CRINGE's diffuse map alone. Bottom right: the band means the per-band output
 carries.}
 \label{fig:galactic_templates}
+\end{figure}
+
+\textit{Emission points in three dimensions (decision D3).}---For the dark portal, a Galactic neutrino is
+born in the eigenstates of the potential at its emission point and, the Galaxy's potential changing over
+$\gtrsim 10$~pc against oscillation lengths $\lesssim 10^{-3}$~pc, keeps their populations on its way to the
+Sun. The potential there is the Yukawa-smoothed neutron density $n_{\rm eff}(\vec x; m)$, now tabulated at any
+point of the Galaxy (\file{tools/mw_neff_tables.py}): sphere averages of our Galactic model around $48\times22$
+nodes in $(R, z)$, integrated on the solver's own distance nodes, for 20 masses per decade from $10^{-34}$ to
+$10^{-12}$~eV. At the Sun's node it equals the solver's local potential to $10^{-9}$ (test T7). Far beyond the
+Galaxy's size $n_{\rm eff}$ is \emph{not} uniform: the Galaxy's share is $m^2$ times its neutrons'
+``Coulomb'' potential at the point, about six times deeper at the Centre than at the Sun, and it exceeds the
+cosmic floor down to $\sim4\times10^{-31}$~eV; only beyond the Hubble radius is the pattern frozen.
+Where along each line of sight the neutrinos are born follows the two components of CRINGE: the gas (hydrogen
+columns of S\"oding et al.\ 2025) times CRINGE's cosmic-ray flux at 20 times the neutrino energy for the
+diffuse part, and the Lorimer et al.\ (2006) source distribution with a 0.2-kpc scale height, weighted by
+distance, for the unresolved sources (the nearby ones are resolved and removed: with $dN/dL\propto L^{-1.5}$
+and a flux threshold the unresolved luminosity per source grows as the distance). Integrated along each line
+of sight, these reproduce the morphology of CRINGE's maps (correlations 0.991 and 0.985). Toward the Centre
+the neutrinos are born on average 5.7~kpc (gas) and 9.8~kpc (sources) away, toward the anticentre 0.9 and
+3.7~kpc (Fig.~\ref{fig:galactic_emission}). Per pixel, the emission densities are deposited on nodes 20 per
+decade apart, each node's populations come from the transit's own frame table, and three runs per kind give
+each declination band's response to a unit population of each local eigenstate. Checks: the transit from the
+emission points is adiabatic everywhere we looked (Landau--Zener parameter $\ge 1.5\times10^5$ from
+$10^{-28}$ to $10^{-16}$~eV and 10~TeV to 30~PeV; test T9); beyond the Hubble radius three-dimensional and
+local emission agree; a Galactic source at the Sun's position and an extragalactic source in a
+Milky-Way-like host at $z\to0$ give the same flavors to $10^{-5}$ (test T10). That test caught an error in
+the local emission of step 5, which had included the Moon's potential at birth (13\% of the Galaxy's at a
+6-pc range); Galactic neutrinos are born far from the Earth--Moon system. With emission in 3-D, the Galactic
+flavor composition becomes anisotropic where the emission potentials straddle the vacuum term: at
+$m_{Z_D} = 10^{-24}$~eV and a coupling that puts the local Galactic potential near the vacuum term at 1~PeV,
+$f_e$ at 1~PeV ranges over 0.345--0.374 across the sky, highest along the inner Galactic plane.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{../output/figures/galactic_emission.png}
+\caption{\textbf{Galactic emission points.} Top left: where along the lines of sight toward the Galactic
+Centre and the anticentre the neutrinos are born, for the diffuse emission (gas times cosmic rays) and the
+unresolved sources. Top right: the potential at the emission point along the Centre's line of sight for
+several mediator ranges. Bottom: the Galactic $\nu_e$ fraction at the detector for emission points in 3-D at
+$m_{Z_D} = 10^{-24}$~eV, per pixel at 1~PeV (left) and against energy for the Centre and the anticentre
+(right; dotted: emission at the local potential).}
+\label{fig:galactic_emission}
 \end{figure}
 
 \section{Planned work}

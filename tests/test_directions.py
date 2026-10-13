@@ -207,8 +207,8 @@ def test_propagate_sky_secret_interactions_isotropic():
 
 
 def test_sky_and_galactic_config():
-    """Defaults keep today's behaviour; values are validated; the dark portal's Galactic emission '3d' (the
-    default) is step 6 (tests/test_galactic.py covers the component)."""
+    """Defaults keep today's behaviour; values are validated; the Galactic component needs a pixel centre in every
+    declination band, checked before any propagation (tests/test_galactic.py covers the component)."""
     E, params = dps.build_solver_params({"execution": {"verbose": 0}})
     assert params["sky"]["output"] == "allsky" and params["galactic"]["enabled"] is False
     assert params["galactic"]["template"] == "cringe" and abs(params["galactic"]["f_e_S_gal"] - 1 / 3) < 1e-5
@@ -219,8 +219,8 @@ def test_sky_and_galactic_config():
                 {"galactic": {"f_e_S_gal": 1.5}}):
         with pytest.raises(ValueError):
             dps.build_solver_params(dict(bad, execution={"verbose": 0}))
-    E, params = dps.build_solver_params(_cfg(galactic={"enabled": True}))
-    with pytest.raises(NotImplementedError):
+    E, params = dps.build_solver_params(_cfg(galactic={"enabled": True}))       # N_side 4, 20 bands
+    with pytest.raises(ValueError, match="pixel centre in every declination band"):
         dps.propagate_sky(E, params)
 
 

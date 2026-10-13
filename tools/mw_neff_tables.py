@@ -17,7 +17,7 @@ int_0^pi dphi n, with phi = 0 toward the Galactic Centre's side. Composite Gauss
 panel), panels graded toward the plane crossing (mu* = -z/r, breakpoints 2 pc x 2^j / r) and toward phi = 0
 (1 mrad x 2^j), as tools/mw_sky_density.py does for the Sun.
 
-Stored: n_eff(R, z; m) on 20 masses per decade from 1e-30 to 1e-12 eV (above it, the contact limit: the local
+Stored: n_eff(R, z; m) on 20 masses per decade from 1e-34 to 1e-12 eV (above it, the contact limit: the local
 density, n_local_cm3), integrated on the solver's distance nodes (200 per decade) with its head and floor
 (galactic_effective_density without the cosmic tail beyond 2e4 kpc, which is the same everywhere in the Galaxy
 and added at run time), for the default cosmic neutron density n_n0 (stored; dp_galactic checks it).
@@ -46,7 +46,7 @@ GL16_X, GL16_W = np.polynomial.legendre.leggauss(16)
 # graded toward the Galactic Centre (the bulge's 75-pc core), 0.5 kpc beyond 1 kpc, and the Sun's radius
 R_NODES = np.unique(np.concatenate([[0.0, 0.02, 0.05, 0.1, 0.2, 0.3, 0.5, 0.75], np.arange(1.0, 20.0 + 1e-9, 0.5),
                                     [R_SUN]]))
-LOG10_M = np.linspace(-30.0, -12.0, 361)        # eV: 20 per decade
+LOG10_M = np.linspace(-34.0, -12.0, 441)        # eV: 20 per decade
 Z_NODES = np.array([0.0, 0.005, 0.01, 0.02, 0.03, 0.045, 0.06, 0.08, 0.1, 0.13, 0.17, 0.22, 0.3, 0.4, 0.5,
                     0.7, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0])
 
@@ -138,9 +138,12 @@ def neff_head_body(m, r, nbar, n_loc, n_n0):
 
 
 @njit(cache=True, parallel=True)
-def _table(R_nodes, z_nodes, r_nodes, glx, glw, phi_b, m_eV, r_eV, cm3_to_eV3, n_n0_eV3, neff, n_loc):
+def _table(R_nodes, z_nodes, r_nodes, glx, glw, phi_b, m_eV, r_eV, cm3_to_eV3, n_n0_eV3, neff, n_loc, order):
+    """prange splits the points into contiguous blocks, one per thread: they are visited in the shuffled
+    `order` so that the slow ones (near the Galactic Centre) do not pile up in one block."""
     nR, nz = len(R_nodes), len(z_nodes)
-    for k in prange(nR * nz):
+    for kk in prange(nR * nz):
+        k = order[kk]
         i, j = k // nz, k % nz
         n_loc[i, j] = density_galactocentric(R_nodes[i], 0.0, z_nodes[j])
         nbar = np.empty(len(r_nodes))
@@ -170,8 +173,9 @@ def main(argv=None):
     neff = np.empty((len(Rn), len(zn), len(LOG10_M)))
     n_loc = np.empty((len(Rn), len(zn)))
     t0 = time.perf_counter()
+    order = np.random.default_rng(0).permutation(len(Rn) * len(zn))
     _table(Rn, zn, r, GL16_X, GL16_W, phi_b, 10.0 ** LOG10_M, r_eV, cm_inv3_to_eV3, n_n0_cm3 * cm_inv3_to_eV3,
-           neff, n_loc)
+           neff, n_loc, order)
     dt = time.perf_counter() - t0
     # direct check of the sphere average at the Sun against mw_sky_density's own quadrature
     i_sun = int(np.argmin(np.abs(Rn - R_SUN)))

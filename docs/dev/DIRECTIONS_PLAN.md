@@ -444,6 +444,15 @@ on its own.
 - **D1, sky resolution.** Declination bands only (20, uniform in sin(delta)) plus HEALPix maps at
   N_side 16 (Recommended: cascades resolve ~6-10 deg, the Galactic plane is a few degrees thick, and
   N_side 16 pixels are 3.7 deg); or N_side 32/64 for tracks.
+- **D1 addendum (Mauricio, 2026-10-14): resolution per consumer.** HESE can use coarser pixels than DR2 tracks.
+  The flux map must resolve the true sky structure (the plane is a few degrees thick) to the extent each
+  sample's angular resolution can see it: HESE (mostly cascades, 10-20 deg) at N_side 8 (7.3 deg), DR2 tracks
+  (~1 deg) at N_side 64-128. The stored templates and emission data (N_side 16) degrade exactly to 8, 4, 2, 1
+  (N_side 8 is the coarsest keeping a pixel centre in each of the 20 default bands; N_side 4 works with MESE's
+  10 bands). For tracks: finer reductions on Tycho (prepare_galactic.py --nside 64 128; CRINGE is native
+  N_side 256, IceCube's pi0 128, the Soding gas 64, so emission distances stop at 64), kept outside the
+  repository (tens of MB); DR2's 41 declination bins as band edges; the 3-D emission populations (N_pix x N_E)
+  restricted to the declinations a sample uses.
 - **D2, Galactic templates.** CRINGE primary plus pi0 (Recommended); add KRA_gamma (two 807 MB pickled
   files, loaded only in isolation); or pi0 only (already on disk, no downloads).
 - **D3, dark-portal emission points.** Full 3-D (CRINGE cosmic rays x Soding et al. gas; FFT tables)
@@ -475,6 +484,32 @@ on its own.
   transfer conserves the flux to 3e-14; the vacuum limit is the averaged oscillation to 1e-12 with the
   Earth's standard matter potential off, and with it on moves the bands through the Earth by the MSW
   effect on the arriving mass-state mixture (2.4e-5 at 10 TeV through the core, falling as 1/E).
+- **Step 6 (2026-10-14): emission points in 3-D.** n_eff(R, z; m) at any emission point
+  (tools/mw_neff_tables.py, src/data/mw_neff_tables.npz): sphere averages of the solver's Galactic model around
+  48 x 22 nodes (R graded toward the Centre, z toward the plane), integrated on the solver's own distance nodes
+  for 20 masses per decade from 1e-34 to 1e-12 eV; T7: at the Sun's node it equals galactic_effective_density
+  to 1e-9 (1.5e-14 on the first run), and the sphere average equals mw_sky_density's quadrature to 2e-15.
+  Between nodes: log-linear in m, and in (R, z) with the exact local density blended in at short ranges.
+  **Finding:** at ranges far beyond the Galaxy n_eff is not uniform -- the Galaxy's share is m^2 times its
+  neutrons' 'Coulomb' potential at the point, ~6 times deeper at the Centre than at the Sun, and it beats the
+  cosmic floor down to ~4e-31 eV (the first table, which stopped at 1e-30 eV and assumed uniformity below,
+  was extended). Emission distances (tools/prepare_galactic.py --emission, src/data/galactic_emission.npz):
+  diffuse = Soding et al. hydrogen columns x CRINGE's nucleon flux at 20 x 100 TeV (morphology vs CRINGE's
+  diffuse map: correlation 0.991); unresolved = Lorimer et al. 2006 with exp(-|z|/0.2 kpc) (Vecchiotti et al.
+  2022, CRINGE's choice) weighted by distance s (dN/dL ~ L^-1.5 with a flux threshold removes the nearby
+  sources; s^1 fits CRINGE's map better than s^0 or s^0.5), correlation 0.985 (CRINGE's map is broader at
+  high latitudes and in the outer Galaxy, where its resolution threshold is presumably survey-dependent;
+  Case & Bhattacharya with H = 0.33 kpc is the systematic variant). Mean emission distance toward the Centre:
+  5.7 kpc (gas), 9.8 kpc (sources); toward the anticentre 0.9 and 3.7 kpc. Per pixel and energy the two mix
+  as CRINGE's maps do. Populations: emission densities deposited on log-n nodes 20 per decade (cloud in
+  cell), each node's populations from flavor_populations on the kind's frame table; per band the response to
+  each local eigenstate (three spatial runs per kind). **Fix found by T10:** 'local' emission had computed its
+  populations at n_bg = n_gal + n_moon; Galactic neutrinos are born at the Galaxy's potential alone (the
+  Moon's Yukawa-smoothed density at the Earth is ~13% of the Galaxy's at a 6-pc range), and the map then
+  carries them onto the eigenstates at n_bg. T10: a Galactic source at the Sun's position and the host-galaxy
+  path (host_galaxy_scale = 1, z -> 0) agree to < 1e-5 in every band and energy (their potentials differ by
+  3e-8, the cosmic mean the host path adds; up to 1.2e-3 at 1e-31-1e-29 eV, where the halo meets the cosmic
+  mean: the local potential takes the larger, the host path sums them).
 - **D4, the Sun per direction.** Keep the isotropic Sun average now and measure the anisotropy it would
   produce in its window (Recommended); or implement the yearly per-direction weighting now.
 - **D5, downloads on Tycho.** CRINGE (Zenodo 7859442), the 3-D gas (Zenodo 12578443) and IceCube's
