@@ -590,6 +590,41 @@ def test_vector_cross_sections():
     assert abs(val / (2 * np.pi * 1e-6) - 1) < 2e-4
 
 
+def test_vector_qe_drift_integrals():
+    """The forward-peaked daughters' shift in ln E within the parent's bin, int_{1/h}^1 (-ln x) P(x) dx
+    for the profiles x^2/(1 - x + mu)^2 and 1/(1 - x + mu)^2, against 40 digits from mu = 1e-14 (the
+    forward peak far inside the bin) to 1e3 (no peak), at two bin widths."""
+    import mpmath as mp
+    mp.mp.dps = 40
+    out = np.zeros(si.N_VPROFILES)
+    for h in [np.exp(0.5 * np.log(3000) / 400), np.exp(0.5 * np.log(3000) / 100)]:
+        xl = 1 / mp.mpf(h)
+        for mu in [1e-14, 1e-9, 1e-6, 1e-3, 0.02, 1.0, 1e3]:
+            si.vector_qe_drift(mu, h, si._GL24_X, si._GL24_W, out)
+            m = mp.mpf(mu)
+            pts = [xl] + [1 - mp.mpf(10) ** (-k) for k in range(2, 17) if 1 - mp.mpf(10) ** (-k) > xl] + [1]
+            ref6 = mp.quad(lambda x: -mp.log(x) / (1 - x + m) ** 2, pts)
+            ref2 = mp.quad(lambda x: -x * x * mp.log(x) / (1 - x + m) ** 2, pts)
+            assert abs(out[6] / float(ref6) - 1) < 1e-6 and abs(out[2] / float(ref2) - 1) < 1e-6
+            assert all(out[q] == 0.0 for q in range(si.N_VPROFILES) if q not in (2, 6))
+
+def test_vector_drift_bin_width():
+    """At 1 keV the vector's forward-peaked returns (~1e7 per neutrino at g = 0.03, ~1e-6 of the energy
+    each) carry most of the energy loss; as a drift in ln E (vector_qe_drift) the result no longer
+    depends on the bin width: energy-averaged fractions at 201 and 401 bins within 3e-4 (1.5e-4 found;
+    5e-3 when the returns' losses were dropped), and the number balance exact."""
+    kw = _transport_kw()
+    gm = si.mass_basis_couplings_model(si.flavor_couplings("universal", 0.03), kw["U_pmns"], "vector", True)
+    f = []
+    for n in [201, 401]:
+        E = _grid(n)
+        F, info = si.propagate_si(E, M=1e3, g_mass=gm, mediator="vector", return_diagnostics=True, **kw)
+        bal = (info["final_number"] - info["injected"]) - (info["secondaries_in_grid"] - info["absorbed"])
+        assert abs(bal) < 1e-10 * info["injected"]
+        t = (F @ (np.abs(kw["U_pmns"]) ** 2).T * C.compute_dE_geometric(E)[:, None]).sum(0)
+        f.append(t / t.sum())
+    assert np.abs(f[0] - f[1]).max() < 3e-4
+
 @pytest.mark.parametrize("majorana", [True, False])
 def test_vector_quasi_elastic_limit(majorana):
     """Far above a vector's resonance (1 keV: s/M^2 > 1e5 in the band) its t channel's forward peak only

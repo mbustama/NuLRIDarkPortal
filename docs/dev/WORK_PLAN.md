@@ -41,7 +41,7 @@ convergence, their Fig. 5 reproduced) and run on the flavor-triangle analysis fo
 nu_tau and flavor-universal couplings (`analysis/configs/pion_2050_case_5_si_*.json`). One
 departure from the paper, to confirm with Mauricio: double-scalar production uses the coherent sum
 over the exchanged neutrino, ((g^2)_ij)^2, where the appendix prints sum_k g_ik^2 g_jk^2 (option
-`phiphi_coupling = "paper"`). Next: Dirac neutrinos (Table I), the vector mediator, then items 3-7.
+`phiphi_coupling = "paper"`). Then Dirac neutrinos and the vector mediator (below); next items 3-7.
 Dirac and vector, decided after the brute-force physics checks (`b3bd7db`, Mauricio, 2026-10-13):
 track the sterile Dirac secondaries (nu_R, nubar_L) -- by parity they mirror the visible ones, so the
 transport follows sum and difference; Dirac couplings h = U^dag G U (nu_R rotating like nu_L, the
@@ -49,6 +49,12 @@ paper's convention; a mass-basis matrix also accepted); the vector couples to le
 (Majorana and Dirac, Dirac rates = 1/2); vector pairs decay with their exact polarization (in the
 relic rest frame). Table I of the appendix overstates the visible Dirac production by up to 3.5%
 (its total, Eq. A8, is right); the brute-force bookkeeping is used instead.
+DONE 2026-10-13: Dirac and vector implemented (`99a8ccc`), planes of the three new models for nu_e,
+nu_mu, nu_tau and universal couplings (Tycho), 2107.13568 Fig. 3 recomputed (Majorana within 1-3%;
+their Dirac curve 9% below ours just above the first dip -- open; running their code nuSIprop is
+approved, parked for later the same night). The vector's forward-peaked returns now carry their
+energy loss as a drift in ln E (the low-mass vector results depended on the bin width without it);
+vector planes rerun with it.
 Known approximations: relics at rest (as both papers; matters for a nearly massless lightest
 state), the crossing step's source timing (up to 1% in the bins at a narrow resonance's edge).
 

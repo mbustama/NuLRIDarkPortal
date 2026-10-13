@@ -898,6 +898,42 @@ def vector_qe_complements(mu, h, glx, glw, out):
 
 
 @njit(cache=True)
+def vector_qe_drift(mu, h, glx, glw, out):
+    """For the forward-peaked daughters (profiles 2 and 6), the integral over the parent's own bin
+    [1/h, 1] of -ln x times the profile: the shift in ln E of the daughters that stay in the bin, which
+    the transport carries as a drift to the bin below (the events themselves being no-ops or
+    conversions within the bin). With y = 1 - x and Y = 1 - 1/h, profile 6 is 1/(y + mu)^2 and 2 is
+    (1 - y)^2/(y + mu)^2, and -ln(1 - y) = y f(y) with f(0) = 1: each integral is that of
+    y/(y + mu)^2, log1p(Y/mu) - Y/(Y + mu) (its series when Y << mu), plus the bounded remainder
+    (f_q - 1) y/(y + mu)^2 by Gauss-Legendre. out[2], out[6]; the rest 0."""
+    for q in range(N_VPROFILES):
+        out[q] = 0.0
+    Y = 1.0 - 1.0 / h
+    t = Y / mu
+    if t < 1e-3:
+        main = t * t * (0.5 - t * (2.0 / 3.0 - t * (0.75 - t * 0.8)))
+    else:
+        main = np.log1p(t) - t / (1.0 + t)
+    # the remainder is O(Y) against the main part's log(Y/mu): relative accuracy 1e-7 or better where it
+    # varies on the scale mu << Y between the nodes (40-digit check), plenty for a drift that is itself
+    # first order in the bin width
+    r2 = 0.0
+    r6 = 0.0
+    for k in range(len(glx)):
+        y = Y * glx[k]
+        if y < 1e-4:
+            e6 = y * (0.5 + y * (1.0 / 3.0 + y * 0.25))
+        else:
+            e6 = -np.log1p(-y) / y - 1.0
+        e2 = e6 - (2.0 * y - y * y) * (1.0 + e6)
+        kern = y / ((y + mu) * (y + mu))
+        r6 += glw[k] * e6 * kern
+        r2 += glw[k] * e2 * kern
+    out[6] = main + Y * r6
+    out[2] = main + Y * r2
+
+
+@njit(cache=True)
 def _vv_g(u, beta, delta, mu):
     """The vector pair's energy distribution in u = ln((x - x_-)/(x_+ - x)), with its longitudinal
     part: returns (g, gL, x), g = D a b / (beta T^2 U^2) and gL = f_L g = 2 mu (1-x)^2 a b /
@@ -1162,23 +1198,26 @@ def _pair_kinematic(prof, s, M2):
 
 @njit(cache=True, parallel=True)
 def _step_integrals(E, zp1_lo, zp1_hi, zp1_mid, masses, n0, M2, MG, H0, Om, OL, delta_mode, prof,
-                    hbin, J, Nq, Lq):
+                    hbin, J, Nq, Lq, Dq):
     """Per bin j and relic r, the step's time integrals of the target density times the four
     kinematic factors, J[j, r, :] = (s/BW, (s - M^2)/BW, 1/s, pair cross section), with
     BW = (s - M^2)^2 + (M Gamma)^2; the profile norms at the step's midpoint, Nq[j, r, :], and
-    for forward-peaked daughters their part outside the parent's bin, Lq[j, r, :] (hbin = exp(dlnE/2))."""
+    for forward-peaked daughters their part outside the parent's bin, Lq[j, r, :] (hbin = exp(dlnE/2)),
+    and the shift in ln E of those staying in it, Dq[j, r, :] (vector_qe_drift)."""
     N = len(E)
     P = Nq.shape[2]
     b = MG
     for j in prange(N):
         tmp = np.empty(10)
         tmpL = np.empty(10)
+        tmpD = np.empty(10)
         for r in range(3):
             for k in range(4):
                 J[j, r, k] = 0.0
             for q in range(P):
                 Nq[j, r, q] = 0.0
                 Lq[j, r, q] = 0.0
+                Dq[j, r, q] = 0.0
             m = masses[r]
             if m <= 0.0 or n0[r] <= 0.0:
                 continue
@@ -1198,9 +1237,11 @@ def _step_integrals(E, zp1_lo, zp1_hi, zp1_mid, masses, n0, M2, MG, H0, Om, OL, 
             else:
                 vector_norms(mu, _GL24_X, _GL24_W, tmp)
                 vector_qe_complements(mu, hbin, _GL24_X, _GL24_W, tmpL)
+                vector_qe_drift(mu, hbin, _GL24_X, _GL24_W, tmpD)
                 for q in range(P):
                     Nq[j, r, q] = tmp[q]
                     Lq[j, r, q] = tmpL[q]
+                    Dq[j, r, q] = tmpD[q]
             ds = s_hi - s_lo
             a = 0.0
             for k in range(len(_GL8_X)):
@@ -1251,9 +1292,9 @@ def _step_integrals(E, zp1_lo, zp1_hi, zp1_mid, masses, n0, M2, MG, H0, Om, OL, 
 
 
 @njit(cache=True)
-def _si_sweep(F, E, dE, S0, J, Nq, Lq, jt, w, qe, Ctau, Creg, tabB, tabO, node, dt, reg, diag, exact_bin):
+def _si_sweep(F, E, dE, S0, J, Nq, Lq, Dq, jt, w, qe, Ctau, Creg, tabB, tabO, node, dt, reg, diag, exact_bin):
     """One redshift step of the transport (module notes above). F (N, 3) is updated in place.
-    S0 (N, 3): injection rate per unit energy over the step. J, Nq, Lq: _step_integrals. jt, w, qe,
+    S0 (N, 3): injection rate per unit energy over the step. J, Nq, Lq, Dq: _step_integrals. jt, w, qe,
     Ctau, Creg: the model. tabB (3, rows, P) / tabO (3, nodes+1): each relic's profile table
     (triangular); node (N, 3): the table node of bin j and relic r. reg (N, 3): scratch for the
     regeneration rates. diag (6,) accumulates: absorbed number (events changing something),
@@ -1266,9 +1307,17 @@ def _si_sweep(F, E, dE, S0, J, Nq, Lq, jt, w, qe, Ctau, Creg, tabB, tabO, node, 
     3 x 3 system); with exact_bin true (the vector, whose quasi-elastic scatterings change the mass
     state within the bin at rates far above the bin's losses -- a stiff system that the first scheme
     would integrate to first order only) the equations are solved exactly, F(dt) and int F dt from the
-    exponential of the 7 x 7 augmented matrix [[-A, 0, S], [1, 0, 0], [0, 0, 0]]."""
+    exponential of the 7 x 7 augmented matrix [[-A, 0, S], [1, 0, 0], [0, 0, 0]].
+
+    The forward-peaked daughters that stay in their parent's bin (no-ops, or conversions within the
+    bin) each lose a little energy, ~M^2/s; at small M they are so many that the losses add up to many
+    bins. They move as a drift in ln E: an upwind flux to the bin below, in the daughter's state, at
+    d[a, c] = sum_r,q Creg J Dq / dlnE per step -- a loss of the bin and a source of the next one,
+    which the top-down sweep passes on within the step however fast it is."""
     N = F.shape[0]
     P = len(jt)
+    dlnE = np.log(E[1] / E[0])
+    Dm = np.zeros((3, 3))
     for i in range(N):
         for c in range(3):
             reg[i, c] = 0.0
@@ -1302,6 +1351,19 @@ def _si_sweep(F, E, dE, S0, J, Nq, Lq, jt, w, qe, Ctau, Creg, tabB, tabO, node, 
                         sc = Ctau[q, a, r, 0] + Ctau[q, a, r, 1] + Ctau[q, a, r, 2]
                         t += w[q] * sc * Jv * Nq[j, r, q]
             tau[a] = t
+        # the drift of the daughters staying in the bin (vector; zero for the scalar)
+        drift = False
+        for a in range(3):
+            for c in range(3):
+                dd = 0.0
+                for r in range(3):
+                    for q in range(P):
+                        if qe[q] != 0:
+                            dd += w[q] * Creg[q, a, r, c] * J[j, r, jt[q]] * Dq[j, r, q]
+                Dm[a, c] = dd / dlnE
+                if dd > 0.0:
+                    drift = True
+                    tau[a] += Dm[a, c]
         for r in range(3):
             for q in range(P):
                 Jv = J[j, r, jt[q]]
@@ -1386,6 +1448,18 @@ def _si_sweep(F, E, dE, S0, J, Nq, Lq, jt, w, qe, Ctau, Creg, tabB, tabO, node, 
                     own += Q[c, a] * R[a]
                 F[j, c] = F[j, c] * e_[c] + sc * a1_[c]
                 diag[5] += S0[j, c] * dt * dE[j]
+        if drift:
+            for c in range(3):
+                mv = 0.0
+                for a in range(3):
+                    if tau[a] > 0.0:
+                        mv += R[a] * Dm[a, c] / tau[a]
+                mv *= dE[j]
+                diag[2] += mv * dt
+                if j > 0:
+                    reg[j - 1, c] += mv / dE[j - 1]
+                    diag[1] += mv * dt
+                    diag[4] += mv * dt * E[j - 1]
         absorbed = R[0] + R[1] + R[2]
         diag[0] += absorbed * dt * dE[j]
         diag[3] += absorbed * dt * dE[j] * E[j]
@@ -1614,6 +1688,7 @@ def propagate_si(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta
     J = np.zeros((N, 3, 4))
     Nq = np.zeros((N, 3, P))
     Lq = np.zeros((N, 3, P))
+    Dq = np.zeros((N, 3, P))
     node = np.zeros((N, 3), dtype=np.int64)
     jj = np.arange(N, dtype=np.int64)
     Ep = E ** (-p_index)
@@ -1624,7 +1699,7 @@ def propagate_si(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta
         dt, T_inj = _step_time_and_injection(L_lo, L_hi, H0, Omega_m, Omega_L, p_index, rho_evol, Phi_0)
         S0 = np.ascontiguousarray(np.outer(Ep * (T_inj / dt), P_src))
         _step_integrals(E, np.exp(L_lo), np.exp(L_hi), np.exp(0.5 * (L_lo + L_hi)), masses, n0, M2, MG,
-                        H0, Omega_m, Omega_L, delta_mode, prof, hbin, J, Nq, Lq)
+                        H0, Omega_m, Omega_L, delta_mode, prof, hbin, J, Nq, Lq, Dq)
         if m == K - 1 and not top_full:
             tB, tO = top
             node[:] = jj[:, None]
@@ -1635,7 +1710,7 @@ def propagate_si(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta
             if masses[r] <= 0.0:
                 node[:, r] = 0
         for k in range(len(runs)):
-            _si_sweep(Fs[k], E, dE, S0, J, Nq, Lq, spec["jt"], spec["w"], spec["qe"], spec["Ctau"], Cregs[k],
+            _si_sweep(Fs[k], E, dE, S0, J, Nq, Lq, Dq, spec["jt"], spec["w"], spec["qe"], spec["Ctau"], Cregs[k],
                       tB, tO, node, dt, reg, diags[k], prof == 1)
     F = sum(wt * Fk for (_, wt), Fk in zip(runs, Fs))
     out = np.ascontiguousarray(F[:N_E])
