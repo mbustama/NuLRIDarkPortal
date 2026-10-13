@@ -30,6 +30,10 @@ import json
 import subprocess
 
 import numpy as np
+
+# np.trapz is gone from NumPy 2.x (np.trapezoid since 2.0); the laptop and Tycho pin NumPy 1.26,
+# which has only np.trapz, and CI also runs the latest NumPy (.github/workflows/tests.yml)
+_trapz = getattr(np, "trapezoid", None) or np.trapz
 import pytest
 from scipy import integrate
 
@@ -2001,7 +2005,7 @@ def test_cold_gas_discs_reproduce_mcmillan_surface_densities():
     for disc, sigma_sun in ((dp_spatial._HI_DISC, 10.0), (dp_spatial._H2_DISC, 2.0)):
         Sigma_0, R_d, R_m, z_d = disc
         rho = np.array([dp_spatial._gas_disc_density(8.33, z, Sigma_0, R_d, R_m, z_d) for z in z_kpc])
-        sigma = np.trapz(rho, z_kpc * 1e3)                      # Msun/pc^2
+        sigma = _trapz(rho, z_kpc * 1e3)                      # Msun/pc^2
         assert abs(sigma / (Sigma_0 * np.exp(-R_m / 8.33 - 8.33 / R_d)) - 1.0) < 1e-6
         assert abs(sigma / sigma_sun - 1.0) < 0.07, (disc, sigma)
         assert dp_spatial._gas_disc_density(8.33, 100.0, Sigma_0, R_d, R_m, z_d) == 0.0
@@ -2060,7 +2064,7 @@ def test_resonant_absorption_scales_with_relic_temperature():
     G = {T: dps.build_thermal_grid(E_bins, z_bins, sum_G, sum_G_alpha, m_Zd, m_nu, T, eta_mass)[0, :, 0]
          for T in (T_old, T_new)}
     r = T_old / T_new
-    integral_ratio = np.trapz(G[T_old], E_bins) / np.trapz(G[T_new], E_bins)
+    integral_ratio = _trapz(G[T_old], E_bins) / _trapz(G[T_new], E_bins)
     assert abs(integral_ratio / r**3 - 1.0) < 2e-3, integral_ratio
     assert abs((G[T_old].max() / G[T_new].max()) / r**2 - 1.0) < 1e-2
 
@@ -2374,7 +2378,7 @@ def test_zenith_phase_average_matches_continuum():
             got = dps.average_earth_chords(rho_k, nodes, alpha / dp_spatial._KM_IN_EV_INV, S, 1.5,
                                            0.0, 1.0, dps.earth_yukawa_table(None), "phase")[0]
             if psi_max <= 1e3:
-                ref = np.trapz(np.array([evolve(alpha * c) for c in col_dense]), c_dense, axis=0)
+                ref = _trapz(np.array([evolve(alpha * c) for c in col_dense]), c_dense, axis=0)
             else:
                 ref = sum(p @ rho_in @ p for p in P)
             assert np.max(np.abs(got - ref)) < 1e-5, (K, psi_max, np.max(np.abs(got - ref)))
@@ -2405,7 +2409,7 @@ def test_full_sky_average_matches_continuum_and_dilutes_the_earth():
         rho_k, evolve, P = _synthetic_chords(full, alpha, rho_in, S)
         got = dps.average_earth_chords(rho_k, full, alpha / dp_spatial._KM_IN_EV_INV, S, 1.5,
                                        0.0, 1.0, dps.earth_yukawa_table(None), "phase")[0]
-        ref = np.trapz(np.array([evolve(alpha * c) for c in col_dense]), c_dense, axis=0) / 2.0
+        ref = _trapz(np.array([evolve(alpha * c) for c in col_dense]), c_dense, axis=0) / 2.0
         assert np.max(np.abs(got - ref)) < 1e-5, (psi_max, np.max(np.abs(got - ref)))
     # How much the sky dilutes the Earth's effect depends on the potential: while the ice
     # above adds little phase (core phase <~ 50 rad: <= 0.06 rad at the horizon) the down-going
