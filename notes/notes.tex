@@ -727,6 +727,74 @@ double-scalar threshold ($\Phi\sim w^5$) and far below the resonance ($N_2\sim s
 we use the series and Gauss--Legendre of cancellation-free integrands, and every kinematic integral
 agrees with 50-digit arithmetic to $4\times10^{-15}$ from threshold to $s/M^2 = 10^{14}$.
 
+\subsection{Dirac neutrinos and a vector mediator}
+\label{sec:si_dirac_vector}
+
+On 2026-10-13 Mauricio asked that the physics of both be checked before any code; the checks
+(\file{tests/amplitudes_bruteforce.py}) evaluate every tree amplitude with explicit Dirac matrices
+and helicity spinors, Majorana fermions by the fermion-flow rules of Denner, Eck, Hahn \&
+K\"ublbeck, independently of every closed form, and the choices below were decided after them.
+
+\textit{The brute force reproduces what we took over.}---Eq.~(A12) for real couplings
+($10^{-15}$), our complex-coupling form of it including the term odd under $\nu\leftrightarrow\bar\nu$
+(a CP asymmetry of relative size $\Gamma/M$, which the transport averages), double-scalar
+production with the coherent factor (the printed one is off by factors $0.08$--$2$), and the textbook
+Bhabha and Moller helicity amplitudes as a check of the engine itself.
+
+\textit{Scalar, Dirac neutrinos.}---With Dirac fields the coupling is
+$-\phi\,h_{ij}\bar\nu_i\nu_j$, $h = U^\dagger G U$ Hermitian: the right-handed neutrinos rotate
+like the left-handed ones (the paper's convention; nothing observable fixes their basis; decided).
+The scalar flips chirality, so every vertex joins a state that interacts weakly ($\nu_L$,
+$\bar\nu_R$: visible) to a sterile one ($\nu_R$, $\bar\nu_L$). The relics, at rest and unpolarized,
+present both helicities in the collision, and the scalar couples to both: an incident $\nu_a$ meets
+$\bar\nu_r$ of helicity $-$ in the $s$ and $t$ channels (final states: one visible, one sterile),
+$\nu_r$ of helicity $-$ in the $t$ and $u$ channels (both sterile), and the opposite helicities in
+the $t$ channel alone. Summed, the total is the appendix's Eq.~(A8) exactly; the split into
+visible and sterile secondaries, per mass state and energy, was derived by hand and agrees with the
+brute force to $10^{-15}$. The appendix's Table~I, read with its stated factors, overstates the
+visible production by up to $3.5\%$; we do not use it. The sterile secondaries scatter too, and by
+parity an incident $\nu_R$ gives the secondaries of a $\nu_L$ with visibility swapped (checked), so
+the visible flux is $(S+D)/2$ from two runs of the transport, $S$ with the kernel visible +
+sterile and $D$ with visible $-$ sterile (decided: tracked; the option \texttt{"drop"} discards
+them, as 2107.13568 does). Width $M\sum|h|^2/8\pi$.
+
+\textit{Vector mediator.}---Coupled to left-handed currents (decided), $-V_\mu G_{\alpha\beta}
+\bar\nu_\alpha\gamma^\mu P_L\nu_\beta$, as in gauge models like $L_\mu - L_\tau$; mass basis
+$U^\dagger G U$ for Majorana and Dirac alike. Only the relic components that behave as $\nu_L$
+(helicity $-$) and as $\bar\nu_R$ ($+$) interact; a Majorana relic offers both (56 + 56 per mass
+state), a Dirac one half of them, so Dirac rates are half the Majorana ones, and every secondary is
+visible. The brute force confirms, for complex couplings,
+$|\mathcal M|^2 = 4u^2|A_s/(s - M^2 + iM\Gamma) + A_t/(t - M^2)|^2$ for $\nu\bar\nu\to\nu\bar\nu$
+($A_s = G_{ra}G_{kl}$, $A_t = G_{ka}G_{rl}$), $4s^2|A_t/(t-M^2) + A_u/(u-M^2)|^2$ for $\nu\nu\to\nu\nu$,
+and $4|(GG^\dagger)_{ar}|^2[t/u + u/t + 4M^2s/tu - M^4(1/t^2 + 1/u^2)]$ for $\nu\bar\nu\to VV$ (to
+$10^{-12}$); the $s$ channel gives the Z-burst $\langle\sigma\rangle = 2\sqrt2\pi G_F$ for the
+Standard-Model coupling. Each $V$ decays at once into $\nu\bar\nu$; in the relic rest frame, where it
+is ultrarelativistic, a transverse one gives $3z^2 + 3(1-z)^2$ for the pair and a longitudinal one
+$6z(1-z)$ per neutrino. Its longitudinal state there is the light-cone polarization
+$k/M - Mp_2/(k\cdot p_2)$, and the Ward identity removes one diagram:
+$|\mathcal M_0|^2 = 8sM^2(t - M^2)^2/[t^2(u - M^2)^2]$ (derived by fitting the brute force, exact
+to $3\times10^{-14}$). The longitudinal fraction reaches $55\%$ near threshold and $\sim20\%$ for soft
+vectors at $s = 100M^2$ (decided: exact).
+
+\textit{The forward peak.}---Above the resonance the vector's $t$ channel is forward-peaked:
+$\sigma\to|G|^4/4\pi M^2$, constant, where the scalar's falls as $1/s$ (Fig.~\ref{fig:si_xsec}).
+Nearly every such scattering leaves the neutrino in its own energy bin and gives $\sim M^2/2m_r$ to
+the recoiling relic, which becomes a neutrino near the resonance energy; with a flavor-dependent
+coupling it may also change the mass state. These are real, incoherent scatterings (the relic
+recoils). The transport removes from a bin's equations the returns that change nothing (complementary
+integrals, without cancellation), keeps every recoil, and solves the bin's three mass states exactly
+over the step with a matrix exponential, because the quasi-elastic conversions are fast enough to
+make them stiff (the scalar keeps its scheme, its returns being of order $\Delta\ln E$).
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.62\textwidth]{../output/figures/si_cross_sections_models.png}
+\caption{\textbf{Total cross sections} for one coupling, $g = 0.1$, relic at rest: scalar
+(Majorana, Dirac) and vector (Majorana; Dirac is half), with the $s$ channels alone. The scalar
+Majorana curves reproduce 2107.13568, Fig.~12; all from the closed forms checked by brute force.}
+\label{fig:si_xsec}
+\end{figure}
+
 \subsection{Transport}
 \label{sec:si_transport}
 
