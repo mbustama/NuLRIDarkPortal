@@ -184,6 +184,19 @@ def get_baseline_earth(d_km: float, costh: float) -> float:
 
 
 @njit(fastmath=True, cache=True)
+def chord_radius(f1: float, f2: float, costh: float) -> float:
+    """Geocentric radius sqrt(f1^2 + f2^2 + 2 f1 f2 costh) of the chord point at distance f1
+    from the detector (radius f2), written as a sum of squares,
+        (f1 + f2 costh)^2 + f2^2 (1 - costh)(1 + costh),
+    which cannot cancel. The expanded form loses ~1e-8 km^2 to rounding at the centre of the
+    vertical chord, where the radius vanishes: on Tycho's fused multiply-adds it rounded to
+    exactly zero at a Gauss-Legendre node 1e-7 km from the centre, and the Yukawa terms (m/r)
+    divided by it (found 2026-10-13; latent since the Yukawa integral of 2026-10-12)."""
+    a = f1 + f2 * costh
+    return np.sqrt(a * a + f2 * f2 * ((1.0 - costh) * (1.0 + costh)))
+
+
+@njit(fastmath=True, cache=True)
 def spatial_total_density_earth(l_km: float, baseline_km: float, costh: float,
                                 detector_depth_km: float, n_n_amb_eV3: float) -> float:
     """Total neutron number density (eV^3) at path position l_km along an Earth chord:
@@ -192,7 +205,7 @@ def spatial_total_density_earth(l_km: float, baseline_km: float, costh: float,
     spatial path's density-sequence precompute."""
     f1 = baseline_km - l_km
     f2 = 6371.0 - detector_depth_km
-    r_center_km = np.sqrt(f1**2 + f2**2 + 2.0 * f1 * f2 * costh)
+    r_center_km = chord_radius(f1, f2, costh)
 
     rho_earth_g = calc_earth_density(r_center_km)
     n_n_earth_cm3 = rho_earth_g * earth_neutrons_per_gram(r_center_km)
@@ -494,11 +507,11 @@ def earth_total_density(l_km: float, baseline_km: float, costh: float,
     f1 = baseline_km - l_km
     f2 = 6371.0 - detector_depth_km
     if mode == _YUKAWA_DIRECT:
-        r_center_km = np.sqrt(f1**2 + f2**2 + 2.0 * f1 * f2 * costh)
+        r_center_km = chord_radius(f1, f2, costh)
         return n_n_amb_eV3 + _yk_extra_cm3(r_center_km, yk) * cm_inv3_to_eV3
     n_tot = spatial_total_density_earth(l_km, baseline_km, costh, detector_depth_km, n_n_amb_eV3)
     if mode == _YUKAWA_HEAVY:
-        r_center_km = np.sqrt(f1**2 + f2**2 + 2.0 * f1 * f2 * costh)
+        r_center_km = chord_radius(f1, f2, costh)
         d = _yk_extra_cm3(r_center_km, yk)
         if d != 0.0:
             n_tot = n_tot + d * cm_inv3_to_eV3
@@ -539,7 +552,7 @@ def _earth_chord_features(baseline_km: float, costh: float, detector_depth_km: f
     n = 1
     for i in range(nc):
         f1 = baseline_km - cross_ls[i]
-        r_c = np.sqrt(f1 * f1 + f2 * f2 + 2.0 * f1 * f2 * costh)
+        r_c = chord_radius(f1, f2, costh)
         feat_l[n] = cross_ls[i]
         feat_w[n] = _yk_layer_width(m, r_c, abs(cross_ls[i] - l_t))
         n += 1
@@ -620,7 +633,7 @@ def _yk_graded_integral(A: float, B: float, feat_l: np.ndarray, feat_w: np.ndarr
         acc = 0.0
         for q in range(len(glx)):
             f1 = baseline_km - (mid + half * glx[q])
-            r = np.sqrt(f1 * f1 + f2 * f2 + 2.0 * f1 * f2 * costh)
+            r = chord_radius(f1, f2, costh)
             acc += glw[q] * _yk_extra_cm3(r, yk)
         total += acc * half
     return total

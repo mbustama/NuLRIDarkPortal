@@ -1,7 +1,7 @@
 {
  "provenance": {
   "host": "laptop-6",
-  "commit": "71ed5290047aada668cec3ec8b8071cc9b316b8e",
+  "commit": "81c04b06fc3863d4c339126a603da64252df7d55",
   "dirty": true,
   "cores": 8,
   "python": "3.12.7",
@@ -25,24 +25,24 @@
    "parameters": {
     "m_Zd_eV": 300000.0
    },
-   "energy_over_no_interaction": 0.999100600039279,
-   "number_over_no_interaction": 0.9982672700809231,
+   "energy_over_no_interaction": 0.9991006000392788,
+   "number_over_no_interaction": 0.9982672700809234,
    "fractions": [
-    0.32902660204106277,
-    0.3289614358112282,
-    0.34201196214770907
+    0.32902660200542083,
+    0.3289614358468703,
+    0.34201196214770885
    ]
   },
   "inband": {
    "parameters": {
     "m_Zd_eV": 2000000.0
    },
-   "energy_over_no_interaction": 0.9413507337257329,
-   "number_over_no_interaction": 1.09231392072819,
+   "energy_over_no_interaction": 0.9413507337257331,
+   "number_over_no_interaction": 1.0923139207281907,
    "fractions": [
-    0.3324149839000973,
-    0.3313756861113316,
-    0.3362093299885711
+    0.33241498392149466,
+    0.3313756860899346,
+    0.3362093299885709
    ]
   },
   "strong": {
@@ -51,25 +51,25 @@
     "g_D": 0.01
    },
    "energy_over_no_interaction": 0.9999518082796447,
-   "number_over_no_interaction": 1.0007446058184408,
+   "number_over_no_interaction": 1.0007446058184415,
    "fractions": [
-    0.3304980926200364,
-    0.3275086685859823,
-    0.3419932387939813
+    0.33049809268127617,
+    0.32750866852474264,
+    0.3419932387939812
    ]
   },
   "cosmoX2": {
    "parameters": {
     "m_Zd_eV": 40.0
    },
-   "energy_over_no_interaction": 0.999438775317192,
-   "number_over_no_interaction": 0.9990083672473193,
+   "energy_over_no_interaction": 0.9994387753171919,
+   "number_over_no_interaction": 0.9990083672473195,
    "fractions": [
     0.3289946793960196,
-    0.3289946793964031,
+    0.32899467939640303,
     0.3420106412075774
    ]
   }
  },
- "seconds": 19.31830364803318
+ "seconds": 3.313017384032719
 }
