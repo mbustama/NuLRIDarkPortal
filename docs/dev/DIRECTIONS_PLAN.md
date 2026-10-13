@@ -447,6 +447,9 @@ on its own.
   files, loaded only in isolation); or pi0 only (already on disk, no downloads).
 - **D3, dark-portal emission points.** Full 3-D (CRINGE cosmic rays x Soding et al. gas; FFT tables)
   (Recommended); or every Galactic neutrino emitted at the local potential first, 3-D later.
+- **D4 outcome (2026-10-13):** the yearly per-direction Sun weighting changes per-pixel energy-averaged
+  flavor fractions by <= 1.2e-3 (twelve points across the Sun's window; tools/sun_anisotropy.py):
+  the Sun stays isotropic; single-path transits (sun_path_cos) and dp_sky.sun_path_weights remain.
 - **D4, the Sun per direction.** Keep the isotropic Sun average now and measure the anisotropy it would
   produce in its window (Recommended); or implement the yearly per-direction weighting now.
 - **D5, downloads on Tycho.** CRINGE (Zenodo 7859442), the 3-D gas (Zenodo 12578443) and IceCube's

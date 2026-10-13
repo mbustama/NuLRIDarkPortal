@@ -97,7 +97,7 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                        earth_zenith_average: str = "plain",
                        earth_sky: str = "up",
                        host_galaxy_scale: float = 0.0,
-                       earth_band_costh=None, earth_nodes_per_band: int = 2):
+                       earth_band_costh=None, earth_nodes_per_band: int = 2, sun_path_cos=None):
     """
     Executes the complete spectrum integration, driving the underlying JIT kernels.
     Neutrinos and antineutrinos are evolved together through the cosmological phase (an
@@ -327,7 +327,8 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                                           use_gpu=use_gpu, earth_step_scheme=earth_step_scheme,
                                           earth_zenith_average=earth_zenith_average,
                                           earth_sky=earth_sky, earth_band_costh=earth_band_costh,
-                                          earth_nodes_per_band=earth_nodes_per_band)
+                                          earth_nodes_per_band=earth_nodes_per_band,
+                                          sun_path_cos=sun_path_cos)
         if earth_band_costh is not None:
             F_earth, F_bands = F_earth
             if not np.isfinite(F_bands).all():
@@ -514,7 +515,8 @@ def _flux_from_setup(E_bins: np.ndarray, params: Dict, setup: Dict, injection,
         earth_sky=params.get('earth_sky', 'up'),
         host_galaxy_scale=params.get('host_galaxy_scale', 0.0),
         earth_band_costh=band_costh,
-        earth_nodes_per_band=params.get('sky', {}).get('earth_nodes_per_band', 2)
+        earth_nodes_per_band=params.get('sky', {}).get('earth_nodes_per_band', 2),
+        sun_path_cos=params.get('sun_path_cos', None)
     )
 
 

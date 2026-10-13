@@ -1422,7 +1422,7 @@ def _run_spatial_tasks(worker_fn, tasks, desc, n_workers, show_progress, externa
 def transit_to_earth(E_bins: np.ndarray, F_mass_arrival: np.ndarray, M_rot: np.ndarray,
                      U_LRI_struct: np.ndarray, Coef: float, m_eff: float, n_n0_eV3: float,
                      R_H_eV_inv: float, earth_yk, n_sun_paths: int = 8,
-                     transit_dtheta: float = 0.002):
+                     transit_dtheta: float = 0.002, sun_path_cos=None):
     """The transit from the cosmological arrival to the sphere r = r_split around the Earth
     (dp_transit's module notes): the adiabatic Galactic map at the Yukawa-smoothed local
     density, the coherent transit through the Sun's potential (n_sun_paths directions) and the
@@ -1431,7 +1431,10 @@ def transit_to_earth(E_bins: np.ndarray, F_mass_arrival: np.ndarray, M_rot: np.n
     Arguments: E_bins; F_mass_arrival (N_E, 3) -- populations of the cosmological arrival's
     eigenstates; M_rot; U_LRI_struct (this kind's texture); Coef (signed, eV^-2); m_eff (eV);
     n_n0_eV3 -- the cosmic neutron density, taken out to the Hubble radius R_H_eV_inv; earth_yk;
-    n_sun_paths; transit_dtheta -- the frame table's spacing (dp_transit.build_frame_table).
+    n_sun_paths; transit_dtheta -- the frame table's spacing (dp_transit.build_frame_table);
+    sun_path_cos -- None (the isotropic Gauss-Legendre average over n_sun_paths directions) or the
+    cosine of one angle to the Sun, for that single path (per-direction Sun weighting: the average is
+    linear, so the paths' results weighted by w_p return the isotropic one; DIRECTIONS_PLAN step 4).
 
     Returns (rho (N_E, 3, 3) at r_split, n_amb_eV3 -- the ambient density the chords add:
     Galaxy, Sun and Moon at the Earth -- and a dict of diagnostics).
@@ -1453,7 +1456,10 @@ def transit_to_earth(E_bins: np.ndarray, F_mass_arrival: np.ndarray, M_rot: np.n
     dp_transit.galactic_map(np.ascontiguousarray(E_bins, dtype=np.float64),
                             np.ascontiguousarray(F_mass_arrival, dtype=np.float64), 2.0 * coef_abs, n_bg,
                             tab["Q"], tab["Mp"], tab["s"], tab["floor"], rho)
-    ca, w = dp_transit.sun_paths(n_sun_paths)
+    if sun_path_cos is None:
+        ca, w = dp_transit.sun_paths(n_sun_paths)
+    else:
+        ca, w = np.array([float(sun_path_cos)]), np.array([1.0])
     rho, n_active_sun = dp_transit.source_transit(E_bins, rho, tab, coef_abs, n_bg, n_sun, m_eff,
                                                   d_sun_eV_inv, ca, w)
     n_amb = n_bg + n_sun
@@ -1486,7 +1492,8 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
                             earth_step_scheme: str = "left",
                             earth_zenith_average: str = "plain",
                             earth_sky: str = "up",
-                            earth_band_costh=None, earth_nodes_per_band: int = 2):
+                            earth_band_costh=None, earth_nodes_per_band: int = 2,
+                            sun_path_cos=None):
     """
     The spatial handover: from the cosmological arrival to the detector, through the Galaxy,
     the Sun, the Earth's exterior and the Earth (transit_to_earth, then the chords). Earth
@@ -1529,6 +1536,8 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
         the chords are then placed on the band edges, earth_nodes_per_band intervals per band
         (earth_chord_nodes; n_earth_chords is unused), and each band's flux is returned as well
         (average_earth_chords_bands; per-direction output, docs/dev/DIRECTIONS_PLAN.md step 2).
+      sun_path_cos: None (the Sun averaged isotropically, as always) or one cosine of the angle to the
+        Sun: the transit along that single path (transit_to_earth), for per-direction Sun weighting.
 
     Returns: (N_E, 3) flavor fluxes at the detector depth; with earth_band_costh, the tuple
     (whole-sky (N_E, 3), per band (N_b, N_E, 3)).
@@ -1642,7 +1651,7 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
         safe_print(f"\n--- Spatial Handover Commencing ({lbl}) ---")
     rho_surf_avg, n_n_amb_eV3, tinfo = transit_to_earth(
         E_bins, F_mass_arrival, M_rot, U_LRI_struct, Coef, m_eff, n_n0_eV3, R_H_eV_inv, earth_yk,
-        n_sun_paths=n_sun_paths, transit_dtheta=transit_dtheta)
+        n_sun_paths=n_sun_paths, transit_dtheta=transit_dtheta, sun_path_cos=sun_path_cos)
     if verbose == 2:
         safe_print(f"Transit to the Earth: Galactic density {tinfo['n_gal_eV3']:.3e} eV^3, Sun "
                    f"{tinfo['n_sun_eV3']:.3e} eV^3 ({tinfo['n_active_sun']} bins coherent), Earth's "

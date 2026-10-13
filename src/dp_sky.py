@@ -276,3 +276,24 @@ def arcsine_density(x, beta):
     inside = np.abs(x) < c
     out[inside] = 1.0 / (np.pi * np.sqrt(c * c - x[inside] ** 2))
     return out
+
+
+def sun_path_weights(elon, elat, x_nodes, n_times=360, eccentric=True):
+    """Per-direction yearly weights on the Sun transit's path nodes (DIRECTIONS_PLAN step 4): with the
+    transit known at the cosines x_nodes (the Gauss-Legendre nodes of dp_transit.sun_paths), a direction
+    at ecliptic (lon, lat) sees the Sun at x(t) = cos(psi(t)) over the year, and its flux is
+    sum_k a_k F_k with a_k = <L_k(x(t))>_year, L_k the Lagrange basis polynomials on the nodes. Each row
+    sums to 1, and averaged over the sky (uniform in x) the weights are the Gauss-Legendre ones, so the
+    isotropic average is recovered. Returns (P, K)."""
+    x_nodes = np.asarray(x_nodes, dtype=np.float64)
+    X = cos_angle_to_sun(elon, elat, n_times, eccentric)                  # (P, T)
+    K = len(x_nodes)
+    W = np.empty((X.shape[0], K))
+    for k in range(K):
+        Lk = np.ones_like(X)
+        for j in range(K):
+            if j != k:
+                Lk *= (X - x_nodes[j]) / (x_nodes[k] - x_nodes[j])
+        W[:, k] = Lk.mean(axis=1)
+    return W
+

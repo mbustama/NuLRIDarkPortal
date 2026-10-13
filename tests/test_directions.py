@@ -221,3 +221,49 @@ def test_sky_and_galactic_config():
     E, params = dps.build_solver_params(_cfg(galactic={"enabled": True}))
     with pytest.raises(NotImplementedError):
         dps.propagate_sky(E, params)
+
+
+# =============================================================================
+# The Sun per direction (step 4): single paths and yearly weights
+# =============================================================================
+
+def _sun_window_cfg(m_zd=1e-20, kappa=1.0):
+    """A point where the Sun's potential at the Earth is kappa times Delta m^2_31 / (2 x 100 TeV):
+    for ranges much longer than 1 AU it is g_D eps |u|^2 K0 N_sun / (4 pi d), independent of m."""
+    gu2 = kappa * 1.66e-54
+    return _cfg(dark_portal={"u_e": 0.5, "u_mu": 0.5, "u_tau": 0.0, "m_Zd_eV": m_zd,
+                             "g_D": gu2 / (0.1 * 0.5), "epsilon_prime": 0.1},
+                grid={"n_sun_paths": 4})
+
+
+def test_sun_path_weights():
+    """Rows sum to 1; over the sky the yearly weights average to the Gauss-Legendre ones."""
+    import dp_transit
+    x, w = dp_transit.sun_paths(8)
+    g = dp_sky.SkyGrid(16)
+    A = dp_sky.sun_path_weights(g.elon, g.elat, x, n_times=360)
+    assert np.allclose(A.sum(1), 1.0, atol=1e-12)
+    assert np.max(np.abs(A.mean(0) - w)) < 2e-3
+
+
+def test_sun_paths_recombine_to_the_isotropic_average():
+    """The transit and the Earth are linear in the state: the single-path runs weighted by w_p equal
+    the isotropic run, band by band, to rounding (a point where the Sun's potential matters)."""
+    import dp_transit
+    E, params = dps.build_solver_params(_sun_window_cfg())
+    params["show_progress"] = False
+    iso = dps.propagate_sky(E, params)
+    x, w = dp_transit.sun_paths(params["n_sun_paths"])
+    acc = {k: 0.0 for k in ("bands_nu", "bands_nubar")}
+    per_path = []
+    for xp, wp in zip(x, w):
+        params["sun_path_cos"] = float(xp)
+        o = dps.propagate_sky(E, params)
+        per_path.append(o["allsky_nu"] + o["allsky_nubar"])
+        for k in acc:
+            acc[k] = acc[k] + wp * o[k]
+    params.pop("sun_path_cos")
+    for k in acc:
+        assert np.max(np.abs(acc[k] - iso[k])) < 1e-12 * np.max(iso[k])
+    spread = np.max(np.abs(np.array(per_path) - per_path[0][None])) / np.max(per_path[0])
+    assert spread > 1e-6                                   # the Sun's direction matters here

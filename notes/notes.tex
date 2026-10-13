@@ -1148,6 +1148,51 @@ exclude outright the regions where the flux is absorbed without changing its com
 
 
 %==============================================================================
+\section{Arrival directions and Galactic sources}
+\label{sec:directions}
+
+On 2026-10-13 Mauricio asked for per-direction output and a Galactic-source component, with an
+implementation plan backed by published work before any code. The plan
+(\file{docs/dev/DIRECTIONS_PLAN.md}, decisions D1--D6) was written from surveys of the solver's
+direction handling, the literature on Galactic diffuse neutrinos and on new physics with directions,
+and the sibling projects' data. This section collects its results as they land.
+
+\textit{Sky and frames.}---\file{src/dp_sky.py}: HEALPix pixels in RING ordering (Gorski et al.\
+2005), equatorial J2000 with the IAU 1958 Galactic frame in its FK5 realization (agreeing with astropy
+to $7\times10^{-10}$~rad), the ecliptic, and the zenith at the South Pole, $\cos\theta_z = -\sin\delta$
+at every time, so that the Earth's part of the flux depends on declination only. Output in 20
+declination bands of equal solid angle (0.1 in $\sin\delta$) and HEALPix maps at $N_{\rm side} = 16$
+(decision D1).
+
+\textit{The Earth per band.}---The phase-aware zenith average restricted to each band
+(App.~\ref{app:zenith}, last paragraph): the bands weighted by solid angle return the whole sky to
+rounding, and each band matches the exact integral over its range. \file{propagate_sky} returns the
+bands for neutrinos and antineutrinos separately; secret interactions are isotropic.
+
+\textit{The Sun per direction (decision D4: measure first).}---Over a year a direction at ecliptic
+latitude $\beta$ sees the Sun at $\cos\psi = \cos\beta\cos(\lambda - \lambda_\odot(t))$ (Kepler orbit);
+its flux is $\sum_p a_p F_p$ over the transit's Gauss--Legendre paths, with $a_p$ the year-average of
+the Lagrange basis on the path cosines, which averages over the sky to the Gauss--Legendre weights
+(isotropy recovered exactly; the path runs recombine to the isotropic one to rounding). At twelve
+points across the Sun's window ($\mzd = 10^{-24}$ to $10^{-18}$~eV; the Sun's potential at the Earth
+0.3, 1 and 3 times $\Delta m^2_{31}/(2\times100$~TeV$)$, $e\mu$ texture) the yearly per-direction
+weighting moves the energy-averaged flavor fractions of a pixel by at most $1.2\times10^{-3}$, and by
+$10^{-5}$--$5\times10^{-4}$ typically, against $6.4\times10^{-3}$ for single paths: every direction
+sweeps through angles to the Sun over the year (Fig.~\ref{fig:sun_aniso}). The effect falls as the
+Sun's potential grows, where its crossing becomes adiabatic and depends only on the endpoints (as
+found for supernova neutrinos, arXiv:2607.24918). The Sun is kept isotropic;
+\file{tools/sun_anisotropy.py}.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.7\textwidth]{../output/figures/sun_anisotropy.png}
+\caption{\textbf{The Sun's anisotropy} at its largest among the points scanned ($\mzd = 10^{-18}$~eV,
+the Sun's potential 0.3 times the vacuum term at 100~TeV): the energy-averaged $\nu_e$ fraction with
+the yearly per-direction weighting minus the isotropic Sun average, per HEALPix pixel ($N_{\rm side} =
+16$, equatorial). The pattern follows the ecliptic.}
+\label{fig:sun_aniso}
+\end{figure}
+
 \section{Planned work}
 \label{sec:plan}
 
