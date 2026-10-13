@@ -183,7 +183,7 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         # at a higher level (dark_portal_scanner.py, the analysis package's scan workers --
         # both of which pass n_cores=1 here) doesn't also oversubscribe every core
         # from inside each of its own worker processes.
-        numba.set_num_threads(max(1, int(n_cores)))
+        dp_core.set_numba_threads(n_cores)
 
     if isinstance(injection, (bool, np.bool_)) or np.ndim(injection) != 1 or len(injection) != 2:
         raise TypeError("propagate_spectrum: injection must be the pair (w_nu, w_nb); the single-species "
@@ -408,7 +408,7 @@ def _flux_setup(E_bins: np.ndarray, params: Dict) -> Dict:
     # scanner pool worker (n_cores=1) the first evaluation used numba's default thread
     # count (all cores) -- transient oversubscription multiplied across every worker.
     if HAS_NUMBA:
-        numba.set_num_threads(max(1, int(params.get('n_cores', 1))))
+        dp_core.set_numba_threads(params.get('n_cores', 1))
 
     if params.get('si_enabled', False):
         # Secret interactions (dp_si): no thermal grid, no potentials; the couplings in the mass

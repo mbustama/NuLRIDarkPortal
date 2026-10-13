@@ -174,6 +174,18 @@ def default_n_cores() -> int:
     return n - 1 if n > 1 else 1
 
 
+def set_numba_threads(n: int) -> int:
+    """numba.set_num_threads(n), clamped to numba's pool (NUMBA_NUM_THREADS: the machine's cores
+    unless set). Returns the count set. numba raises for more threads than its pool has, and a
+    configuration may ask for more cores than the machine running it has: n_cores = 4 crashed
+    the solver on GitHub's 2-core runners (found 2026-10-13, when CI first ran with TBB)."""
+    if not HAS_NUMBA:
+        return 1
+    m = max(1, min(int(n), int(numba.config.NUMBA_NUM_THREADS)))
+    numba.set_num_threads(m)
+    return m
+
+
 def safe_print(msg: str):
     """Prints output safely without breaking the tqdm progress bar alignment."""
     if HAS_TQDM and hasattr(tqdm, 'write'):
