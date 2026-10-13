@@ -807,8 +807,9 @@ def _avg_earth_density_seq(baseline_km: float, costh: float, N_steps: int,
 # =============================================================================
 # ZENITH AVERAGE OF THE EARTH CHORDS
 # =============================================================================
-# The flux at the detector is the average over the up-going hemisphere, uniform in
-# costh in [-1, 0]. Inside the Earth the dark-portal potential exceeds the vacuum term at
+# The flux at the detector is the average over the sky, uniform in costh over [-1, 1]
+# ('full', the default since 2026-10-13) or [-1, 0] ('up'); per declination band, the same
+# average restricted to each band (average_earth_chords_bands). Inside the Earth the dark-portal potential exceeds the vacuum term at
 # every energy of interest whenever its phase is non-negligible (a phase of 1 rad across
 # the Earth needs V ~ 1e-14 eV, against Delta m^2/2E <~ 1e-16 eV above 10 TeV), so to
 # O(H_vac/V) a chord evolves as
@@ -960,6 +961,27 @@ def _zenith_filon_weights(c_fine: np.ndarray, node_index: np.ndarray, phase: np.
     return w
 
 
+def _zenith_filon_weights_intervals(c_fine: np.ndarray, node_index: np.ndarray, phase: np.ndarray) -> np.ndarray:
+    """The contributions of each node interval to _zenith_filon_weights: W[j, 0] to node j and
+    W[j, 1] to node j + 1 from the interval [c_j, c_{j+1}] (same rule, same sums). Summed over the
+    intervals inside a declination band they give that band's weights; over all intervals, the
+    whole range's. Arguments as _zenith_filon_weights. Returns complex (K - 1, 2)."""
+    K = len(node_index)
+    W = np.zeros((K - 1, 2), dtype=np.complex128)
+    for j in range(K - 1):
+        i0, i1 = node_index[j], node_index[j + 1]
+        c = c_fine[i0:i1 + 1]
+        ph = phase[i0:i1 + 1]
+        dc = np.diff(c)
+        hat_up = (c - c[0]) / (c[-1] - c[0])
+        hat_dn = 1.0 - hat_up
+        J0, J1 = _filon_J(-1j * np.diff(ph))
+        for side, hat, ref in ((0, hat_dn, ph[0]), (1, hat_up, ph[-1])):
+            base = np.exp(-1j * (ph[:-1] - ref))
+            W[j, side] = np.sum(dc * base * (hat[:-1] * J0 + np.diff(hat) * J1))
+    return W
+
+
 def _lri_texture_projectors(S: np.ndarray):
     """Eigenprojectors of the Hermitian LRI texture S, one per distinct eigenvalue (within
     1e-9 of the largest |eigenvalue|), and those eigenvalues. Argument: S (3x3). Returns
@@ -979,8 +1001,9 @@ def _lri_texture_projectors(S: np.ndarray):
 def average_earth_chords(rho_chords: np.ndarray, earth_costh: np.ndarray, Coef: float,
                          U_LRI_struct: np.ndarray, detector_depth_km: float, n_n_amb_eV3: float,
                          m_eff_eV: float, earth_yk, zenith_average: str = "phase") -> np.ndarray:
-    """Average of the chords' density matrices over the up-going hemisphere (uniform in
-    costh), by the 'phase' rule of the section notes above or the historical 'plain' mean.
+    """Average of the chords' density matrices over their costh range (uniform in costh: the
+    whole sky or the up-going hemisphere), by the 'phase' rule of the section notes above or the
+    historical 'plain' mean.
 
     Arguments:
       rho_chords: (K, N_E, 3, 3) density matrices at the detector, one per chord.
@@ -997,6 +1020,23 @@ def average_earth_chords(rho_chords: np.ndarray, earth_costh: np.ndarray, Coef: 
     if zenith_average == "plain" or K == 1:
         return np.mean(rho_chords, axis=0)
     projectors, lam = _lri_texture_projectors(U_LRI_struct)
+    c_fine, node_index, col = _zenith_phase_grid(earth_costh, detector_depth_km, n_n_amb_eV3, m_eff_eV, earth_yk)
+    psi = Coef * col * _KM_IN_EV_INV                       # Psi(c), rad per unit eigenvalue
+    span = earth_costh[-1] - earth_costh[0]
+    rho_avg = np.zeros(rho_chords.shape[1:], dtype=np.complex128)
+    for g, Pg in enumerate(projectors):
+        for h, Ph in enumerate(projectors):
+            w = _zenith_filon_weights(c_fine, node_index, (lam[g] - lam[h]) * psi) / span
+            R = np.tensordot(w, rho_chords, axes=(0, 0))      # (N_E, 3, 3)
+            rho_avg += Pg @ R @ Ph
+    return rho_avg
+
+
+def _zenith_phase_grid(earth_costh: np.ndarray, detector_depth_km: float, n_n_amb_eV3: float,
+                       m_eff_eV: float, earth_yk):
+    """The fine costh grid of the 'phase' zenith rule and the density column on it (cached):
+    the contact column above _ZENITH_YUKAWA_MIN_M_EV, the Yukawa column (with the Earth's exterior
+    when active) below. Returns (c_fine, node_index, col)."""
     if m_eff_eV > _ZENITH_YUKAWA_MIN_M_EV:
         key = (float(detector_depth_km), tuple(np.round(earth_costh, 15)), float(n_n_amb_eV3))
         hit = _zenith_column_cache.get(key)
@@ -1023,15 +1063,66 @@ def average_earth_chords(rho_chords: np.ndarray, earth_costh: np.ndarray, Coef: 
                 _zenith_column_cache.clear()
             _zenith_column_cache[key] = hit = (c_fine, node_index, col)
         c_fine, node_index, col = hit
-    psi = Coef * col * _KM_IN_EV_INV                       # Psi(c), rad per unit eigenvalue
-    span = earth_costh[-1] - earth_costh[0]
-    rho_avg = np.zeros(rho_chords.shape[1:], dtype=np.complex128)
+    return c_fine, node_index, col
+
+
+def earth_chord_nodes(band_costh: np.ndarray, nodes_per_band: int = 2) -> np.ndarray:
+    """Chord nodes for per-band output: every band edge, and each band split into nodes_per_band
+    equal intervals (decision D1, docs/dev/DIRECTIONS_PLAN.md: the bands' edges must be nodes for
+    the 'phase' rule's weights to partition). Arguments: band_costh -- cos(zenith) edges,
+    increasing; nodes_per_band >= 1. Returns the increasing nodes."""
+    band_costh = np.asarray(band_costh, dtype=np.float64)
+    if band_costh.ndim != 1 or len(band_costh) < 2 or np.any(np.diff(band_costh) <= 0):
+        raise ValueError("earth_chord_nodes: band edges must increase")
+    n = int(nodes_per_band)
+    if n < 1:
+        raise ValueError(f"earth_chord_nodes: nodes_per_band must be >= 1, got {nodes_per_band}")
+    parts = [np.linspace(band_costh[b], band_costh[b + 1], n + 1)[:-1] for b in range(len(band_costh) - 1)]
+    return np.concatenate(parts + [band_costh[-1:]])
+
+
+def average_earth_chords_bands(rho_chords: np.ndarray, earth_costh: np.ndarray, band_costh: np.ndarray,
+                               Coef: float, U_LRI_struct: np.ndarray, detector_depth_km: float,
+                               n_n_amb_eV3: float, m_eff_eV: float, earth_yk,
+                               zenith_average: str = "phase") -> np.ndarray:
+    """The zenith average of average_earth_chords restricted to each band [c_b, c_{b+1}] of cos(zenith)
+    (per-direction output, docs/dev/DIRECTIONS_PLAN.md step 2): the same Filon weights, summed over
+    the node intervals inside the band and divided by its width, so that the bands weighted by their
+    widths return the whole range's average. A single chord is not a per-direction answer -- it
+    carries its own fast Earth phase -- but its band's average is. 'plain' uses the trapezoid weights
+    inside each band (the zero-phase limit of the rule).
+
+    Arguments: as average_earth_chords, plus band_costh -- the bands' cos(zenith) edges, increasing,
+    each one a chord node. Returns: (N_b, N_E, 3, 3)."""
+    band_costh = np.asarray(band_costh, dtype=np.float64)
+    pos = np.searchsorted(earth_costh, band_costh)
+    if np.any(pos >= len(earth_costh)) or not np.array_equal(earth_costh[np.minimum(pos, len(earth_costh) - 1)], band_costh):
+        raise ValueError("average_earth_chords_bands: every band edge must be a chord node")
+    nb = len(band_costh) - 1
+    out = np.zeros((nb,) + rho_chords.shape[1:], dtype=np.complex128)
+    if zenith_average == "plain":
+        dc = np.diff(earth_costh)
+        for b in range(nb):
+            w = np.zeros(len(earth_costh))
+            for j in range(pos[b], pos[b + 1]):
+                w[j] += 0.5 * dc[j]
+                w[j + 1] += 0.5 * dc[j]
+            out[b] = np.tensordot(w / (band_costh[b + 1] - band_costh[b]), rho_chords, axes=(0, 0))
+        return out
+    projectors, lam = _lri_texture_projectors(U_LRI_struct)
+    c_fine, node_index, col = _zenith_phase_grid(earth_costh, detector_depth_km, n_n_amb_eV3, m_eff_eV, earth_yk)
+    psi = Coef * col * _KM_IN_EV_INV
     for g, Pg in enumerate(projectors):
         for h, Ph in enumerate(projectors):
-            w = _zenith_filon_weights(c_fine, node_index, (lam[g] - lam[h]) * psi) / span
-            R = np.tensordot(w, rho_chords, axes=(0, 0))      # (N_E, 3, 3)
-            rho_avg += Pg @ R @ Ph
-    return rho_avg
+            W = _zenith_filon_weights_intervals(c_fine, node_index, (lam[g] - lam[h]) * psi)
+            for b in range(nb):
+                w = np.zeros(len(earth_costh), dtype=np.complex128)
+                for j in range(pos[b], pos[b + 1]):
+                    w[j] += W[j, 0]
+                    w[j + 1] += W[j, 1]
+                R = np.tensordot(w / (band_costh[b + 1] - band_costh[b]), rho_chords, axes=(0, 0))
+                out[b] += Pg @ R @ Ph
+    return out
 
 
 # =============================================================================
@@ -1394,7 +1485,8 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
                             U_LRI_struct=None, V_SM_struct=None, use_gpu: bool = False,
                             earth_step_scheme: str = "left",
                             earth_zenith_average: str = "plain",
-                            earth_sky: str = "up") -> np.ndarray:
+                            earth_sky: str = "up",
+                            earth_band_costh=None, earth_nodes_per_band: int = 2):
     """
     The spatial handover: from the cosmological arrival to the detector, through the Galaxy,
     the Sun, the Earth's exterior and the Earth (transit_to_earth, then the chords). Earth
@@ -1432,7 +1524,14 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
         option until then).
       external_pool, U_LRI_struct, V_SM_struct, use_gpu: see below.
 
-    Returns: (N_E, 3) flavor fluxes at the detector depth.
+      earth_band_costh: None (the default: one whole-sky flux, as always) or the cos(zenith) edges of
+        declination bands, increasing over the sky's range ([-1, 1] for 'full', [-1, 0] for 'up'):
+        the chords are then placed on the band edges, earth_nodes_per_band intervals per band
+        (earth_chord_nodes; n_earth_chords is unused), and each band's flux is returned as well
+        (average_earth_chords_bands; per-direction output, docs/dev/DIRECTIONS_PLAN.md step 2).
+
+    Returns: (N_E, 3) flavor fluxes at the detector depth; with earth_band_costh, the tuple
+    (whole-sky (N_E, 3), per band (N_b, N_E, 3)).
 
     Until 2026-10-13 the Milky Way phase integrated n_mw_paths (6) trajectories from 100 kpc in
     N_steps_MW (25) left-endpoint steps with the local Galactic density at every mediator mass,
@@ -1486,7 +1585,13 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
     # mirror image, up to straight down (+1), whose chords cross only the ice above the
     # detector (1.5 km straight down, ~140 km at the horizon). The zenith average then
     # weights every cos(zenith) of the whole sky equally.
-    if n_earth_chords <= 1:
+    if earth_band_costh is not None:
+        earth_band_costh = np.asarray(earth_band_costh, dtype=np.float64)
+        top = 0.0 if earth_sky == "up" else 1.0
+        if abs(earth_band_costh[0] + 1.0) > 1e-12 or abs(earth_band_costh[-1] - top) > 1e-12:
+            raise ValueError(f"earth_band_costh must run from -1 to {top:g} for earth_sky = '{earth_sky}'")
+        earth_costh = earth_chord_nodes(earth_band_costh, earth_nodes_per_band)
+    elif n_earth_chords <= 1:
         earth_costh = np.array([-1.0]) if earth_sky == "up" else np.array([-1.0, 1.0])
     else:
         up = np.linspace(-1.0, 0.0, int(n_earth_chords))
@@ -1610,6 +1715,11 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
             F_earth = np.real(np.diagonal(rho_earth_avg, axis1=1, axis2=2)).copy()
             if verbose == 2:
                 safe_print(f"Spatial propagation finished ({lbl}, GPU).")
+            if earth_band_costh is not None:
+                rho_bands = average_earth_chords_bands(rho_chords, earth_costh, earth_band_costh, Coef,
+                                                       U_LRI_struct, detector_depth_km, n_n_amb_eV3, m_eff,
+                                                       earth_yk, earth_zenith_average)
+                return F_earth, np.real(np.diagonal(rho_bands, axis1=2, axis2=3)).copy()
             return F_earth
 
     # PHASE 2: Earth Transit (PREM Layers)
@@ -1664,7 +1774,8 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
         for b, (b0, b1) in enumerate(earth_blocks):
             rho_full[b0:b1] = earth_block_results[c * len(earth_blocks) + b]
         earth_results.append(rho_full)
-    rho_earth_avg = average_earth_chords(np.stack(earth_results, axis=0), earth_costh, Coef,
+    rho_chords = np.stack(earth_results, axis=0)
+    rho_earth_avg = average_earth_chords(rho_chords, earth_costh, Coef,
                                             U_LRI_struct, detector_depth_km, n_n_amb_eV3, m_eff,
                                             earth_yk, earth_zenith_average)
     F_earth = np.real(np.diagonal(rho_earth_avg, axis1=1, axis2=2)).copy()
@@ -1672,6 +1783,11 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
     if verbose == 2:
         safe_print(f"Spatial propagation finished ({lbl}). Flux density matrix mapped to detector depth.")
 
+    if earth_band_costh is not None:
+        rho_bands = average_earth_chords_bands(rho_chords, earth_costh, earth_band_costh, Coef, U_LRI_struct,
+                                               detector_depth_km, n_n_amb_eV3, m_eff, earth_yk,
+                                               earth_zenith_average)
+        return F_earth, np.real(np.diagonal(rho_bands, axis1=2, axis2=3)).copy()
     return F_earth
 
 

@@ -1562,6 +1562,22 @@ from $5\times10^{-3}$, for the reason given in Sec.~\ref{sec:open}. A solver run
 as before. (The ``cosmoX2'' residual was the propagator's non-unitarity and is gone since commit
 \texttt{2066f3b}, Appendix~\ref{app:unitarity}.)
 
+\textit{Per declination band (2026-10-13).}---The per-direction output
+(\file{docs/dev/DIRECTIONS_PLAN.md}) needs the flux per band of declination, which at the South Pole
+is a band of $\cos\theta_z = -\sin\delta$. A single chord is not a per-direction answer, since it
+carries its own fast Earth phase; the band's average is. The Filon weights above are built interval
+by interval between chord nodes, so the weights of a band are those of its intervals, divided by its
+width (\file{average_earth_chords_bands}); with the band edges on chord nodes
+(\file{earth_chord_nodes}: 20 bands of 0.1 in $\cos\theta_z$, two intervals each, 41 chords against 23)
+the bands weighted by their widths return the whole-sky average to rounding ($10^{-14}$, at Earth
+phases from 0.1 to $10^8$~rad). Each band equals the exact integral over its own range of the
+potential-dominated evolution to $10^{-4}$ (dense trapezoid, 20,000 directions per band, phases up to
+$10^3$~rad); at $10^8$~rad the up-going bands reach the decoherent limit $\sum_g P_g\rho P_g$, while
+the bands near straight down, whose chords cross only 1.5--15~km of ice, keep a residual coherence
+of order the inverse of their phase spread (131--979~rad there), which the rule reproduces against
+the dense integral. Without the dark portal every band equals the whole sky (isotropy).
+\file{tests/test_directions.py}.
+
 \subsection{The cosmological cascade (2026-10-12)}
 \label{app:cascade}
 
