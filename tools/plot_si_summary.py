@@ -7,6 +7,9 @@ plot_si_summary.py -- figures of the secret-interaction results of the flavor-tr
       interval at Delta chi^2 = 3.84), from output/analysis/pion_2050_case_5_si_*/data/;
   python tools/plot_si_summary.py planes2 output/figures/si_planes_two_flavor.png
       the same for couplings to two flavors (e+mu, e+tau, mu+tau) next to the universal one;
+  python tools/plot_si_summary.py limits output/figures/si_limits_models.png
+      the 95% upper limits of the four models (scalar or vector mediator, Majorana or Dirac
+      neutrinos), one panel per texture;
   python tools/plot_si_summary.py paths output/figures/si_flavor_paths.png
       the energy-averaged flavor composition along a coupling ladder at four mediator masses,
       against the projected 2050 measurement, and the all-flavor spectra at g = 0.1, from
@@ -78,6 +81,45 @@ def planes(out, textures=None):
     print("saved", out)
 
 
+MODELS = [("", "scalar, Majorana", "C1", "-"), ("dirac_", "scalar, Dirac", "C3", "--"),
+          ("vector_", "vector, Majorana", "C0", "-"), ("vector_dirac_", "vector, Dirac", "C9", "--")]
+
+
+def _limit_line(path):
+    s = json.load(open(path))
+    x = np.array(s["grids"][0])
+    lim = []
+    for col in s["columns"]:
+        ivs = col["intervals"].get("95%", [])
+        bad = (not ivs) or (col["value"] in s.get("elevated", [])) or ivs[0]["hi_open"]
+        lim.append(np.nan if bad else ivs[0]["hi"])
+    return x, np.array(lim)
+
+
+def limits(out):
+    fig, axes = plt.subplots(2, 2, figsize=(11, 8.2), sharex=True, sharey=True)
+    for ax, (key, title) in zip(axes.ravel(), TEX):
+        for tag, lab, col, ls in MODELS:
+            path = f"{REPO}/output/analysis/pion_2050_case_5_si_{tag}{key}/data/plane_m_phi_eV_g_phi.json"
+            if not os.path.exists(path):
+                continue
+            x, lim = _limit_line(path)
+            ax.plot(x, lim, ls, color=col, lw=1.8, label=lab)
+        ax.axvspan(*RES_BAND, color="tab:orange", alpha=0.08, lw=0)
+        ax.set_xscale("log")
+        ax.set_yscale("log")
+        ax.set_ylim(1e-6, 1.0)
+        ax.set_title(title, fontsize=10)
+        ax.set_xlabel(r"$M$ [eV]")
+        ax.set_ylabel(r"95% upper limit on $g$")
+    axes[0, 0].legend(fontsize=8, loc="lower left")
+    fig.suptitle("Secret neutrino interactions, projected 2050 flavor measurement (pion sources): 95% upper limits per "
+                 "mediator mass\nshaded: resonance within 10 TeV - 30 PeV", fontsize=10)
+    fig.tight_layout()
+    fig.savefig(out, dpi=110, bbox_inches="tight")
+    print("saved", out)
+
+
 def paths(out):
     from analysis import surfaces
     d = json.load(open(f"{REPO}/output/si_planes/flavor_paths.json"))
@@ -136,4 +178,4 @@ if __name__ == "__main__":
     if sys.argv[1] == "planes2":
         planes(sys.argv[2], TEX2)       # the two-flavor textures and the universal one
     else:
-        {"planes": planes, "paths": paths}[sys.argv[1]](sys.argv[2])
+        {"planes": planes, "paths": paths, "limits": limits}[sys.argv[1]](sys.argv[2])

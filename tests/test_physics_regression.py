@@ -698,7 +698,10 @@ def test_eigenvectors_3x3_matches_eigh():
     assert worst_resid < 1e-10
     assert worst_proj < 1e-9
 
-    # Near-degenerate spectra take the eigh fallback and must agree exactly with eigh
+    # Near-degenerate spectra take the eigh fallback. Within the nearly degenerate pair the basis is
+    # determined only to ~eps/gap (up to 1e-2 here), so two LAPACK builds -- numba's and numpy's, or
+    # one build on two CPUs -- may pick different pairs (a GitHub runner did, 2026-10-13); what is
+    # fixed is the projector onto the pair, the isolated column, and each column being an eigenvector.
     for _ in range(100):
         gap = 10.0 ** rng.uniform(-14, -6)
         lam = np.array([1.0, 1.0 + gap, 2.0]) * 1e-16
@@ -706,7 +709,12 @@ def test_eigenvectors_3x3_matches_eigh():
         H = np.ascontiguousarray((Q @ np.diag(lam) @ Q.conj().T + (Q @ np.diag(lam) @ Q.conj().T).conj().T) / 2)
         U = dps.eigenvectors_3x3(H)
         evals_ref, evecs_ref = np.linalg.eigh(H)
-        np.testing.assert_allclose(np.abs(U)**2, np.abs(evecs_ref)**2, atol=1e-12)
+        P_pair = U[:, :2] @ U[:, :2].conj().T
+        P_ref = evecs_ref[:, :2] @ evecs_ref[:, :2].conj().T
+        np.testing.assert_allclose(P_pair, P_ref, atol=1e-12)
+        np.testing.assert_allclose(np.abs(U[:, 2]) ** 2, np.abs(evecs_ref[:, 2]) ** 2, atol=1e-12)
+        for k in range(3):
+            assert np.max(np.abs(H @ U[:, k] - evals_ref[k] * U[:, k])) < 1e-12 * 2e-16
 
 
 def _cascade_step_setup(N_E=40, seed=5):
