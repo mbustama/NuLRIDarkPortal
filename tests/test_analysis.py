@@ -23,7 +23,9 @@ from analysis.parameters import GaussianPrior, HalfGaussianPrior, Parameter, Par
 CONFIGS = os.path.join(os.path.dirname(__file__), "..", "analysis", "configs")
 
 # ln L of FrequentistAnalysis' detector_flavor_log_likelihood (retired 2026-10-12) at the
-# points X, Y, recorded before its removal: the surfaces must keep reproducing it bit for bit.
+# points X, Y, recorded on the laptop before its removal. The two implementations agreed bit
+# for bit there; on another machine (Tycho: pip's numpy, other SIMD exp/log/tanh) the values
+# differ in the last digit (1.5e-15 measured), hence the 1e-13 tolerance.
 X = np.array([0.30, 0.3264281, 0.20, 0.45, 0.33])
 Y = np.array([0.36, 0.34311662, 0.45, 0.25, 0.30])
 FA_LOG_L = {
@@ -50,9 +52,9 @@ def _tiny_raw(**over):
 # ---------------------------------------------------------------------------------------
 @pytest.mark.parametrize("name", sorted(FA_LOG_L))
 def test_surfaces_reproduce_frequentist_analysis(name):
-    """Asymmetric-smooth, polar ray-casting and symmetric shapes, bit for bit."""
+    """Asymmetric-smooth, polar ray-casting and symmetric shapes, to the last digits."""
     got = surfaces.log_likelihood(X, Y, surfaces.surface(name))
-    assert np.array_equal(got, np.array(FA_LOG_L[name]))
+    np.testing.assert_allclose(got, np.array(FA_LOG_L[name]), rtol=1e-13, atol=0)
 
 
 def test_chi2_is_zero_at_the_centre_and_recentring_moves_it():
