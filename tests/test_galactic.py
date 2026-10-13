@@ -402,3 +402,24 @@ def test_galactic_at_coarse_resolution():
         assert np.allclose(G.intensity("cringe", E / 1e9, ns).mean(0), I16.mean(0), rtol=1e-12)
     f = {ns: o["galactic_allsky_nu"] / o["galactic_allsky_nu"].sum(-1, keepdims=True) for ns, o in outs.items()}
     assert np.max(np.abs(f[4] - f[8])) < 1e-3
+
+
+def test_extragalactic_physical_normalization():
+    """sky.extragalactic_norm: without new physics the extragalactic per-flavor nu + nubar intensity is
+    norm x (E / 100 TeV)^-p at every energy, to the redshift grid's first-order error (3.6e-3 at 400 steps, the
+    same at every energy); None keeps the solver's units; the factor scales the flux with new physics too."""
+    base = {"dark_portal": {"u_e": 0.0, "u_mu": 0.0, "u_tau": 0.0, "g_D": 1e-30},
+            "grid": {"n_E_bins": 12, "n_z_bins": 400, "n_sun_paths": 2, "E_min_eV": 1e13, "E_max_eV": 1e16},
+            "source": {"p_index": 2.87}, "execution": {"n_cores": 1, "verbose": 0}}
+    E, params = dps.build_solver_params(dict(base, sky={"output": "bands", "extragalactic_norm": 2.12e-18}))
+    params["show_progress"] = False
+    out = dps.propagate_sky(E, params)
+    per_flavor = (out["allsky_nu"] + out["allsky_nubar"]).sum(-1) / 3.0
+    r = per_flavor / (2.12e-18 * (E / 1e14) ** -2.87)
+    assert np.ptp(r) < 1e-10 and abs(r.mean() - 1) < 6e-3
+    E, params = dps.build_solver_params(dict(base, sky={"output": "bands"}))
+    params["show_progress"] = False
+    raw = dps.propagate_sky(E, params)
+    assert np.allclose(out["bands_nu"], raw["bands_nu"] * out["meta"]["extragalactic_scale"], rtol=1e-13, atol=0)
+    with pytest.raises(ValueError):
+        dps.build_solver_params({"sky": {"extragalactic_norm": -1.0}, "execution": {"verbose": 0}})

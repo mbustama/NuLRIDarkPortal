@@ -1275,6 +1275,32 @@ $m_{Z_D} = 10^{-24}$~eV, per pixel at 1~PeV (left) and against energy for the Ce
 \label{fig:galactic_emission}
 \end{figure}
 
+\textit{The pieces together (plan step 7).}---To add the Galactic flux to the extragalactic one, the latter can
+now be put in physical units (\texttt{sky.extragalactic\_norm}): its per-flavor intensity at 100~TeV without new
+physics, from the closed form of the free-streaming flux, which the solver reproduces to its redshift grid's
+first-order error ($4\times10^{-3}$ at 400 steps). With IceCube's HESE 7.5-year fit ($2.12\times10^{-18}$
+GeV$^{-1}$~cm$^{-2}$~s$^{-1}$~sr$^{-1}$ per flavor at 100~TeV, $\gamma = 2.87$) the Galactic share of the flux
+(CRINGE $\times$ 0.91) is 4\%, 6\% and 1\% of the sky-averaged flux at 10~TeV, 100~TeV and 1~PeV, and 22\%, 35\%
+and 7\% in the inner Galaxy (Fig.~\ref{fig:sky_validation}). An independent check of the template's normalization:
+at 20~TeV the sky-averaged CRINGE flux is 11\% of IceCube's 2026 astrophysical flux in that energy bin; the 2026
+paper states ``about 10\%''. (HESE's soft fit lies a factor 4 above the 2026 flux at 10~TeV, the known tension
+between it and fits with a spectral break, so the Galactic share depends on that choice.) At the dark-portal
+point of Fig.~\ref{fig:galactic_emission} the anisotropy of $f_e$ at 100~TeV comes from the Galactic component
+(a spread of 0.018 over the pixels; 0.014 in the total flux), against $10^{-6}$ from the Earth there and at most
+$1.2\times10^{-3}$ from the Sun's yearly path (decision D4).
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{../output/figures/sky_validation.png}
+\caption{\textbf{The sky with the Galactic component} (\file{tools/sky_validation.py}). Top left: sky-averaged
+per-flavor spectra of the extragalactic flux (HESE 7.5-year fit), the Galactic templates and IceCube's 2026
+astrophysical flux, with the Galactic share (right axis). Top right: $f_e$ of the total flux at 100~TeV for the
+dark-portal point of Fig.~\ref{fig:galactic_emission}. Bottom left: per declination band, $f_e$ of the total,
+extragalactic and Galactic fluxes with and without the dark portal, and the Galactic share. Bottom right: the
+spread of $f_e$ over the pixels that each stage adds.}
+\label{fig:sky_validation}
+\end{figure}
+
 \section{Planned work}
 \label{sec:plan}
 

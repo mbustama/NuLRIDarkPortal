@@ -722,6 +722,13 @@ def propagate_sky(E_bins: np.ndarray, params: Dict) -> Dict:
                          healpix_theta="pi/2 - dec", detector="South Pole: cos(zenith) = -sin(dec)",
                          units="per unit solid angle, solver units (Phi_0 E^-p)",
                          sun="isotropic Gauss-Legendre average", galactic="none"))
+    if sky_p.get('extragalactic_norm') is not None:
+        K = extragalactic_scale(params, sky_p['extragalactic_norm'])
+        for key in ('allsky_nu', 'allsky_nubar', 'bands_nu', 'bands_nubar'):
+            out[key] = out[key] * K
+        out['meta']['units'] = ("GeV^-1 cm^-2 s^-1 sr^-1 per flavor and kind; without new physics the per-flavor "
+                                f"nu + nubar intensity at 100 TeV would be {sky_p['extragalactic_norm']:.4g}")
+        out['meta']['extragalactic_scale'] = K
     if sky_p['output'] == 'healpix':
         out['nside'] = grid.nside
         out['pixel_band'] = grid.band
@@ -761,6 +768,21 @@ def propagate_sky(E_bins: np.ndarray, params: Dict) -> Dict:
             band_means="pixel means (pixels assigned to bands by their centres)",
             source=dp_galactic.load_template(gal['template'], grid.nside)[2]['source'])
     return out
+
+
+def extragalactic_scale(params: Dict, per_flavor_100TeV: float) -> float:
+    """The factor taking the solver's extragalactic flux to GeV^-1 cm^-2 s^-1 sr^-1 such that, without new
+    physics, its per-flavor nu + nubar intensity at 100 TeV is per_flavor_100TeV: the free-streaming flux
+    Phi_0 E^-p int dz (1+z)^-p R(z) / H(z) (dp_si.free_streaming_flux, the closed form; the solver's own
+    no-coupling flux equals it to its redshift grid's first-order error, 3e-3 at 400 steps) over three flavors.
+    The same factor scales the flux with new physics, which keeps its absorption and conversion."""
+    import dp_si
+    U = construct_PMNS(params['th12'], params['th13'], params['th23'], params['d_cp'])
+    rho = np.array([params['f_e_S'], params['f_mu_S'], params['f_tau_S']], dtype=np.float64)
+    tot = float(dp_si.free_streaming_flux(np.array([1e14]), params['z_max'], params['H0_eV'], params['Omega_m'],
+                                          params['Omega_L'], U, rho / rho.sum(), params['p_index'],
+                                          params['rho_evol'], params['Phi_0']).sum())
+    return float(per_flavor_100TeV) / (tot / 3.0)
 
 
 def propagation_worker(args) -> Tuple[np.ndarray, np.ndarray]:
@@ -939,8 +961,13 @@ def build_solver_params(config: Dict) -> Tuple[np.ndarray, Dict]:
     if sun_w != 'isotropic':
         raise ValueError("sky.sun_weighting: only 'isotropic' so far (the yearly weighting follows the anisotropy "
                          "diagnostic, decision D4 of docs/dev/DIRECTIONS_PLAN.md).")
+    eg_norm = sky_cfg['extragalactic_norm']
+    if eg_norm is not None:
+        eg_norm = float(eg_norm)
+        if not eg_norm > 0.0:
+            raise ValueError(f"sky.extragalactic_norm must be None or > 0, got {sky_cfg['extragalactic_norm']!r}")
     params['sky'] = dict(output=sky_out, nside=nside, dec_band_edges=edges, earth_nodes_per_band=nodes_per_band,
-                         sun_weighting=sun_w)
+                         sun_weighting=sun_w, extragalactic_norm=eg_norm)
     gal_cfg = config['galactic']
     import dp_galactic
     template = str(gal_cfg['template']).strip().lower()

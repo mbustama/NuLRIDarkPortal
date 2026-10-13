@@ -510,6 +510,15 @@ on its own.
   path (host_galaxy_scale = 1, z -> 0) agree to < 1e-5 in every band and energy (their potentials differ by
   3e-8, the cosmic mean the host path adds; up to 1.2e-3 at 1e-31-1e-29 eV, where the halo meets the cosmic
   mean: the local potential takes the larger, the host path sums them).
+- **Step 7 (2026-10-14): the pieces together** (tools/sky_validation.py, output/figures/sky_validation.png).
+  sky.extragalactic_norm puts the extragalactic flux in physical units (its per-flavor intensity at 100 TeV
+  without new physics; closed-form free streaming, which the solver matches to 4e-3 at 400 redshift steps).
+  With HESE 7.5-yr (2.12e-18, gamma 2.87) the Galactic share (CRINGE x 0.91) is 4/6/1% of the sky-averaged
+  flux at 10 TeV/100 TeV/1 PeV, 22/35/7% in the inner Galaxy; at 20 TeV the sky-averaged CRINGE flux is 11% of
+  IceCube's 2026 astrophysical flux (they state ~10%). HESE's soft fit is 4x the 2026 flux at 10 TeV (the
+  known tension with broken power laws), so the share depends on that choice. At m_Zd = 1e-24 eV, kappa = 300
+  the f_e spread at 100 TeV over the pixels is 0.018 from the Galactic component (0.014 in the total), 1e-6
+  from the Earth, <= 1.2e-3 from the Sun's yearly path.
 - **D4, the Sun per direction.** Keep the isotropic Sun average now and measure the anisotropy it would
   produce in its window (Recommended); or implement the yearly per-direction weighting now.
 - **D5, downloads on Tycho.** CRINGE (Zenodo 7859442), the 3-D gas (Zenodo 12578443) and IceCube's

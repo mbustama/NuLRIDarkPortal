@@ -159,7 +159,12 @@ def _build_default_config() -> Dict:
             "earth_nodes_per_band": 2,
             # the Sun per direction: 'isotropic' (today's Gauss-Legendre average); 'yearly' comes
             # after the anisotropy diagnostic (decision D4)
-            "sun_weighting": "isotropic"
+            "sun_weighting": "isotropic",
+            # The extragalactic flux in physical units: None keeps the solver's (Phi_0 E^-p); a number is the
+            # per-flavor nu + nubar intensity at 100 TeV, GeV^-1 cm^-2 s^-1 sr^-1, that the extragalactic flux
+            # would have without new physics (e.g. 2.12e-18 with p_index 2.87: IceCube's HESE 7.5-yr fit,
+            # PRD 104, 022002, Eq. VI.1, 6.37e-18 for all six species). Needed to add the Galactic component.
+            "extragalactic_norm": None
         },
         "galactic": {
             # The Galactic-plane component (DIRECTIONS_PLAN Sections 3.4-3.6; dp_galactic), off by
