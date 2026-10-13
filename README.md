@@ -7,6 +7,8 @@ This repository contains a high-performance, Python-based numerical solver for s
 
 The code evaluates a comprehensive framework featuring a light vector mediator ($Z_D$) that couples to active neutrinos via mixing with a sterile state, and to standard matter via kinetic mixing ($\epsilon'$). It explicitly tracks flavor evolution, resonant attenuation against the Cosmic Neutrino Background (C$\nu$B), exact energy cascading (down-scattering), and environmentally dependent long-range interactions (LRI).
 
+Since 2026-10-13 it also tests **secret neutrino interactions** generally (`src/dp_si.py`, [Section 2.4](#24-secret-neutrino-interactions-srcdp_sipy)): a mediator $\phi$ through which neutrinos scatter on the relic neutrinos with flavor-basis couplings $g_{\alpha\beta}$, with the full scalar cross sections of Esteban, Pandey, Brdar & Beacom (arXiv:2107.13568) — the generalization of Bustamante, Rosenström, Shalgar & Tamborra (arXiv:2001.04994). The switch `secret_interactions.enabled` replaces the dark portal by it.
+
 ---
 
 ## Table of Contents
@@ -103,6 +105,13 @@ On top of the kernel sits the **two-component coupling cache** (`thermal_grid_ca
 ### 2.3 Energy Cascading & Injection
 Every resonant absorption $\nu(E') + \bar\nu_{\rm relic} \to Z_D \to \nu + \bar\nu$ emits two particles. The $Z_D$ is polarized along the incoming neutrino, so the outgoing particle of the absorbed kind follows $W(E, E') = 3E^2/E'^3$ (on average 3/4 of the energy) and the other kind $3(E'-E)^2/E'^3$ (the remaining 1/4); an absorbed antineutrino gives the mirror image. Neutrinos and antineutrinos are therefore evolved together through the cosmological phase (`step_cosmological_pair`); both kernels are integrated exactly over the logarithmic bins (`cascade_kernel_weights`, `cross_kernel_weights`). Until 2026-10-13 only the secondary of the absorbed kind was kept and the two kinds were propagated independently, which dropped half of the regenerated particles and a quarter of the absorbed energy; until 2026-10-12 the midpoint weights also re-emitted $1 + 1.5\,\Delta\ln E$ particles per absorption. The code continuously integrates flux injections at every redshift utilizing a broken power-law Star Formation Rate (SFR) combined with an arbitrary source evolution modifier $\rho_{evol}$.
 
+### 2.4 Secret Neutrino Interactions (`src/dp_si.py`)
+A mediator of mass $M_\phi$ couples to neutrinos as $-\tfrac12 \sum g_{\alpha\beta}\,\bar\nu_\alpha\nu_\beta\,\phi$; in the mass basis $g_{ij} = \sum U^*_{\alpha i} U_{\beta j} g_{\alpha\beta}$ (real: flavor-universal couplings, a single flavor — whose phases cancel in every rate — or a real matrix). High-energy neutrinos scatter on the relic neutrinos (at rest, density per helicity $3\zeta(3)T^3/4\pi^2 = 56$ cm$^{-3}$ per mass state, the paper's "half the number of targets"): they are absorbed and regenerated at lower energies, in $s$-, $t$- and $u$-channel scattering and its interference and, above $s = 4M_\phi^2$, double-scalar production with each scalar decaying at once into two neutrinos (Appendix A of arXiv:2107.13568: Eqs. A11–A13, A15, A16, adopted, their code not). Two readings of the appendix were fixed by checks: the 1/2 of Eq. (A12) applies only to identical final states, and the double-scalar $t$ range is $M^2 - s/2 \mp \sqrt{s(s/4 - M^2)}$ (printed without the $\sqrt s$ and the shift). One departure: the double-scalar rate carries the coherent sum over the exchanged neutrino, $((g^2)_{ij})^2$, as its amplitudes (A3, A4) do, where Eqs. A10, A11, A13 print $\sum_k g_{ik}^2 g_{jk}^2$ — the same for universal couplings, smaller by $\sum_k |U_{fk}|^4 \approx 0.35$ for $\nu_\tau$ alone (`phiphi_coupling = "paper"` reproduces their figures). Every kinematic integral is evaluated without cancellation at any $s/M_\phi^2$ (series or Gauss–Legendre where the closed forms cancel: near the double-scalar threshold, and far below the resonance).
+
+**Transport.** The mass states decohere over cosmological distances, so the transport follows the number of each mass state per unit observed energy (both helicities together: the interaction is CP-symmetric, so their sum evolves exactly for any source; the solver returns it split in the injection's $\nu/\bar\nu$ proportions). Redshift steps are uniform in $\ln(1+z)$, one per energy bin by default, so a bin's $\mu = M_\phi^2/s$ at a step's midpoint falls on a lattice: the regeneration profiles' exact bin integrals are tabulated once per mediator and relic masses (not per coupling). Each step integrates the optical depth exactly — the Breit–Wigner terms in $\theta = \arctan[(s-M_\phi^2)/M_\phi\Gamma]$, smooth across any resonance however narrow — and sweeps the bins from high to low energy, each solving its equations over the step exactly and passing down what it absorbed: every $2\to2$ absorption yields two secondaries and every double-scalar one four (number balance to $10^{-14}$). The grid extends tenfold above `E_max_eV` so that what is injected above it cascades in. $0.3$–$1$ s per run at the analysis grid (400 bins).
+
+**Validation** (`tests/test_si.py`, `tools/si_validation.py` on Tycho): Eq. (A11) as printed and quadrature of (A12)+(A13) to $10^{-13}$; the kinematic integrals against 50 digits to $4\times10^{-15}$; profile bins against 30 digits to $1.5\times10^{-14}$; no coupling equals free streaming to $10^{-14}$; absorption without regeneration against a direct quadrature of $e^{-\tau}$ along each path (median $10^{-12}$–$10^{-4}$ of the free flux; up to 1% in the bins at a narrow resonance's sharp edge, from the crossing step's source timing, falling as `z_substeps` grows); convergence in bins and steps (energy-averaged fractions within $10^{-5}$ of 1600 bins with four steps per bin); and Fig. 5 of arXiv:2107.13568 reproduced (full, $s$-channel only and $\delta$-function curves). Not yet: Dirac neutrinos, a vector mediator, the relics' thermal momenta (matters for a nearly massless lightest state).
+
 ---
 
 ## 3. Numerical Implementation & Spatial Handover
@@ -148,6 +157,7 @@ The flux at the detector is the average over the up-going hemisphere. Inside the
 │   ├── dp_cosmo.py                # Cosmological phase: z-stepper, sigma table, cascade
 │   ├── dp_spatial.py              # MW/Earth transit, step schemes, workers, persistent pool
 │   ├── dp_config.py               # DEFAULT_CONFIG, unknown-key-rejecting merge, parsing
+│   ├── dp_si.py                   # Secret interactions: cross sections, profiles, transport (2.4)
 │   ├── dark_portal_scanner.py     # Multiprocessing 1D parameter scanner + 2x2 grid figure
 │   └── flux_postprocessing.py     # Energy-averaged flavor ratios (shared by scanner & fits)
 ├── analysis/                      # Profile-likelihood analysis (Section 9; docs/dev/ANALYSIS_DESIGN.md)
@@ -159,10 +169,17 @@ The flux at the detector is the average over the up-going hemisphere. Inside the
 │   ├── intervals.py, plots.py
 │   └── run.py                     # Command line: python -m analysis CONFIG.json
 ├── tools/
-│   └── convergence_study.py       # Resolution-parameter convergence studies
+│   ├── convergence_study.py       # Resolution-parameter convergence studies
+│   ├── si_validation.py           # Secret interactions: absorption, convergence, 2107.13568 Fig. 5
+│   ├── si_flavor_paths.py         # Secret interactions: flavor composition along coupling ladders
+│   ├── plot_si_summary.py         # Secret interactions: planes and flavor-path figures
+│   └── plot_exclusion_summary.py  # Dark portal: the six exclusion planes
 ├── tests/
 │   ├── test_physics_regression.py # Regression suite (run before & after every change)
+│   ├── test_transit.py            # The transit to the Earth
+│   ├── test_si.py                 # Secret interactions
 │   └── test_analysis.py           # The analysis package
+├── slurm/                         # Tycho job scripts (slurm/README.md)
 ├── config/                        # Solver configuration (autogenerated on first run)
 └── output/                        # Flux data, plots, convergence-study reports
 ```
@@ -253,6 +270,17 @@ The scanner's spatial-averaging defaults follow the convergence study (Section 1
 * `--epsilon_prime` (float): Kinetic mixing parameter (Default: `1e-1`).
 * `--use_debye_screening` (bool): Thermal Debye mass in the LRI denominator (Default: `true`).
 * `U_LRI_struct` (JSON only): optional 3×3 flavor texture override for $V_{LRI}$ ([Section 8](#8-custom-potential-structure-matrices)).
+
+### `[secret_interactions]` (config only)
+When `enabled` is true, secret interactions replace the dark portal (whose section is then ignored); see [Section 2.4](#24-secret-neutrino-interactions-srcdp_sipy).
+* `enabled` (bool): Default `false`.
+* `mediator` (str): `"scalar"` (a vector mediator: not yet). `neutrino_type` (str): `"majorana"` (Dirac: not yet).
+* `m_phi_eV` (float): Mediator mass (Default: `5e6`). `g_phi` (float): Coupling, $0 \le g < \sqrt{4\pi}$ (Default: `0.01`).
+* `texture` (str): `"universal"` ($g\delta_{\alpha\beta}$), `"e"`, `"mu"`, `"tau"` ($g$ on that flavor alone), or `"matrix"` ($g$ times `g_matrix`, a real symmetric 3×3) (Default: `"tau"`).
+* `channels` (str): `"full"`, `"s"` ($s$ channel only) or `"delta"` (its narrow-width limit) — the approximations compared in arXiv:2107.13568 (Default: `"full"`).
+* `phiphi_coupling` (str): `"coherent"` or `"paper"` (Default: `"coherent"`; Section 2.4).
+* `z_substeps` (int): Redshift steps per energy bin; `grid.n_z_bins` is unused (Default: `1`).
+* `E_extension` (float): The transport's grid extends above `E_max_eV` by this factor (Default: `10`).
 
 ### `[source]`
 * `--p_index` (float): Injection spectral index (Default: `2.5`).
@@ -394,6 +422,8 @@ Under the percent-level ratio criterion, the production study's robust recommend
 ```bash
 python3 -m pytest tests/ -v        # the regression suite and the analysis tests
 ```
+
+`tests/test_si.py` covers the secret interactions (Section 2.4): the cross sections against the appendix's closed form and quadrature of its differential cross sections, the kinematic integrals and profile tables against 30–50-digit references, the double-scalar neutrino spectrum, the coupling identities (two secondaries per absorption, four per double-scalar one), and the transport's limits (no coupling, number balance, absorption only, the narrow-width limit, the solver's dispatch and the analysis' parameters).
 
 The regression suite pins down, among other things: the closed-form Breit-Wigner angular integral against brute-force quadrature; the semi-analytic thermal momentum kernel against a dense structure-aware referee across a g_D ladder (and the sum_G linearity the coupling cache relies on, plus the cache's verification gate, bracket bounds, and bit-exact reference-path bypass); the antineutrino conjugation conventions of both potentials (including complex, CP-violating textures) across the cosmological and spatial code paths; the structure-matrix override plumbing (explicit defaults must be bit-identical to no override); the propagator against the eigendecomposition and a 50-digit matrix exponential, its unitarity at every potential from $10^{-24}$ to $10^{22}$ eV (far-eigenvector ray, single-flavor textures), the degenerate treatment of pairs below double-precision resolution, and trace conservation through the whole spatial handover; the GPU propagator port's mathematics via a numpy backend; the PREM layer-crossing closed forms and step-averaged potentials against adaptive quadrature, plus the `avg` scheme's step-count-stability certificate; the exact chord length (every chord starts on the surface); the Earth's Yukawa integral against the uniform-ball closed form at $mR$ from $10^{-7}$ to $10^8$, brute-force quadrature of the shell kernel, the long-range (enclosed-charge) limit and the exterior point source, the agreement of its two evaluations across their switch, bit-identity with the contact form at the benchmark masses, and step-count independence with the boundary layers resolved; the uniform-across-chords Earth step count (Section 3.4); the loud-NaN contract at extreme mediator masses (finite flux end-to-end, ValueError on non-finite grids); the config-wiring of every parameter that once went silently dead (`n_e_earth_cm3`, `use_SM_potential`, `use_debye_screening`, `n_cores`); Milky Way density finiteness on the galactic-center line; the absolute checks (energy at Earth below the injected, conservation through the spatial phase, vanishing mixing recovering standard propagation); and the TBB prange → spawn-pool coexistence stress test. `tests/test_transit.py` covers the transit to the Earth (Section 3.2): the graded eigensystems against 60-digit arithmetic up to potentials $10^{40}$ times the vacuum term (rank-one, full-rank and degenerate textures), the unitary logarithm, the frame table's spacing and eigenbases, the integrator against brute-force fourth-order Magnus through a $1/r$ potential that is neither adiabatic nor sudden and in the adiabatic limit, the Galactic sky-density table against fresh quadrature, the Galactic effective density's limits, the Earth's exterior against the point source and direct quadrature, and the horizon factor. `tests/test_analysis.py` covers the analysis package (surfaces against recorded FrequentistAnalysis values, fits, scans with repair and resume, intervals, the command line end to end). **Run it before and after any physics change.**
 
