@@ -47,10 +47,11 @@ for r, (reg, ylab, rtitle, yname) in enumerate(regimes):
         ax.set_title(f"{ttitle}, {rtitle}", fontsize=10)
         if r == 0 and c == 0:
             ax.legend(fontsize=7, loc="upper left")
+fig.subplots_adjust(hspace=0.32, wspace=0.28, right=0.88)
 if mesh is not None:
-    fig.colorbar(mesh, ax=axes, shrink=0.6, label=r"$\Delta\chi^2$ per mass (clipped at 8)")
+    cax = fig.add_axes([0.905, 0.25, 0.013, 0.5])
+    fig.colorbar(mesh, cax=cax, label=r"$\Delta\chi^2$ per mass (clipped at 8)")
 fig.suptitle("Projected 2050 flavor measurement (pion sources), whole sky: excluded above the red line (95%, per mass)"
              "\nhatched: the scanned couplings never reach the no-effect limit there", fontsize=11)
-fig.subplots_adjust(hspace=0.32, wspace=0.28)
 fig.savefig(out, dpi=105, bbox_inches="tight")
 print("saved", out)
