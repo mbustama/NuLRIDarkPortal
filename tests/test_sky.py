@@ -173,10 +173,11 @@ def test_yearly_angle_to_sun():
     x = sky.cos_angle_to_sun(np.array([1.0]), np.array([beta]), 20000, eccentric=False)[0]
     c = np.cos(beta)
     assert abs(np.mean(x ** 2) - c ** 2 / 2) < 1e-6 and abs(np.mean(x ** 4) - 3 * c ** 4 / 8) < 1e-6
-    xs = np.linspace(-c + 1e-9, c - 1e-9, 400001)
-    dens = sky.arcsine_density(xs, beta)
-    trapz = getattr(np, "trapezoid", None) or np.trapz      # NumPy 2 renamed it
-    assert abs(trapz(dens, xs) - 1) < 2e-3                 # endpoint singularities, cut at 1e-9
+    # the density: with x = c sin(u) it is uniform in u, p(c sin u) c cos u = 1/pi (so it integrates to 1),
+    # and the sampled fraction with |x| < c/2 is (2/pi) arcsin(1/2) = 1/3
+    u = np.linspace(-1.5, 1.5, 301)
+    assert np.allclose(sky.arcsine_density(c * np.sin(u), beta) * c * np.cos(u), 1 / np.pi, rtol=1e-12)
+    assert abs(np.mean(np.abs(x) < 0.5 * c) - 1 / 3) < 1e-3
     g = sky.SkyGrid(16)
     X = sky.cos_angle_to_sun(g.elon, g.elat, 360)
     assert abs(X.mean()) < 1e-3
