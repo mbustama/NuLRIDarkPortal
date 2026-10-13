@@ -174,8 +174,12 @@ def run_convergence():
     cases = [("tau", 5e6, 0.1, "scalar", True), ("tau", 5e6, 0.01, "scalar", True), ("universal", 1e5, 0.03, "scalar", True),
              ("e", 1e9, 1.0, "scalar", True), ("tau", 5e6, 0.1, "scalar", False), ("tau", 5e6, 0.1, "vector", True),
              ("universal", 1e3, 0.03, "vector", True), ("tau", 1e6, 0.01, "vector", False)]
-    ladder = [(200, 1), (200, 2), (400, 1), (400, 2), (400, 4), (800, 1), (800, 2)]
-    ref_N, ref_q = 1600, 4
+    # Nested grids: every coarse energy is a reference energy, so the comparison needs no interpolation.
+    # The transport's flux is a point value at each bin's centre (its absorption follows that energy's
+    # path); interpolating the reference instead puts an error of order one at a narrow resonance's edge,
+    # a step in energy, wherever two reference points straddle it.
+    ladder = [(201, 1), (201, 2), (401, 1), (401, 2), (401, 4), (801, 1), (801, 2)]
+    ref_N, ref_q = 1601, 4
     out = []
     for tex, M, g, med, maj in cases:
         gm = si.mass_basis_couplings_model(si.flavor_couplings(tex, g), U_ANA, med, maj)
@@ -194,14 +198,19 @@ def run_convergence():
             F = si.propagate_si(E, M=M, g_mass=gm, z_substeps=q, **mk, **kw)
             dtm = time.time() - t0
             r = F.sum(1) / si.free_streaming_flux(E, 4.0, H0, OM, OL, U_ANA, RHO, 2.5, 0.0, 1.0).sum(1)
-            d = np.abs(r - np.interp(np.log(E), np.log(Er), rr))[(E > 1.2e13) & (E < 1e16)]
-            rows.append(dict(N=N, q=q, time_s=dtm, max_dev=float(d.max()), median_dev=float(np.median(d)),
+            k = (ref_N - 1) // (N - 1)
+            assert np.allclose(Er[::k], E, rtol=1e-12, atol=0.0)
+            sel = (E > 1.2e13) & (E < 1e16)
+            d = np.abs(r - rr[::k])[sel]
+            rows.append(dict(N=N, q=q, time_s=dtm, max_dev=float(d.max()), E_max_dev=float(E[sel][np.argmax(d)]),
+                             median_dev=float(np.median(d)),
                              fraction_dev=float(np.max(np.abs(_fractions(E, F, U_ANA) - fr_ref)))))
             print(med, "Majorana" if maj else "Dirac", tex, M, g, rows[-1], flush=True)
         out.append(dict(mediator=med, majorana=maj, texture=tex, M_eV=M, g=g, reference=dict(N=ref_N, q=ref_q, time_s=t_ref,
                                                                     fractions=fr_ref.tolist()), ladder=rows))
-    _save("convergence", dict(note="all-flavor flux over free streaming vs the 1600-bin, 4-substep run "
-                                    "(pointwise, 1.2e4-1e7 GeV) and energy-averaged flavor fractions", cases=out))
+    _save("convergence", dict(note="all-flavor flux over free streaming vs the 1601-bin, 4-substep run at the "
+                                    "same energies (nested grids, 1.2e4-1e7 GeV) and energy-averaged flavor "
+                                    "fractions", cases=out))
 
 
 # =============================================================================

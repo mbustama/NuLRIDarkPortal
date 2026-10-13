@@ -7,9 +7,18 @@ plot_si_summary.py -- figures of the secret-interaction results of the flavor-tr
       interval at Delta chi^2 = 3.84), from output/analysis/pion_2050_case_5_si_*/data/;
   python tools/plot_si_summary.py planes2 output/figures/si_planes_two_flavor.png
       the same for couplings to two flavors (e+mu, e+tau, mu+tau) next to the universal one;
+  python tools/plot_si_summary.py planes output/figures/si_planes_vector.png vector_
+      the four planes of another model, by its configurations' tag: dirac_ (scalar, Dirac),
+      vector_ (vector, Majorana), vector_dirac_ (vector, Dirac);
   python tools/plot_si_summary.py limits output/figures/si_limits_models.png
       the 95% upper limits of the four models (scalar or vector mediator, Majorana or Dirac
       neutrinos), one panel per texture;
+  python tools/plot_si_summary.py models output/figures/si_models_spectra.png
+      one benchmark's all-flavor spectrum under the four models, from
+      output/si_validation/models.json (tools/si_validation.py models);
+  python tools/plot_si_summary.py fig3 output/figures/si_fig3_repro.png
+      2107.13568 Fig. 3 (bottom) recomputed: Majorana against Dirac, the sterile secondaries
+      dropped (as the paper does) and tracked, from output/si_validation/fig3.json;
   python tools/plot_si_summary.py paths output/figures/si_flavor_paths.png
       the energy-averaged flavor composition along a coupling ladder at four mediator masses,
       against the projected 2050 measurement, and the all-flavor spectra at g = 0.1, from
@@ -39,11 +48,11 @@ TEX2 = [("e_mu", r"$\nu_e$ and $\nu_\mu$, $g\,{\rm diag}(1, 1, 0)$"),
 RES_BAND = (np.sqrt(2 * 0.01 * 1e13 / 5.0), np.sqrt(2 * 0.051 * 3e16))
 
 
-def planes(out, textures=None):
+def planes(out, textures=None, tag=""):
     fig, axes = plt.subplots(2, 2, figsize=(11, 8.6))
     mesh = None
     for ax, (key, title) in zip(axes.ravel(), textures or TEX):
-        path = f"{REPO}/output/analysis/pion_2050_case_5_si_{key}/data/plane_m_phi_eV_g_phi.json"
+        path = f"{REPO}/output/analysis/pion_2050_case_5_si_{tag}{key}/data/plane_m_phi_eV_g_phi.json"
         if not os.path.exists(path):
             ax.text(0.5, 0.5, "not run yet", ha="center", transform=ax.transAxes)
             continue
@@ -66,7 +75,7 @@ def planes(out, textures=None):
             ax.axvspan(x[k] / h, x[k] * h, facecolor="none", edgecolor="tab:blue", hatch="///", lw=0, alpha=0.5)
         ax.set_xscale("log")
         ax.set_yscale("log")
-        ax.set_xlabel(r"$M_\phi$ [eV]")
+        ax.set_xlabel(r"$M$ [eV]")
         ax.set_ylabel(r"$g$")
         ax.set_title(title, fontsize=10)
     axes[0, 0].legend(fontsize=7, loc="lower right")
@@ -74,7 +83,8 @@ def planes(out, textures=None):
     if mesh is not None:
         cax = fig.add_axes([0.905, 0.25, 0.015, 0.5])
         fig.colorbar(mesh, cax=cax, label=r"$\Delta\chi^2$ per mass (clipped at 8)")
-    fig.suptitle("Secret neutrino interactions (scalar, Majorana), projected 2050 flavor measurement (pion sources):\n"
+    model = {m[0]: m[1] for m in MODELS}[tag]
+    fig.suptitle(f"Secret neutrino interactions ({model}), projected 2050 flavor measurement (pion sources):\n"
                  "excluded above the red line (95%, per mass); hatched: the scanned couplings never reach the "
                  "no-effect limit there", fontsize=10)
     fig.savefig(out, dpi=110, bbox_inches="tight")
@@ -119,6 +129,52 @@ def limits(out):
     fig.savefig(out, dpi=110, bbox_inches="tight")
     print("saved", out)
 
+
+def models(out):
+    d = json.load(open(f"{REPO}/output/si_validation/models.json"))
+    E = np.array(d["E_eV"]) / 1e9
+    f0 = np.array(d["fractions_free"])
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4.3), sharey=True)
+    for ax, (M, g) in zip(axes, [("5e+06", "0.03"), ("100000", "0.01")]):
+        for tag, lab, col, ls in MODELS:
+            key = {"": "scalar_majorana", "dirac_": "scalar_dirac", "vector_": "vector_majorana",
+                   "vector_dirac_": "vector_dirac"}[tag]
+            r = d["runs"][f"{key}_M{M}_g{g}"]
+            df = np.array(r["fractions"]) - f0
+            ax.plot(E, r["ratio"], ls, color=col, lw=1.6,
+                    label=lab + r": $\Delta f_{e,\mu,\tau}$ = " + ", ".join(f"{v:+.3f}" for v in df))
+        ax.axhline(1, color="gray", lw=0.5)
+        ax.set_xscale("log")
+        ax.set_xlim(E[0], E[-1])
+        ax.set_ylim(0, 2.0)
+        ax.set_xlabel(r"$E_\nu$ [GeV]")
+        ax.set_title(rf"$\nu_\tau$ couplings, $M$ = {float(M) / 1e6:g} MeV, $g$ = {g}", fontsize=10)
+        ax.legend(fontsize=7, loc="upper left")
+    axes[0].set_ylabel("all-flavor flux / no interaction")
+    fig.suptitle("The four models on one benchmark (pion sources, $E^{-2.5}$, $z \\leq 4$, analysis mixing); "
+                 r"$\Delta f$: shift of the energy-averaged flavor fractions at Earth", fontsize=10)
+    fig.tight_layout()
+    fig.savefig(out, dpi=110, bbox_inches="tight")
+    print("saved", out)
+
+
+def fig3(out):
+    d = json.load(open(f"{REPO}/output/si_validation/fig3.json"))
+    E = np.array(d["E_eV"]) / 1e9
+    fig, ax = plt.subplots(figsize=(5.6, 3.6))
+    for (lab, cv), ls in zip(d["curves"].items(), ["-", "--", ":"]):
+        ax.plot(E, cv, ls, color="C3", lw=1.6, label=lab)
+    ax.set_xscale("log")
+    ax.set_xlim(8e3, 1e6)
+    ax.set_ylim(0, 1.45)
+    ax.set_xlabel(r"$E_\nu$ [GeV]")
+    ax.set_ylabel(r"$E_\nu^2\,d\Phi/dE_\nu$ / no interaction")
+    ax.legend(fontsize=8, loc="lower left")
+    ax.set_title(r"$\nu_\tau$, $M$ = 5 MeV, $g$ = 0.01, $E^{-2}$, $\Sigma m_\nu$ = 0.1 eV (NO); cf. 2107.13568 Fig. 3",
+                 fontsize=8.5)
+    fig.tight_layout()
+    fig.savefig(out, dpi=120)
+    print("saved", out)
 
 def paths(out):
     from analysis import surfaces
@@ -177,5 +233,7 @@ def paths(out):
 if __name__ == "__main__":
     if sys.argv[1] == "planes2":
         planes(sys.argv[2], TEX2)       # the two-flavor textures and the universal one
+    elif sys.argv[1] == "planes" and len(sys.argv) > 3:
+        planes(sys.argv[2], tag=sys.argv[3])
     else:
-        {"planes": planes, "paths": paths, "limits": limits}[sys.argv[1]](sys.argv[2])
+        {"planes": planes, "paths": paths, "limits": limits, "models": models, "fig3": fig3}[sys.argv[1]](sys.argv[2])
