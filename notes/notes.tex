@@ -705,10 +705,13 @@ weights (Sec.~\ref{sec:earth}); the per-direction output of Sec.~\ref{sec:plan} 
 detector's acceptance.
 
 \textit{Implementation queue.}---The core-count fix is done (2026-10-12): pools are sized from the
-process's CPU affinity capped by the SLURM allocation, not from the machine's core count. Next,
-in order: the Tycho setup and its validation job, the per-direction solver output, the muon
-channel, the starting-event channel with the systematic uncertainties, then the statistical
-tests of Sec.~\ref{sec:soundness}. The details are in \file{docs/dev/WORK_PLAN.md}.
+process's CPU affinity capped by the SLURM allocation, not from the machine's core count. Tycho
+is set up (2026-10-13, \file{slurm/README.md}): an environment pinned to the laptop's versions,
+job scripts for the tests, the four-point validation (\file{tools/validate\_record.py}) and the
+analysis; the test suite passes there. Next, in order: the per-direction solver output (the
+whole-sky average is done), the muon channel, the starting-event channel with the systematic
+uncertainties, then the statistical tests of Sec.~\ref{sec:soundness}. The details are in
+\file{docs/dev/WORK_PLAN.md}.
 
 %==============================================================================
 \appendix

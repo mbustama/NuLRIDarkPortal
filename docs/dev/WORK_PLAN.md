@@ -28,7 +28,9 @@ work on Tycho; show the statistical analysis is sound with coverage tests.
    execution.n_cores`, the clamp in `dp_spatial.propagate_earth_spatial`, `dark_portal_scanner`,
    and `tools/convergence_study.py`. Use `SLURM_CPUS_PER_TASK`, then `os.sched_getaffinity`, then
    `cpu_count`. No change on the laptop.
-2. **Tycho setup**, following GRBsim and NuFlavorSingleSource: clone over SSH to
+2. **Tycho setup** -- **done** 2026-10-13 (`slurm/README.md`; env `conda_envs/nulri`, suite passes there,
+   108 passed in 48 s on node800; the four-point validation is `slurm/validate.sh`). Original note,
+   following GRBsim and NuFlavorSingleSource: clone over SSH to
    `/lustre/astro/mbustama/NuLRIDarkPortal`, conda environment on lustre pinned to the laptop's
    versions, `slurm/common.sh` plus job scripts, logs in `logs/`. First job: the four-point
    validation against laptop results, judged by the usual cross-machine rules (fp floor at
@@ -36,7 +38,8 @@ work on Tycho; show the statistical analysis is sound with coverage tests.
    others since `2066f3b`).
    Partitions `astro3_devel` / `astro3_short` / `astro3_long`; 16 cores by default, up to 32 per
    job, more only on request. Installs and large downloads go on Tycho, not the laptop.
-3. **Per-direction solver output.** The solver returns one flux, the average over up-going
+3. **Per-direction solver output** (the whole-sky average with equal weights is done, 2026-10-13).
+   The solver returns one flux, the average over up-going
    Earth chords. The detector responses depend strongly on direction (DR2: straight up-going is
    ~20x below horizontal at 1 PeV), and starting events also come from above. Return the flux
    per zenith bin and add down-going chords (their path is only the overburden; the geometry code
