@@ -252,7 +252,7 @@ def propagator_3x3(H: np.ndarray, t: float, out: np.ndarray):
     out[2, 1] = gc * (v2 * np.conjugate(v1)) + ga * (p2 * np.conjugate(p1_)) + gb * (m2 * np.conjugate(m1))
 
 
-@njit(fastmath=True, cache=True)
+@njit(fastmath=True, error_model="numpy", cache=True)
 def eigenvectors_3x3(H: np.ndarray) -> np.ndarray:
     """Eigenvectors of a Hermitian 3x3 H, columns ordered by ASCENDING eigenvalue --
     the same convention as np.linalg.eigh, whose call in the cosmological mixing loop

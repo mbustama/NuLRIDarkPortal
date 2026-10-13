@@ -11,12 +11,12 @@ from dp_core import njit, prange, GeV, G_F, cm_inv3_to_eV3, calc_debye_mass_sq
 from dp_propagator import eigenvectors_3x3
 from dp_transit import frame_at
 
-@njit(fastmath=True, cache=True)
+@njit(fastmath=True, error_model="numpy", cache=True)
 def calc_H_Hubble(z: float, H0: float, Omega_m: float, Omega_L: float) -> float:
     """Calculates the Hubble expansion rate H(z) at redshift z in a flat LCDM universe."""
     return H0 * np.sqrt(Omega_m * (1.0 + z)**3 + Omega_L)
 
-@njit(fastmath=True, cache=True)
+@njit(fastmath=True, error_model="numpy", cache=True)
 def calc_R_source(z: float, rho_evol: float) -> float:
     """Calculates the cosmological source distribution R(z) relative to z=0."""
     if z < 1.0:
@@ -141,7 +141,7 @@ def _build_sigma_projection_table(Q: np.ndarray, Mp: np.ndarray, s: np.ndarray, 
                 table[k, a, b] = U[a, b].real**2 + U[a, b].imag**2
     return table
 
-@njit(fastmath=True, cache=True)
+@njit(fastmath=True, error_model="numpy", cache=True)
 def _absorption_factors(G: float, dt: float):
     """For dF/dt = -G F + S over a step dt with constant G and S: returns
     (e, a1, g) = (exp(-G dt), (1 - exp(-G dt))/G, dt - a1), so that
@@ -159,7 +159,7 @@ def _absorption_factors(G: float, dt: float):
     return e, a1, dt - a1
 
 
-@njit(fastmath=True, cache=True, parallel=True)
+@njit(fastmath=True, error_model="numpy", cache=True, parallel=True)
 def _cosmo_projections(E_bins: np.ndarray, P_table: np.ndarray, log_s0: float, inv_dlogs: float,
                        c_z: float, P_all: np.ndarray):
     """|U|^2 projections at every energy of one z-step from the sigma-table (see
@@ -189,7 +189,7 @@ def _cosmo_projections(E_bins: np.ndarray, P_table: np.ndarray, log_s0: float, i
                 P_all[i, a, k] = (1.0 - w) * P_table[k0, a, k] + w * P_table[k0 + 1, a, k]
 
 
-@njit(fastmath=True, cache=True)
+@njit(fastmath=True, error_model="numpy", cache=True)
 def step_cosmological_pair(z: float, dt: float, R_z: float, E_bins: np.ndarray,
                            F_nu: np.ndarray, F_nb: np.ndarray, w_nu: float, w_nb: float,
                            rho_src: np.ndarray,

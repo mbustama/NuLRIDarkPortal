@@ -721,6 +721,19 @@ then; their size on the corrected solver is not known. \note{Re-measure}
 \texttt{135ed02}) and $0.71$~s after them ($1.04$~s on one core). \note{VERIFY: find what
 changed between July and \texttt{135ed02}}
 
+\textit{Thermal-rate tails.}---Far from resonance, where the rates are $10^{-6}$ to $10^{-10}$ of
+their peak, the semi-analytic kernel's results are dominated by rounding: a change in how numba
+compiles it (2026-10-13, numpy's error model for the fastmath kernels) moved them by up to
+$70\%$, while within $10^{-3}$ of the peak they agree to $3\times10^{-12}$. At ``strong'' this moves
+the flux in its absorption dip by $7\times10^{-6}$ and the flavor fractions by $5\times10^{-10}$; the
+same happens between machines. \note{Check whether those cells' optical depths matter anywhere in
+the planes}
+
+\textit{Numba on Tycho's Zen 4 nodes.}---Compiled for the AMD EPYC 9554 with every fastmath flag,
+numba's division-by-zero check in the Earth's Yukawa evaluation fired spuriously (the division
+itself was correct), failing the first potential-plane jobs. The fastmath kernels now use numpy's
+error model (\file{src/dp\_core.py}); the solver's own finiteness checks remain.
+
 \textit{Up-going only (resolved 2026-10-13).}---The average now covers the whole sky with equal
 weights (Sec.~\ref{sec:earth}); the per-direction output of Sec.~\ref{sec:plan} will add the
 detector's acceptance.

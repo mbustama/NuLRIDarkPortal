@@ -48,7 +48,7 @@ _HI_DISC = (53.1, 7.0, 4.0, 0.085)      # Sigma_0 [Msun/pc^2], R_d, R_m, z_d [kp
 _H2_DISC = (2180.0, 1.5, 12.0, 0.045)
 
 
-@njit("float64(float64, float64, float64, float64, float64, float64)", fastmath=True, cache=True)
+@njit("float64(float64, float64, float64, float64, float64, float64)", fastmath=True, error_model="numpy", cache=True)
 def _gas_disc_density(R_kpc: float, z_kpc: float, Sigma_0: float, R_d: float, R_m: float,
                       z_d: float) -> float:
     """Mass density (Msun/pc^3) of a McMillan (2017) gas disc at cylindrical radius R_kpc and
@@ -62,7 +62,7 @@ def _gas_disc_density(R_kpc: float, z_kpc: float, Sigma_0: float, R_d: float, R_
     return Sigma_0 / (4.0 * z_d * 1e3) * np.exp(-R_m / R_kpc - R_kpc / R_d) * sech2
 
 
-@njit("float64(float64, float64, float64)", fastmath=True, cache=True)
+@njit("float64(float64, float64, float64)", fastmath=True, error_model="numpy", cache=True)
 def calc_MW_neutron_density(r_kpc: float, theta: float, phi: float) -> float:
     """Calculates the Milky Way neutron number density (cm^-3) at a given location.
 
@@ -101,7 +101,7 @@ def calc_MW_neutron_density(r_kpc: float, theta: float, phi: float) -> float:
               + n_e_gas * _MW_NEUTRONS_PER_ELECTRON_GAS)
     return n_n_MW
 
-@njit("float64(float64)", fastmath=True, cache=True)
+@njit("float64(float64)", fastmath=True, error_model="numpy", cache=True)
 def calc_earth_density(r_km: float) -> float:
     """Returns the Earth's density at a distance r_km from the center using PREM layers."""
     x = r_km / 6371.0
@@ -149,7 +149,7 @@ _EARTH_R_CORE_KM = 3480.0
 _EARTH_R_OCEAN_FLOOR_KM = 6368.0
 
 
-@njit("float64(float64)", fastmath=True, cache=True)
+@njit("float64(float64)", fastmath=True, error_model="numpy", cache=True)
 def earth_neutrons_per_gram(r_km: float) -> float:
     """Neutrons per gram of PREM matter at geocentric radius r_km: core, mantle and crust
     from their electron fractions, the top layer as water (see the constants above)."""
@@ -161,7 +161,7 @@ def earth_neutrons_per_gram(r_km: float) -> float:
         return 8.0 / 18.015 * _AVOGADRO
 
 
-@njit("float64(float64, float64)", fastmath=True, cache=True)
+@njit("float64(float64, float64)", fastmath=True, error_model="numpy", cache=True)
 def get_baseline_earth(d_km: float, costh: float) -> float:
     """Path length (km) inside the Earth from the surface to a detector at depth d_km, for a
     neutrino arriving at zenith cosine costh (-1: up through the centre, 0: horizontal).
@@ -183,7 +183,7 @@ def get_baseline_earth(d_km: float, costh: float) -> float:
 # =============================================================================
 
 
-@njit(fastmath=True, cache=True)
+@njit(fastmath=True, error_model="numpy", cache=True)
 def chord_radius(f1: float, f2: float, costh: float) -> float:
     """Geocentric radius sqrt(f1^2 + f2^2 + 2 f1 f2 costh) of the chord point at distance f1
     from the detector (radius f2), written as a sum of squares,
@@ -196,7 +196,7 @@ def chord_radius(f1: float, f2: float, costh: float) -> float:
     return np.sqrt(a * a + f2 * f2 * ((1.0 - costh) * (1.0 + costh)))
 
 
-@njit(fastmath=True, cache=True)
+@njit(fastmath=True, error_model="numpy", cache=True)
 def spatial_total_density_earth(l_km: float, baseline_km: float, costh: float,
                                 detector_depth_km: float, n_n_amb_eV3: float) -> float:
     """Total neutron number density (eV^3) at path position l_km along an Earth chord:
@@ -378,7 +378,7 @@ def earth_yukawa_table(m_eff_eV, mode=None):
     return yukawa_profile_table(_PREM_EDGES_KM, _PREM_F_COEFFS, m_km, mode)
 
 
-@njit(fastmath=True, cache=True)
+@njit(fastmath=True, error_model="numpy", cache=True)
 def _yk_shell(r: float, edges: np.ndarray) -> int:
     """Index s of the shell (edges[s], edges[s+1]] holding r, with calc_earth_density's
     convention that a boundary radius belongs to the shell below it."""
@@ -389,7 +389,7 @@ def _yk_shell(r: float, edges: np.ndarray) -> int:
     return S - 1
 
 
-@njit(fastmath=True, cache=True)
+@njit(fastmath=True, error_model="numpy", cache=True)
 def _yk_delta_heavy(r: float, yk) -> float:
     """Heavy-mode n_eff(r) - n(r) (cm^-3) for 0 <= r <= R: the polynomial correction plus the
     boundary layers E(r) of the section notes. Arguments: r -- radius (km); yk -- a table."""
@@ -407,7 +407,7 @@ def _yk_delta_heavy(r: float, yk) -> float:
     return (f2 + f4 * im2) * im2 / rr + (m / rr) * E
 
 
-@njit(fastmath=True, cache=True)
+@njit(fastmath=True, error_model="numpy", cache=True)
 def _yk_direct(r: float, yk) -> float:
     """Direct-mode n_eff(r) (cm^-3) for 0 <= r <= R: P and Q at the node below and above r,
     plus Gauss-Legendre over the partial sub-interval. Arguments: r (km); yk -- a table."""
@@ -444,7 +444,7 @@ def _yk_direct(r: float, yk) -> float:
     return (m / rr) * (P - 0.5 * np.expm1(-2.0 * m * rr) * Q)
 
 
-@njit(fastmath=True, cache=True)
+@njit(fastmath=True, error_model="numpy", cache=True)
 def _yk_extra_cm3(r: float, yk) -> float:
     """The part of n_eff (cm^-3) that the contact density n(r) leaves out: zero for the
     contact table, n_eff - n in heavy mode, all of n_eff in direct mode, and the exterior
@@ -462,7 +462,7 @@ def _yk_extra_cm3(r: float, yk) -> float:
     return _yk_delta_heavy(r, yk)
 
 
-@njit(fastmath=True, cache=True)
+@njit(fastmath=True, error_model="numpy", cache=True)
 def yukawa_profile_density(r: float, yk) -> float:
     """n_eff(r) (cm^-3) of the profile a table was built from, its local density taken from the
     table's own polynomials. Arguments: r -- radius (km); yk -- a yukawa_profile_table."""
@@ -479,7 +479,7 @@ def yukawa_profile_density(r: float, yk) -> float:
     return n
 
 
-@njit(fastmath=True, cache=True)
+@njit(fastmath=True, error_model="numpy", cache=True)
 def earth_neutron_density_cm3(r_km: float, yk) -> float:
     """The Earth's effective neutron density n_eff (cm^-3) at geocentric radius r_km: the
     density whose contact potential Coef * n_eff equals the Yukawa potential of all of PREM's
@@ -496,7 +496,7 @@ def earth_neutron_density_cm3(r_km: float, yk) -> float:
     return n
 
 
-@njit(fastmath=True, cache=True)
+@njit(fastmath=True, error_model="numpy", cache=True)
 def earth_total_density(l_km: float, baseline_km: float, costh: float,
                         detector_depth_km: float, n_n_amb_eV3: float, yk) -> float:
     """spatial_total_density_earth with the Earth's own neutrons entering through their
@@ -518,7 +518,7 @@ def earth_total_density(l_km: float, baseline_km: float, costh: float,
     return n_tot
 
 
-@njit(fastmath=True, cache=True)
+@njit(fastmath=True, error_model="numpy", cache=True)
 def _yk_layer_width(m: float, r_b: float, t_abs: float) -> float:
     """Width along a chord of the boundary layer at radius r_b, met at distance t_abs from the
     chord's closest approach to the centre: 1/(m |dr/dl|) with |dr/dl| = t_abs/r_b, capped at
@@ -530,7 +530,7 @@ def _yk_layer_width(m: float, r_b: float, t_abs: float) -> float:
     return w_graze
 
 
-@njit(fastmath=True, cache=True)
+@njit(fastmath=True, error_model="numpy", cache=True)
 def _earth_chord_features(baseline_km: float, costh: float, detector_depth_km: float,
                           cross_ls: np.ndarray, yk):
     """Positions along an Earth chord (km) where n_eff has structure on the scale of the
@@ -570,7 +570,7 @@ def _earth_chord_features(baseline_km: float, costh: float, detector_depth_km: f
     return feat_l[:n].copy(), feat_w[:n].copy()
 
 
-@njit(fastmath=True, cache=True)
+@njit(fastmath=True, error_model="numpy", cache=True)
 def _yk_graded_integral(A: float, B: float, feat_l: np.ndarray, feat_w: np.ndarray,
                         w_min: float, baseline_km: float, costh: float,
                         detector_depth_km: float, yk, glx: np.ndarray, glw: np.ndarray) -> float:
@@ -639,7 +639,7 @@ def _yk_graded_integral(A: float, B: float, feat_l: np.ndarray, feat_w: np.ndarr
     return total
 
 
-@njit(fastmath=True, cache=True)
+@njit(fastmath=True, error_model="numpy", cache=True)
 def _evolve_rho_all_bins(E_bins: np.ndarray, rho: np.ndarray, M_rot: np.ndarray,
                          V_const: np.ndarray, dr_eV_inv: float,
                          H_buf: np.ndarray, U_buf: np.ndarray, T_buf: np.ndarray):
@@ -681,7 +681,7 @@ def _evolve_rho_all_bins(E_bins: np.ndarray, rho: np.ndarray, M_rot: np.ndarray,
                 rho[i, a, b] = val
                 rho[i, b, a] = np.conjugate(val)
 
-@njit(fastmath=True, cache=True)
+@njit(fastmath=True, error_model="numpy", cache=True)
 def step_earth_transit(l_km: float, baseline_km: float, costh: float, dr_earth_eV_inv: float,
                        E_bins: np.ndarray, rho_earth: np.ndarray, M_rot: np.ndarray,
                        n_n_amb_eV3: float, Coef: float, U_LRI_struct: np.ndarray,
@@ -735,7 +735,7 @@ def _earth_layer_crossings(baseline_km: float, costh: float, detector_depth_km: 
     return np.array(sorted(ls), dtype=np.float64)
 
 
-@njit(fastmath=True, cache=True)
+@njit(fastmath=True, error_model="numpy", cache=True)
 def _avg_earth_density_seq(baseline_km: float, costh: float, N_steps: int,
                            detector_depth_km: float, n_n_amb_eV3: float,
                            cross_ls: np.ndarray, glx: np.ndarray, glw: np.ndarray,
@@ -849,7 +849,7 @@ _ZENITH_YUKAWA_MIN_M_EV = 2e-5
 _zenith_column_cache = {}
 
 
-@njit(fastmath=True, cache=True)
+@njit(fastmath=True, error_model="numpy", cache=True)
 def _earth_layer_crossings_nb(baseline_km: float, costh: float, detector_depth_km: float) -> np.ndarray:
     """numba twin of _earth_layer_crossings (same closed form and end margin), for the
     zenith fine grid, which needs thousands of chords. Arguments and return as there."""
@@ -870,7 +870,7 @@ def _earth_layer_crossings_nb(baseline_km: float, costh: float, detector_depth_k
     return np.sort(out[:n])
 
 
-@njit(fastmath=True, cache=True)
+@njit(fastmath=True, error_model="numpy", cache=True)
 def _earth_columns(costh_arr: np.ndarray, detector_depth_km: float, n_n_amb_eV3: float,
                    yk) -> np.ndarray:
     """Column of total density int n_tot dl (eV^3 km) along the chord of each costh, with
@@ -1056,7 +1056,7 @@ _EXT_R_SPLIT = 2.0                  # r_split / R
 _EXT_N_STEPS = 8
 
 
-@njit(fastmath=True, cache=True)
+@njit(fastmath=True, error_model="numpy", cache=True)
 def _ext_density_cm3(r_km: float, yk) -> float:
     """The Earth's exterior n_eff (cm^-3) at r_km >= R, from the Yukawa table yk."""
     par = yk[0]
@@ -1070,7 +1070,7 @@ def _ext_density_cm3(r_km: float, yk) -> float:
     return (m / r_km) * np.exp(-m * (r_km - R)) * par[3]
 
 
-@njit(fastmath=True, cache=True)
+@njit(fastmath=True, error_model="numpy", cache=True)
 def _ext_line_column(b_km: float, r_a: float, r_b: float, yk, minus_radial: bool,
                      glx: np.ndarray, glw: np.ndarray) -> float:
     """int_{r_a}^{r_b} n_eff(r) J(r) dr (cm^-3 km) along a line at distance b from the centre
@@ -1111,7 +1111,7 @@ def _ext_line_column(b_km: float, r_a: float, r_b: float, yk, minus_radial: bool
     return total
 
 
-@njit(fastmath=True, cache=True)
+@njit(fastmath=True, error_model="numpy", cache=True)
 def earth_exterior_chord(costh: float, detector_depth_km: float, yk, glx: np.ndarray,
                          glw: np.ndarray):
     """The exterior part of the chord at zenith cosine costh (section notes above): returns
@@ -1141,7 +1141,7 @@ def earth_exterior_active(m_eff_eV: float) -> bool:
     return 0.0 < m_eff_eV <= _ZENITH_YUKAWA_MIN_M_EV
 
 
-@njit(fastmath=True, cache=True)
+@njit(fastmath=True, error_model="numpy", cache=True)
 def _earth_exterior_columns(costh_arr: np.ndarray, detector_depth_km: float, n_n_amb_eV3: float,
                             yk, glx: np.ndarray, glw: np.ndarray) -> np.ndarray:
     """Exterior column (eV^3 km) of each costh: its steps' Earth columns and ambient density

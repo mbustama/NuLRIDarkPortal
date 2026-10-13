@@ -32,7 +32,7 @@ except ImportError:
 from dark_portal_solver import compute_dE_geometric
 
 
-@njit("float64[:](float64[:], float64[:,:])", fastmath=True, cache=True)
+@njit("float64[:](float64[:], float64[:,:])", fastmath=True, error_model="numpy", cache=True)
 def compute_energy_averaged_ratios(E_bins: np.ndarray, Flux_array: np.ndarray) -> np.ndarray:
     """
     Computes the energy-averaged flavor ratios over the fully integrated spectrum.

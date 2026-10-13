@@ -10,7 +10,7 @@ import numpy as np
 
 from dp_core import njit, prange, cm_inv3_to_eV3
 
-@njit(fastmath=True, cache=True)
+@njit(fastmath=True, error_model="numpy", cache=True)
 def thermal_averaged_rates_flavor(E0: float, z: float, sum_G: float, sum_G_alpha: np.ndarray, 
                                   m_Zd: float, m_nu_bg_arr: np.ndarray, T_nu0: float, 
                                   eta_mass: np.ndarray) -> np.ndarray:
@@ -332,7 +332,7 @@ def thermal_averaged_rates_flavor_analytic(E0: float, z: float, sum_G: float,
 
     return rates
 
-@njit(fastmath=True, cache=True, parallel=True)
+@njit(fastmath=True, error_model="numpy", cache=True, parallel=True)
 def precompute_all_thermal_rates_analytic(E_bins: np.ndarray, z_bins: np.ndarray, sum_G: float,
                                           sum_G_alpha: np.ndarray, m_Zd: float, m_nu_bg_arr: np.ndarray,
                                           T_nu0: float, eta_mass: np.ndarray,
@@ -377,7 +377,7 @@ _FD16 = np.ascontiguousarray(1.0 / (np.exp(10.0 * (1.0 + _GL16_X)) + 1.0))
 # That analytic path now exists (thermal_averaged_rates_flavor_analytic above, the
 # default); THIS midpoint kernel remains the reference implementation, selectable via
 # grid.thermal_analytic = false.
-@njit(fastmath=True, cache=True, parallel=True)
+@njit(fastmath=True, error_model="numpy", cache=True, parallel=True)
 def precompute_all_thermal_rates(E_bins: np.ndarray, z_bins: np.ndarray, sum_G: float,
                                  sum_G_alpha: np.ndarray, m_Zd: float, m_nu_bg_arr: np.ndarray,
                                  T_nu0: float, eta_mass: np.ndarray) -> np.ndarray:
@@ -394,7 +394,7 @@ def precompute_all_thermal_rates(E_bins: np.ndarray, z_bins: np.ndarray, sum_G: 
             Gamma_grid[k, i, :] = thermal_averaged_rates_flavor(E_bins[i], z_bins[k], sum_G, sum_G_alpha, m_Zd, m_nu_bg_arr, T_nu0, eta_mass)
     return Gamma_grid
 
-@njit(fastmath=True, cache=True, parallel=True)
+@njit(fastmath=True, error_model="numpy", cache=True, parallel=True)
 def _interp_thermal_grid_z(Gamma_sub: np.ndarray, N_z: int) -> np.ndarray:
     """Linearly interpolates a thermal-rate grid computed on a coarse uniform z-subgrid
     onto the full uniform z-grid. Both grids are uniform linspaces over the same

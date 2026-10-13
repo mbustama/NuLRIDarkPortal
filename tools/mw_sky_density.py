@@ -80,8 +80,13 @@ def sky_average(r_kpc: float) -> float:
     return float(_sky_average(r_kpc, np.ascontiguousarray(mu_b), np.ascontiguousarray(phi_b), GL16_X, GL16_W))
 
 
+def _body(fn) -> str:
+    """A function's source without its decorator lines: compiler options do not change the model."""
+    return "\n".join(line for line in inspect.getsource(fn).split("\n") if not line.lstrip().startswith("@"))
+
+
 def model_digest() -> str:
-    src = inspect.getsource(dp_spatial.calc_MW_neutron_density) + inspect.getsource(dp_spatial._gas_disc_density)
+    src = _body(dp_spatial.calc_MW_neutron_density) + _body(dp_spatial._gas_disc_density)
     consts = repr((dp_spatial._MW_NEUTRONS_PER_NUCLEON_STARS, dp_spatial._MW_NEUTRONS_PER_ELECTRON_GAS,
                    dp_spatial._NUCLEONS_PER_CM3_PER_MSUN_PC3, dp_spatial._MW_NEUTRONS_PER_NUCLEON_COLD_GAS,
                    dp_spatial._HI_DISC, dp_spatial._H2_DISC))

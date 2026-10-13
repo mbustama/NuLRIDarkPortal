@@ -1,7 +1,7 @@
 {
  "provenance": {
   "host": "laptop-6",
-  "commit": "81c04b06fc3863d4c339126a603da64252df7d55",
+  "commit": "45fba73992be895c94b6ce4c41ba4010532879aa",
   "dirty": true,
   "cores": 8,
   "python": "3.12.7",
@@ -25,24 +25,24 @@
    "parameters": {
     "m_Zd_eV": 300000.0
    },
-   "energy_over_no_interaction": 0.9991006000392788,
-   "number_over_no_interaction": 0.9982672700809234,
+   "energy_over_no_interaction": 0.9991006000401148,
+   "number_over_no_interaction": 0.9982672700820581,
    "fractions": [
-    0.32902660200542083,
-    0.3289614358468703,
-    0.34201196214770885
+    0.32902660200541184,
+    0.3289614358468615,
+    0.3420119621477266
    ]
   },
   "inband": {
    "parameters": {
     "m_Zd_eV": 2000000.0
    },
-   "energy_over_no_interaction": 0.9413507337257331,
-   "number_over_no_interaction": 1.0923139207281907,
+   "energy_over_no_interaction": 0.9413507337278714,
+   "number_over_no_interaction": 1.0923139207341335,
    "fractions": [
-    0.33241498392149466,
-    0.3313756860899346,
-    0.3362093299885709
+    0.33241498392150315,
+    0.33137568608995144,
+    0.3362093299885455
    ]
   },
   "strong": {
@@ -50,26 +50,26 @@
     "m_Zd_eV": 20000000.0,
     "g_D": 0.01
    },
-   "energy_over_no_interaction": 0.9999518082796447,
-   "number_over_no_interaction": 1.0007446058184415,
+   "energy_over_no_interaction": 0.9999518151065805,
+   "number_over_no_interaction": 1.000744636494945,
    "fractions": [
-    0.33049809268127617,
-    0.32750866852474264,
-    0.3419932387939812
+    0.33049809286244936,
+    0.32750866889004443,
+    0.34199323824750616
    ]
   },
   "cosmoX2": {
    "parameters": {
     "m_Zd_eV": 40.0
    },
-   "energy_over_no_interaction": 0.9994387753171919,
-   "number_over_no_interaction": 0.9990083672473195,
+   "energy_over_no_interaction": 0.9994387753130135,
+   "number_over_no_interaction": 0.999008367235372,
    "fractions": [
-    0.3289946793960196,
-    0.32899467939640303,
-    0.3420106412075774
+    0.32899467939597177,
+    0.3289946793963551,
+    0.34201064120767316
    ]
   }
  },
- "seconds": 3.313017384032719
+ "seconds": 2.756659710081294
 }
