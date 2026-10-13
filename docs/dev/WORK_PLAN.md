@@ -34,6 +34,17 @@ Decisions after the assessment (AskUserQuestion, same day):
   g^4/16pi in the paper's likelihood but g^4/4pi elsewhere in that code) and 2107.13568's
   spectra (full against s-channel only and the delta-function approximation).
 
+**Status (2026-10-13).** The scalar mediator with Majorana neutrinos is done: `src/dp_si.py`
+(`781ae43`, wired in `771cd46` through `secret_interactions.enabled`), validated (`tests/test_si.py`,
+`tools/si_validation.py` on Tycho: the appendix to 1e-13, absorption against direct quadrature,
+convergence, their Fig. 5 reproduced) and run on the flavor-triangle analysis for nu_e, nu_mu,
+nu_tau and flavor-universal couplings (`analysis/configs/pion_2050_case_5_si_*.json`). One
+departure from the paper, to confirm with Mauricio: double-scalar production uses the coherent sum
+over the exchanged neutrino, ((g^2)_ij)^2, where the appendix prints sum_k g_ik^2 g_jk^2 (option
+`phiphi_coupling = "paper"`). Next: Dirac neutrinos (Table I), the vector mediator, then items 3-7.
+Known approximations: relics at rest (as both papers; matters for a nearly massless lightest
+state), the crossing step's source timing (up to 1% in the bins at a narrow resonance's edge).
+
 Findings of the assessment, to keep: absorption on the relic neutrinos is isotropic (their
 Galactic clustering adds <~1e-5 of the cosmological column), so no extra distortion toward the
 Galactic Centre; neutrinos from Galactic sources travel only kpc and stay unabsorbed, so the

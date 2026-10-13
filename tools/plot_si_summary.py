@@ -99,7 +99,8 @@ def paths(out):
         ax.set_xlim(0.15, 0.55)
         ax.set_ylim(0.2, 0.55)
         ax.set_xlabel(r"$\langle f_e \rangle$")
-        ax.set_ylabel(r"$\langle f_\mu \rangle$")
+        if c == 0:
+            ax.set_ylabel(r"$\langle f_\mu \rangle$")
         ax.set_title(title, fontsize=9)
         if c == 0:
             ax.plot([], [], "k-", lw=1, label="2050 projection, 68%")
@@ -114,8 +115,8 @@ def paths(out):
         ax2.set_xscale("log")
         ax2.set_ylim(0, 2.2)
         ax2.set_xlabel(r"$E_\nu$ [GeV]")
-        ax2.set_ylabel(f"all-flavor flux / no interaction, g = {d['spectrum_g']}")
         if c == 0:
+            ax2.set_ylabel(f"all-flavor flux / no interaction ($g$ = {d['spectrum_g']})")
             ax2.legend(fontsize=7)
     cb = fig.colorbar(sc, ax=axes[0, :], fraction=0.015, pad=0.01)
     cb.set_label(r"$\log_{10} g$")

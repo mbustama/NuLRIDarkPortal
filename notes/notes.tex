@@ -2,6 +2,7 @@
 
 \usepackage{amsmath,amssymb}
 \usepackage{booktabs}
+\usepackage{graphicx}
 \usepackage{multirow}
 \usepackage{array}
 \usepackage[margin=1in]{geometry}
@@ -67,7 +68,9 @@ its Yukawa-smoothed density, and coherent through the Sun's potential and the Ea
 with eigenvectors that stay accurate at potentials $10^{40}$ times the vacuum term; the
 cosmological potential no longer stops growing below $3\times10^{-13}$~eV. Every result of the
 statistical analysis, and every effect size quoted for the earlier corrections, was obtained
-before these fixes.
+before these fixes. Also on 2026-10-13 the project widened to secret neutrino interactions in
+general (Sec.~\ref{sec:si}): a scalar mediator with the full cross sections of arXiv:2107.13568,
+validated against that paper and run through the flavor-triangle analysis.
 \end{minipage}}
 \end{center}
 
@@ -97,6 +100,7 @@ Systematics and coverage & Planned; list and procedure agreed & \ref{sec:syst}, 
 Neutron densities & All corrected 2026-10-12 & \ref{sec:inputs}, \ref{app:corrections} \\
 Earth-chord sampling & Floor removed by the phase-aware zenith average (2026-10-12) & \ref{sec:earth}, \ref{app:zenith} \\
 Transit to the Earth & Redesigned 2026-10-13: adiabatic Galaxy, coherent Sun and Earth exterior; checked against brute force & \ref{app:transit} \\
+Secret interactions & Scalar mediator, Majorana neutrinos, full cross sections (2026-10-13); validated; flavor-triangle planes. Dirac and vector next & \ref{sec:si} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -631,6 +635,219 @@ zero) the asymptotic thresholds can fail. For an upper limit on a coupling bound
 one-sided values are $1.64$ and $2.71$, so limits read at the two-sided values are probably
 conservative.
 Section~\ref{sec:soundness} describes the tests.
+
+%==============================================================================
+\section{Secret neutrino interactions}
+\label{sec:si}
+
+On 2026-10-13 we widened the project beyond the dark portal (decided that day; the plan is in
+\file{docs/dev/WORK_PLAN.md}): the same machinery now tests secret neutrino interactions
+generally, as in arXiv:2001.04994 (Bustamante, Rosenstr\"om, Shalgar \& Tamborra), with the full
+cross sections of arXiv:2107.13568 (Esteban, Pandey, Brdar \& Beacom, Appendix~A). The switch
+\texttt{secret\_interactions.enabled} replaces the dark portal by this model; everything
+downstream (the analysis, the scanner) is unchanged. This section describes the scalar mediator
+with Majorana neutrinos, implemented and validated on 2026-10-13 (\file{src/dp_si.py}, commits
+\texttt{781ae43}, \texttt{771cd46}); Dirac neutrinos and a vector mediator come next.
+
+\subsection{Model and cross sections}
+\label{sec:si_model}
+
+A real scalar $\phi$ of mass $M$ couples to the neutrinos as
+$-\tfrac12\sum_{\alpha\beta}g_{\alpha\beta}\,\bar\nu_\alpha\nu_\beta\,\phi$, with
+$g_{ij} = \sum_{\alpha\beta}U^*_{\alpha i}U_{\beta j}\,g_{\alpha\beta}$ in the mass basis. We take
+$g_{ij}$ real, as 2107.13568 does: this is exact for a flavor-universal coupling ($g_{ij} =
+g\,\delta_{ij}$) and for a single coupled flavor $f$, whose phases cancel in every rate, so that
+$g_{ij} = g\,|U_{fi}||U_{fj}|$; other textures must give real $g_{ij}$ (the code refuses complex
+ones). A high-energy neutrino $\nu_i$ of energy $E$ scattering on a relic $\nu_j$ at rest has
+$s = 2Em_j$. The cross sections of the appendix cover $\nu_i\nu_j\to\nu_k\nu_l$ through the $s$,
+$t$ and $u$ channels and their interference (Eqs.~A11, A12), and, above $s = 4M^2$, double-scalar
+production $\nu_i\nu_j\to\phi\phi$ through neutrino exchange (A11, A13), each scalar decaying at
+once into two neutrinos with an energy spectrum flat in $[0, E_\phi]$ (A16); the width is
+$\Gamma = (M/16\pi)\sum_{kl}g_{kl}^2$ (A15). The secondaries' energies follow from
+$t = (p_i - p_k)^2$: $E_k = E(1 + t/s)$ for a neutrino and $E_A = E(1 + (t-M^2)/s)$ for a scalar.
+
+Three readings of the appendix were settled by checks rather than assumed. The factor $1/2$ of
+Eq.~(A12) applies only to identical final states ($k = l$): with it, (A12) integrated over $t$ and
+summed over the final states reproduces (A11) to $10^{-13}$. The kinematic range of the scalar's
+$t$ is $M^2 - s/2\mp\sqrt{s(s/4 - M^2)}$, where $st + (t - M^2)^2$ vanishes; the appendix prints
+it without the factor $\sqrt s$ and the shift $M^2$. And the targets: the cross sections are summed
+over the relic's spin, and the appendix says to multiply them by half the number of targets, i.e.\
+by the density per helicity state, $n = 3\zeta(3)T_\nu^3/4\pi^2 = 56$~cm$^{-3}$ per mass state
+today. An independent narrow-width derivation agrees: an incident $\nu_L$ on an unpolarized relic
+has $\sigma = (\pi g^2/2)\,\delta(s - M^2)$ per relic, against $2\times56$ relics, while the
+appendix's $s$ channel integrates to $\pi g^2$ across the resonance (a test).
+
+One formula we do not adopt. The amplitudes of double-scalar production, Eqs.~(A3) and (A4),
+sum over the exchanged neutrino $\nu_k$; with the neutrino masses neglected in its propagator the
+sum is coherent, and the rate carries $\big(\sum_k g_{ik}g_{kj}\big)^2 = ((g^2)_{ij})^2$. The
+appendix prints $\sum_k g_{ik}^2 g_{jk}^2$ in (A10), (A11) and (A13), the incoherent sum. The two
+agree for a flavor-universal coupling; for a single flavor $f$ the printed form is smaller by
+$\sum_k|U_{fk}|^4$, about $0.35$ for $\nu_\tau$. We use the coherent form; the option
+\texttt{phiphi\_coupling = "paper"} reproduces their figures (their Fig.~4 is consistent with the
+printed form).
+
+Summed over the final states, the absorption of $\nu_a$ on the relic $\nu_r$ is
+\begin{equation}
+\sigma_{ar} = \frac{g_{ar}^2 G_2}{16\pi}\frac{s}{B} + \frac{2(g^2)_{aa}(g^2)_{rr}N_2 + (g^2)_{ar}^2 N_5}{16\pi s}
+ + \frac{2g_{ar}(g^3)_{ar}}{16\pi}\frac{(s - M^2)N_4}{B} + \frac{((g^2)_{ar})^2}{32\pi}I_{\phi\phi},
+\label{eq:si_sigma}
+\end{equation}
+with $G_2 = \sum_{kl}g_{kl}^2$, $B = (s-M^2)^2 + M^2\Gamma^2$, $N_{2,4,5}$ the integrals over the
+secondary's energy fraction $x$ of the profiles $(1-x)^2/(1-x+\mu)^2$, $(1-x)/(1-x+\mu)$ and
+$x(1-x)/[(x+\mu)(1-x+\mu)]$, $\mu = M^2/s$, and
+$I_{\phi\phi} = (s - 2M^2)\,\Phi(w)/s^2$, $\Phi(w) = 2(3 - w^2)\,\mathrm{artanh}\,w - 6w$,
+$w = \sqrt{s(s - 4M^2)}/(s - 2M^2)$. The secondaries follow the same couplings: for example the $t$
+channel gives $\nu_c$ with $x$-spectrum $g_{ac}^2(g^2)_{rr}(1-x)^2/[8\pi s(1-x+\mu)^2]$, and every
+$2\to2$ absorption yields two secondaries and every double-scalar one four (identities that a test
+checks for random couplings). The closed forms cancel catastrophically in two places, near the
+double-scalar threshold ($\Phi\sim w^5$) and far below the resonance ($N_2\sim s^2/3M^4$); there
+we use the series and Gauss--Legendre of cancellation-free integrands, and every kinematic integral
+agrees with 50-digit arithmetic to $4\times10^{-15}$ from threshold to $s/M^2 = 10^{14}$.
+
+\subsection{Transport}
+\label{sec:si_transport}
+
+Over cosmological distances the mass states decohere and there is no coherent potential to speak
+of (the relic neutrinos' own contribution to the neutrino masses through $\phi$ is negligible), so
+the transport follows the number of each mass state per unit observed energy, $F_a(E)$, on the
+solver's geometric grid; the physical energy at redshift $z$ is $E(1+z)$, so redshift losses need no
+term of their own, and the sources inject $\Phi_0[E(1+z)]^{-p}R(z)\sum_\alpha|U_{\alpha a}|^2f_{\alpha,S}$
+per unit time, as for the dark portal. Both helicities of a mass state are followed together: with
+real couplings the interaction is CP-symmetric, so their sum evolves exactly whatever the source's
+$\bar\nu/\nu$ ratio (the solver returns it split in the injection's proportions; the split of the
+secondaries is not modelled).
+
+Redshift steps are uniform in $\ln(1+z)$, one per energy bin by default
+(\texttt{z\_substeps}), so that $\mu$ of bin $j$ at the midpoint of step $m$,
+$\mu = (M^2/2E_0m_r)\,e^{-(jq + m + 1/2)\Delta}$, falls on one lattice per relic state: the exact
+bin integrals of the seven regeneration profiles are tabulated once per mediator and relic masses
+(not per coupling, so scans in $g$ reuse them; $\sim30$~MB at the analysis grid). Each step
+integrates the optical depth exactly: the Breit--Wigner terms in
+$\theta = \arctan[(s - M^2)/M\Gamma]$, in which the resonance is smooth however narrow (a crossing
+contributes $\int A(s)\,ds/B = M\Gamma^{-1}\!\int A\,d\theta$, with $A$ the slowly varying density
+and Jacobian), the others by Gauss--Legendre in $s$. Then the bins are swept from high to low
+energy, each solving its equations over the step exactly with constant rates and sources, and
+passing down the number it absorbed: its own secondaries through a $3\times3$ system over the mass
+states, those of lower bins through the tabulated profiles. The number at $z = 0$ equals the
+injected number plus the secondaries kept in the grid minus the absorbed, to $10^{-14}$. The grid
+extends tenfold above $E_{\max}$ so that what is injected above it cascades in. A run takes
+$0.3$--$1$~s at the analysis grid (400 bins, 81 steps).
+
+\subsection{Validation}
+\label{sec:si_validation}
+
+\begin{table}[h]
+\centering
+\caption{\textbf{Checks of the secret-interaction module} (\file{tests/test_si.py},
+\file{tools/si_validation.py} on Tycho). Deviations of fluxes are relative to the free-streaming
+flux at the same energy.}
+\label{tab:si_checks}
+\small
+\begin{tabular}{p{6.6cm}p{7.4cm}}
+\toprule
+Check & Result \\
+\midrule
+Channel sums vs Eq.~(A11) as printed; vs quadrature of (A12) + (A13) & $10^{-13}$ (A11 itself loses digits above $s/M^2\sim10^3$) \\
+Kinematic integrals vs 50 digits & $4\times10^{-15}$, threshold to $s/M^2 = 10^{14}$ \\
+Profile bin integrals vs 30 digits; their sums vs closed-form norms & $1.5\times10^{-14}$; $10^{-14}$, $\mu = 10^{-9}$ to $10^8$ \\
+Double-scalar neutrino spectrum vs 30 digits & $2\times10^{-10}$ \\
+No coupling vs free streaming & $10^{-14}$ \\
+Number balance & $10^{-14}$, every texture, $M$ = 1~keV--1~GeV, $g$ up to 1 \\
+Absorption alone vs quadrature of $e^{-\tau}$ along each path & median $10^{-12}$--$10^{-4}$; up to $1.2\%$ in the bins at a narrow resonance's sharp edge (one step per bin; $0.2\%$ with four) \\
+Bins and steps vs 1600 bins, four steps per bin & spectra $2\times10^{-3}$ pointwise (median $2\times10^{-4}$) at 400 bins; energy-averaged fractions $10^{-5}$ \\
+2107.13568 Fig.~5 & reproduced (Fig.~\ref{fig:si_fig5}) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The one error above the per-mille level is local and understood: within the step in which a bin
+crosses a narrow resonance, the particles injected during the step are treated as exposed to the
+step-averaged absorption, while they are in fact absorbed only if injected before the crossing.
+It is first order in the step and confined to the one or two bins at the dip's high-energy edge;
+energy-averaged fractions do not see it ($10^{-5}$). Splitting the crossing step at the crossing
+would remove it, if the event-rate analyses need it.
+
+Figure~\ref{fig:si_fig5} repeats Fig.~5 of 2107.13568 ($\nu_\tau$ couplings, $M = 5$~MeV,
+$\nusum = 0.1$~eV in normal ordering, an $E^{-2}$ flux): the two dips at
+$\Eres = M^2/2m_j$, the bump of the regenerated neutrinos below them, the slow recovery above the
+resonance at $g = 0.1$ (where the $t$ and $u$ channels and double-scalar production dominate), and
+the narrow-width approximation that does not depend on $g$ once $g\gtrsim10^{-3}$. Our full
+computation at $g = 0.1$ peaks $\sim5\%$ above theirs below the dips; with their (printed)
+double-scalar coupling the difference halves, the rest being within the differences of source
+evolution and cosmology.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.62\textwidth]{../output/figures/si_fig5_repro.png}
+\caption{\textbf{Fig.~5 of arXiv:2107.13568 recomputed} with \file{src/dp_si.py} (all-flavor flux
+over the flux without interactions; $\nu_\tau$ couplings, $M = 5$~MeV, $\nusum = 0.1$~eV in normal
+ordering, $E^{-2}$ sources up to $z = 4$; 400 bins). Thin line: the double-scalar coupling as
+printed in the paper. \file{tools/si_validation.py}~\texttt{fig5}.}
+\label{fig:si_fig5}
+\end{figure}
+
+\subsection{The flavor-triangle planes}
+\label{sec:si_planes}
+
+We ran the flavor-triangle analysis of Sec.~\ref{sec:stats} with the secret interactions in place
+of the dark portal: the projected 2050 measurement for pion sources, the projection's mixing,
+$m_{\rm lightest} = 0.01$~eV, $E^{-2.5}$ sources up to $z = 4$, the whole sky (no Earth effect
+here), and planes in $(M, g)$ for four textures, $\nu_e$, $\nu_\mu$ or $\nu_\tau$ couplings alone
+and flavor-universal ones ($49\times49$ points from 1~keV to 1~GeV and $g = 10^{-6}$ to 1, read per
+mass at $\Delta\chi^2 = 3.84$; Tycho, commit \texttt{fe8e2dc}, 4--5 minutes each on 16 cores;
+configurations \file{pion_2050_case_5_si_*.json}). Every mass column reaches the region without an
+effect: $\Delta\chi^2 = 0.00$ at $g = 10^{-6}$ (a first run starting at $g = 10^{-4}$ did not, near
+1~MeV). Figure~\ref{fig:si_planes} shows the planes and Fig.~\ref{fig:si_paths} how the composition
+moves.
+
+The limits have three regimes. Below $\sim200$~keV every resonance lies below the band and the
+non-resonant channels act alone, with $\sigma\sim g^4/8\pi s$ independent of $M$: the limit is
+flat, $g < 6\times10^{-3}$--$8\times10^{-3}$ ($\nu_e$), $8\times10^{-3}$--$10^{-2}$ ($\nu_\mu$,
+$\nu_\tau$), $5\times10^{-3}$--$8\times10^{-3}$ (universal). Between $\sim0.5$ and 3~MeV the
+resonances $\Eres = M^2/2m_j$ fall at 10--50~TeV, at the bottom of the band, where the $E^{-2.5}$
+flux dominates the energy-averaged fractions, and the limits drop by two to three decades:
+$g < 1.7\times10^{-5}$ ($\nu_e$, at 0.56~MeV), $3.1\times10^{-5}$ ($\nu_\mu$, 0.56~MeV),
+$9.0\times10^{-5}$ ($\nu_\tau$, 0.75~MeV), $8.6\times10^{-6}$ (universal, 0.56~MeV). Above, the
+resonances move above most of the flux and the limits weaken: at 10~MeV $g < 0.15$, $0.32$, $0.36$
+and $0.075$; above 30~MeV only the universal coupling is still limited ($g < 0.8$ at 100~MeV).
+
+Two features follow from flavor fractions being the only observable. Flavor-blind absorption does
+not change the composition: universal couplings act on it only through the mass-dependent resonance
+energies, and near 1~MeV the effects of the $m_3$ and the $m_{1,2}$ resonances compensate, leaving
+an allowed gap ($g < 9\times10^{-3}$ there). And as $g$ grows the composition can pass back through
+the projection's centre: thin allowed islands run through the excluded regions (Fig.~\ref{fig:si_paths}
+shows the paths, nearly straight lines through the standard point). Spectral data will remove both;
+they will also exclude much of the plane outright, since at $g\gtrsim10^{-2}$ below 1~MeV more than
+99\% of the flux below $10^7$~GeV is absorbed, which normalized fractions do not see. The resonant
+window overlaps the region below $\sim2$~MeV that Big-Bang nucleosynthesis already disfavors
+(2107.13568, Fig.~1).
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{../output/figures/si_planes_summary.png}
+\caption{\textbf{Secret-interaction exclusion planes} of the projected 2050 flavor measurement
+(pion sources; scalar mediator, Majorana neutrinos): $\Delta\chi^2$ per mediator mass and the 95\%
+upper limit (red; the top of each column's lowest allowed interval). Shaded: masses whose resonance
+falls in 10~TeV--30~PeV for some $z\le4$. \file{tools/plot_si_summary.py}~\texttt{planes}.}
+\label{fig:si_planes}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{../output/figures/si_flavor_paths.png}
+\caption{\textbf{How the composition moves.} Top: energy-averaged $(f_e, f_\mu)$ at the detector as
+$g$ goes from $10^{-3}$ to 1 at four mediator masses, against the projection's 68\% and 95\%
+contours. Bottom: the all-flavor flux at $g = 0.1$ over the flux without interactions.
+\file{tools/si_flavor_paths.py} (Tycho), \file{tools/plot_si_summary.py}~\texttt{paths}.}
+\label{fig:si_paths}
+\end{figure}
+
+\textit{Not yet included.}---Dirac neutrinos (only the visible final states of the appendix's
+Table~I regenerate) and a vector mediator (decided 2026-10-13), the relic neutrinos' thermal
+momenta (relics are at rest here, as in both papers; this matters for a nearly massless lightest
+state, whose relics are relativistic), and the timing within the crossing step
+(Sec.~\ref{sec:si_validation}).
+
 
 %==============================================================================
 \section{Planned work}
