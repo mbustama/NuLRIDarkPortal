@@ -61,8 +61,13 @@ since its first version, and corrected them: the cosmological cascade created ne
 bound, the resonant absorption did not depend on the size of the couplings, and the propagator of
 the Milky Way and Earth transits was not unitary (Appendices~\ref{app:cascade}--\ref{app:unitarity}); on 2026-10-13 we made every absorption
 feed both of its secondaries, a neutrino and an antineutrino, where only one had been kept
-(Appendix~\ref{app:regeneration}). Every result of the statistical analysis, and every effect
-size quoted for the earlier corrections, was obtained before these fixes.
+(Appendix~\ref{app:regeneration}). Also on 2026-10-13 we redesigned the transit from the
+cosmological arrival to the Earth (Appendix~\ref{app:transit}): adiabatic through the Galaxy, at
+its Yukawa-smoothed density, and coherent through the Sun's potential and the Earth's exterior,
+with eigenvectors that stay accurate at potentials $10^{40}$ times the vacuum term; the
+cosmological potential no longer stops growing below $3\times10^{-13}$~eV. Every result of the
+statistical analysis, and every effect size quoted for the earlier corrections, was obtained
+before these fixes.
 \end{minipage}}
 \end{center}
 
@@ -91,6 +96,7 @@ IceCube event rates & Planned; data sets and folding method chosen & \ref{sec:ra
 Systematics and coverage & Planned; list and procedure agreed & \ref{sec:syst}, \ref{sec:soundness} \\
 Neutron densities & All corrected 2026-10-12 & \ref{sec:inputs}, \ref{app:corrections} \\
 Earth-chord sampling & Floor removed by the phase-aware zenith average (2026-10-12) & \ref{sec:earth}, \ref{app:zenith} \\
+Transit to the Earth & Redesigned 2026-10-13: adiabatic Galaxy, coherent Sun and Earth exterior; checked against brute force & \ref{app:transit} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -165,17 +171,21 @@ full Hamiltonian. The cascade kernel is separable, which reduces the regeneratio
 integral to a suffix sum that costs $O(N_E)$ per step instead of $O(N_E^2)$
 (\texttt{step\_cosmological\_propagation} in \file{src/dp_cosmo.py}).
 
-\textit{Milky Way phase.}---At $r_{\rm start}=100$~kpc from the Sun the populations become a
-density matrix, which we evolve under the vacuum Hamiltonian plus the dark-portal potential
-sourced by the neutrons of the Galaxy, the Sun, the Moon and the Earth. We average the result over
-$n_{\rm MW}$ arrival directions (six by default), each integrated in $N_{\rm MW}$ steps
-(\file{src/dp_spatial.py}).
+\textit{Transit to the Earth (since 2026-10-13).}---Through the Galaxy the populations are
+carried adiabatically: they become the same populations of the local eigenstates at the Sun,
+where the potential is the Yukawa integral of the Galaxy's neutrons over the mediator's range.
+Through the Sun's potential and the Earth's exterior the density matrix is integrated coherently
+in the instantaneous eigenbasis, along eight directions to the Sun and one radial path for the
+Earth (\file{src/dp_transit.py}, \texttt{transit\_to\_earth} in \file{src/dp_spatial.py};
+Appendix~\ref{app:transit}). Until 2026-10-13 a Milky Way phase evolved the density matrix from
+$100$~kpc along six directions in $25$ steps each.
 
-\textit{Earth phase.}---The averaged density matrix is then evolved along $n_\oplus$ chords
-through the Earth (PREM densities, optional standard matter potential), from the surface to a
-detector $1.5$~km deep. The chords are evenly spaced in the cosine of the zenith angle between
-straight up-going ($-1$) and horizontal ($0$); the flux returned is the plain average over
-them. The flavor fluxes at the detector are the diagonal of the averaged density matrix.
+\textit{Earth phase.}---The density matrix is then evolved along $n_\oplus$ chords through the
+Earth (PREM densities, optional standard matter potential) to a detector $1.5$~km deep, starting
+at twice the Earth's radius below $m_{\rm eff} = 2\times10^{-5}$~eV, where the exterior matters.
+The chords are evenly spaced in the cosine of the zenith angle over the whole sky, and the zenith
+average integrates their dark-portal phase (Sec.~\ref{sec:earth}). The flavor fluxes at the
+detector are the diagonal of the averaged density matrix.
 
 \textit{Antineutrinos.}---The antineutrino run uses $U^*_{\rm PMNS}$ and the transformed
 potential $-V^*$ (T10). With the default \texttt{is\_antineutrino = "sum"} the two runs are
@@ -228,10 +238,12 @@ $Y_e = 0.4656$ in the core and $0.4957$ in the mantle and crust, and the composi
 PREM's top layer (Appendix~\ref{app:earthchords}).
 
 \textit{The Earth's own potential.}---The potential at a point is a Yukawa integral over the
-neutrons around it, with range $1/m$, $m = (\mzd^2 + m_D^2)^{1/2}$. Diffuse media and distant
-bodies need only its limits: a local (contact) density where $1/m$ is short, a point source
-where the body is far. Inside the Earth the range can match the size of the body, so we evaluate the integral
-itself. For a spherical profile it is one-dimensional,
+neutrons around it, with range $1/m$, $m = (\mzd^2 + m_D^2)^{1/2}$. Distant bodies need only its
+far limit, a point source; the cosmic mean density, uniform, gives $n/m^2$, cut at the Hubble
+radius (Appendix~\ref{app:transit}). A local (contact) density holds only where $1/m$ is short
+against every length over which the density varies: for the Galaxy, below $\sim10^{-25}$~eV, we
+integrate its model over the range (Appendix~\ref{app:transit}). Inside the Earth the range can
+match the size of the body, so we evaluate the integral itself. For a spherical profile it is one-dimensional,
 \begin{equation}
 n_{\rm eff}(r) = m^2\left[\frac{e^{-mr}}{r}\int_0^r r'^2 n(r')\,\frac{\sinh mr'}{mr'}\,dr'
 + \frac{\sinh mr}{mr}\int_r^R r' n(r')\,e^{-mr'}dr'\right],
@@ -267,9 +279,9 @@ Setting & Solver default & Analysis & Evidence \\
 \midrule
 Energy bins $N_E$ (10~TeV--30~PeV) & 1000 & 400 & $\le1.5\times10^{-5}$ on flavor fractions at 400 (inband), $2\times10^{-4}$ at $\mzd = 10^{-2}$~eV \\
 Redshift steps $N_z$ ($z \le 4$) & 1000 & 200 & $\le7\times10^{-6}$ at 200 \\
-Milky Way paths $n_{\rm MW}$ & 6 & 6 & 6 agree with 50 to $2\times10^{-8}$ (cosmoX2) \\
+Directions to the Sun & 8 & 8 & $\chi^2$ within $0.03$ of 32 directions (Appendix~\ref{app:transit}) \\
+Transit table spacing & $0.002$ & $0.002$ & $\sim10^{-5}$ against brute force; $\chi^2$ within $0.03$ of $0.001$ \\
 Earth chords $n_\oplus$ & 12 & 12 & 12 agree with 50 to $\le1.4\times10^{-7}$ (Appendix~\ref{app:zenith}) \\
-Milky Way steps $N_{\rm MW}$ & 25 & 25 & Converged to $\sim10^{-10}$ \\
 Earth steps $N_{\rm Earth}$ & 25 & 25 & Certified, Sec.~\ref{sec:earth} \\
 \bottomrule
 \end{tabular}
@@ -312,7 +324,11 @@ $\sigma = 2E(1+z)A(z)$, because eigenvectors are unchanged by an overall factor.
 tabulate the mixing probabilities on $4096$ nodes in $\log\sigma$ and interpolate, instead of
 computing $\sim10^6$ eigenvector sets per run. Our table agrees with direct computation to
 $2.7\times10^{-14}$ at a stress point with a level crossing in range (\file{README.md},
-Sec.~12).
+Sec.~12). Since 2026-10-13 the eigenvectors come from a Jacobi iteration in the texture's
+eigenbasis, accurate at any $\sigma$; the closed form used before lost the vacuum splitting of the
+rank-one texture's two degenerate eigenvalues once $\sigma$ exceeded $M$ by $\sim10^{13}$
+(Appendix~\ref{app:transit}). The table now stops where the eigenbasis has become the texture's
+own to $10^{-9}$.
 
 \subsection{Coherent propagation}
 
@@ -370,8 +386,10 @@ replace the equal weights in the event-rate analysis (Sec.~\ref{sec:rates}).
 
 \subsection{Parallelism and cost}
 
-Milky Way paths and Earth chords are independent; they run in a persistent pool of processes
-started with \texttt{spawn}, the start method the analysis requires. The cosmological phase
+Earth chords are independent; they run in a persistent pool of processes started with
+\texttt{spawn}, the start method the analysis requires. The transit to the Earth runs on threads,
+over energy bins, and only in the bins that a source actually turns: $\sim6$~s per evaluation
+where the Sun matters (400 bins, 8 directions), nothing elsewhere. The cosmological phase
 and the thermal grids use threads (numba, TBB layer). On the development laptop (Intel
 i5-1334U, 8 cores), a solver run at the defaults took $0.32$~s on 2026-07-29 and takes
 $0.71$~s now (Sec.~\ref{sec:open}). One likelihood evaluation at the analysis settings
@@ -379,7 +397,7 @@ $0.71$~s now (Sec.~\ref{sec:open}). One likelihood evaluation at the analysis se
 $m_{\rm eff}\approx2\times10^{-5}$~eV the Earth's Yukawa columns depend on the couplings through
 the Debye mass and are recomputed for every new point, adding $\sim0.3$~s; they are cached per
 $m_{\rm eff}$, so the antineutrino pass reuses those of the neutrino pass. Before the step count fell from 100 to 25, the Earth phase took 66\% of a
-single-core evaluation and the Milky Way phase 18\%.
+single-core evaluation and the Milky Way phase (replaced on 2026-10-13) 18\%.
 
 %==============================================================================
 \section{Validation}
@@ -462,6 +480,7 @@ Date, commit & Change & Result \\
 2026-10-12 \texttt{2066f3b} & Exactly unitary propagator & below, inband, strong unchanged to five digits; ``cosmoX2'' fractions move by $3.5\times10^{-4}$ and become reproducible (Appendix~\ref{app:unitarity}) \\
 2026-10-13 & Both secondaries of every absorption & inband fractions move by $1.8\times10^{-3}$; energy at the Earth $0.841\to0.941$ (inband), $0.982\to0.99995$ (strong) (Appendix~\ref{app:regeneration}) \\
 2026-10-13 & The whole sky at the detector & $f_e - f_\mu$ from $0$ to $10^{-3}$ (inband), $3\times10^{-3}$ (strong); energies unchanged (Sec.~\ref{sec:earth}) \\
+2026-10-13 & The transit to the Earth; the cosmological potential at ultralight masses & below, inband, strong to $3\times10^{-12}$; cosmoX2 $1.4\times10^{-3}$ pointwise, $1.8\times10^{-8}$ on the fractions, the old method's own error (Appendix~\ref{app:transit}) \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -529,7 +548,9 @@ Potential planes run from ultralight to GeV mediators in $\gd\epsp|U_{\alpha4}|^
 potential is proportional; with $\epsp = 0.1$ the absorption coupling
 $\Sigma G\approx\gd|U_{\alpha4}|^2\,\epsp g/c_W$ depends on the same product. At MeV masses the
 Earth's own potential is far from negligible: $\sim10^{-8}$~eV at $\gd\epsp = 10^{-5}$ and
-$2$~MeV, against a vacuum term of $\sim10^{-16}$~eV. Each regime is run for the three benchmark
+$2$~MeV, against a vacuum term of $\sim10^{-16}$~eV. Toward lighter mediators the potential at
+the detector comes from the Earth's exterior, then the Sun ($10^{-26}$ to $10^{-18}$~eV), then the
+Galaxy smoothed over the mediator's range (Appendix~\ref{app:transit}). Each regime is run for the three benchmark
 textures (T13), (T16), (T17). A test checks that splitting a product differently leaves the
 fractions unchanged ($10^{-12}$ with $\epsp = 0$; $10^{-6}$ for the potential).
 
@@ -1108,6 +1129,101 @@ can annihilate with once (one helicity state, $56$~cm$^{-3}$ per mass state), wh
 as written; a factor $\tfrac12$ belongs to final states integrated over all angles, where it is
 part of the width (T11), and to collision rates within one gas of identical particles.
 Equation~(T6) should include the regeneration of $\rho$ from $\bar\rho$ described above.
+
+\subsection{The transit to the Earth (2026-10-13)}
+\label{app:transit}
+
+The potential planes of Sec.~\ref{sec:stats} scan the coupling product $P = \gd\epsp|U|^2$ down to
+ultralight mediators. Their lower-left corner scattered: at $(\mzd, P) = (10^{-27}~{\rm eV},
+10^{-28})$ the $\chi^2$ was $1.83$ with the default six Milky Way directions, $14.49$ with 50 and
+$15.07$ with 200. We traced the scatter, and the physics around it, to four errors in the
+transit from the cosmological arrival to the Earth, and to a fifth in the cosmological potential.
+
+\textit{Precision.}---At large couplings the potential exceeds the vacuum term by up to
+$10^{27}$. The rank-one texture $u u^\dagger$ has two zero eigenvalues, split only by the vacuum
+term, and any method that forms the Hamiltonian first (the closed-form eigenvectors, LAPACK)
+computes its eigenvalues with an absolute error $\varepsilon\sigma$: above $\sigma/M\sim10^{13}$ the
+two states orthogonal to $u$ were rounding noise. The noise entered the cosmological mixing table
+and the start of every Milky Way path, and the average over directions converged on the average
+of the noise. We now diagonalize by Jacobi rotations in the texture's eigenbasis, where the large
+entries sit on the diagonal and the degenerate eigenvalues are exactly zero
+(\texttt{eigh\_graded}): eigenvalues and eigenvectors agree with 60-digit arithmetic to
+$3\times10^{-15}$ up to $\sigma/M = 10^{40}$, where LAPACK is wrong already at $10^{16}$ (a test,
+for rank-one, full-rank and degenerate textures).
+
+\textit{The Galactic potential.}---The Milky Way phase used the local density at every mediator
+mass. That is the Yukawa integral only for ranges short against every length over which the
+density varies; for longer ranges the potential at the Sun is set by the neutrons within the
+range, and the local form overstated it by $5\times10^{6}$ at $10^{-30}$~eV, $750$ at
+$10^{-28}$~eV, $19$ at $10^{-27}$~eV and $3$ at $10^{-26}$~eV. We now evaluate
+$n_{\rm eff}(m) = \int_0^\infty m^2 r\,e^{-mr}\,\bar n(r)\,dr$, with $\bar n(r)$ the model's density
+averaged over the sky at distance $r$ from the Sun, tabulated once by composite Gauss--Legendre
+quadrature graded toward the plane and the Galactic Centre (accurate to $4\times10^{-9}$ against
+a finer rule; \file{tools/mw\_sky\_density.py}), plus the cosmic mean beyond the Galaxy, where the
+halo falls below it ($336$~kpc). The model's exponential discs have a cusp at $z = 0$, where the
+Sun sits, so $n_{\rm eff}$ approaches the local density only as $1/m$; above $10^{-12}$~eV it is the
+local density itself, continuous to $1.5\times10^{-14}$.
+
+\textit{Adiabaticity.}---The Galactic potential changes over $\ge10$~pc, while the oscillation
+length is $\le0.005$~pc even at 30~PeV, so the transit is adiabatic: each eigenstate keeps its
+population. The 25 left-endpoint steps of 4~kpc turned every step boundary into a sudden jump of
+the eigenbasis, an error that fell only as the inverse step count: at $(10^{-12}~{\rm eV},
+10^{-24})$ the $\chi^2$ was $6.6$, $10.6$ and $13.4$ with 25, 200 and 1000 steps. We now map the
+arriving populations onto the local eigenstates directly, which is exact in the adiabatic limit
+and independent of the direction. At ``cosmoX2'' ($\mzd = 40$~eV, where the Galactic potential is
+up to $0.7\%$ of the solar vacuum term) the old method needed 50 directions to converge onto the
+new result ($4\times10^{-6}$); at its defaults it was $1.4\times10^{-3}$ off pointwise.
+
+\textit{The Sun and the Earth's exterior.}---Per unit $P$ at the Earth, the Sun's potential exceeds
+the Galaxy's above $\sim10^{-26}$~eV, as long as its range spans an AU ($\lesssim10^{-18}$~eV), and the
+Earth's own potential dominates above that. The Milky Way phase sampled the Sun only at its 4-kpc
+steps; the Earth phase then switched it on as a constant along the chords, and the chords started
+at the Earth's surface, without its exterior. Both potentials turn on over distances comparable to
+the oscillation lengths ($0.07$--$6600$~AU between 10~TeV and 30~PeV; the Earth's $1/r$ tail reaches
+hundreds of Earth radii before it falls below the vacuum term near the planes' boundary), so their
+transit can be adiabatic, sudden or in between. We integrate it in the instantaneous eigenbasis. The
+eigenvectors of $(M + \sigma S)/2E$ depend on $\sigma$ only, so one table serves every energy and
+path, with nodes no more than $\Delta\theta = 0.002$ of eigenbasis rotation apart; across a step the
+dynamic phases are integrated exactly and the non-adiabatic coupling $K/h$, $K = \log(W_n^\dagger
+W_{n+1})$, against the phase difference (first-order Magnus with a Filon rule, exact in the adiabatic
+and sudden limits). Against a fourth-order Magnus integration that resolves every oscillation (up to
+$7\times10^6$ steps) through a $1/r$ potential that is neither adiabatic nor sudden, the results agree
+to $\sim10^{-4}$ at $\Delta\theta = 0.01$ and $\sim10^{-5}$ at $0.002$, falling linearly with
+$\Delta\theta$, in $0.2$--$1$~ms per path instead of seconds (tests). The Sun's transit is averaged
+over eight Gauss--Legendre cosines of the angle to it; the Earth's exterior beyond $2R_\oplus$ is one
+radial path for all chords, inside it each chord's own line in eight steps, and each chord adds its
+line's extra column beyond $2R_\oplus$ as a phase. The Moon, at most $2\times10^{-4}$ of the Earth's
+surface potential, stays a constant background.
+
+\textit{The cosmological potential.}---\texttt{calc\_V\_LRI\_cosmo} and the mixing table used
+$1/\max(\mzd^2 + m_D^2, 10^{-25}~{\rm eV}^2)$, a guard against division by zero added on
+2026-07-20 with the FrequentistAnalysis adaptation, which capped the cosmological potential for
+every mediator lighter than $3\times10^{-13}$~eV ($10^{35}$ times too weak at $10^{-30}$~eV). The
+decided replacement is the uniform medium's Yukawa integral cut at the Hubble radius,
+$(1 - (1 + x)e^{-x})/m^2$ with $x = mR_H(z)$: $1/m^2$ above $\sim10^{-32}$~eV, $R_H^2/2$ below, with no
+division by zero.
+
+\textit{Convergence.}---On the $e\mu$ potential plane, at points chosen where each source dominates
+near the boundary of the excluded region and at the old scattered points, $\chi^2$ moves by at most
+$0.03$ from 8 to 32 directions to the Sun and from $\Delta\theta = 0.002$ to $0.001$, by at most
+$0.05$ from $400\times200$ to $800\times400$ energy and redshift bins, and by at most $0.002$ when
+the split radius doubles and the exterior steps quadruple. The old scattered points are now
+plateaus: $\chi^2 = 57.19$ at both $(10^{-27}~{\rm eV}, 10^{-28})$ and $(10^{-25}~{\rm eV},
+10^{-28})$, and $14.36$ at $(10^{-12}~{\rm eV}, 10^{-24})$, under every setting.
+
+\textit{Effect.}---At the benchmark points below, inband and strong the fluxes agree with the
+previous solver to $3\times10^{-12}$; at cosmoX2 they move by $1.4\times10^{-3}$ pointwise and the
+fractions by $1.8\times10^{-8}$, the old method's own error (above). The potential planes are
+recomputed in Sec.~\ref{sec:stats}.
+
+\textit{What this does not model.}---The cosmological phase uses the cosmic mean density
+everywhere, including at the sources, whose own environment would set the projection of the
+injected flavors for short ranges. The Local Group beyond the Galaxy (M31 adds $\sim1\%$ for ranges
+beyond 1~Mpc) is not included. The Sun's and the Earth's averages are taken independently, as if
+the Sun's direction and the zenith angle at the South Pole were uncorrelated. Inside the Earth,
+under a potential $10^{14}$ times the vacuum term, the propagator still evolves the two states
+orthogonal to the potential as degenerate (Sec.~\ref{sec:numerics}), a phase error of at most
+$8\times10^{-3}$~rad across the Earth at 10~TeV.
 
 \subsection{The mixing-parameter priors (found 2026-10-12)}
 \label{app:priors}

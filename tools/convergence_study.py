@@ -5,16 +5,16 @@ Finds the coarsest safe values of the solver's resolution parameters:
 
     n_z_bins        redshift steps of the cosmological integration
     n_E_bins        energy bins (also the cascading integral's resolution)
-    N_steps_MW      path-length steps per Milky Way trajectory
+    transit_dtheta  frame-table spacing of the transit to the Earth (dp_transit)
     N_steps_earth   path-length steps per Earth chord (NOTE: under the default
                     earth_step_scheme='avg' this axis is certified step-count-
                     independent -- N = 8..1000 agree to <= 5e-9 at the standard
                     validation points -- so ladders on it mainly diagnose the
                     legacy 'left' scheme; the chord-count axis still matters)
-    n_mw_paths      Milky Way trajectories in the solid-angle average
+    n_sun_paths     directions to the Sun in its coherent transit
     n_earth_chords  Earth chords in the zenith average
 
-For each axis it runs the FULL production pipeline (run_solver: real Milky Way state,
+For each axis it runs the FULL production pipeline (run_solver: real transit state,
 both neutrinos and antineutrinos, all config plumbing) over a ladder of values, holding
 every other parameter at its production value, and compares each rung against the finest
 rung of the ladder (the reference). The comparison metric is the MAXIMUM relative
@@ -84,31 +84,32 @@ _CONFIG_TEMPLATE = None
 DEFAULT_LADDERS = {
     "n_z_bins":       {"values": [100, 200, 400, 700, 1000], "reference": 1500},
     "n_E_bins":       {"values": [100, 200, 400, 700, 1000], "reference": 1500},
-    "N_steps_MW":     {"values": [25, 50, 100, 200],          "reference": 400},
+    "transit_dtheta": {"values": [0.01, 0.005, 0.002, 0.001], "reference": 0.0004},
     "N_steps_earth":  {"values": [125, 250, 500, 1000],       "reference": 2000},
-    "n_mw_paths":     {"values": [6, 12, 25, 50],             "reference": 100},
+    "n_sun_paths":    {"values": [4, 8, 16, 32],              "reference": 64},
     "n_earth_chords": {"values": [3, 6, 12, 25, 50],          "reference": 100},
 }
 
 QUICK_LADDERS = {
     "n_z_bins":       {"values": [50, 100, 200], "reference": 400},
     "n_E_bins":       {"values": [50, 100, 200], "reference": 400},
-    "N_steps_MW":     {"values": [10, 25, 50],   "reference": 100},
+    "transit_dtheta": {"values": [0.02, 0.01, 0.005], "reference": 0.002},
     "N_steps_earth":  {"values": [50, 125, 250], "reference": 500},
-    "n_mw_paths":     {"values": [2, 6, 12],     "reference": 25},
+    "n_sun_paths":    {"values": [2, 4, 8],      "reference": 16},
     "n_earth_chords": {"values": [1, 3, 6],      "reference": 12},
 }
 
 # Baseline (held-fixed) resolution while one axis is scanned. The production baseline is
 # the solver's own default grid; the quick baseline is only for smoke-testing the tool.
-# (n_earth_chords=12 / N_steps_MW=25 track the solver defaults adopted from the
-# 2026-07-28 production study in output/convergence/; N_steps_earth=25 tracks the
+# (n_earth_chords=12 tracks the solver default adopted from the 2026-07-28 production
+# study in output/convergence/; n_sun_paths=8 and transit_dtheta=0.002 the transit of
+# 2026-10-13, which replaced the Milky Way trajectories; N_steps_earth=25 tracks the
 # 2026-07-29 default under the certified step-count-independent 'avg' scheme --
 # holding it higher only slows every rung of the other axes with no accuracy gain.)
-PRODUCTION_BASELINE = {"n_E_bins": 1000, "n_z_bins": 1000, "n_mw_paths": 6,
-                       "n_earth_chords": 12, "N_steps_MW": 25, "N_steps_earth": 25}
-QUICK_BASELINE = {"n_E_bins": 100, "n_z_bins": 100, "n_mw_paths": 6,
-                  "n_earth_chords": 3, "N_steps_MW": 25, "N_steps_earth": 25}
+PRODUCTION_BASELINE = {"n_E_bins": 1000, "n_z_bins": 1000, "n_sun_paths": 8,
+                       "n_earth_chords": 12, "transit_dtheta": 0.002, "N_steps_earth": 25}
+QUICK_BASELINE = {"n_E_bins": 100, "n_z_bins": 100, "n_sun_paths": 8,
+                  "n_earth_chords": 3, "transit_dtheta": 0.002, "N_steps_earth": 25}
 
 # Default dark-portal parameter points: the cosmological absorption resonance sits at
 # E_res ~ m_Zd^2 / (2 m_nu). With m_nu ~ 0.01-0.05 eV and the default energy band

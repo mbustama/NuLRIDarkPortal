@@ -41,7 +41,7 @@ FA_LOG_L = {
 def _tiny_raw(**over):
     """A configuration with a tiny solver grid (60 x 60, one path, two chords)."""
     raw = json.load(open(os.path.join(CONFIGS, "pion_2050_case_5.json")))
-    raw["solver"]["grid"].update(n_E_bins=60, n_z_bins=60, n_mw_paths=1, n_earth_chords=2)
+    raw["solver"]["grid"].update(n_E_bins=60, n_z_bins=60, n_sun_paths=1, n_earth_chords=2)
     raw["fit"].update(n_random=1, max_evals=120)
     raw.update(over)
     return raw

@@ -9,6 +9,7 @@ import numpy as np
 
 from dp_core import njit, prange, GeV, G_F, cm_inv3_to_eV3, calc_debye_mass_sq
 from dp_propagator import eigenvectors_3x3
+from dp_transit import frame_at
 
 @njit(fastmath=True, cache=True)
 def calc_H_Hubble(z: float, H0: float, Omega_m: float, Omega_L: float) -> float:
@@ -29,10 +30,31 @@ def calc_R_source(z: float, rho_evol: float) -> float:
 
 
 @njit(cache=True)
+def yukawa_horizon_inv_m2(m_sq: float, R_H: float) -> float:
+    """The Yukawa potential of a uniform medium per unit density, cut at the Hubble radius:
+        int_{r < R_H} exp(-m r) / (4 pi r) d^3r = (1 - (1 + x) e^{-x}) / m^2,   x = m R_H,
+    i.e. 1/m^2 for ranges well inside the horizon and R_H^2 / 2 beyond it (decided 2026-10-13).
+    Until then the cosmological potential used 1 / max(m^2, 1e-25 eV^2), which capped it for
+    every mediator lighter than 3e-13 eV (1e35 times too weak at 1e-30 eV). With R_H infinite
+    this is 1/m^2. Arguments: m_sq = m_Zd^2 + m_D^2 (eV^2); R_H (eV^-1)."""
+    if not np.isfinite(R_H):
+        return 1.0 / m_sq
+    if m_sq <= 0.0:
+        return 0.5 * R_H * R_H
+    x = np.sqrt(m_sq) * R_H
+    if x < 1e-3:
+        return R_H * R_H * (0.5 - x * (1.0 / 3.0 - x * (0.125 - x / 30.0)))
+    return (-np.expm1(-x) - x * np.exp(-x)) / m_sq
+
+
+@njit(cache=True)
 def calc_V_LRI_cosmo(z: float, u_arr: np.ndarray, U_LRI_struct: np.ndarray,
                      m_Zd: float, g_D: float, eps_prime: float,
-                     n_n0: float, T_nu0: float, use_debye_screening: bool, eta_bg: np.ndarray) -> np.ndarray:
+                     n_n0: float, T_nu0: float, use_debye_screening: bool, eta_bg: np.ndarray,
+                     R_H: float = np.inf) -> np.ndarray:
     """Computes the macroscopic effective potential V_{LRI} sourced ONLY by cosmological neutrons.
+    R_H: the Hubble radius c/H(z) (eV^-1) at which the uniform medium's Yukawa integral is cut
+    (yukawa_horizon_inv_m2); infinite by default.
 
     U_LRI_struct is the dimensionless 3x3 Hermitian flavor structure of the potential --
     by default the outer product u_i * conj(u_j) of the sterile mixing vector, but
@@ -53,8 +75,8 @@ def calc_V_LRI_cosmo(z: float, u_arr: np.ndarray, U_LRI_struct: np.ndarray,
     m_Z = 91.18 * GeV
     g_weak = 0.65
 
-    denominator = max(m_Zd**2 + m_D_sq, 1e-25)
-    A_LRI = (g_D * eps_prime) / denominator * (4.0 * c_W * m_Z**2 / g_weak) * (np.sqrt(2)/2.0 * G_F * n_n_z)
+    A_LRI = (g_D * eps_prime) * yukawa_horizon_inv_m2(m_Zd**2 + m_D_sq, R_H) \
+        * (4.0 * c_W * m_Z**2 / g_weak) * (np.sqrt(2)/2.0 * G_F * n_n_z)
 
     return A_LRI * U_LRI_struct
 
@@ -92,10 +114,11 @@ def get_adiabatic_mixing_cosmo(E0: float, z: float, M_rot: np.ndarray,
     return eigenvectors_3x3(H_tot)
 
 
-@njit(fastmath=True, cache=True, parallel=True)
-def _build_sigma_projection_table(M_rot: np.ndarray, S_eff: np.ndarray,
+@njit(cache=True, parallel=True)
+def _build_sigma_projection_table(Q: np.ndarray, Mp: np.ndarray, s: np.ndarray, floor: float,
                                   sigma_nodes: np.ndarray) -> np.ndarray:
-    """|U|^2 projection tables for the one-parameter family H(sigma) = M_rot + sigma * S.
+    """|U|^2 projection tables for the one-parameter family H(sigma) = M_rot + sigma * S,
+    given as the texture basis (Q, Mp, s, floor) of dp_transit.texture_scales.
 
     The cosmological mixing matrix at any (E, z) is the eigenvector matrix of
     M_rot / (2 E (1+z)) + A_LRI(z) * S, and eigenvectors are scale-invariant, so it
@@ -103,15 +126,19 @@ def _build_sigma_projection_table(M_rot: np.ndarray, S_eff: np.ndarray,
     ~1e6 per-run eigenvector computations collapse onto this table; level-crossing
     structure in log sigma is mixing-angle-broad (no sub-grid features, unlike the
     thermal resonance), so a few thousand nodes with linear interpolation suffice.
+    The eigenvectors come from dp_transit.frame_at, accurate at any sigma: until 2026-10-13
+    the closed form (eigenvectors_3x3) lost the vacuum splitting of a rank-one texture's two
+    degenerate eigenvalues once sigma exceeded M ~1e13 times, returning rounding noise.
     """
     n = len(sigma_nodes)
     table = np.zeros((n, 3, 3), dtype=np.float64)
     for k in prange(n):
-        H = M_rot + sigma_nodes[k] * S_eff
-        U = eigenvectors_3x3(np.ascontiguousarray(H))
+        vals = np.empty(3)
+        U = np.empty((3, 3), dtype=np.complex128)
+        frame_at(Q, Mp, s, floor, sigma_nodes[k], vals, U)
         for a in range(3):
             for b in range(3):
-                table[k, a, b] = np.abs(U[a, b])**2
+                table[k, a, b] = U[a, b].real**2 + U[a, b].imag**2
     return table
 
 @njit(fastmath=True, cache=True)

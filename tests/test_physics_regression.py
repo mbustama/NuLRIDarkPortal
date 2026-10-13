@@ -315,9 +315,8 @@ def test_n_e_earth_cm3_affects_flux_when_SM_potential_enabled(tmp_path):
     cfg = dps.create_default_config(str(tmp_path / "test_config.json"))
     cfg["grid"]["n_E_bins"] = 20
     cfg["grid"]["n_z_bins"] = 20
-    cfg["grid"]["n_mw_paths"] = 1
+    cfg["grid"]["n_sun_paths"] = 1
     cfg["grid"]["n_earth_chords"] = 1
-    cfg["grid"]["N_steps_MW"] = 5
     cfg["execution"]["verbose"] = 0
     cfg["execution"]["n_cores"] = 1
     cfg["standard_mixing"]["use_SM_potential"] = True
@@ -380,7 +379,6 @@ def test_earth_transit_step_count_is_uniform_across_chords():
         dps.propagate_earth_spatial(E_bins, F_mass_arrival, M_rot, u_arr,
                                     2.0e6, 1e-4, 0.1, 1.95e-4, True, np.ones(3),
                                     1.5, False, 0.0, False, 1, 6,
-                                    N_steps_MW=2, r_start_kpc=100.0,
                                     show_progress=False, verbose=0, n_cores=1)
     finally:
         dp_spatial._earth_chord_worker = orig_worker
@@ -389,55 +387,34 @@ def test_earth_transit_step_count_is_uniform_across_chords():
 
 
 # =============================================================================
-# 5. init_mw_density_matrix redundant-computation hoist (regression test for the fix)
+# 5. The adiabatic Galactic map (replaced init_mw_density_matrix on 2026-10-13)
 # =============================================================================
 
-def test_init_mw_density_matrix_matches_reimplementation():
-    """init_mw_density_matrix's total ambient number density (n_tot_edge, from the Milky
-    Way/Sun/Moon/Earth-point-source terms) depends only on r_start_kpc/theta/phi/m_eff --
-    never on the energy bin -- so it was hoisted out of the per-energy-bin loop (it was
-    previously being recomputed, identically, on every iteration; the sibling
-    step_mw_approach/step_earth_transit functions already did this hoist correctly and this
-    was the one place it was missed). An independent, hand-transcribed reimplementation
-    (not sharing the hoisted code path) pins down both the hoist and the physics it must
-    reproduce."""
+def test_galactic_map_matches_reimplementation():
+    """dp_transit.galactic_map gives each energy bin the cosmological populations on the local
+    eigenstates, W diag(F) W^dag with W the eigenvectors of M_rot/2E + Coef n_bg S in ascending
+    order. An independent numpy reimplementation (eigh, at a potential where it is accurate)
+    pins the convention and the physics."""
+    from dp_transit import galactic_map, texture_scales
     N_E = 12
     E_bins = np.logspace(13, 16, N_E)
     rng = np.random.default_rng(0)
     F_mass_arrival = rng.uniform(1e18, 1e22, size=(N_E, 3))
-
     U_pmns = dps.construct_PMNS(np.radians(33.41), np.radians(8.58), np.radians(49.1), np.radians(132.0))
     M_sq = np.diag([0.0, 7.41e-5, 2.511e-3]).astype(np.complex128)
     M_rot = np.ascontiguousarray(U_pmns @ M_sq @ np.conjugate(U_pmns).T)
-
-    r_start_kpc, theta, phi = 100.0, np.pi / 3.0, 1.1
-    m_eff, Coef = 5.0e5, 3.7e-19
     u_arr = np.array([0.5, 0.3 * np.exp(1j * 0.4), 0.2], dtype=np.complex128)
-    U_LRI_struct = np.outer(u_arr, np.conjugate(u_arr))
-
-    rho_f = dps.init_mw_density_matrix(r_start_kpc, theta, phi, E_bins, F_mass_arrival,
-                                       M_rot, m_eff, Coef, U_LRI_struct)
-
-    # Independent reimplementation: recompute n_tot_edge directly from the physical formula
-    # (not via any dps internals beyond the plain helper calc_MW_neutron_density), then build
-    # H_arr and rho_f per-bin from scratch using plain numpy.
-    n_n_MW_edge = dps.calc_MW_neutron_density(r_start_kpc, theta, phi) * dps.cm_inv3_to_eV3
-    r_eV = r_start_kpc * 3.08567758e16 * 1e3 * dps.m_to_eV_inv
-    r_sun_eV = np.sqrt(r_eV**2 + dps.d_sun_eV_inv**2)
-    r_moon_eV = np.sqrt(r_eV**2 + dps.d_moon_eV_inv**2)
-    n_sun_eV3 = dps.N_n_sun * (m_eff**2) / (4.0 * np.pi * r_sun_eV) * np.exp(-m_eff * r_sun_eV)
-    n_moon_eV3 = dps.N_n_moon * (m_eff**2) / (4.0 * np.pi * r_moon_eV) * np.exp(-m_eff * r_moon_eV)
-    n_earth_eV3 = dps.N_n_earth * (m_eff**2) / (4.0 * np.pi * r_eV) * np.exp(-m_eff * r_eV)
-    n_tot_edge = n_n_MW_edge + n_sun_eV3 + n_moon_eV3 + n_earth_eV3
-
-    rho_f_expected = np.zeros((N_E, 3, 3), dtype=np.complex128)
-    for i in range(N_E):
-        H_vac = (1.0 / (2.0 * E_bins[i])) * M_rot
-        H_arr = H_vac + (Coef * n_tot_edge) * U_LRI_struct
-        evals, evecs = np.linalg.eigh(H_arr)
-        rho_f_expected[i] = evecs @ np.diag(F_mass_arrival[i]) @ np.conjugate(evecs).T
-
-    np.testing.assert_allclose(rho_f, rho_f_expected, rtol=1e-10, atol=1e-30)
+    S = np.ascontiguousarray(np.outer(u_arr, np.conjugate(u_arr)))
+    for sign in (1.0, -1.0):
+        Coef, n_bg = sign * 3.7e-3, 1.3e-14          # V ~ 5e-17 eV: comparable to the vacuum term
+        Q, s, Mp, floor, _, _ = texture_scales(M_rot, np.sign(Coef) * S)
+        rho = np.empty((N_E, 3, 3), dtype=np.complex128)
+        galactic_map(E_bins, F_mass_arrival, 2.0 * abs(Coef), n_bg, Q, Mp, s, floor, rho)
+        for i in range(N_E):
+            H = M_rot / (2.0 * E_bins[i]) + Coef * n_bg * S
+            w, v = np.linalg.eigh(H)
+            expected = v @ np.diag(F_mass_arrival[i]) @ np.conjugate(v).T
+            np.testing.assert_allclose(rho[i], expected, rtol=1e-10, atol=1e-10 * F_mass_arrival[i].max())
 
 
 # =============================================================================
@@ -501,7 +478,7 @@ def _propagate_small(u_arr, is_anti, U_LRI_struct=None, V_SM_struct=None, use_SM
         np.ascontiguousarray(u_arr), 2.0e6, 1e-4, 0.1, m_nu_bg, 0.25e-6 * dps.cm_inv3_to_eV3, 1.95e-4,
         True, 1.5, use_SM, 1.5e24 * dps.cm_inv3_to_eV3,
         (0.0, 1.0) if is_anti else (1.0, 0.0), 2.5, 0.0, 1.0, np.ones(3), 1, 1,
-        N_steps_MW=5, r_start_kpc=100.0, show_progress=False, verbose=0, n_cores=1,
+        show_progress=False, verbose=0, n_cores=1,
         N_steps_earth=5, U_LRI_struct=U_LRI_struct, V_SM_struct=V_SM_struct)
     return F_nu + F_nb
 
@@ -574,8 +551,8 @@ def test_run_solver_accepts_structure_overrides_in_config(tmp_path):
     import copy
 
     cfg = dps.create_default_config(str(tmp_path / "cfg.json"))
-    cfg["grid"].update(dict(n_E_bins=12, n_z_bins=12, n_mw_paths=1, n_earth_chords=1,
-                            N_steps_MW=5, N_steps_earth=5))
+    cfg["grid"].update(dict(n_E_bins=12, n_z_bins=12, n_sun_paths=1, n_earth_chords=1,
+                            N_steps_earth=5))
     cfg["execution"].update(dict(n_cores=1, verbose=0))
 
     cfg_override = copy.deepcopy(cfg)
@@ -749,7 +726,8 @@ def _cascade_step_setup(N_E=40, seed=5):
         u = np.conjugate(u_arr) if anti else u_arr
         M_rot = np.ascontiguousarray(U @ M_sq @ np.conjugate(U).T)
         S = np.outer(u, np.conjugate(u))
-        P_table = dps._build_sigma_projection_table(M_rot, np.ascontiguousarray(-S if anti else S), sigma_nodes)
+        Q_t, s_t, Mp_t, floor_t, _, _ = dps.texture_scales(M_rot, np.ascontiguousarray(-S if anti else S))
+        P_table = dps._build_sigma_projection_table(Q_t, Mp_t, s_t, floor_t, sigma_nodes)
         tables.append((P_table, log_s0, inv_dlogs, -c_z if anti else c_z))
     return E_bins, F_nu, F_nb, rng, tables
 
@@ -901,7 +879,7 @@ def test_neutrino_sources_produce_antineutrinos_only_through_absorption():
             E_bins, z_bins, np.array([1 / 3, 2 / 3, 0.0]), H0, 0.315, 0.685, U_pmns, M_sq,
             u_arr, 2.0e6, 1e-4, 1e-4, m_nu_bg, 3.091e-8 * dps.cm_inv3_to_eV3, 1.676389e-4,
             True, 1.5, False, 0.0, (1.0, 0.0), 2.5, 0.0, 1.0, np.ones(3), 1, 2,
-            N_steps_MW=3, show_progress=False, verbose=0, n_cores=1, N_steps_earth=5,
+            show_progress=False, verbose=0, n_cores=1, N_steps_earth=5,
             earth_step_scheme="avg", earth_zenith_average="phase"))
     (F_nu0, F_nb0), (F_nu1, F_nb1) = out
     assert np.all(F_nb0 == 0.0) and np.sum(F_nu0) > 0.0
@@ -917,7 +895,7 @@ def test_solver_never_returns_more_energy_than_injected(tmp_path):
     out up to 1e67 times the injected one."""
     import copy
     base = dps.create_default_config(str(tmp_path / "cfg.json"))
-    base["grid"].update(dict(n_E_bins=60, n_mw_paths=1, n_earth_chords=2, N_steps_MW=3, N_steps_earth=10))
+    base["grid"].update(dict(n_E_bins=60, n_sun_paths=1, n_earth_chords=2, N_steps_earth=10))
     base["execution"].update(dict(n_cores=1, verbose=0))
 
     def run(nz, **dp):
@@ -983,7 +961,7 @@ def test_spatial_E_block_parallelism_is_exact():
     M_rot = np.ascontiguousarray(U_pmns @ M_sq @ np.conjugate(U_pmns).T)
     u_arr = np.array([0.5, 0.5, 0.0], dtype=np.complex128)
 
-    common = dict(N_steps_MW=4, r_start_kpc=100.0, show_progress=False, verbose=0,
+    common = dict(show_progress=False, verbose=0,
                   N_steps_earth=6)
     F_seq = dps.propagate_earth_spatial(E_bins, F_mass_arrival, M_rot, u_arr,
                                         2.0e6, 1e-4, 0.1, 1.95e-4, True, np.ones(3),
@@ -1007,7 +985,7 @@ def _spatial_args_small():
     u_arr = np.array([0.5, 0.5, 0.0], dtype=np.complex128)
     args = (E_bins, F_mass_arrival, M_rot, u_arr, 2.0e6, 1e-4, 0.1, 1.95e-4, True, np.ones(3),
             1.5, False, 0.0, False, 2, 3)
-    kwargs = dict(N_steps_MW=4, r_start_kpc=100.0, show_progress=False, verbose=0,
+    kwargs = dict(show_progress=False, verbose=0,
                   n_cores=1, N_steps_earth=6)
     return args, kwargs
 
@@ -1057,7 +1035,8 @@ def test_sigma_projection_table_matches_exact_eigenvectors():
     scale = np.max(np.abs(M_rot))
     sig_min, sig_max = 1e-6 * scale, 1e2 * scale     # spans vacuum limit -> crossing -> potential-dominated
     nodes = np.geomspace(sig_min, sig_max, 4096)
-    table = dps._build_sigma_projection_table(M_rot, S, nodes)
+    Q_t, s_t, Mp_t, floor_t, _, _ = dps.texture_scales(M_rot, S)
+    table = dps._build_sigma_projection_table(Q_t, Mp_t, s_t, floor_t, nodes)
     log_s0 = np.log(nodes[0])
     inv_dlogs = (len(nodes) - 1) / np.log(sig_max / sig_min)
 
@@ -1115,8 +1094,8 @@ import numpy as np
 def pool_task(seed):
     # each spawn worker runs a real (single-threaded) solver evaluation
     import dark_portal_solver as dps
-    cfg = {{"grid": {{"n_E_bins": 10, "n_z_bins": 10, "n_mw_paths": 1, "n_earth_chords": 1,
-                      "N_steps_MW": 2, "N_steps_earth": 2}},
+    cfg = {{"grid": {{"n_E_bins": 10, "n_z_bins": 10, "n_sun_paths": 1, "n_earth_chords": 1,
+                      "N_steps_earth": 2}},
             "execution": {{"n_cores": 1, "verbose": 0}}}}
     E, F = dps.run_solver(cfg)
     return float(F.sum())
@@ -1127,8 +1106,8 @@ if __name__ == "__main__":
     import dark_portal_solver as dps
     assert dps._TBB_LAYER, "tbb layer not active in subprocess"
 
-    cfg = {{"grid": {{"n_E_bins": 40, "n_z_bins": 20, "n_mw_paths": 2, "n_earth_chords": 2,
-                      "N_steps_MW": 5, "N_steps_earth": 20}},
+    cfg = {{"grid": {{"n_E_bins": 40, "n_z_bins": 20, "n_sun_paths": 2, "n_earth_chords": 2,
+                      "N_steps_earth": 20}},
             "execution": {{"n_cores": 4, "verbose": 0}}}}
     E, F1 = dps.run_solver(cfg)              # threads-mode parallel kernel
     assert numba.threading_layer() == "tbb", numba.threading_layer()
@@ -1164,8 +1143,8 @@ def test_run_solver_rejects_unknown_config_keys(tmp_path):
     use_SM_potential, execution.n_cores)."""
     import copy
     cfg = dps.create_default_config(str(tmp_path / "cfg.json"))
-    cfg["grid"].update(dict(n_E_bins=10, n_z_bins=10, n_mw_paths=1, n_earth_chords=1,
-                            N_steps_MW=3, N_steps_earth=3))
+    cfg["grid"].update(dict(n_E_bins=10, n_z_bins=10, n_sun_paths=1, n_earth_chords=1,
+                            N_steps_earth=3))
     cfg["execution"].update(dict(n_cores=1, verbose=0))
 
     bad = copy.deepcopy(cfg)
@@ -1191,8 +1170,8 @@ def test_nubar_ratio_zero_skips_antineutrino_propagation(tmp_path):
     the detector are then only the secondaries of absorptions)."""
     import copy
     cfg = dps.create_default_config(str(tmp_path / "cfg.json"))
-    cfg["grid"].update(dict(n_E_bins=10, n_z_bins=10, n_mw_paths=1, n_earth_chords=1,
-                            N_steps_MW=3, N_steps_earth=3))
+    cfg["grid"].update(dict(n_E_bins=10, n_z_bins=10, n_sun_paths=1, n_earth_chords=1,
+                            N_steps_earth=3))
     cfg["execution"].update(dict(n_cores=1, verbose=0))
 
     cfg_sum0 = copy.deepcopy(cfg)
@@ -1320,7 +1299,7 @@ def test_spatial_handover_conserves_every_total():
         for anti in (False, True):
             F = dps.propagate_earth_spatial(E_bins, F_mass, M_rot, u_arr, m_Zd, g_D, eps_p,
                                             1.676e-4, True, np.ones(3), 1.5, False, 0.0, anti, 2, 3,
-                                            N_steps_MW=40, show_progress=False, verbose=0, n_cores=1,
+                                            show_progress=False, verbose=0, n_cores=1,
                                             N_steps_earth=60, earth_step_scheme="avg",
                                             earth_zenith_average="phase")
             ratio = F.sum(axis=1) / F_mass.sum(axis=1)
@@ -1347,8 +1326,8 @@ def test_extreme_mediator_mass_flux_is_finite(tmp_path):
     must now return an all-finite, non-negative-total flux."""
     cfg = dps.create_default_config(str(tmp_path / "cfg.json"))
     cfg["dark_portal"].update(dict(m_Zd_eV=1e-6, g_D=1e-4, epsilon_prime=0.1))
-    cfg["grid"].update(dict(n_E_bins=20, n_z_bins=20, n_mw_paths=2, n_earth_chords=2,
-                            N_steps_MW=25, N_steps_earth=500))
+    cfg["grid"].update(dict(n_E_bins=20, n_z_bins=20, n_sun_paths=2, n_earth_chords=2,
+                            N_steps_earth=500))
     cfg["execution"].update(dict(n_cores=1, verbose=0))
     E, F = dps.run_solver(cfg)
     assert np.isfinite(F).all()
@@ -1374,7 +1353,7 @@ def test_propagate_spectrum_raises_on_nonfinite_gamma_grid():
             1.5e-33, 0.315, 0.685, np.ascontiguousarray(U_pmns), M_sq,
             u_arr, 2.0e6, 1e-4, 0.1, m_nu_bg, 2.5e-13, 1.95e-4,
             True, 1.5, False, 0.0, (1.0, 0.0), 2.5, 0.0, 1.0, np.ones(3),
-            1, 1, N_steps_MW=3, show_progress=False, verbose=0, n_cores=1,
+            1, 1, show_progress=False, verbose=0, n_cores=1,
             precomputed_Gamma_grid_all=bad_grid, N_steps_earth=3)
 
 
@@ -1754,8 +1733,8 @@ def test_earth_step_scheme_default_and_switch(tmp_path):
     unknown scheme names must be rejected loudly."""
     import copy
     cfg = dps.create_default_config(str(tmp_path / "cfg.json"))
-    cfg["grid"].update(dict(n_E_bins=16, n_z_bins=16, n_mw_paths=1, n_earth_chords=2,
-                            N_steps_MW=3, N_steps_earth=40))
+    cfg["grid"].update(dict(n_E_bins=16, n_z_bins=16, n_sun_paths=1, n_earth_chords=2,
+                            N_steps_earth=40))
     cfg["execution"].update(dict(n_cores=1, verbose=0))
     assert cfg["grid"]["earth_step_scheme"] == "avg"
 
@@ -1781,8 +1760,7 @@ def test_earth_avg_scheme_step_count_certificate(tmp_path):
     below/inband/strong validation points; see the dev-earth study)."""
     import copy
     cfg = dps.create_default_config(str(tmp_path / "cfg.json"))
-    cfg["grid"].update(dict(n_E_bins=24, n_z_bins=16, n_mw_paths=1, n_earth_chords=3,
-                            N_steps_MW=3))
+    cfg["grid"].update(dict(n_E_bins=24, n_z_bins=16, n_sun_paths=1, n_earth_chords=3))
     cfg["execution"].update(dict(n_cores=1, verbose=0))
 
     flux = {}
@@ -2318,7 +2296,7 @@ def test_earth_range_mediator_end_to_end(tmp_path):
     non-negative fluxes, and keep the 'avg' step-count certificate end to end."""
     import copy
     cfg = dps.create_default_config(str(tmp_path / "cfg.json"))
-    cfg["grid"].update(dict(n_E_bins=24, n_z_bins=16, n_mw_paths=1, n_earth_chords=3, N_steps_MW=3))
+    cfg["grid"].update(dict(n_E_bins=24, n_z_bins=16, n_sun_paths=1, n_earth_chords=3))
     cfg["execution"].update(dict(n_cores=1, verbose=0))
     cfg["dark_portal"].update(dict(m_Zd_eV=3.1e-14, g_D=1e-24, epsilon_prime=1e-25))
     flux = {}
@@ -2461,15 +2439,15 @@ def test_zenith_average_options_and_numba_crossings():
     args = (E, F, M_rot, u, 2e6, 1e-4, 0.1, 1.676389e-4, True, np.ones(3), 1.5, False, 0.0,
             False, 1, 2)
     with pytest.raises(ValueError, match="phase"):
-        dps.propagate_earth_spatial(*args, N_steps_MW=2, N_steps_earth=4, show_progress=False,
+        dps.propagate_earth_spatial(*args, N_steps_earth=4, show_progress=False,
                                     verbose=0, earth_step_scheme="left", earth_zenith_average="phase")
     with pytest.raises(ValueError, match="earth_zenith_average"):
-        dps.propagate_earth_spatial(*args, N_steps_MW=2, N_steps_earth=4, show_progress=False,
+        dps.propagate_earth_spatial(*args, N_steps_earth=4, show_progress=False,
                                     verbose=0, earth_step_scheme="avg", earth_zenith_average="median")
     assert dps.DEFAULT_CONFIG["grid"]["earth_zenith_average"] == "phase"
     assert dps.DEFAULT_CONFIG["grid"]["earth_sky"] == "full"
     with pytest.raises(ValueError, match="earth_sky"):
-        dps.propagate_earth_spatial(*args, N_steps_MW=2, N_steps_earth=4, show_progress=False,
+        dps.propagate_earth_spatial(*args, N_steps_earth=4, show_progress=False,
                                     verbose=0, earth_step_scheme="avg", earth_sky="down")
 
 
@@ -2560,8 +2538,8 @@ def test_vanishing_sterile_mixing_recovers_standard_propagation(tmp_path):
     u, however small, kept the full resonant absorption and its runaway cascade."""
     import copy
     base = dps.create_default_config(str(tmp_path / "cfg.json"))
-    base["grid"].update(dict(n_E_bins=60, n_z_bins=60, n_mw_paths=1, n_earth_chords=2,
-                             N_steps_MW=3, N_steps_earth=10))
+    base["grid"].update(dict(n_E_bins=60, n_z_bins=60, n_sun_paths=1, n_earth_chords=2,
+                             N_steps_earth=10))
     base["execution"].update(dict(n_cores=1, verbose=0))
     out = []
     for u in (0.0, 1e-10):

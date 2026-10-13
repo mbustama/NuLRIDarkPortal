@@ -20,6 +20,13 @@ work on Tycho; show the statistical analysis is sound with coverage tests.
    removed from code, tests, docs and outputs. Validation now includes absolute
    checks (energy and number at Earth <= the no-interaction run, total conservation through the
    spatial phase, u -> 0 recovers standard propagation), not only old-vs-new comparisons.
+0b. **The transit to the Earth** -- **done** 2026-10-13 (decided: "Coherent transit", "Horizon
+   saturation"): the Milky Way trajectories replaced by an adiabatic Galactic map at the
+   Yukawa-smoothed local density, coherent transits through the Sun's potential and the Earth's
+   exterior in the instantaneous eigenbasis (`src/dp_transit.py`), eigenvectors accurate at any
+   potential (Jacobi in the texture basis), and the cosmological potential cut at the Hubble
+   radius instead of capped below 3e-13 eV. Notes, Appendix "The transit to the Earth". The
+   potential planes need rerunning on Tycho with it.
 1. **Core-count fix** -- **done** 2026-10-12: `dp_core.available_cores()` (affinity mask capped by
    `SLURM_CPUS_PER_TASK`) and `default_n_cores()` (all but one core locally, the whole allocation
    under SLURM) now size every pool. Original note: the solver side

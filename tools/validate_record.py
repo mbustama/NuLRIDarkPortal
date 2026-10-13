@@ -78,7 +78,7 @@ def record(cores: int) -> tuple:
                                python=platform.python_version(), numpy=np.__version__, scipy=scipy.__version__,
                                numba=numba.__version__, svml=bool(numba.core.config.USING_SVML),
                                grid={k: dps.DEFAULT_CONFIG["grid"][k] for k in
-                                     ("n_E_bins", "n_z_bins", "n_mw_paths", "n_earth_chords", "N_steps_earth",
+                                     ("n_E_bins", "n_z_bins", "n_sun_paths", "transit_dtheta", "n_earth_chords", "N_steps_earth",
                                       "earth_sky", "earth_zenith_average")}),
                points={})
     fluxes = dict(E=E, no_interaction=F0)

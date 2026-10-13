@@ -5,7 +5,7 @@
   "surface": "pion_2050_case_5"
  },
  "solver": {
-  "_comment": "Physics of FrequentistAnalysis' pion_2050_case_5 configurations, except the mixing: there it was fixed at the solver's defaults (delta_CP = 132 deg, sin^2 theta_23 = 0.571, ...), 0.0034 in f_mu (0.7 sigma) away from the projection's centre, which assumes NuFIT 6.0 normal ordering with SK atmospheric data. Here the mixing is that fit's (sin^2 theta_12 = 0.308, sin^2 theta_13 = 0.02215, sin^2 theta_23 = 0.470, delta_CP = 212 deg, Delta m^2_21 = 7.49e-5, Delta m^2_31 = 2.513e-3 eV^2), which reproduces the centre to 1e-6. Grid: 400 energy bins and 200 redshift steps (energy-averaged fractions within 1.5e-5 of 1000 x 1000 at inband, 2e-4 at m_Zd = 1e-2 eV; 2026-10-12, corrected solver); 6 Milky Way paths and 12 Earth chords (within 2e-8 and 1.4e-7 of 50).",
+  "_comment": "Physics of FrequentistAnalysis' pion_2050_case_5 configurations, except the mixing: there it was fixed at the solver's defaults (delta_CP = 132 deg, sin^2 theta_23 = 0.571, ...), 0.0034 in f_mu (0.7 sigma) away from the projection's centre, which assumes NuFIT 6.0 normal ordering with SK atmospheric data. Here the mixing is that fit's (sin^2 theta_12 = 0.308, sin^2 theta_13 = 0.02215, sin^2 theta_23 = 0.470, delta_CP = 212 deg, Delta m^2_21 = 7.49e-5, Delta m^2_31 = 2.513e-3 eV^2), which reproduces the centre to 1e-6. Grid: 400 energy bins and 200 redshift steps (energy-averaged fractions within 1.5e-5 of 1000 x 1000 at inband, 2e-4 at m_Zd = 1e-2 eV; 2026-10-12, corrected solver); 12 Earth chords (within 1.4e-7 of 50); the transit to the Earth (dp_transit, 2026-10-13) with 8 directions to the Sun and frame-table spacing 0.002 (chi2 within 0.03 of 32 directions and 0.001 at the potential planes' critical points).",
   "cosmology": {
    "H0_km_s_Mpc": 67.4,
    "Omega_m": 0.315,
@@ -50,11 +50,10 @@
    "E_max_eV": 3e+16,
    "n_E_bins": 400,
    "n_z_bins": 200,
-   "n_mw_paths": 6,
+   "n_sun_paths": 8,
+   "transit_dtheta": 0.002,
    "n_earth_chords": 12,
-   "N_steps_MW": 25,
-   "N_steps_earth": 25,
-   "r_start_kpc": 100.0
+   "N_steps_earth": 25
   }
  },
  "parameters": {

@@ -1,18 +1,19 @@
 """
 gpu_spatial.py
 
-Optional CUDA (cupy) implementation of the spatial handover -- the Milky Way and Earth
-transit phases of dp_spatial.propagate_earth_spatial (re-exported by the
-dark_portal_solver facade) -- evolving every
-(trajectory-or-chord, energy-bin) density matrix as one batched GPU workload instead of
-distributing units across a CPU multiprocessing pool.
+Optional CUDA (cupy) implementation of the Earth chords of the spatial handover
+(dp_spatial.propagate_earth_spatial, re-exported by the dark_portal_solver facade),
+evolving every (chord, energy-bin) density matrix as one batched GPU workload instead of
+distributing units across a CPU multiprocessing pool. The transit to the Earth (dp_transit)
+and each chord's exterior run on the CPU first; until 2026-10-13 the Milky Way trajectories
+ran here too.
 
 Activated only when the user sets execution.use_gpu = true (CLI --use_gpu) AND cupy
 with a working CUDA device is importable; otherwise propagate_earth_spatial falls back
 to the CPU path with a warning. The physics is identical by construction:
 
 - the per-step densities come from the same numba helpers the CPU kernels use
-  (spatial_total_density_mw / spatial_total_density_earth -- single source of truth);
+  (dp_spatial's chord densities -- single source of truth);
 - the propagator is propagator_3x3's spectral sum over a deflated eigenbasis, ported
   to batched array operations (masks in place of branches): traceless shift with the
   global phase factored out, the pure-phase and second-order-Taylor branches, the

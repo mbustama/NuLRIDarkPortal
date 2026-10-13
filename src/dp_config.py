@@ -129,9 +129,12 @@ def _build_default_config() -> Dict:
             "E_max_eV": 3e16,
             "n_E_bins": 1000,
             "n_z_bins": 1000,
-            "n_mw_paths": 6,
+            # The transit to the Earth (dp_transit, 2026-10-13): directions to the Sun in
+            # its coherent transit and the largest turn of the eigenbasis between the frame
+            # table's nodes (the transit's error is ~1e-5 at 0.002).
+            "n_sun_paths": 8,
+            "transit_dtheta": 0.002,
             "n_earth_chords": 12,
-            "N_steps_MW": 25,
             "n_z_thermal": 0,
             "thermal_analytic": True,
             "earth_step_scheme": "avg",
@@ -141,8 +144,7 @@ def _build_default_config() -> Dict:
             # dp_spatial.average_earth_chords).
             "earth_zenith_average": "phase",
             "earth_sky": "full",
-            "N_steps_earth": 25,
-            "r_start_kpc": 100.0
+            "N_steps_earth": 25
         },
         "output": {
             "flux_filename": "../output/data/output_flux.txt",
@@ -158,6 +160,17 @@ def _build_default_config() -> Dict:
     }
 
 DEFAULT_CONFIG = _build_default_config()
+
+# Keys that existed once and no longer do anything: accepted (so older configurations still
+# load) and dropped, with one note per process. The Milky Way trajectories were replaced on
+# 2026-10-13 by the transit of dp_transit (grid.n_sun_paths, grid.transit_dtheta).
+RETIRED_KEYS = {
+    ("grid", "n_mw_paths"): "the Milky Way transit is now adiabatic (no trajectories)",
+    ("grid", "N_steps_MW"): "the Milky Way transit is now adiabatic (no steps)",
+    ("grid", "r_start_kpc"): "the Galactic potential is now a Yukawa integral over the whole Galaxy",
+}
+_retired_noted = set()
+
 
 def merge_config_with_defaults(config: Dict) -> Dict:
     """Overlays a (possibly partial) user config onto the canonical defaults, REJECTING
@@ -179,6 +192,12 @@ def merge_config_with_defaults(config: Dict) -> Dict:
             raise ValueError(f"Config section '{section}' must be a dict of settings.")
         for key, value in entries.items():
             if key.startswith("_comment"):
+                continue
+            if (section, key) in RETIRED_KEYS:
+                if (section, key) not in _retired_noted:
+                    _retired_noted.add((section, key))
+                    print(f"[NOTE] config key '{section}.{key}' is retired and ignored: "
+                          f"{RETIRED_KEYS[(section, key)]}.")
                 continue
             if key not in merged[section]:
                 raise ValueError(

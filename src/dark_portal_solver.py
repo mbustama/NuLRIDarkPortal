@@ -47,21 +47,22 @@ from dp_thermal import (  # noqa: F401
     thermal_grid_cached, _tc_cache, _tc_try_fit, compute_gamma_grid_inputs,
     _GL16_X, _GL16_W, _GL10_X, _GL10_W, _FD16,
 )
+from dp_transit import texture_scales  # noqa: F401
 from dp_cosmo import (  # noqa: F401
-    calc_H_Hubble, calc_R_source, calc_V_LRI_cosmo, get_adiabatic_mixing_cosmo,
+    calc_H_Hubble, calc_R_source, calc_V_LRI_cosmo, get_adiabatic_mixing_cosmo, yukawa_horizon_inv_m2,
     _build_sigma_projection_table, step_cosmological_pair, cascade_kernel_weights, cross_kernel_weights,
 )
 from dp_spatial import (  # noqa: F401
     calc_MW_neutron_density, calc_earth_density, get_baseline_earth,
-    spatial_total_density_mw, spatial_total_density_earth, init_mw_density_matrix,
-    _evolve_rho_all_bins, step_mw_approach, step_earth_transit,
-    _mw_path_worker, _earth_chord_worker, _PREM_BOUNDARIES_KM,
+    spatial_total_density_earth,
+    _evolve_rho_all_bins, step_earth_transit,
+    _earth_chord_worker, _PREM_BOUNDARIES_KM,
     _earth_layer_crossings, _avg_earth_density_seq, _split_E_blocks,
     _PREM_EDGES_KM, _PREM_RHO_COEFFS, _PREM_F_COEFFS, yukawa_profile_table,
     earth_yukawa_table, yukawa_profile_density, earth_neutron_density_cm3,
     earth_total_density, _earth_chord_features, _yk_extra_cm3, average_earth_chords,
     _run_spatial_tasks, _get_spatial_pool, _close_spatial_pool,
-    propagate_earth_spatial,
+    propagate_earth_spatial, transit_to_earth,
 )
 from dp_config import (  # noqa: F401
     parse_structure_matrix_3x3, _build_default_config, DEFAULT_CONFIG,
@@ -85,8 +86,8 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                        use_debye_screening: bool, detector_depth_km: float,
                        use_SM_potential: bool, n_e_earth: float,
                        injection, p_index: float, rho_evol: float,
-                       Phi_0: float, eta_bg: np.ndarray, n_mw_paths: int, n_earth_chords: int,
-                       N_steps_MW: int = 25, r_start_kpc: float = 100.0,
+                       Phi_0: float, eta_bg: np.ndarray, n_sun_paths: int, n_earth_chords: int,
+                       transit_dtheta: float = 0.002,
                        show_progress: bool = True, verbose: int = 1, n_cores: int = 1,
                        precomputed_Gamma_grid_all: np.ndarray = None, N_steps_earth: int = 500,
                        external_pool=None, U_LRI_struct=None, V_SM_struct=None,
@@ -99,7 +100,7 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
     Executes the complete spectrum integration, driving the underlying JIT kernels.
     Neutrinos and antineutrinos are evolved together through the cosmological phase (an
     absorption of either emits one secondary of each kind) and then separately through the
-    Milky Way and the Earth.
+    Galaxy, the Sun, the Earth's exterior and the Earth (propagate_earth_spatial).
     Includes verbose level 2 for periodic redshift status updates.
 
     Arguments:
@@ -122,8 +123,8 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         2026-10-13 this was a single-species flag and each call propagated one kind alone.
       p_index, rho_evol, Phi_0: source spectrum E^-p, redshift evolution, normalization.
       eta_bg: (3,) CnuB flavor asymmetries.
-      n_mw_paths, n_earth_chords: spatial-averaging counts (solid angle / zenith).
-      N_steps_MW, r_start_kpc: Milky Way transit resolution and entry radius.
+      n_sun_paths, n_earth_chords: directions to the Sun in its transit, and zenith chords.
+      transit_dtheta: resolution of the transit to the Earth (dp_transit.build_frame_table).
       show_progress, verbose: progress bars / logging (verbose=2 adds z updates).
       n_cores: intra-run parallelism of the spatial handover AND the numba thread cap.
       precomputed_Gamma_grid_all, N_steps_earth, external_pool, U_LRI_struct,
@@ -154,8 +155,8 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
     the same for both kinds, and independent of the source composition; see
     compute_gamma_grid_inputs).
 
-    N_steps_earth controls the number of path-length steps per Earth chord (analogous to
-    N_steps_MW for the Milky Way phase), and earth_step_scheme selects the potential
+    N_steps_earth controls the number of path-length steps per Earth chord, and
+    earth_step_scheme selects the potential
     discretization ('avg' = exact step-averaged potential, 'left' = historical
     left-endpoint sampling). Under 'avg' -- the CONFIG default -- the accumulated LRI
     phase is step-count-independent and results carry a convergence certificate
@@ -216,8 +217,8 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
     for k in range(len(z_bins)):
         zk = z_bins[k]
         m_D_sq_k = calc_debye_mass_sq(g_D, u_arr, T_nu0 * (1.0 + zk), eta_bg) if use_debye_screening else 0.0
-        denom_k = max(m_Zd**2 + m_D_sq_k, 1e-25)
-        A_k = (g_D * eps_prime) / denom_k * (4.0 * c_W_ * m_Z_**2 / g_weak_) * (np.sqrt(2.0) / 2.0 * G_F * n_n0 * (1.0 + zk)**3)
+        inv_m2 = yukawa_horizon_inv_m2(m_Zd**2 + m_D_sq_k, 1.0 / calc_H_Hubble(zk, H0, Omega_m, Omega_L))
+        A_k = (g_D * eps_prime) * inv_m2 * (4.0 * c_W_ * m_Z_**2 / g_weak_) * (np.sqrt(2.0) / 2.0 * G_F * n_n0 * (1.0 + zk)**3)
         c_z_arr[k] = 2.0 * (1.0 + zk) * A_k
 
     # Per kind: the vacuum matrix U M U^dag (computed once), the LRI and SM textures with the
@@ -240,11 +241,16 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         # H(sigma) = M_rot + sigma * S_signed, tabulated over |sigma| with the sign folded into S
         S_signed = np.ascontiguousarray(-S_eff if anti else S_eff)
         abs_c = np.abs(c_z)
+        Q_t, s_t, Mp_t, floor_t, sig_lo_t, sig_hi_t = texture_scales(M_rot, S_signed)
         sig_min = max(E_bins[0] * abs_c.min(), 1e-30 * max(np.max(np.abs(M_rot)), 1e-300))
         sig_max = max(E_bins[-1] * abs_c.max(), sig_min * 2.0)
+        if sig_hi_t > 0.0 and sig_max > sig_hi_t:
+            # above sig_hi the eigenbasis is the texture's own to 1e-9 (texture_scales): the
+            # table stops there and lookups beyond it clamp to its last node
+            sig_max = max(sig_hi_t, sig_min * 2.0)
         N_sigma = 4096
         sigma_nodes = np.geomspace(sig_min, sig_max, N_sigma)
-        P_table = _build_sigma_projection_table(M_rot, S_signed, sigma_nodes)
+        P_table = _build_sigma_projection_table(Q_t, Mp_t, s_t, floor_t, sigma_nodes)
         species.append(dict(anti=anti, u=u_s, M_rot=M_rot, S_eff=S_eff, V_SM_eff=V_SM_eff, c_z=c_z,
                             P_table=P_table, log_s0=np.log(sigma_nodes[0]),
                             inv_dlogs=(N_sigma - 1) / np.log(sig_max / sig_min),
@@ -282,8 +288,9 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
             continue
         F_earth = propagate_earth_spatial(E_bins, sp["F"], sp["M_rot"], sp["u"], m_Zd, g_D, eps_prime,
                                           T_nu0, use_debye_screening, eta_bg, detector_depth_km,
-                                          use_SM_potential, n_e_earth, sp["anti"], n_mw_paths, n_earth_chords,
-                                          N_steps_MW=N_steps_MW, r_start_kpc=r_start_kpc,
+                                          use_SM_potential, n_e_earth, sp["anti"], n_sun_paths, n_earth_chords,
+                                          transit_dtheta=transit_dtheta, n_n0_eV3=n_n0,
+                                          R_H_eV_inv=1.0 / H0,
                                           show_progress=show_progress, verbose=verbose, n_cores=n_cores,
                                           N_steps_earth=N_steps_earth, external_pool=external_pool,
                                           U_LRI_struct=sp["S_eff"], V_SM_struct=sp["V_SM_eff"],
@@ -413,8 +420,8 @@ def _flux_from_setup(E_bins: np.ndarray, params: Dict, setup: Dict, injection,
         params['use_debye_screening'], params['detector_depth_km'],
         params['use_SM_potential'], params['n_e_earth_eV3'],
         injection, params['p_index'], params['rho_evol'], params['Phi_0'], setup['eta_bg'],
-        params['n_mw_paths'], params['n_earth_chords'],
-        params['N_steps_MW'], params['r_start_kpc'],
+        params['n_sun_paths'], params['n_earth_chords'],
+        params['transit_dtheta'],
         show_progress=params.get('show_progress', True), verbose=params.get('verbose', 1),
         n_cores=params.get('n_cores', 1),
         precomputed_Gamma_grid_all=setup['Gamma_grid_all'], N_steps_earth=params.get('N_steps_earth', 500),
@@ -590,16 +597,20 @@ def build_solver_params(config: Dict) -> Tuple[np.ndarray, Dict]:
     params['nubar_to_nu_ratio'] = config['source']['nubar_to_nu_ratio']
     
     params['n_z_bins'] = int(config['grid']['n_z_bins'])
-    params['n_mw_paths'] = int(config['grid']['n_mw_paths'])
+    # The transit to the Earth (2026-10-13, replacing the Milky Way trajectories): directions
+    # to the Sun in its coherent transit, and the frame table's spacing (dp_transit).
+    params['n_sun_paths'] = int(config['grid']['n_sun_paths'])
+    params['transit_dtheta'] = float(config['grid']['transit_dtheta'])
+    if params['n_sun_paths'] < 1:
+        raise ValueError("grid.n_sun_paths must be an integer >= 1.")
+    if not (0.0 < params['transit_dtheta'] <= 0.1):
+        raise ValueError("grid.transit_dtheta must be in (0, 0.1].")
     # Defaults set by the production convergence study (tools/convergence_study.py,
     # report in output/convergence/): n_earth_chords=3 (the old default) carried
     # 1.6-4.9e-2 absolute flavor-ratio error against a 100-chord reference at every
     # tested dark-portal point -- by far the largest numerical systematic of any default
-    # -- while 12 chords bring it to ~1e-2 (percent level). N_steps_MW=25 already agrees
-    # with a 400-step reference to ~1e-10 everywhere (the Milky Way transit is deeply
-    # adiabatic), so the old default of 100 was pure surplus.
+    # -- while 12 chords bring it to ~1e-2 (percent level).
     params['n_earth_chords'] = int(config['grid']['n_earth_chords'])
-    params['N_steps_MW'] = int(config['grid']['N_steps_MW'])
     # Coarse z-sampling of the thermal-rate grid (0 disables interpolation -- exact grid).
     params['n_z_thermal'] = int(config['grid']['n_z_thermal'])
     # Semi-analytic momentum integration of the thermal rates (True, the default) vs
@@ -626,11 +637,7 @@ def build_solver_params(config: Dict) -> Tuple[np.ndarray, Dict]:
         if int(config['execution'].get('verbose', 1)) >= 1:
             safe_print("[NOTE] earth_step_scheme = 'left' uses the historical 'plain' zenith average.")
     params['N_steps_earth'] = int(config['grid']['N_steps_earth'])
-    params['r_start_kpc'] = float(config['grid']['r_start_kpc'])
-    paths_mw = config['grid']['n_mw_paths']
     chords_earth = config['grid']['n_earth_chords']
-    if not isinstance(paths_mw, int) or paths_mw < 1:
-        raise ValueError("n_mw_paths must be an integer >= 1.")
     if not isinstance(chords_earth, int) or chords_earth < 1:
         raise ValueError("n_earth_chords must be an integer >= 1.")
     
@@ -805,11 +812,10 @@ if __name__ == "__main__":
     parser.add_argument("--earth_step_scheme", type=str, default=None, help="Earth-transit potential discretization: 'avg' (default: exact step-averaged potential, step-count-independent LRI phase -- see dp_spatial._earth_chord_worker) or 'left' (historical left-endpoint sampling, kept for reproducing pre-2026-07 results)")
     parser.add_argument("--earth_sky", type=str, default=None, help="Directions averaged at the detector: 'full' (default: the whole sky, equal weight per cos(zenith); down-going neutrinos cross only the ice above the detector) or 'up' (up-going only, through the Earth)")
     parser.add_argument("--earth_zenith_average", type=str, default=None, help="Average over the Earth chords: 'phase' (default: integrate each block of the chords' density matrices against its dark-portal phase over cos(zenith), removing the chord-sampling floor) or 'plain' (historical equal-weight mean; required with --earth_step_scheme left)")
-    parser.add_argument("--n_mw_paths", type=int, default=None, help="Number of Milky Way trajectories for solid-angle average")
+    parser.add_argument("--n_sun_paths", type=int, default=None, help="Directions to the Sun averaged in its coherent transit (Gauss-Legendre in the cosine of the angle; default 8)")
     parser.add_argument("--n_earth_chords", type=int, default=None, help="Number of Earth chords for PREM evaluation")
-    parser.add_argument("--N_steps_MW", type=int, default=None, help="Number of spatial integration steps in the Milky Way")
+    parser.add_argument("--transit_dtheta", type=float, default=None, help="Largest turn of the eigenbasis between the transit's frame-table nodes (default 0.002; the transit's error scales with it)")
     parser.add_argument("--N_steps_earth", type=int, default=None, help="Number of spatial integration steps per Earth chord (default 25 under the 'avg' step scheme, whose results are certified step-count-independent; under the legacy 'left' scheme results scatter ~1e-2 with any step-count change and 500 was the pinned value)")
-    parser.add_argument("--r_start_kpc", type=float, default=None, help="Starting distance for Milky Way integration in kpc")
     
     # Export Slated Locations Overrides
     parser.add_argument("--flux_filename", type=str, default=None)
@@ -895,11 +901,10 @@ if __name__ == "__main__":
     if args.earth_step_scheme is not None: config["grid"]["earth_step_scheme"] = args.earth_step_scheme
     if args.earth_zenith_average is not None: config["grid"]["earth_zenith_average"] = args.earth_zenith_average
     if args.earth_sky is not None: config["grid"]["earth_sky"] = args.earth_sky
-    if args.n_mw_paths is not None: config["grid"]["n_mw_paths"] = args.n_mw_paths
+    if args.n_sun_paths is not None: config["grid"]["n_sun_paths"] = args.n_sun_paths
     if args.n_earth_chords is not None: config["grid"]["n_earth_chords"] = args.n_earth_chords
-    if args.N_steps_MW is not None: config["grid"]["N_steps_MW"] = args.N_steps_MW
+    if args.transit_dtheta is not None: config["grid"]["transit_dtheta"] = args.transit_dtheta
     if args.N_steps_earth is not None: config["grid"]["N_steps_earth"] = args.N_steps_earth
-    if args.r_start_kpc is not None: config["grid"]["r_start_kpc"] = args.r_start_kpc
 
     if args.flux_filename is not None: config["output"]["flux_filename"] = args.flux_filename
     if args.plot_filename is not None: config["output"]["plot_filename"] = args.plot_filename

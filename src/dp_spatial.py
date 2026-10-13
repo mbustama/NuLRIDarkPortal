@@ -2,10 +2,11 @@
 dp_spatial.py
 
 The spatial handover: Milky Way and Earth density models, PREM layer geometry and
-the phase-exact step-averaged potential, the per-step density-matrix evolution,
-the pool workers and persistent pool, and propagate_earth_spatial. Split verbatim
-out of dark_portal_solver.py (HAS_TQDM references now read through dp_core, where
-that mutable flag lives).
+the phase-exact step-averaged potential, the Earth's exterior, the per-step density-matrix
+evolution, the pool workers and persistent pool, transit_to_earth (the Galaxy, the Sun and the
+Earth's exterior beyond r_split, through dp_transit) and propagate_earth_spatial. Split
+verbatim out of dark_portal_solver.py (HAS_TQDM references now read through dp_core, where
+that mutable flag lives); the Milky Way trajectories were replaced on 2026-10-13.
 """
 import multiprocessing
 
@@ -181,29 +182,6 @@ def get_baseline_earth(d_km: float, costh: float) -> float:
 # EXTRACTED NUMBA KERNELS FOR PROGRESS TRACKING
 # =============================================================================
 
-
-@njit(fastmath=True, cache=True)
-def spatial_total_density_mw(r_kpc: float, theta: float, phi: float, m_eff: float) -> float:
-    """Total ambient number density (eV^3) at a point on a Milky Way trajectory: the
-    galactic profile plus the Yukawa-enveloped Sun/Moon/Earth point-source terms.
-
-    Single canonical implementation shared by init_mw_density_matrix, step_mw_approach
-    (which previously each carried an identical copy of this block) and the GPU spatial
-    path's density-sequence precompute -- one source of truth instead of three.
-    """
-    n_n_MW = calc_MW_neutron_density(r_kpc, theta, phi) * cm_inv3_to_eV3
-    r_eV = r_kpc * 3.08567758e16 * 1e3 * m_to_eV_inv
-
-    r_sun_eV = np.sqrt(r_eV**2 + d_sun_eV_inv**2)
-    r_moon_eV = np.sqrt(r_eV**2 + d_moon_eV_inv**2)
-
-    n_sun_eV3, n_moon_eV3, n_earth_eV3 = 0.0, 0.0, 0.0
-    if m_eff > 0:
-        n_sun_eV3 = N_n_sun * (m_eff**2) / (4.0 * np.pi * r_sun_eV) * np.exp(-m_eff * r_sun_eV)
-        n_moon_eV3 = N_n_moon * (m_eff**2) / (4.0 * np.pi * r_moon_eV) * np.exp(-m_eff * r_moon_eV)
-        n_earth_eV3 = N_n_earth * (m_eff**2) / (4.0 * np.pi * r_eV) * np.exp(-m_eff * r_eV)
-
-    return n_n_MW + n_sun_eV3 + n_moon_eV3 + n_earth_eV3
 
 @njit(fastmath=True, cache=True)
 def spatial_total_density_earth(l_km: float, baseline_km: float, costh: float,
@@ -649,33 +627,6 @@ def _yk_graded_integral(A: float, B: float, feat_l: np.ndarray, feat_w: np.ndarr
 
 
 @njit(fastmath=True, cache=True)
-def init_mw_density_matrix(r_start_kpc: float, theta: float, phi: float, E_bins: np.ndarray, F_mass_arrival: np.ndarray,
-                           M_rot: np.ndarray, m_eff: float, Coef: float, U_LRI_struct: np.ndarray) -> np.ndarray:
-    """Calculates the initial density matrix mapping at the 30 kpc galactic edge.
-
-    M_rot = U_pmns @ M_sq @ conj(U_pmns).T is precomputed once by the caller (see
-    get_adiabatic_mixing_cosmo's docstring) since it never changes within a run.
-    """
-    N_E = len(E_bins)
-    rho_f = np.zeros((N_E, 3, 3), dtype=np.complex128)
-
-    # n_tot_edge depends only on r_start_kpc/theta/phi/m_eff, all fixed for this whole
-    # call, never on the energy bin i -- computed once outside the loop.
-    n_tot_edge = spatial_total_density_mw(r_start_kpc, theta, phi, m_eff)
-    V_LRI_edge = (Coef * n_tot_edge) * U_LRI_struct
-
-    for i in range(N_E):
-        H_vac = (1.0 / (2.0 * E_bins[i])) * M_rot
-        H_arr = H_vac + V_LRI_edge
-        evals_a, evecs_a = np.linalg.eigh(H_arr)
-        
-        for a in range(3):
-            for b in range(3):
-                for k in range(3):
-                    rho_f[i, a, b] += evecs_a[a, k] * F_mass_arrival[i, k] * np.conjugate(evecs_a[b, k])
-    return rho_f
-
-@njit(fastmath=True, cache=True)
 def _evolve_rho_all_bins(E_bins: np.ndarray, rho: np.ndarray, M_rot: np.ndarray,
                          V_const: np.ndarray, dr_eV_inv: float,
                          H_buf: np.ndarray, U_buf: np.ndarray, T_buf: np.ndarray):
@@ -718,17 +669,6 @@ def _evolve_rho_all_bins(E_bins: np.ndarray, rho: np.ndarray, M_rot: np.ndarray,
                 rho[i, b, a] = np.conjugate(val)
 
 @njit(fastmath=True, cache=True)
-def step_mw_approach(r_current_kpc: float, theta: float, phi: float, dr_MW_eV_inv: float,
-                     E_bins: np.ndarray, rho_f: np.ndarray, M_rot: np.ndarray,
-                     m_eff: float, Coef: float, U_LRI_struct: np.ndarray, U_step_buffer: np.ndarray,
-                     H_buf: np.ndarray, T_buf: np.ndarray):
-    """Executes a single path-length step through the Milky Way using pre-allocated contiguous matrix buffers."""
-    n_tot = spatial_total_density_mw(r_current_kpc, theta, phi, m_eff)
-    V_LRI = (Coef * n_tot) * U_LRI_struct
-
-    _evolve_rho_all_bins(E_bins, rho_f, M_rot, V_LRI, dr_MW_eV_inv, H_buf, U_step_buffer, T_buf)
-
-@njit(fastmath=True, cache=True)
 def step_earth_transit(l_km: float, baseline_km: float, costh: float, dr_earth_eV_inv: float,
                        E_bins: np.ndarray, rho_earth: np.ndarray, M_rot: np.ndarray,
                        n_n_amb_eV3: float, Coef: float, U_LRI_struct: np.ndarray,
@@ -751,25 +691,6 @@ def step_earth_transit(l_km: float, baseline_km: float, costh: float, dr_earth_e
 # =============================================================================
 # REVISED SOLVERS WITH VERBOSE PROGRESS TRACKING
 # =============================================================================
-
-def _mw_path_worker(args) -> np.ndarray:
-    """Propagates a single Milky Way trajectory (one theta/phi direction) end-to-end.
-
-    Module-level (picklable) so it can be dispatched to a multiprocessing pool: each
-    trajectory is fully independent of the others, so this is the unit of parallel work
-    for the Milky Way phase of the spatial handover.
-    """
-    (theta, phi, r_start_kpc, dr_kpc, dr_MW_eV_inv, N_steps_MW, E_bins, F_mass_arrival,
-     M_rot, m_eff, Coef, U_LRI_struct) = args
-
-    rho_f = init_mw_density_matrix(r_start_kpc, theta, phi, E_bins, F_mass_arrival, M_rot, m_eff, Coef, U_LRI_struct)
-    U_step_buffer = np.zeros((3, 3), dtype=np.complex128)
-    H_buf = np.zeros((3, 3), dtype=np.complex128)
-    T_buf = np.zeros((3, 3), dtype=np.complex128)
-    for step in range(N_steps_MW):
-        r_current_kpc = r_start_kpc - step * dr_kpc
-        step_mw_approach(r_current_kpc, theta, phi, dr_MW_eV_inv, E_bins, rho_f, M_rot, m_eff, Coef, U_LRI_struct, U_step_buffer, H_buf, T_buf)
-    return rho_f
 
 # PREM layer boundary radii (km) -- the breakpoints of calc_earth_density
 _PREM_BOUNDARIES_KM = _PREM_EDGES_KM[1:].copy()
@@ -1082,6 +1003,9 @@ def average_earth_chords(rho_chords: np.ndarray, earth_costh: np.ndarray, Coef: 
         if hit is None:
             c_fine, node_index = _earth_zenith_fine_grid(earth_costh, detector_depth_km, _ZENITH_FINE_POINTS_YUKAWA)
             col = _earth_columns(c_fine, detector_depth_km, n_n_amb_eV3, earth_yk)
+            if earth_exterior_active(m_eff_eV):
+                col = col + _earth_exterior_columns(c_fine, detector_depth_km, n_n_amb_eV3, earth_yk,
+                                                    _GL10_X, _GL10_W)
             if len(_zenith_column_cache) > 64:
                 _zenith_column_cache.clear()
             _zenith_column_cache[key] = hit = (c_fine, node_index, col)
@@ -1095,6 +1019,162 @@ def average_earth_chords(rho_chords: np.ndarray, earth_costh: np.ndarray, Coef: 
             R = np.tensordot(w, rho_chords, axes=(0, 0))      # (N_E, 3, 3)
             rho_avg += Pg @ R @ Ph
     return rho_avg
+
+
+# =============================================================================
+# THE EARTH'S EXTERIOR (2026-10-13)
+# =============================================================================
+# Outside a spherical body the Yukawa integral is a point source with the body's effective
+# neutron number: with the table's P(R) (see the section notes on the Earth's own potential),
+#     n_eff(r > R) = (m / r) exp(-m (r - R)) P(R),
+# m^2 N / (4 pi r) when m R << 1, and n(R)/2 decaying over 1/m just above the surface when
+# m R >> 1. Neutrinos cross it before every chord, and for down-going chords (1.5 to 140 km of
+# ice) it can carry most of the phase. Out to r_split = 2 R the vacuum term turns the state by
+# at most Delta m^2 R / E ~ 0.03 rad above 10 TeV, so there the exterior is integrated along
+# each chord's own line, in _EXT_N_STEPS 'avg' steps geometric in r; beyond r_split every line
+# runs within R / r of radial, so the transit there is one radial path for all chords
+# (dp_transit.source_transit), and each chord adds the phase of its line's extra column,
+#     dcol(b) = int_{r_split}^inf n_eff(r) [r / sqrt(r^2 - b^2) - 1] dr ~ n b^2 / (2 r^2),
+# b = (R - d) sin(zenith) the line's distance from the centre: that extra potential sits
+# within a few r_split, where the vacuum term is negligible, so it acts as a pure phase.
+# Above _ZENITH_YUKAWA_MIN_M_EV the exterior is a layer thinner than 1 cm and is left out,
+# keeping heavier mediators bit for bit as before.
+_EXT_R_SPLIT = 2.0                  # r_split / R
+_EXT_N_STEPS = 8
+
+
+@njit(fastmath=True, cache=True)
+def _ext_density_cm3(r_km: float, yk) -> float:
+    """The Earth's exterior n_eff (cm^-3) at r_km >= R, from the Yukawa table yk."""
+    par = yk[0]
+    mode = int(par[0])
+    if mode == _YUKAWA_CONTACT:
+        return 0.0
+    m = par[1]
+    R = par[2]
+    if r_km <= R:
+        r_km = R
+    return (m / r_km) * np.exp(-m * (r_km - R)) * par[3]
+
+
+@njit(fastmath=True, cache=True)
+def _ext_line_column(b_km: float, r_a: float, r_b: float, yk, minus_radial: bool,
+                     glx: np.ndarray, glw: np.ndarray) -> float:
+    """int_{r_a}^{r_b} n_eff(r) J(r) dr (cm^-3 km) along a line at distance b from the centre
+    (b < R <= r_a), with J = r / sqrt(r^2 - b^2) (the line's length per unit r), or J - 1 =
+    b^2 / (sqrt(r^2 - b^2) (r + sqrt(r^2 - b^2))) with minus_radial. Panels graded
+    geometrically away from the surface resolve the 1/m layer and the grazing Jacobian."""
+    par = yk[0]
+    m = par[1]
+    R = par[2]
+    if r_b <= r_a:
+        return 0.0
+    q = R * R - b_km * b_km
+    d0 = min(0.05 / m, 0.05 * q / R, 0.1)
+    if d0 <= 0.0:
+        d0 = 1e-6
+    total = 0.0
+    lo = r_a
+    while lo < r_b:
+        x = lo - R
+        hi = R + max(2.0 * x, x + d0)
+        if hi > r_b:
+            hi = r_b
+        if m * (lo - R) > 60.0:
+            break
+        mid = 0.5 * (lo + hi)
+        half = 0.5 * (hi - lo)
+        acc = 0.0
+        for k in range(len(glx)):
+            r = mid + half * glx[k]
+            w = np.sqrt(r * r - b_km * b_km)
+            if minus_radial:
+                J = b_km * b_km / (w * (r + w))
+            else:
+                J = r / w
+            acc += glw[k] * _ext_density_cm3(r, yk) * J
+        total += acc * half
+        lo = hi
+    return total
+
+
+@njit(fastmath=True, cache=True)
+def earth_exterior_chord(costh: float, detector_depth_km: float, yk, glx: np.ndarray,
+                         glw: np.ndarray):
+    """The exterior part of the chord at zenith cosine costh (section notes above): returns
+    (L, col, dcol) -- the lengths (km) and Earth columns (cm^-3 km) of the _EXT_N_STEPS steps
+    from r_split down to the surface, in travel order, and the extra column beyond r_split."""
+    R = yk[0][2]
+    b = (R - detector_depth_km) * np.sqrt(max(1.0 - costh * costh, 0.0))
+    r_split = _EXT_R_SPLIT * R
+    L = np.empty(_EXT_N_STEPS)
+    col = np.empty(_EXT_N_STEPS)
+    for j in range(_EXT_N_STEPS):
+        # step j runs from r_hi down to r_lo
+        r_hi = R * _EXT_R_SPLIT ** ((_EXT_N_STEPS - j) / _EXT_N_STEPS)
+        r_lo = R * _EXT_R_SPLIT ** ((_EXT_N_STEPS - j - 1) / _EXT_N_STEPS)
+        if j == 0:
+            r_hi = r_split
+        if j == _EXT_N_STEPS - 1:
+            r_lo = R
+        L[j] = np.sqrt(r_hi * r_hi - b * b) - np.sqrt(r_lo * r_lo - b * b)
+        col[j] = _ext_line_column(b, r_lo, r_hi, yk, False, glx, glw)
+    dcol = _ext_line_column(b, r_split, r_split * 1e9, yk, True, glx, glw)
+    return L, col, dcol
+
+
+def earth_exterior_active(m_eff_eV: float) -> bool:
+    """Whether the exterior enters the chords and their zenith columns (section notes)."""
+    return 0.0 < m_eff_eV <= _ZENITH_YUKAWA_MIN_M_EV
+
+
+@njit(fastmath=True, cache=True)
+def _earth_exterior_columns(costh_arr: np.ndarray, detector_depth_km: float, n_n_amb_eV3: float,
+                            yk, glx: np.ndarray, glw: np.ndarray) -> np.ndarray:
+    """Exterior column (eV^3 km) of each costh: its steps' Earth columns and ambient density
+    times their lengths, plus dcol (earth_exterior_chord) -- what the chord accumulates before
+    the surface beyond the radial transit common to all chords."""
+    out = np.empty(len(costh_arr))
+    for i in range(len(costh_arr)):
+        L, col, dcol = earth_exterior_chord(costh_arr[i], detector_depth_km, yk, glx, glw)
+        acc = dcol * cm_inv3_to_eV3
+        for j in range(len(L)):
+            acc += col[j] * cm_inv3_to_eV3 + n_n_amb_eV3 * L[j]
+        out[i] = acc
+    return out
+
+
+def chord_exterior(costh: float, detector_depth_km: float, earth_yk, Coef: float,
+                   U_LRI_struct: np.ndarray):
+    """The exterior data of one chord for apply_earth_exterior: (U_dcol, L_eV_inv, nbar_eV3) --
+    the unitary exp(-i Coef dcol S) of the line's extra column beyond r_split, and the lengths
+    and Earth densities of its exterior steps (earth_exterior_chord)."""
+    L, col, dcol = earth_exterior_chord(costh, detector_depth_km, earth_yk, _GL10_X, _GL10_W)
+    U_dcol = np.empty((3, 3), dtype=np.complex128)
+    H = np.ascontiguousarray((Coef * dcol * cm_inv3_to_eV3 * _KM_IN_EV_INV) * U_LRI_struct,
+                             dtype=np.complex128)
+    propagator_3x3(H, 1.0, U_dcol)
+    nbar = np.where(L > 0.0, col / np.maximum(L, 1e-300), 0.0) * cm_inv3_to_eV3
+    return U_dcol, L * _KM_IN_EV_INV, nbar
+
+
+def apply_earth_exterior(E_bins: np.ndarray, rho: np.ndarray, M_rot: np.ndarray, Coef: float,
+                         U_LRI_struct: np.ndarray, n_n_amb_eV3: float, ext) -> None:
+    """Evolves rho (N_E, 3, 3) in place from r_split to the surface along one chord's line:
+    the phase of its extra column beyond r_split, then its exterior steps (vacuum term, ambient
+    and Earth exterior potentials; no standard matter potential outside the Earth)."""
+    U_dcol, L_eV_inv, nbar = ext
+    T = np.empty((3, 3), dtype=np.complex128)
+    Ud = np.conjugate(U_dcol).T
+    for i in range(rho.shape[0]):
+        rho[i] = U_dcol @ rho[i] @ Ud
+    U_step_buffer = np.zeros((3, 3), dtype=np.complex128)
+    H_buf = np.zeros((3, 3), dtype=np.complex128)
+    for j in range(len(L_eV_inv)):
+        if L_eV_inv[j] <= 0.0:
+            continue
+        V = np.ascontiguousarray((Coef * (n_n_amb_eV3 + nbar[j])) * U_LRI_struct, dtype=np.complex128)
+        _evolve_rho_all_bins(E_bins, rho, M_rot, V, L_eV_inv[j], H_buf, U_step_buffer, T)
 
 
 def _earth_chord_worker(args) -> np.ndarray:
@@ -1115,7 +1195,7 @@ def _earth_chord_worker(args) -> np.ndarray:
                 kernel; only the V value per step differs.
     """
     (costh, baseline_km, N_steps_earth, E_bins, rho_surf_avg, M_rot, n_n_amb_eV3, Coef,
-     U_LRI_struct, V_SM, detector_depth_km, earth_scheme, earth_yk) = args
+     U_LRI_struct, V_SM, detector_depth_km, earth_scheme, earth_yk, ext) = args
 
     dr_earth_km = baseline_km / N_steps_earth
     dr_earth_eV_inv = dr_earth_km * 1e3 * m_to_eV_inv
@@ -1123,6 +1203,8 @@ def _earth_chord_worker(args) -> np.ndarray:
     U_step_buffer = np.zeros((3, 3), dtype=np.complex128)
     H_buf = np.zeros((3, 3), dtype=np.complex128)
     T_buf = np.zeros((3, 3), dtype=np.complex128)
+    if ext is not None:
+        apply_earth_exterior(E_bins, rho_earth, M_rot, Coef, U_LRI_struct, n_n_amb_eV3, ext)
     if earth_scheme == "avg":
         cross_ls = _earth_layer_crossings(baseline_km, costh, detector_depth_km)
         nbar = _avg_earth_density_seq(baseline_km, costh, N_steps_earth, detector_depth_km,
@@ -1233,13 +1315,67 @@ def _run_spatial_tasks(worker_fn, tasks, desc, n_workers, show_progress, externa
         results = [worker_fn(t) for t in iterator]
     return results
 
+def transit_to_earth(E_bins: np.ndarray, F_mass_arrival: np.ndarray, M_rot: np.ndarray,
+                     U_LRI_struct: np.ndarray, Coef: float, m_eff: float, n_n0_eV3: float,
+                     R_H_eV_inv: float, earth_yk, n_sun_paths: int = 8,
+                     transit_dtheta: float = 0.002):
+    """The transit from the cosmological arrival to the sphere r = r_split around the Earth
+    (dp_transit's module notes): the adiabatic Galactic map at the Yukawa-smoothed local
+    density, the coherent transit through the Sun's potential (n_sun_paths directions) and the
+    radial transit through the Earth's exterior beyond r_split.
+
+    Arguments: E_bins; F_mass_arrival (N_E, 3) -- populations of the cosmological arrival's
+    eigenstates; M_rot; U_LRI_struct (this kind's texture); Coef (signed, eV^-2); m_eff (eV);
+    n_n0_eV3 -- the cosmic neutron density, taken out to the Hubble radius R_H_eV_inv; earth_yk;
+    n_sun_paths; transit_dtheta -- the frame table's spacing (dp_transit.build_frame_table).
+
+    Returns (rho (N_E, 3, 3) at r_split, n_amb_eV3 -- the ambient density the chords add:
+    Galaxy, Sun and Moon at the Earth -- and a dict of diagnostics).
+    """
+    import dp_transit
+    S_signed = np.ascontiguousarray(np.sign(Coef) * np.asarray(U_LRI_struct, dtype=np.complex128))
+    if Coef == 0.0:
+        S_signed = np.ascontiguousarray(np.asarray(U_LRI_struct, dtype=np.complex128))
+    tab = dp_transit.frame_table(M_rot, S_signed, transit_dtheta)
+    coef_abs = abs(float(Coef))
+    n_gal = dp_transit.galactic_effective_density(m_eff, n_n0_eV3, R_H_eV_inv) if m_eff > 0 else 0.0
+    n_sun, n_moon = 0.0, 0.0
+    if m_eff > 0:
+        n_sun = N_n_sun * (m_eff**2) / (4.0 * np.pi * d_sun_eV_inv) * np.exp(-m_eff * d_sun_eV_inv)
+        n_moon = N_n_moon * (m_eff**2) / (4.0 * np.pi * d_moon_eV_inv) * np.exp(-m_eff * d_moon_eV_inv)
+    n_bg = n_gal + n_moon
+    N_E = len(E_bins)
+    rho = np.empty((N_E, 3, 3), dtype=np.complex128)
+    dp_transit.galactic_map(np.ascontiguousarray(E_bins, dtype=np.float64),
+                            np.ascontiguousarray(F_mass_arrival, dtype=np.float64), 2.0 * coef_abs, n_bg,
+                            tab["Q"], tab["Mp"], tab["s"], tab["floor"], rho)
+    ca, w = dp_transit.sun_paths(n_sun_paths)
+    rho, n_active_sun = dp_transit.source_transit(E_bins, rho, tab, coef_abs, n_bg, n_sun, m_eff,
+                                                  d_sun_eV_inv, ca, w)
+    n_amb = n_bg + n_sun
+    n_active_ext = 0
+    if earth_exterior_active(m_eff) and int(earth_yk[0][0]) != _YUKAWA_CONTACT:
+        R_km = float(earth_yk[0][2])
+        r_split_km = _EXT_R_SPLIT * R_km
+        C_E = _ext_density_cm3(r_split_km, earth_yk) * cm_inv3_to_eV3
+        outer = _ext_line_column(0.0, r_split_km, r_split_km * 1e9, earth_yk, False, _GL10_X, _GL10_W)
+        phase = coef_abs * float(np.max(np.abs(tab["s"]))) * outer * cm_inv3_to_eV3 * _KM_IN_EV_INV
+        rho, n_active_ext = dp_transit.source_transit(E_bins, rho, tab, coef_abs, n_amb, C_E, m_eff,
+                                                      r_split_km * _KM_IN_EV_INV, np.array([-1.0]),
+                                                      np.array([1.0]), force_active=phase > 1e-7)
+    info = dict(n_gal_eV3=n_gal, n_sun_eV3=n_sun, n_moon_eV3=n_moon, n_active_sun=n_active_sun,
+                n_active_exterior=n_active_ext, table_nodes=len(tab["sig"]))
+    return rho, n_amb, info
+
+
 def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
                             M_rot: np.ndarray,
                             u_arr: np.ndarray, m_Zd: float, g_D: float, eps_prime: float,
                             T_nu0: float, use_debye_screening: bool, eta_bg: np.ndarray,
                             detector_depth_km: float, use_SM_potential: bool, n_e_earth_eV3: float,
-                            is_antineutrino: bool, n_mw_paths: int, n_earth_chords: int,
-                            N_steps_MW: int = 25, r_start_kpc: float = 100.0,
+                            is_antineutrino: bool, n_sun_paths: int, n_earth_chords: int,
+                            transit_dtheta: float = 0.002, n_n0_eV3: float = 0.0,
+                            R_H_eV_inv: float = 0.0,
                             show_progress: bool = True, verbose: int = 1, n_cores: int = 1,
                             N_steps_earth: int = 500, external_pool=None,
                             U_LRI_struct=None, V_SM_struct=None, use_gpu: bool = False,
@@ -1247,13 +1383,15 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
                             earth_zenith_average: str = "plain",
                             earth_sky: str = "up") -> np.ndarray:
     """
-    Executes pure spatial ODE through Milky Way and Earth with active tracking.
-    Milky Way trajectories and Earth chords are mutually independent, so when n_cores > 1
-    each set is distributed across a multiprocessing pool instead of being run sequentially.
+    The spatial handover: from the cosmological arrival to the detector, through the Galaxy,
+    the Sun, the Earth's exterior and the Earth (transit_to_earth, then the chords). Earth
+    chords are mutually independent; with n_cores > 1 they are distributed across a
+    multiprocessing pool.
 
     Arguments:
       E_bins: energy grid (eV).
-      F_mass_arrival: (N_E, 3) mass-basis fluxes arriving from the cosmological phase.
+      F_mass_arrival: (N_E, 3) populations of the cosmological arrival's eigenstates
+        (ascending eigenvalues of the Hamiltonian at z = 0).
       M_rot: (3, 3) U_pmns @ M_sq @ conj(U_pmns).T, precomputed once per run.
       u_arr: (3,) complex sterile mixing amplitudes, pre-conjugated for antineutrinos.
       m_Zd, g_D, eps_prime: dark mediator mass (eV) and couplings.
@@ -1262,15 +1400,19 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
       detector_depth_km: detector depth below the surface (sets chord geometry).
       use_SM_potential / n_e_earth_eV3: standard MSW potential inside the Earth.
       is_antineutrino: flips the potential sign (Coef) for this call.
-      n_mw_paths, n_earth_chords: solid-angle / zenith averaging counts.
-      N_steps_MW, r_start_kpc: Milky Way step count and entry radius (kpc).
+      n_sun_paths: directions to the Sun averaged in its transit (Gauss-Legendre in the
+        cosine of the angle); n_earth_chords: zenith-average count.
+      transit_dtheta: largest turn of the eigenbasis between the transit's frame-table nodes
+        (dp_transit.build_frame_table); the transit's error scales with it (~1e-5 at 0.002).
+      n_n0_eV3, R_H_eV_inv: the cosmic neutron density and the Hubble radius, for the Galactic
+        potential's long-range part (dp_transit.galactic_effective_density).
       show_progress, verbose: progress bars / logging.
-      n_cores: pool size for the (path-or-chord, E-block) task distribution.
+      n_cores: pool size for the (chord, E-block) task distribution.
       N_steps_earth, earth_step_scheme: Earth-transit resolution and potential
         discretization -- see the dedicated paragraph below.
       earth_zenith_average: 'phase' (integrate each block of the chords' density matrices
         against its LRI phase over costh -- see average_earth_chords; the config default)
-        or 'plain' (historical equal-weight mean over chords, the signature default);
+        or 'plain' (historical equal-weight mean, the signature default);
         'phase' requires earth_step_scheme = 'avg'.
       earth_sky: 'full' (the whole sky, equal weight per costh; the config default since
         2026-10-13) or 'up' (up-going directions only, the signature default and the only
@@ -1279,13 +1421,22 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
 
     Returns: (N_E, 3) flavor fluxes at the detector depth.
 
+    Until 2026-10-13 the Milky Way phase integrated n_mw_paths (6) trajectories from 100 kpc in
+    N_steps_MW (25) left-endpoint steps with the local Galactic density at every mediator mass,
+    the Sun, the Moon and the Earth as point sources sampled at those steps, and the Earth's
+    potential started at its surface. That treatment broke adiabaticity with its 4-kpc steps,
+    lost the vacuum term to rounding once the potential exceeded it ~1e16 times, overstated the
+    Galactic potential up to 5e6 times at ranges beyond a kiloparsec, and applied the Sun's
+    potential only along the Earth chords (notes, Appendix on the transit).
+
     external_pool, if given, is a caller-managed multiprocessing.Pool reused across many
     calls instead of creating a fresh one each time -- see _run_spatial_tasks's docstring.
 
     The Earth's own neutrons enter through their spherical Yukawa integral over the mediator
     range 1/m_eff (earth_yukawa_table, built once per call from m_eff); at MeV masses that is
     the local density bit for bit, and it differs once the range approaches PREM's layer
-    thicknesses (m_eff <~ 1e-9 eV).
+    thicknesses (m_eff <~ 1e-9 eV). Below 2e-5 eV the chords start at r_split = 2 R, crossing
+    the Earth's exterior first (see the section notes on it).
 
     U_LRI_struct / V_SM_struct, if given, are dimensionless 3x3 Hermitian flavor structure
     matrices overriding the default LRI texture (u_i * conj(u_j)) and SM matter-potential
@@ -1313,6 +1464,8 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
     if earth_zenith_average == "phase" and earth_step_scheme != "avg":
         raise ValueError("The 'phase' zenith average needs the phase-exact earth_step_scheme = 'avg' "
                          "(under 'left' each chord's phase carries a Riemann error); use 'plain' with 'left'.")
+    if int(n_sun_paths) < 1:
+        raise ValueError(f"n_sun_paths must be >= 1, got {n_sun_paths}")
 
     # --- Dynamic Earth Chords ---
     # n_earth_chords evenly spaced chords from exact core transit (costh = -1) to the horizon
@@ -1325,20 +1478,6 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
     else:
         up = np.linspace(-1.0, 0.0, int(n_earth_chords))
         earth_costh = up if earth_sky == "up" else np.concatenate([up, -up[-2::-1]])
-
-    # --- Dynamic Milky Way Paths ---
-    if n_mw_paths <= 1:
-        mw_theta = np.array([np.pi/2])
-        mw_phi = np.array([0.0])
-    elif n_mw_paths == 6:
-        # Preserve original standard baseline exact cardinal axis mapping
-        mw_theta = np.array([np.pi/2, np.pi/2, np.pi/2, np.pi/2, 0.0, np.pi])
-        mw_phi = np.array([0.0, np.pi, np.pi/2, 3.0*np.pi/2, 0.0, 0.0])
-    else:
-        # Fibonacci Spherical Lattice for perfectly isotropic uniform solid-angle averaging
-        indices = np.arange(0, n_mw_paths, dtype=np.float64)
-        mw_phi = (np.pi * (1.0 + np.sqrt(5.0)) * indices) % (2 * np.pi)
-        mw_theta = np.arccos(1.0 - 2.0 * (indices + 0.5) / n_mw_paths)
 
     m_D_sq = calc_debye_mass_sq(g_D, u_arr, T_nu0, eta_bg) if use_debye_screening else 0.0
     m_eff = np.sqrt(m_Zd**2 + m_D_sq)
@@ -1361,15 +1500,6 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
         U_LRI_struct = np.outer(u_arr, np.conjugate(u_arr))
     U_LRI_struct = np.ascontiguousarray(U_LRI_struct, dtype=np.complex128)
 
-    # Ambient (galactic-center + Sun/Moon Yukawa) density and the SM matter potential are
-    # pure functions of the inputs -- computed here, ahead of both phases, so the CPU and
-    # GPU orchestrations below share them.
-    n_sun_eV3, n_moon_eV3 = 0.0, 0.0
-    if m_eff > 0:
-        n_sun_eV3 = N_n_sun * (m_eff**2) / (4.0 * np.pi * d_sun_eV_inv) * np.exp(-m_eff * d_sun_eV_inv)
-        n_moon_eV3 = N_n_moon * (m_eff**2) / (4.0 * np.pi * d_moon_eV_inv) * np.exp(-m_eff * d_moon_eV_inv)
-    n_n_amb_eV3 = calc_MW_neutron_density(0.0, 0.0, 0.0) * cm_inv3_to_eV3 + n_sun_eV3 + n_moon_eV3
-
     # The SM matter potential is constant along every chord (it depends only on the
     # configured electron density, the flavor structure, and the antineutrino sign
     # convention -- never on position), so it is built exactly once here and handed to
@@ -1389,6 +1519,17 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
         V_SM = V_SM_scale * S_SM
     V_SM = np.ascontiguousarray(V_SM)
 
+    # PHASE 1: Galaxy, Sun and the Earth's exterior beyond r_split (dp_transit)
+    if verbose == 2:
+        safe_print(f"\n--- Spatial Handover Commencing ({lbl}) ---")
+    rho_surf_avg, n_n_amb_eV3, tinfo = transit_to_earth(
+        E_bins, F_mass_arrival, M_rot, U_LRI_struct, Coef, m_eff, n_n0_eV3, R_H_eV_inv, earth_yk,
+        n_sun_paths=n_sun_paths, transit_dtheta=transit_dtheta)
+    if verbose == 2:
+        safe_print(f"Transit to the Earth: Galactic density {tinfo['n_gal_eV3']:.3e} eV^3, Sun "
+                   f"{tinfo['n_sun_eV3']:.3e} eV^3 ({tinfo['n_active_sun']} bins coherent), Earth's "
+                   f"exterior {tinfo['n_active_exterior']} bins; frame table {tinfo['table_nodes']} nodes.")
+
     # PHASE-NOISE ADVISORY: when the LRI potential is so large (1/m_Zd^2-enhanced at tiny
     # mediator masses) that a single Earth step accrues more phase than double precision
     # can represent (eps * spread * dr > 0.1 rad of rounding noise), propagator_3x3 keeps
@@ -1407,13 +1548,13 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
                 f"per-step phases exceed double precision. Fluxes are unitary but "
                 f"decoherence-averaged only (see propagator_3x3's docstring).")
 
-    # PHASE 1: Milky Way & Solar System Approach
-    r_end_kpc = 6371.0 / 3.08567758e16
-    dr_kpc = (r_start_kpc - r_end_kpc) / N_steps_MW
-    dr_MW_eV_inv = dr_kpc * 3.08567758e16 * 1e3 * m_to_eV_inv
+    # Each chord's exterior below r_split (None when the exterior is out of range)
+    exterior = earth_exterior_active(m_eff) and int(earth_yk[0][0]) != _YUKAWA_CONTACT
+    ext_data = [chord_exterior(c, detector_depth_km, earth_yk, Coef, U_LRI_struct) if exterior else None
+                for c in earth_costh]
 
-    # Optional CUDA path: the whole handover as one batched GPU workload (same physics --
-    # shared density helpers, same propagator algorithm ported to batched arrays; see
+    # Optional CUDA path: the chords as one batched GPU workload (same physics -- shared
+    # density helpers, same propagator algorithm ported to batched arrays; see
     # gpu_spatial.py, including its validation-status note). Falls back to the CPU path
     # with a warning when cupy or a CUDA device is missing.
     if use_gpu:
@@ -1426,19 +1567,7 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
             safe_print("[GPU] use_gpu requested but cupy with a CUDA device is unavailable -- using the CPU path.")
         else:
             if verbose == 2:
-                safe_print(f"\n--- Spatial Handover on GPU ({lbl}): {len(mw_theta)} path(s), {len(earth_costh)} chord(s) ---")
-            rho0_paths = np.stack([init_mw_density_matrix(r_start_kpc, mw_theta[k], mw_phi[k], E_bins,
-                                                          F_mass_arrival, M_rot, m_eff, Coef, U_LRI_struct)
-                                   for k in range(len(mw_theta))], axis=0)
-            n_seq_mw = np.empty((len(mw_theta), N_steps_MW))
-            for k in range(len(mw_theta)):
-                for s in range(N_steps_MW):
-                    n_seq_mw[k, s] = spatial_total_density_mw(r_start_kpc - s * dr_kpc, mw_theta[k], mw_phi[k], m_eff)
-            rho_paths = run_spatial_handover_gpu(E_bins, rho0_paths, n_seq_mw,
-                                                 np.full(len(mw_theta), dr_MW_eV_inv),
-                                                 M_rot, Coef, U_LRI_struct, None)
-            rho_surf_avg = np.mean(rho_paths, axis=0)
-
+                safe_print(f"\n--- Earth chords on GPU ({lbl}): {len(earth_costh)} chord(s) ---")
             baselines = np.array([get_baseline_earth(detector_depth_km, c) for c in earth_costh])
             dr_earth_km = baselines / N_steps_earth
             n_seq_earth = np.empty((len(earth_costh), N_steps_earth))
@@ -1455,6 +1584,10 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
                                                                 earth_costh[c], detector_depth_km,
                                                                 n_n_amb_eV3, earth_yk)
             rho0_chords = np.broadcast_to(rho_surf_avg, (len(earth_costh), N_E, 3, 3)).copy()
+            for c in range(len(earth_costh)):
+                if ext_data[c] is not None:
+                    apply_earth_exterior(E_bins, rho0_chords[c], M_rot, Coef, U_LRI_struct, n_n_amb_eV3,
+                                         ext_data[c])
             rho_chords = run_spatial_handover_gpu(E_bins, rho0_chords, n_seq_earth,
                                                   dr_earth_km * 1e3 * m_to_eV_inv,
                                                   M_rot, Coef, U_LRI_struct, V_SM)
@@ -1466,30 +1599,9 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
                 safe_print(f"Spatial propagation finished ({lbl}, GPU).")
             return F_earth
 
-    if verbose == 2:
-        safe_print(f"\n--- Spatial Handover Commencing ({lbl}) ---")
-        safe_print(f"Entering Milky Way geometry at r = {r_start_kpc:.1f} kpc from Earth ({len(mw_theta)} path(s), {n_workers} worker(s))...")
-
-    # Tasks are (path, E-block) pairs: energy bins evolve independently, so splitting the
-    # E-grid gives even worker loads when the path count doesn't divide the worker count
-    # (see _split_E_blocks). Per-path results are reassembled to full arrays first, so the
-    # np.mean over paths below is arithmetically identical to the unsplit version.
-    mw_blocks = _split_E_blocks(N_E, len(mw_theta), n_workers)
-    mw_tasks = [(mw_theta[k], mw_phi[k], r_start_kpc, dr_kpc, dr_MW_eV_inv, N_steps_MW, E_bins[b0:b1],
-                 F_mass_arrival[b0:b1], M_rot, m_eff, Coef, U_LRI_struct)
-                for k in range(len(mw_theta)) for (b0, b1) in mw_blocks]
-    mw_block_results = _run_spatial_tasks(_mw_path_worker, mw_tasks, f"MW paths ({lbl})", n_workers, show_progress, external_pool=external_pool)
-    mw_results = []
-    for k in range(len(mw_theta)):
-        rho_full = np.empty((N_E, 3, 3), dtype=np.complex128)
-        for b, (b0, b1) in enumerate(mw_blocks):
-            rho_full[b0:b1] = mw_block_results[k * len(mw_blocks) + b]
-        mw_results.append(rho_full)
-    rho_surf_avg = np.mean(np.stack(mw_results, axis=0), axis=0)
-
     # PHASE 2: Earth Transit (PREM Layers)
     if verbose == 2:
-        safe_print(f"Milky Way transit complete. Initiating Solar System point-source locks and Earth PREM transit ({len(earth_costh)} chord(s))...")
+        safe_print(f"Initiating the Earth transit ({len(earth_costh)} chord(s), {n_workers} worker(s))...")
 
     # NOTE ON STEP SCHEMES ('avg' vs 'left', grid.earth_step_scheme): under the default
     # 'avg' scheme each step uses the EXACT path-averaged potential, so the accumulated
@@ -1526,12 +1638,12 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
     # the 500 default across a resonance-scanning parameter range -- verify convergence
     # against a higher-resolution reference for your own m_Zd range before trusting a lower
     # value in a real fit.
-    # Same (chord, E-block) task splitting as the Milky Way phase above.
+    # (chord, E-block) task splitting (see _split_E_blocks).
     earth_blocks = _split_E_blocks(N_E, len(earth_costh), n_workers)
     earth_tasks = [(costh, get_baseline_earth(detector_depth_km, costh), N_steps_earth, E_bins[b0:b1],
                     rho_surf_avg[b0:b1], M_rot, n_n_amb_eV3, Coef, U_LRI_struct, V_SM,
-                    detector_depth_km, earth_step_scheme, earth_yk)
-                   for costh in earth_costh for (b0, b1) in earth_blocks]
+                    detector_depth_km, earth_step_scheme, earth_yk, ext_data[c])
+                   for c, costh in enumerate(earth_costh) for (b0, b1) in earth_blocks]
     earth_block_results = _run_spatial_tasks(_earth_chord_worker, earth_tasks, f"Earth chords ({lbl})", n_workers, show_progress, external_pool=external_pool)
     earth_results = []
     for c in range(len(earth_costh)):
