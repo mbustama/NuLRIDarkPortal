@@ -37,6 +37,43 @@
    "data_centre": null,
    "chi2_min": 5.556824334007615e-08,
    "seconds": 167.10789984837174
+  },
+  {
+   "provenance": {
+    "time": "2026-10-13T21:28:04",
+    "git_commit": "124fd03c44e39acb01c68c6c9fdcfd4351a26d7c",
+    "git_dirty": false,
+    "config": "/lustre/astro/mbustama/NuLRIDarkPortal/analysis/configs/pion_2050_case_5_exclusion.json",
+    "config_digest": "d6ff1ac13a26680b",
+    "host": "node803.cluster",
+    "python": "3.12.15",
+    "numpy": "1.26.4",
+    "scipy": "1.15.3",
+    "numba": "0.60.0",
+    "argv": [
+     "/lustre/astro/mbustama/NuLRIDarkPortal/analysis/__main__.py",
+     "analysis/configs/pion_2050_case_5_exclusion.json",
+     "--workers",
+     "16"
+    ]
+   },
+   "workers": 16,
+   "tasks": [
+    {
+     "task": "fit",
+     "seconds": 136.87859884649515,
+     "nfev": 591
+    },
+    {
+     "task": "plane m_Zd_eV/g_D",
+     "seconds": 47.1952751390636,
+     "nfev": 1845,
+     "passes": 0
+    }
+   ],
+   "data_centre": null,
+   "chi2_min": 5.967886451685445e-08,
+   "seconds": 184.6075908318162
   }
  ],
  "config": {
