@@ -98,12 +98,14 @@ def summarize(cfg, out_dir: str, data_centre=None, log=print) -> dict:
         if os.path.exists(p):
             chi2, vals = _load_scan(p, [s.name], [s.grid], scans.scan_identity(cfg, [s.name], [s.grid], data_centre))
             loaded.append(("profile", [s.name], [s.grid], chi2, vals))
+    rasters = {}
     for s in cfg.planes:
         p = os.path.join(out_dir, f"plane_{s.x}_{s.y}.jsonl")
         if os.path.exists(p):
             chi2, vals = _load_scan(p, [s.x, s.y], [s.x_grid, s.y_grid],
                                     scans.scan_identity(cfg, [s.x, s.y], [s.x_grid, s.y_grid], data_centre))
             loaded.append(("plane", [s.x, s.y], [s.x_grid, s.y_grid], chi2, vals))
+            rasters[(s.x, s.y)] = s.raster
     for kind, names, grids, chi2, vals in loaded:
         if np.isfinite(chi2).any() and chi2.min() < ref["chi2"] - scans.REPAIR_TOL:
             ix = np.unravel_index(np.argmin(chi2), chi2.shape)
@@ -129,11 +131,31 @@ def summarize(cfg, out_dir: str, data_centre=None, log=print) -> dict:
             for lab, ivs in summary["intervals"].items():
                 log(f"  {names[0]} at {lab}: " + ("; ".join(intervals.describe(iv) for iv in ivs) or "no interval"))
         else:
-            thr = cfg.thresholds["2d"]
-            summary["thresholds"] = thr
             stem = os.path.join(out_dir, f"plane_{names[0]}_{names[1]}")
+            raster = rasters.get(tuple(names))
+            if raster is None:
+                thr = cfg.thresholds["2d"]
+                summary["thresholds"] = thr
+                _write_json(stem + ".json", summary)
+                plots.plot_plane({**summary, "dchi2": np.where(np.isfinite(d), d, np.inf).tolist()}, stem + ".pdf")
+                continue
+            # read per value of the raster parameter (decided 2026-10-13), at the 1D thresholds
+            thr = cfg.thresholds["1d"]
+            ax = names.index(raster)
+            other = names[1 - ax]
+            c = chi2 if ax == 0 else chi2.T
+            rs = intervals.summarize_raster(grids[ax], grids[1 - ax], c, thr, ref["chi2"],
+                                            cfg.parameter(other).space == "log10")
+            dcol = rs["dchi2"] if ax == 0 else rs["dchi2"].T
+            summary.update(raster=raster, thresholds=thr, columns=rs["columns"], elevated=rs["elevated"],
+                           dchi2_global=summary["dchi2"],
+                           dchi2=np.where(np.isfinite(dcol), dcol, None).tolist())
             _write_json(stem + ".json", summary)
-            plots.plot_plane({**summary, "dchi2": np.where(np.isfinite(d), d, np.inf).tolist()}, stem + ".pdf")
+            plots.plot_plane({**summary, "dchi2": np.where(np.isfinite(dcol), dcol, np.inf).tolist()}, stem + ".pdf")
+            if rs["elevated"]:
+                log(f"  {len(rs['elevated'])} of {len(grids[ax])} {raster} columns never reach Delta chi^2 < "
+                    f"{max(thr.values()):g} of the best fit within the scanned {other} "
+                    f"({min(rs['elevated']):.3g} to {max(rs['elevated']):.3g}): extend the {other} range there")
     return ref
 
 

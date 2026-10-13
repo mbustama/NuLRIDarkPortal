@@ -14,14 +14,17 @@ and which fits and scans to run. Example: analysis/configs/pion_2050_case_5.json
     "priors": [{"name", "type": "gaussian"|"half_gaussian", ...}],
     "fit": {FitSettings fields},         settings of every minimization
     "profiles": {name: {"range": [lo, hi], "n": int}},
-    "planes": [{"x", "y", "x_range", "y_range", "nx", "ny"}],
+    "planes": [{"x", "y", "x_range", "y_range", "nx", "ny", "raster"}],
     "thresholds": {"1d": {label: dchi2}, "2d": {label: dchi2}},
     "asimov": {name: value},             parameters of the Asimov data set (--asimov)
     "output_dir": "output/analysis/..."  relative to the repository
   }
 
 Profile and plane ranges are in physical units; a parameter fitted in log10 space is scanned
-in equal steps of log10. Keys starting with '_' are comments.
+in equal steps of log10. A plane with "raster": name is read per value of that parameter (e.g.
+per mediator mass): Delta chi^2 from each column's own minimum, at the 1D thresholds -- the
+convention decided for exclusion planes on 2026-10-13 (95% at 3.84). Otherwise it is read as a
+joint region at the 2D thresholds. Keys starting with '_' are comments.
 """
 import copy
 import dataclasses
@@ -69,6 +72,7 @@ class Scan2D:
     y: str
     x_grid: np.ndarray
     y_grid: np.ndarray
+    raster: Optional[str] = None     # read per value of this parameter (x or y), at the 1D thresholds
 
 
 @dataclass
@@ -171,10 +175,17 @@ def from_dict(raw: Mapping, path: str = "") -> AnalysisConfig:
         p = cfg.parameter(name)
         cfg.profiles.append(Scan1D(name, _grid(p, float(spec["range"][0]), float(spec["range"][1]), int(spec["n"]))))
     for spec in d.get("planes", []):
+        bad = set(spec) - {"x", "y", "x_range", "y_range", "nx", "ny", "raster"}
+        if bad:
+            raise ValueError(f"Plane {spec.get('x')}/{spec.get('y')}: unknown keys {sorted(bad)}")
         px, py = cfg.parameter(spec["x"]), cfg.parameter(spec["y"])
+        raster = spec.get("raster")
+        if raster is not None and raster not in (px.name, py.name):
+            raise ValueError(f"Plane {px.name}/{py.name}: raster must name x or y, got {raster!r}")
         cfg.planes.append(Scan2D(px.name, py.name,
                                  _grid(px, float(spec["x_range"][0]), float(spec["x_range"][1]), int(spec["nx"])),
-                                 _grid(py, float(spec["y_range"][0]), float(spec["y_range"][1]), int(spec["ny"]))))
+                                 _grid(py, float(spec["y_range"][0]), float(spec["y_range"][1]), int(spec["ny"])),
+                                 raster))
     lri = (cfg.solver.get("dark_portal") or {}).get("U_LRI_struct")
     floating_u = [n for n in cfg.free_names if n in ("u_e", "u_mu", "u_tau")]
     if lri is not None and floating_u:

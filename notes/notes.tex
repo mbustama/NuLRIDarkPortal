@@ -491,6 +491,28 @@ interrupted scan resumes. We read intervals off $\Delta\chi^2$, measured from th
 found anywhere, at $1$, $2.706$ and $3.841$ for one parameter (68.27\%, 90\%, 95\%, two-sided)
 and at $2.296$, $4.605$ and $5.991$ for two; FrequentistAnalysis labelled $4.61$ as $2\sigma$.
 
+\textit{Exclusion planes (decided 2026-10-13).}---We read an exclusion plane per mediator mass:
+in each column of fixed $\mzd$, $\Delta\chi^2$ is measured from that column's own minimum, and the
+couplings above $\Delta\chi^2 = 3.84$ are excluded at 95\% (a raster scan, one parameter per
+column). The two readings differ most where the effect saturates: on the plane below, the Earth's
+potential alone gives $\Delta\chi^2\approx4.5$ over most light masses, above $3.84$ but below the
+$5.99$ of a joint two-parameter region. A column whose own minimum lies above the best fit by more
+than $3.84$ is flagged: its couplings never reached the region without an effect, so its range
+must be extended before a limit is read. Coverage tests still have to confirm the threshold; for
+a coupling bounded at zero the asymptotic one-sided value is $2.71$.
+
+\textit{A first plane (2026-10-13; not for quoting).}---For the $e\mu$ texture at $u = 0.5$ and
+$\epsp = 10^{-4}$ (configuration \texttt{pion\_2050\_case\_5\_exclusion}, $45\times41$ points,
+commit \texttt{19f953d}), the 2050 projection excludes at 95\% $\gd > 3.7\times10^{-9}$ at
+$\mzd = 0.1$~MeV, $3.3\times10^{-7}$ at $1$~MeV (with an allowed island at
+$10^{-5} < \gd < 0.013$, where the resonant absorption offsets the potential), $3.7\times10^{-5}$
+at $10$~MeV and $3.7\times10^{-3}$ at $100$~MeV: the edge follows $\gd\propto\mzd^2$, where the
+Earth's potential reaches the vacuum term. Below $\sim30$~keV the columns stay $4.3$--$4.7$
+above the best fit down to $\gd = 10^{-10}$, the bottom of the scan, so no limit can be read
+there yet. Three things keep this from being a result: $u = 0.5$ is far above laboratory bounds
+on the mixing, only up-going directions enter the average, which overstates the Earth's effect,
+and the light-mass columns need couplings scanned far lower.
+
 \textit{Profiles of null data.}---The projection is centred on standard physics, and with every
 coupling free the fit can always switch the new physics off ($u\to0$, $\gd\to0$, or a resonance
 outside the energy range). The profiles of the ported analyses are therefore expected to stay at

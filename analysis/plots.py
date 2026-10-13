@@ -9,6 +9,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.lines  # noqa: E402
+import matplotlib.patches  # noqa: E402
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 
@@ -55,8 +56,9 @@ def plot_profile(summary: dict, path: str):
 
 
 def plot_plane(summary: dict, path: str):
-    """Delta chi^2 over a plane (grey scale), its contours at the configuration's 2D
-    thresholds, and the lowest point of the plane."""
+    """Delta chi^2 over a plane (grey scale) with its contours at the summary's thresholds:
+    the 2D ones and the plane's lowest point for a joint region, the 1D ones with
+    column-relative Delta chi^2 for a raster plane (elevated columns hatched)."""
     xn, yn = summary["names"]
     x = np.asarray(summary["grids"][0])
     y = np.asarray(summary["grids"][1])
@@ -77,15 +79,36 @@ def plot_plane(summary: dict, path: str):
         ax.contour(X, Y, dm, levels=[t], colors=[c], linewidths=1.2)
         handles.append(matplotlib.lines.Line2D([], [], color=c, lw=1.2, label=f"{lab} ($\\Delta\\chi^2$ = {t:g})"))
     ax.legend(handles=handles, fontsize=7, loc="lower right", framealpha=0.85)
-    i, j = np.unravel_index(np.argmin(dm), dm.shape)
-    ax.plot(x[i], y[j], "k*", ms=8)
+    raster = summary.get("raster")
+    if raster is None:
+        i, j = np.unravel_index(np.argmin(dm), dm.shape)
+        ax.plot(x[i], y[j], "k*", ms=8)
+    else:
+        # columns whose own minimum lies far above the best fit: their column-relative map
+        # would read as allowed, so they are hatched
+        g = x if raster == xn else y
+        lg = (logx if raster == xn else logy)
+        u = np.log10(g) if lg else g
+        edges = np.concatenate([[u[0] - 0.5 * (u[1] - u[0])], 0.5 * (u[1:] + u[:-1]), [u[-1] + 0.5 * (u[-1] - u[-2])]])
+        edges = 10.0 ** edges if lg else edges
+        for v in summary.get("elevated", []):
+            k = int(np.argmin(np.abs(g - v)))
+            span = ax.axvspan if raster == xn else ax.axhspan
+            span(edges[k], edges[k + 1], facecolor="none", edgecolor="tab:red", hatch="///", lw=0.0, alpha=0.6)
+        if summary.get("elevated"):
+            handles.append(matplotlib.patches.Patch(facecolor="none", edgecolor="tab:red", hatch="///",
+                                                    label="column minimum above the best fit"))
+            ax.legend(handles=handles, fontsize=7, loc="lower right", framealpha=0.85)
     if logx:
         ax.set_xscale("log")
     if logy:
         ax.set_yscale("log")
     ax.set_xlabel(label(xn))
     ax.set_ylabel(label(yn))
-    ax.set_title(summary.get("title", ""), fontsize=9)
+    title = summary.get("title", "")
+    if raster is not None:
+        title += f"\nper {label(raster)}: $\\Delta\\chi^2$ from each column's minimum"
+    ax.set_title(title, fontsize=9)
     fig.tight_layout()
     fig.savefig(path)
     plt.close(fig)

@@ -1,5 +1,5 @@
 {
- "_comment": "Exclusion plane for the projected 2050 measurement: the e-mu texture of the theory notes, (T13), with |U_e4| = |U_mu4| = 0.5 (the solver's benchmark), epsilon' = 1e-4; at each (m_Zd, g_D) nothing else floats, so every point is one evaluation of chi^2 and the excluded region is where Delta chi^2 exceeds the 2D thresholds.",
+ "_comment": "Exclusion plane for the projected 2050 measurement: the e-mu texture of the theory notes, (T13), with |U_e4| = |U_mu4| = 0.5 (the solver's benchmark), epsilon' = 1e-4; at each (m_Zd, g_D) nothing else floats, so every point is one evaluation of chi^2 and the excluded region is where Delta chi^2 exceeds the 2D thresholds. The plane is read per mediator mass (raster), at the 1D thresholds: excluded where Delta chi^2 from each mass's own minimum exceeds 3.84 (95%), decided 2026-10-13.",
  "name": "pion_2050_case_5_exclusion",
  "data": {
   "surface": "pion_2050_case_5"
@@ -101,7 +101,8 @@
     1.0
    ],
    "nx": 45,
-   "ny": 41
+   "ny": 41,
+   "raster": "m_Zd_eV"
   }
  ],
  "asimov": {

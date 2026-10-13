@@ -27,7 +27,13 @@ analysis, a command line, checkpoints, provenance.
   fit could only absorb with new physics.
 - **Priors**: applied (FrequentistAnalysis' "fallbacks" never were: shape name, parameter names).
 - **Thresholds**: 1D 1/2.706/3.841, 2D 2.296/4.605/5.991, labelled 68.27/90/95%
-  (FrequentistAnalysis labelled 4.61 as 2 sigma). One- vs two-sided limits: settled by coverage.
+  (FrequentistAnalysis labelled 4.61 as 2 sigma). **Exclusion planes are read per mediator
+  mass** (decided by Mauricio, 2026-10-13): a plane with `"raster": "m_Zd_eV"` measures
+  Delta chi^2 in each mass column from that column's own minimum and excludes above 3.84 (95%,
+  one parameter); columns whose minimum lies above the best fit by more than that are flagged,
+  since their coupling range never reached the region without an effect. Coverage tests still
+  have to confirm the threshold (one-sided 2.71 would be the asymptotic value for a coupling
+  bounded at zero).
 - **Scan ranges**: explicit in the configuration (FrequentistAnalysis scanned +-4 sigma around
   the best fit, so its m_Zd profile covered only 1.2-2.8 MeV).
 - **Resolution**: 400 energy bins x 200 redshift steps, 6 Milky Way paths, 12 Earth chords

@@ -1,7 +1,8 @@
 """
 intervals.py
 
-Confidence intervals from 1D profiles and Delta chi^2 maps from planes.
+Confidence intervals from 1D profiles, Delta chi^2 maps from planes, and per-column limits
+from planes read as raster scans.
 
 Delta chi^2 is measured from the lowest chi^2 found anywhere (the global fit or any profile
 point, whichever is lower: a profile point below the global fit means the global fit stopped
@@ -83,3 +84,39 @@ def describe(iv: dict, unit: str = "") -> str:
     if iv["lo_open"] and iv["hi_open"]:
         return f"the whole scanned range [{iv['lo']:.4g}, {iv['hi']:.4g}]{unit}"
     return f"{iv['lo']:.4g} < x < {iv['hi']:.4g}{unit}"
+
+
+def summarize_raster(raster_grid: Sequence[float], other_grid: Sequence[float], chi2: np.ndarray,
+                     thresholds: Dict[str, float], chi2_min: float, log_other: bool = False) -> dict:
+    """A plane read per value of one parameter (a raster scan, e.g. per mediator mass): in each
+    column, Delta chi^2 is measured from that column's own minimum and its intervals along the
+    other parameter are read at the 1D thresholds; the excluded region is their complement.
+
+    Arguments: raster_grid (n_r,), other_grid (n_o,), chi2 (n_r, n_o) with the raster axis
+    first; thresholds; chi2_min -- the lowest chi^2 found anywhere; log_other -- interpolate in
+    log10 of the other parameter.
+    Returns {"dchi2": (n_r, n_o) column-relative, "columns": [{"value", "column_min_dchi2",
+    "intervals": {label: [Interval dicts]}}], "elevated": [values]}. A column is elevated when
+    its minimum lies above chi2_min by more than the largest threshold: either every scanned
+    value of the other parameter is excluded there, or the scan never reached the region
+    without an effect -- extend the range before reading a limit off it.
+    """
+    chi2 = np.asarray(chi2, dtype=float)
+    top = max(thresholds.values())
+    d = np.full_like(chi2, np.inf)
+    columns, elevated = [], []
+    for k, r in enumerate(raster_grid):
+        col = chi2[k]
+        ok = np.isfinite(col)
+        if not ok.any():
+            columns.append(dict(value=float(r), column_min_dchi2=None, intervals={}))
+            continue
+        cmin = float(col[ok].min())
+        d[k] = col - cmin
+        rise = cmin - float(chi2_min)
+        if rise > top:
+            elevated.append(float(r))
+        columns.append(dict(value=float(r), column_min_dchi2=rise,
+                            intervals={label: [iv.as_dict() for iv in intervals(other_grid, d[k], t, log_other)]
+                                       for label, t in thresholds.items()}))
+    return dict(dchi2=d, columns=columns, elevated=elevated)

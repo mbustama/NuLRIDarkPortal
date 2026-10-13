@@ -107,8 +107,8 @@ work on Tycho; show the statistical analysis is sound with coverage tests.
       with PyFC (github.com/mbustama/FeldmanCousins), whose L_Eff likelihood also handles the
       finite statistics of the HESE MC.
 
-   Coverage also settles the limit thresholds: the analysis uses delta-chi2 = 2.706 / 3.841 for
-   90% / 95%, the two-sided values; for an upper limit on a coupling bounded at zero the
+   Coverage also checks the limit thresholds. DECIDED 2026-10-13 (Mauricio): exclusion planes are
+   read per mediator mass at delta-chi2 = 3.84 (95%, one parameter, two-sided value); for an upper limit on a coupling bounded at zero the
    one-sided values are 1.64 / 2.71. The present flavor-ratio analysis has no events to fluctuate
    (its data term is a projected measurement), so its pseudo-experiments shift the projected
    measurement's centre by its own width -- an approximation to state with the results.

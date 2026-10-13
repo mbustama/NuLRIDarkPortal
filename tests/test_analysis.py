@@ -292,6 +292,29 @@ def test_intervals_of_a_parabola_and_open_ends():
     assert len(iv) == 1 and iv[0].lo == pytest.approx(-1.0, abs=2e-3)
 
 
+def test_raster_plane_reads_each_column_from_its_own_minimum():
+    """Exclusion planes are read per mediator mass (decided 2026-10-13): in each column
+    Delta chi^2 counts from that column's minimum, limits come from the 1D thresholds, and a
+    column whose minimum sits above the best fit by more than the largest threshold is
+    flagged (the scanned couplings never reached the region without an effect)."""
+    other = np.logspace(-10, -6, 5)
+    chi2 = np.array([[0.0, 0.5, 2.0, 5.0, 9.0],
+                     [5.0, 5.5, 6.0, 7.0, 9.0],
+                     [np.inf] * 5])
+    thr = {"95%": 3.841}
+    rs = intervals.summarize_raster([1.0, 2.0, 3.0], other, chi2, thr, 0.0, log_other=True)
+    c0, c1, c2 = rs["columns"]
+    iv0 = c0["intervals"]["95%"]
+    assert len(iv0) == 1 and iv0[0]["lo_open"] and not iv0[0]["hi_open"]
+    u = -8.0 + (3.841 - 2.0) / (5.0 - 2.0)                    # crossing between 1e-8 and 1e-7, in log10
+    assert iv0[0]["hi"] == pytest.approx(10.0 ** u, rel=1e-12)
+    assert c1["column_min_dchi2"] == pytest.approx(5.0) and rs["elevated"] == [2.0]
+    u1 = -7.0 + (3.841 - 2.0) / (4.0 - 2.0)                   # column-relative: 0, .5, 1, 2, 4
+    assert c1["intervals"]["95%"][0]["hi"] == pytest.approx(10.0 ** u1, rel=1e-12)
+    assert c2["column_min_dchi2"] is None
+    np.testing.assert_allclose(rs["dchi2"][1], [0.0, 0.5, 1.0, 2.0, 4.0])
+
+
 # ---------------------------------------------------------------------------------------
 # Configurations and the command line
 # ---------------------------------------------------------------------------------------
@@ -330,7 +353,8 @@ def test_command_line_end_to_end(tmp_path):
                          "u_e": {"start": 0.5, "bounds": [1e-10, 1.0], "space": "log10"}}
     raw["solver"]["dark_portal"].update(m_Zd_eV=2e6, u_mu=0.5)
     raw["profiles"] = {"g_D": {"range": [1e-6, 1e-2], "n": 3}}
-    raw["planes"] = [{"x": "g_D", "y": "u_e", "x_range": [1e-6, 1e-2], "y_range": [1e-3, 0.5], "nx": 2, "ny": 2}]
+    raw["planes"] = [{"x": "g_D", "y": "u_e", "x_range": [1e-6, 1e-2], "y_range": [1e-3, 0.5], "nx": 2, "ny": 2,
+                      "raster": "g_D"}]
     raw["output_dir"] = str(tmp_path / "out")
     path = tmp_path / "cfg.json"
     path.write_text(json.dumps(raw))
@@ -340,5 +364,8 @@ def test_command_line_end_to_end(tmp_path):
         assert (out / f).exists(), f
     prof = json.load(open(out / "profile_g_D.json"))
     assert min(prof["dchi2"]) >= -1e-9 and set(prof["intervals"]) == {"68.27%", "90%", "95%"}
+    plane = json.load(open(out / "plane_g_D_u_e.json"))
+    assert plane["raster"] == "g_D" and plane["thresholds"]["95%"] == pytest.approx(3.841)
+    assert len(plane["columns"]) == 2 and all(min(r) == pytest.approx(0.0, abs=1e-12) for r in plane["dchi2"])
     man = json.load(open(out / "manifest.json"))
     assert man["runs"][-1]["provenance"]["git_commit"]
