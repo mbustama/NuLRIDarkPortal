@@ -6,3 +6,5 @@ notes/*.aux
 notes/*.log
 notes/*.out
 notes/*.toc
+
+logs/
