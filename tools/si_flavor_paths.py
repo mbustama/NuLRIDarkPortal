@@ -43,7 +43,7 @@ def main():
                 params["show_progress"] = False
                 F = dps.propagate_weighted(E, params)
                 path.append(compute_energy_averaged_ratios(E, F).tolist())
-                if g == SPECTRUM_G or g == 0.0:
+                if np.isclose(g, SPECTRUM_G, rtol=1e-9) or g == 0.0:
                     rec["spectra"].setdefault(str(M), {})["free" if g == 0.0 else "si"] = F.sum(1).tolist()
             rec["paths"][str(M)] = path
             print(tex, M, path[-1], flush=True)
