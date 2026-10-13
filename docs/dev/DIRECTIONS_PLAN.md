@@ -210,17 +210,26 @@ the 3-D cosmic-ray distribution needed for emission distances (Section 3.6).
 combined, while its Eq. (5) writes Phi = Phi_nu = Phi_nubar with A_eff^{nu+nubar}; to be settled
 against the release notebooks (doi:10.21234/8v5d-rn16) before any number is quoted (Section 10).
 
-**Flavor and nu/nubar at the source.** Pion decay in pp collisions: nu_e : nubar_e : nu_mu : nubar_mu
-= 1 : 1 : 2 : 2 [Spi26, Ans04], i.e. (1:2:0) with nu = nubar. Muon damping is irrelevant in the
-interstellar medium (critical energy ~1e24 eV at 5 microgauss; [KW05] for the mechanism). Public
-templates are flavor-blind (all-flavor/3, 1:1:1 assumed at Earth [IC26]); we use their **all-flavor
-nu + nubar intensity** and apply our own source composition and flavor evolution.
+**Flavor and nu/nubar at the source: (x, 1 - x, 0), x free** (Mauricio, 2026-10-13). The source
+composition is parameterized as f_S = (x, 1 - x, 0), like the extragalactic sources' f_e,S with
+f_tau,S = 0 (`docs/dev/WORK_PLAN.md`, item 6), and x is floated in the analysis rather than fixed.
+Default and physics expectation x = 1/3: pion decay in pp collisions gives nu_e : nubar_e : nu_mu :
+nubar_mu = 1 : 1 : 2 : 2 [Spi26, Ans04], and muon damping (x -> 0) is irrelevant in the interstellar
+medium (critical energy ~1e24 eV at 5 microgauss; [KW05] for the mechanism). Floating x still matters:
+if unresolved Galactic sources make much of the flux [Mar25, Pre25], their composition need not be
+1/3 (x = 1 for neutron decay [Ans04], x = 0 for muon-damped sources), and the data should decide; the
+range x in [0, 1] spans all of these. nu = nubar per flavor by default (pp). Whether x_gal floats on
+its own or is tied to the extragalactic x is decision D6. Public templates are flavor-blind
+(all-flavor/3, 1:1:1 assumed at Earth [IC26]); we use their **all-flavor nu + nubar intensity** and
+apply our own source composition and flavor evolution.
 
 **Flavor at Earth, standard and secret interactions.** Oscillations are averaged over kpc: the
 oscillation length 2.48 km x (E/GeV)/(Delta m^2/eV^2) is ~1e-3 pc at 1 PeV for Delta m^2_21, far below
 the kpc spread of emission points; wave-packet decoherence only reinforces this [LP95, FS08]. So
-f_beta,Earth = sum_alpha P_beta_alpha f_alpha,S with the averaged |U|^2 probabilities of our mixing
-(the analysis' NuFIT parameters; the survey's (0.30 : 0.36 : 0.34) is a cross-check, to be recomputed).
+f_beta,Earth(x) = sum_alpha P_beta_alpha f_alpha,S(x) with the averaged |U|^2 probabilities of our
+mixing (the analysis' NuFIT parameters), linear in x: f_Earth(x) = f_Earth(0) + x [f_Earth(1) - f_Earth(0)],
+so one evaluation at x = 0 and one at x = 1 give every x (for the dark portal too: the injection is
+linear in f_S). Cross-check at x = 1/3: the survey's (0.30 : 0.36 : 0.34), to be recomputed.
 
 ### 3.5 Galactic component, secret interactions
 
@@ -322,7 +331,8 @@ new eigen-decompositions.
     "template": "cringe",        # "cringe", "pi0" (decision D2)
     "normalization": 0.91,       # x model; IceCube 2026 combined fit for CRINGE
     "emission": "3d",            # "3d" (Section 3.6) or "local" (decision D3)
-    "source_composition": [0.333333, 0.666667, 0.0]
+    "f_e_S": 0.333333,           # source composition (x, 1 - x, 0); floatable (decision D6)
+    "tie_f_e_S": false           # true: use the extragalactic source.f_e_S
   }
 }
 ```
@@ -349,8 +359,8 @@ confirmed from the record before downloading), what we keep.
 
 | Data | Source | Kept in the repository |
 |---|---|---|
-| CRINGE neutrino maps + 3-D CR distribution | Zenodo 7859442 [SMW23] | reduced map: N_side 64 (or the chosen N_side), energies 1 TeV-10 PeV (~20 log nodes), equatorial frame, float32: ~4-8 MB; a CR table cut to the 1-10 PeV parent range |
-| 3-D gas (HI + H2) | Zenodo 12578443 [Sod25] | per-pixel emission-distance bins only (small) |
+| CRINGE neutrino map `Neutrino_AAfrag_Galprop_Ferr_Fiducial_256.fits.gz` (174.0 MB) and 3-D CR distribution `Global_Hadronic_CR_Dist_CRINGE.fits.gz` (96.6 MB); optional unresolved-source map `Neutrino_Unresolved_Fiducial_256.fits.gz` (203.0 MB) | Zenodo 7859442 v3, CC BY 4.0 [SMW23] (sizes read 2026-10-13) | reduced map: N_side 16-64, energies 1 TeV-10 PeV (~20 log nodes), equatorial frame, float32: ~1-8 MB; a CR table cut to the 1-100 PeV parent range |
+| 3-D gas (HI + H2 via CO): `samples_densities_hpixr.fits` (1.2 GB; Sun-centred HEALPix (nested) x radius, 50 pc-28 kpc, cm^-3, posterior samples); the whole record is 26.8 GB and only this file is needed | Zenodo 12578443 v1, CC BY 4.0 [Sod25] | per-pixel emission-distance bins only (small). No-download alternative: the McMillan 2017 HI and H2 discs already in `calc_MW_neutron_density` [McM17] (smooth, axisymmetric) |
 | pi0 map | `../toise` (on disk already) [Fer12] | reduced as above |
 | IceCube Galactic-plane release | doi:10.21234/8v5d-rn16 (26 MB) [GP23] | nothing; used to settle the per-flavor normalization convention and to cross-check template fluxes |
 | n_eff(R, z; m) tables | computed on Tycho by FFT | 2-D tables, ~20 masses, ~3 MB |
@@ -421,7 +431,12 @@ output's metadata, like `tools/mw_sky_density.py` does for the Galactic map toda
 ## 9. Decisions for Mauricio
 
 **Answered 2026-10-13:** D1 = bands + N_side 16; D2 = CRINGE + pi0; D3 = full 3-D; D4 = diagnostic first.
-D5 (downloads on Tycho) pending the record sizes.
+D5 (downloads on Tycho) pending the record sizes. Added by Mauricio: the Galactic source composition
+varies as (x, 1 - x, 0) (Section 3.4); D6 below.
+
+- **D6, the Galactic x.** Float x_gal on its own, default 1/3 (Recommended: Galactic and extragalactic
+  sources need not share a composition; the event data can separate them by direction); or tie it to
+  the extragalactic f_e,S (one parameter fewer).
 
 - **D1, sky resolution.** Declination bands only (20, uniform in sin(delta)) plus HEALPix maps at
   N_side 16 (Recommended: cascades resolve ~6-10 deg, the Galactic plane is a few degrees thick, and
