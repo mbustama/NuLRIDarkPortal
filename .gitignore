@@ -8,3 +8,7 @@ notes/*.out
 notes/*.toc
 
 logs/
+
+# analysis checkpoints (resumable state; the summaries, figures and manifests are committed)
+output/analysis/**/*.jsonl
+output/analysis_pre_transit/**/*.jsonl
