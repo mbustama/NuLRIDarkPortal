@@ -262,6 +262,7 @@ The scanner's spatial-averaging defaults follow the convergence study (Section 1
 * `--f_e_S`, `--f_mu_S`, `--f_tau_S` (float): Source flavor ratios (Defaults: `0.333333, 0.666667, 0.0` — pion decay).
 * `--is_antineutrino` (str): `"sum"`/`"both"` ($\nu + \bar\nu$), `"true"` ($\bar\nu$ only), `"false"` ($\nu$ only) (Default: `"sum"`).
 * `--nubar_to_nu_ratio` (float): $\bar\nu/\nu$ injection ratio for `"sum"` mode (Default: `1.0`).
+* `host_galaxy_scale` (float, config only): where the sources sit (Default: `0` — in the cosmic mean density, which sets the potential the neutrinos are emitted in). With $s > 0$ they sit inside a host galaxy like the Milky Way seen from the Sun, its neutrons scaled by $s$ ($1$: a Milky-Way-like host at a Sun-like position), added to the cosmic mean; it is the same Yukawa-smoothed profile as our own Galaxy's (Section 3.2), so it holds at every range, and it does not dilute with $(1+z)^3$. Only the injection changes: the injected flavors split over the host's eigenstates, which leave the host adiabatically. This moves the band of the potential planes along $g_D\epsilon'|U|^2/m_{Z_D}^2 \approx 10^4$ eV$^{-2}$ (where the cosmological potential at the sources equals the vacuum term) about four decades lower; the `*_host.json` analysis configurations run the potential planes with $s = 1$ (added 2026-10-13).
 
 ### `[grid]`
 * `--E_min_eV`, `--E_max_eV` (float): Energy band (Defaults: `1e13`, `3e16` — i.e. $10^4$ to $3\times10^7$ GeV).

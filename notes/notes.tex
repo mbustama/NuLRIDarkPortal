@@ -216,6 +216,13 @@ set by $u_e, u_\mu, u_\tau$. Its overall scale is degenerate with $\gd\epsp$.
 \subsection{Physical inputs}
 \label{sec:inputs}
 
+\textit{Sources.}---A diffuse population following the star-formation history up to $z = 4$,
+with spectrum $E^{-2.5}$, flavor ratios $1/3:2/3:0$ (pion decay) and equal numbers of neutrinos
+and antineutrinos. At each redshift the injected flavors split incoherently over the eigenstates
+of the Hamiltonian there; by default the sources sit in the cosmic mean neutron density, and
+\texttt{source.host\_galaxy\_scale} places them inside a Milky-Way-like host instead
+(Sec.~\ref{sec:stats}).
+
 \textit{Relic neutrinos.}---The absorption rates integrate the Fermi--Dirac distribution of
 the relic neutrinos at temperature $\Tnu(1+z)$. Therefore, the relic density in our rates
 follows from $\Tnu$ and scales as $\Tnu^3$. The nominal $56$~cm$^{-3}$ per state enters only as
@@ -574,8 +581,14 @@ potential's, and the composition at the Earth passes close to the standard one. 
 before above $3\times10^{-13}$~eV; the mass floor of Appendix~\ref{app:transit} flattened it below,
 into the old planes' horizontal stripe at $10^{-21}$. It assumes the sources sit in the cosmic mean
 density; for ranges shorter than $\sim$Mpc a source inside its host galaxy sees $10^6$--$10^7$
-times more neutrons, which would move the band. \note{Decide how to model the potential at the
-sources}
+times more neutrons, which would move the band. The source configuration therefore has a knob
+(decided 2026-10-13), \texttt{source.host\_galaxy\_scale}, off by default: with $s > 0$ the sources
+sit inside a Milky-Way-like host at a Sun-like position, its neutrons scaled by $s$, with the same
+Yukawa-smoothed profile as our own Galaxy (Appendix~\ref{app:transit}) added to the cosmic mean
+and not diluting with $(1+z)^3$. Only the injection changes: the injected flavors split over the
+host's eigenstates, which leave the host adiabatically. With $s = 1$ the transition moves from
+$\gd\epsp|U|^2/\mzd^2\approx10^4$ to $\sim10^{-3}$--$1$~eV$^{-2}$ (a test: deep in it both settings
+give the same composition).
 
 \textit{A first plane (2026-10-13; not for quoting; computed before the regeneration fix of
 Appendix~\ref{app:regeneration}).}---For the $e\mu$ texture at $u = 0.5$ and

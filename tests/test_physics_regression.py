@@ -742,7 +742,8 @@ def _one_pair_step(E_bins, F_nu, F_nb, Gamma, dt, Phi_0, tables, w=(0.5, 0.5),
     F_nu, F_nb = F_nu.copy(), F_nb.copy()
     dps.step_cosmological_pair(0.5, dt, 1.0, E_bins, F_nu, F_nb, w[0], w[1], np.array([0.333, 0.667, 0.0]),
                                *tables[0], *tables[1], 2.5, Phi_0, BR, W3, pref3, self_same,
-                               W1, W2, c1, c2, self_cross, P_nu, P_nb, np.ascontiguousarray(Gamma), R_nu, R_nb)
+                               W1, W2, c1, c2, self_cross, P_nu, P_nb, np.ascontiguousarray(Gamma), R_nu, R_nb,
+                               tables[0][3], tables[1][3], np.zeros_like(P_nu), np.zeros_like(P_nb))
     return F_nu, F_nb, R_nu, R_nb, P_nu, P_nb
 
 

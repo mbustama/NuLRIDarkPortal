@@ -95,7 +95,8 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                        thermal_analytic: bool = True,
                        earth_step_scheme: str = "left",
                        earth_zenith_average: str = "plain",
-                       earth_sky: str = "up") -> Tuple[np.ndarray, np.ndarray]:
+                       earth_sky: str = "up",
+                       host_galaxy_scale: float = 0.0) -> Tuple[np.ndarray, np.ndarray]:
     """
     Executes the complete spectrum integration, driving the underlying JIT kernels.
     Neutrinos and antineutrinos are evolved together through the cosmological phase (an
@@ -134,6 +135,13 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
       use_gpu: route the spatial handover through gpu_spatial when cupy+CUDA exist.
       thermal_analytic: semi-analytic thermal momentum kernel (True, default) vs the
         midpoint reference kernel.
+      host_galaxy_scale: where the sources sit (2026-10-13). 0 (the default): in the cosmic
+        mean density, which sets the potential the neutrinos are emitted in. s > 0: inside a
+        host galaxy like the Milky Way seen from the Sun, its neutrons scaled by s (1: a
+        Milky-Way-like host at a Sun-like position), added to the cosmic mean -- the same
+        Yukawa-smoothed profile as our own Galaxy (dp_transit.galactic_effective_density), so
+        right at every range. Only the injection uses it: the injected flavors split over the
+        host's eigenstates, which leave the host adiabatically into the intergalactic ones.
 
     Returns: (F_nu, F_nb), the (N_E, 3) flavor fluxes of neutrinos and of antineutrinos
     at the detector; a detector without charge separation sees their sum.
@@ -221,6 +229,22 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         A_k = (g_D * eps_prime) * inv_m2 * (4.0 * c_W_ * m_Z_**2 / g_weak_) * (np.sqrt(2.0) / 2.0 * G_F * n_n0 * (1.0 + zk)**3)
         c_z_arr[k] = 2.0 * (1.0 + zk) * A_k
 
+    # The coordinate at emission: the cosmic mean (c_inj = c_z, bit for bit) unless the sources
+    # sit in a host galaxy, whose neutrons do not dilute with (1+z)^3 (a bound structure).
+    c_inj_arr = c_z_arr.copy()
+    if host_galaxy_scale > 0.0 and g_D * eps_prime != 0.0:
+        import dp_transit
+        K_ = (4.0 * c_W_ * m_Z_**2 / g_weak_) * (np.sqrt(2.0) / 2.0 * G_F)
+        for k in range(len(z_bins)):
+            zk = z_bins[k]
+            m_D_sq_k = calc_debye_mass_sq(g_D, u_arr, T_nu0 * (1.0 + zk), eta_bg) if use_debye_screening else 0.0
+            m_eff_sq = m_Zd**2 + m_D_sq_k
+            n_host = host_galaxy_scale * dp_transit.galactic_effective_density(
+                np.sqrt(m_eff_sq), 0.0, 1.0 / calc_H_Hubble(zk, H0, Omega_m, Omega_L))
+            c_inj_arr[k] = c_z_arr[k] + 2.0 * (1.0 + zk) * (g_D * eps_prime) * K_ * n_host / m_eff_sq
+    elif host_galaxy_scale < 0.0:
+        raise ValueError(f"source.host_galaxy_scale must be >= 0, got {host_galaxy_scale}")
+
     # Per kind: the vacuum matrix U M U^dag (computed once), the LRI and SM textures with the
     # antineutrino transform (U -> conj U, u -> conj u, V -> -conj V) applied here, centrally,
     # and the sigma-table of the cosmological mixing.
@@ -238,9 +262,10 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         if V_SM_struct is not None:
             V_SM_eff = np.ascontiguousarray(np.conjugate(V_SM_struct) if anti else V_SM_struct, dtype=np.complex128)
         c_z = -c_z_arr if anti else c_z_arr
+        c_inj = -c_inj_arr if anti else c_inj_arr
         # H(sigma) = M_rot + sigma * S_signed, tabulated over |sigma| with the sign folded into S
         S_signed = np.ascontiguousarray(-S_eff if anti else S_eff)
-        abs_c = np.abs(c_z)
+        abs_c = np.abs(np.concatenate([c_z, c_inj]))
         Q_t, s_t, Mp_t, floor_t, sig_lo_t, sig_hi_t = texture_scales(M_rot, S_signed)
         sig_min = max(E_bins[0] * abs_c.min(), 1e-30 * max(np.max(np.abs(M_rot)), 1e-300))
         sig_max = max(E_bins[-1] * abs_c.max(), sig_min * 2.0)
@@ -252,6 +277,7 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         sigma_nodes = np.geomspace(sig_min, sig_max, N_sigma)
         P_table = _build_sigma_projection_table(Q_t, Mp_t, s_t, floor_t, sigma_nodes)
         species.append(dict(anti=anti, u=u_s, M_rot=M_rot, S_eff=S_eff, V_SM_eff=V_SM_eff, c_z=c_z,
+                            c_inj=c_inj, P_inj=np.zeros((N_E, 3, 3), dtype=np.float64),
                             P_table=P_table, log_s0=np.log(sigma_nodes[0]),
                             inv_dlogs=(N_sigma - 1) / np.log(sig_max / sig_min),
                             F=np.zeros((N_E, 3), dtype=np.float64), P_all=np.zeros((N_E, 3, 3), dtype=np.float64),
@@ -277,7 +303,7 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                                nb["P_table"], nb["log_s0"], nb["inv_dlogs"], nb["c_z"][k],
                                p_index, Phi_0, BR, W3, pref3, self_same, W1, W2, c1, c2, self_cross,
                                nu["P_all"], nb["P_all"], np.ascontiguousarray(Gamma_grid_all[k, :, :]),
-                               nu["R"], nb["R"])
+                               nu["R"], nb["R"], nu["c_inj"][k], nb["c_inj"][k], nu["P_inj"], nb["P_inj"])
     if verbose == 2:
         safe_print(f"Cosmological baseline finished at z = {z_bins[-1]:.4f}.")
 
@@ -430,7 +456,8 @@ def _flux_from_setup(E_bins: np.ndarray, params: Dict, setup: Dict, injection,
         thermal_analytic=params.get('thermal_analytic', True),
         earth_step_scheme=params.get('earth_step_scheme', 'left'),
         earth_zenith_average=params.get('earth_zenith_average', 'plain'),
-        earth_sky=params.get('earth_sky', 'up')
+        earth_sky=params.get('earth_sky', 'up'),
+        host_galaxy_scale=params.get('host_galaxy_scale', 0.0)
     )
 
 
@@ -595,6 +622,11 @@ def build_solver_params(config: Dict) -> Tuple[np.ndarray, Dict]:
         raise ValueError("Source flavor fractions must be strictly >= 0. Negative flux injection is unphysical.")
     params['is_antineutrino'] = config['source']['is_antineutrino']
     params['nubar_to_nu_ratio'] = config['source']['nubar_to_nu_ratio']
+    # Sources inside a Milky-Way-like host galaxy (scale of its neutrons; 0 = the cosmic mean,
+    # the default) -- see propagate_spectrum.
+    params['host_galaxy_scale'] = float(config['source']['host_galaxy_scale'])
+    if params['host_galaxy_scale'] < 0.0:
+        raise ValueError("source.host_galaxy_scale must be >= 0 (0: sources in the cosmic mean density).")
     
     params['n_z_bins'] = int(config['grid']['n_z_bins'])
     # The transit to the Earth (2026-10-13, replacing the Milky Way trajectories): directions

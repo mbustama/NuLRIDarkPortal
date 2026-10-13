@@ -298,3 +298,59 @@ def test_horizon_factor_limits():
             R_H**2 * (x**2 / 2 - x**3 / 3 + x**4 / 8 - x**5 / 30) / x**2
         assert yukawa_horizon_inv_m2(m * m, R_H) == pytest.approx(exact, rel=1e-12)
     assert yukawa_horizon_inv_m2(4.0, np.inf) == 0.25
+
+
+# =============================================================================
+# Sources in a host galaxy (source.host_galaxy_scale, 2026-10-13)
+# =============================================================================
+
+def _fractions(scale, m, P, eps=0.1, grid=(60, 40)):
+    import io
+    import dark_portal_solver as dps
+    from flux_postprocessing import compute_energy_averaged_ratios
+    u = 0.0316227766
+    g = P / (eps * u * u) if eps > 0 else P / (u * u)
+    cfg = {"dark_portal": dict(m_Zd_eV=m, g_D=g, epsilon_prime=eps, u_e=u, u_mu=u, u_tau=0.0),
+           "source": {"host_galaxy_scale": scale},
+           "execution": {"n_cores": 1, "verbose": 0}, "grid": dict(n_E_bins=grid[0], n_z_bins=grid[1])}
+    old = sys.stdout
+    sys.stdout = io.StringIO()
+    try:
+        E, F = dps.run_solver(cfg)
+    finally:
+        sys.stdout = old
+    return np.asarray(compute_energy_averaged_ratios(E, F)), F
+
+
+def test_host_galaxy_off_is_the_default():
+    """host_galaxy_scale = 0 is the cosmic mean: identical, bit for bit, to omitting it."""
+    import io
+    import dark_portal_solver as dps
+    base = {"dark_portal": dict(m_Zd_eV=1e-21, g_D=1e-34, epsilon_prime=0.1, u_e=0.0316227766,
+                                u_mu=0.0316227766, u_tau=0.0),
+            "execution": {"n_cores": 1, "verbose": 0}, "grid": dict(n_E_bins=40, n_z_bins=30)}
+    with_key = {**base, "source": {"host_galaxy_scale": 0.0}}
+    old = sys.stdout
+    sys.stdout = io.StringIO()
+    try:
+        _, F0 = dps.run_solver(base)
+        _, F1 = dps.run_solver(with_key)
+    finally:
+        sys.stdout = old
+    assert np.array_equal(F0, F1)
+
+
+def test_host_galaxy_moves_the_source_transition():
+    """With the sources in a Milky-Way-like host, the injected flavors split over the
+    potential's eigenstates at couplings 1e4 times lower than in the cosmic mean density; deep
+    in that regime both give the same composition (the sources see the potential), and without
+    a coherent potential (epsilon' = 0) the host changes nothing."""
+    m = 1e-21
+    deep_off, _ = _fractions(0.0, m, 1e8 * m * m)
+    host_on, _ = _fractions(1.0, m, 1.0 * m * m)
+    off_there, _ = _fractions(0.0, m, 1.0 * m * m)
+    assert np.max(np.abs(host_on - deep_off)) < 2e-4
+    assert np.max(np.abs(off_there - deep_off)) > 1e-2
+    _, F_a = _fractions(0.0, 1e-3, 1e-12, eps=0.0)
+    _, F_b = _fractions(5.0, 1e-3, 1e-12, eps=0.0)
+    assert np.array_equal(F_a, F_b)

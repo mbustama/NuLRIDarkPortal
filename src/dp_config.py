@@ -122,7 +122,11 @@ def _build_default_config() -> Dict:
             "f_mu_S": 0.666667,
             "f_tau_S": 0.0,
             "is_antineutrino": "sum",
-            "nubar_to_nu_ratio": 1.0
+            "nubar_to_nu_ratio": 1.0,
+            # Where the sources sit (2026-10-13): 0 = in the cosmic mean density (the
+            # default); s > 0 = inside a Milky-Way-like host galaxy at a Sun-like position, its
+            # neutrons scaled by s, which sets the potential the neutrinos are emitted in.
+            "host_galaxy_scale": 0.0
         },
         "grid": {
             "E_min_eV": 1e13,

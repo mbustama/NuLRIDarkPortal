@@ -199,10 +199,18 @@ def step_cosmological_pair(z: float, dt: float, R_z: float, E_bins: np.ndarray,
                            W3: np.ndarray, pref3: np.ndarray, self_same: np.ndarray,
                            W1: np.ndarray, W2: np.ndarray, c1: np.ndarray, c2: np.ndarray,
                            self_cross: np.ndarray, P_nu: np.ndarray, P_nb: np.ndarray,
-                           Gamma_flavor: np.ndarray, R_nu: np.ndarray, R_nb: np.ndarray):
+                           Gamma_flavor: np.ndarray, R_nu: np.ndarray, R_nb: np.ndarray,
+                           c_inj_nu: float, c_inj_nb: float, P_inj_nu: np.ndarray,
+                           P_inj_nb: np.ndarray):
     """One cosmological z-step for neutrinos and antineutrinos together: absorption on the
     relic neutrinos, regeneration of the absorbed flux at lower energies (the cascade), and
     injection, per mass state.
+
+    c_inj_nu, c_inj_nb -- the sigma-table coordinate where the neutrinos are emitted, and
+    P_inj_nu, P_inj_nb -- buffers for its projections: the injected flavors split over the
+    eigenstates of the potential at the sources, which carry their populations adiabatically
+    (sorted) into the intergalactic eigenstates. Equal to c_z_* unless the sources sit in a
+    host galaxy (source.host_galaxy_scale > 0, 2026-10-13); then the buffers are filled.
 
     Arguments: z, dt -- redshift and time step (eV^-1); R_z -- source evolution; E_bins --
     observed energies (eV); F_nu, F_nb -- (N_E, 3) mass-state fluxes of neutrinos and
@@ -235,6 +243,14 @@ def step_cosmological_pair(z: float, dt: float, R_z: float, E_bins: np.ndarray,
     N_E = len(E_bins)
     _cosmo_projections(E_bins, P_table_nu, log_s0_nu, inv_dlogs_nu, c_z_nu, P_nu)
     _cosmo_projections(E_bins, P_table_nb, log_s0_nb, inv_dlogs_nb, c_z_nb, P_nb)
+    Pi_nu = P_nu
+    Pi_nb = P_nb
+    if c_inj_nu != c_z_nu:
+        _cosmo_projections(E_bins, P_table_nu, log_s0_nu, inv_dlogs_nu, c_inj_nu, P_inj_nu)
+        Pi_nu = P_inj_nu
+    if c_inj_nb != c_z_nb:
+        _cosmo_projections(E_bins, P_table_nb, log_s0_nb, inv_dlogs_nb, c_inj_nb, P_inj_nb)
+        Pi_nb = P_inj_nb
     # running sums over parents j > i of R_j W_j for each species (W3 doubles as the
     # same-species kernel and the cross kernel's third term)
     s3_nu = 0.0
@@ -274,8 +290,8 @@ def step_cosmological_pair(z: float, dt: float, R_z: float, E_bins: np.ndarray,
             G = (P_nu[i, 0, a] * Gamma_flavor[i, 0] + P_nu[i, 1, a] * Gamma_flavor[i, 1]
                  + P_nu[i, 2, a] * Gamma_flavor[i, 2])
             brp = P_nu[i, 0, a] * BR[0] + P_nu[i, 1, a] * BR[1] + P_nu[i, 2, a] * BR[2]
-            inj = (P_nu[i, 0, a] * rho_src[0] + P_nu[i, 1, a] * rho_src[1]
-                   + P_nu[i, 2, a] * rho_src[2]) * inj_spectrum * w_nu
+            inj = (Pi_nu[i, 0, a] * rho_src[0] + Pi_nu[i, 1, a] * rho_src[1]
+                   + Pi_nu[i, 2, a] * rho_src[2]) * inj_spectrum * w_nu
             e, a1, g = _absorption_factors(G, dt)
             s0 = inj + brp * reg_nu
             q = brp * self_same[i]               # per unit R_nu (own bin, same kind)
@@ -292,8 +308,8 @@ def step_cosmological_pair(z: float, dt: float, R_z: float, E_bins: np.ndarray,
             G = (P_nb[i, 0, a] * Gamma_flavor[i, 0] + P_nb[i, 1, a] * Gamma_flavor[i, 1]
                  + P_nb[i, 2, a] * Gamma_flavor[i, 2])
             brp = P_nb[i, 0, a] * BR[0] + P_nb[i, 1, a] * BR[1] + P_nb[i, 2, a] * BR[2]
-            inj = (P_nb[i, 0, a] * rho_src[0] + P_nb[i, 1, a] * rho_src[1]
-                   + P_nb[i, 2, a] * rho_src[2]) * inj_spectrum * w_nb
+            inj = (Pi_nb[i, 0, a] * rho_src[0] + Pi_nb[i, 1, a] * rho_src[1]
+                   + Pi_nb[i, 2, a] * rho_src[2]) * inj_spectrum * w_nb
             e, a1, g = _absorption_factors(G, dt)
             s0 = inj + brp * reg_nb
             q = brp * self_same[i]
