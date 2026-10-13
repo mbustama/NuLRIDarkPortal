@@ -47,7 +47,7 @@ SOURCE_KEYS = ("f_e_S", "f_mu_S", "f_tau_S")
 PRODUCTS = ("g_D_u2", "g_D_eps_u2")
 LINEAR_KEYS = SOURCE_KEYS + ("nubar_to_nu_ratio", "Phi_0")
 ALIASES = {"s12sq": "th12_deg", "s13sq": "th13_deg", "s23sq": "th23_deg"}
-_SECTIONS = ("cosmology", "standard_mixing", "dark_portal", "secret_interactions", "source", "grid")
+_SECTIONS = ("cosmology", "standard_mixing", "dark_portal", "secret_interactions", "source", "grid", "galactic")
 
 
 def _section_of(key: str) -> str:

@@ -96,7 +96,8 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                        earth_step_scheme: str = "left",
                        earth_zenith_average: str = "plain",
                        earth_sky: str = "up",
-                       host_galaxy_scale: float = 0.0) -> Tuple[np.ndarray, np.ndarray]:
+                       host_galaxy_scale: float = 0.0,
+                       earth_band_costh=None, earth_nodes_per_band: int = 2):
     """
     Executes the complete spectrum integration, driving the underlying JIT kernels.
     Neutrinos and antineutrinos are evolved together through the cosmological phase (an
@@ -308,9 +309,12 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         safe_print(f"Cosmological baseline finished at z = {z_bins[-1]:.4f}.")
 
     out = []
+    bands = []
+    n_b = 0 if earth_band_costh is None else len(earth_band_costh) - 1
     for sp in species:
         if not np.any(sp["F"]):
             out.append(np.zeros((N_E, 3), dtype=np.float64))   # nothing of this kind arrives
+            bands.append(np.zeros((n_b, N_E, 3), dtype=np.float64))
             continue
         F_earth = propagate_earth_spatial(E_bins, sp["F"], sp["M_rot"], sp["u"], m_Zd, g_D, eps_prime,
                                           T_nu0, use_debye_screening, eta_bg, detector_depth_km,
@@ -322,7 +326,13 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                                           U_LRI_struct=sp["S_eff"], V_SM_struct=sp["V_SM_eff"],
                                           use_gpu=use_gpu, earth_step_scheme=earth_step_scheme,
                                           earth_zenith_average=earth_zenith_average,
-                                          earth_sky=earth_sky)
+                                          earth_sky=earth_sky, earth_band_costh=earth_band_costh,
+                                          earth_nodes_per_band=earth_nodes_per_band)
+        if earth_band_costh is not None:
+            F_earth, F_bands = F_earth
+            if not np.isfinite(F_bands).all():
+                raise ValueError(f"Non-finite per-band flux out of the spatial handover at m_Zd_eV={m_Zd:.6g}.")
+            bands.append(F_bands)
         # DOMAIN CHECK: same contract as the thermal-grid check above -- never return NaN
         # silently. (The known non-finite mechanism here, unitarity loss of the spatial
         # propagator at large phases, is excluded by propagator_3x3's exactly unitary form
@@ -334,6 +344,8 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                 f"({'antineutrino' if sp['anti'] else 'neutrino'} pass): these dark-portal "
                 f"parameter values are outside the numerically supported domain.")
         out.append(F_earth)
+    if earth_band_costh is not None:
+        return out[0], out[1], bands[0], bands[1]
     return out[0], out[1]
 
 
@@ -437,12 +449,14 @@ def _flux_setup(E_bins: np.ndarray, params: Dict) -> Dict:
 
 
 def _flux_from_setup(E_bins: np.ndarray, params: Dict, setup: Dict, injection,
-                     rho_src: np.ndarray = None) -> Tuple[np.ndarray, np.ndarray]:
+                     rho_src: np.ndarray = None, band_costh=None):
     """The neutrino and antineutrino fluxes at the detector, each (N_E, 3), from a _flux_setup.
 
     Arguments: E_bins, params, setup -- as for _flux_setup; injection -- (w_nu, w_nb), the
     weights of the neutrino and antineutrino sources; rho_src -- source flavor composition
-    (default: the configured one).
+    (default: the configured one); band_costh -- None, or the cos(zenith) edges of declination
+    bands (per-direction output): then also the per-band fluxes, (F_nu, F_nb, B_nu, B_nb) with
+    B (N_b, N_E, 3). Secret interactions are isotropic: every band is the whole sky.
     """
     if rho_src is None:
         rho_src = setup['rho_src']
@@ -456,6 +470,9 @@ def _flux_from_setup(E_bins: np.ndarray, params: Dict, setup: Dict, injection,
         w_tot = w_nu + w_nb
         if w_tot <= 0.0:
             z = np.zeros((len(E_bins), 3))
+            if band_costh is not None:
+                zb = np.zeros((len(band_costh) - 1, len(E_bins), 3))
+                return z, z.copy(), zb, zb.copy()
             return z, z.copy()
         si_p = params['si']
         U = setup['U_pmns_base']
@@ -470,7 +487,11 @@ def _flux_from_setup(E_bins: np.ndarray, params: Dict, setup: Dict, injection,
         if not np.isfinite(F_fl).all():
             raise ValueError(f"Non-finite flux from the secret-interaction transport at m_phi_eV="
                              f"{si_p['m_phi_eV']:.6g}, g_phi texture {si_p['g_flavor'].tolist()}.")
-        return F_fl * (w_nu / w_tot), F_fl * (w_nb / w_tot)
+        F_nu, F_nb = F_fl * (w_nu / w_tot), F_fl * (w_nb / w_tot)
+        if band_costh is not None:
+            n_b = len(band_costh) - 1
+            return F_nu, F_nb, np.repeat(F_nu[None], n_b, axis=0), np.repeat(F_nb[None], n_b, axis=0)
+        return F_nu, F_nb
     return propagate_spectrum(
         E_bins, setup['z_bins'], rho_src,
         params['H0_eV'], params['Omega_m'], params['Omega_L'],
@@ -491,7 +512,9 @@ def _flux_from_setup(E_bins: np.ndarray, params: Dict, setup: Dict, injection,
         earth_step_scheme=params.get('earth_step_scheme', 'left'),
         earth_zenith_average=params.get('earth_zenith_average', 'plain'),
         earth_sky=params.get('earth_sky', 'up'),
-        host_galaxy_scale=params.get('host_galaxy_scale', 0.0)
+        host_galaxy_scale=params.get('host_galaxy_scale', 0.0),
+        earth_band_costh=band_costh,
+        earth_nodes_per_band=params.get('sky', {}).get('earth_nodes_per_band', 2)
     )
 
 
@@ -543,6 +566,45 @@ def propagate_nu_nubar(E_bins: np.ndarray, params: Dict, sources=None):
     if sources is None:
         return out_nu[0], out_nb[0]
     return np.stack(out_nu), np.stack(out_nb)
+
+
+def propagate_sky(E_bins: np.ndarray, params: Dict) -> Dict:
+    """The flux at the detector per direction (docs/dev/DIRECTIONS_PLAN.md, step 3): per declination
+    band, neutrinos and antineutrinos separately, for the configured sources (injection_weights); with
+    sky.output = 'healpix' also the HEALPix pixel of each band (maps are the band values per pixel while
+    the Sun is averaged isotropically). Fluxes are per unit solid angle, in the solver's units.
+
+    The Earth average is taken per band of cos(zenith) = -sin(dec) (dp_spatial.average_earth_chords_bands,
+    the band edges as chord nodes), so the whole-sky flux here equals the bands weighted by solid angle to
+    rounding; it differs from propagate_weighted's by the chord set's discretization (~1e-5).
+    Secret interactions are isotropic: every band is the whole sky.
+
+    Returns a dict: E_eV (N_E,); dec_band_edges (rad, increasing); band_omega (sr); allsky_nu,
+    allsky_nubar (N_E, 3); bands_nu, bands_nubar (N_b, N_E, 3), in declination order; nside and
+    pixel_band (N_pix,) when sky.output = 'healpix'; meta (frame, conventions, units)."""
+    import dp_sky
+    sky_p = params.get('sky') or dict(output='bands', nside=16, dec_band_edges=None, earth_nodes_per_band=2)
+    if params.get('galactic', {}).get('enabled', False):
+        raise NotImplementedError("galactic.enabled: the Galactic component comes in step 5 of "
+                                  "docs/dev/DIRECTIONS_PLAN.md.")
+    if not params.get('si') and params.get('earth_sky', 'up') != 'full':
+        raise ValueError("propagate_sky needs grid.earth_sky = 'full' (bands cover the whole sky).")
+    grid = dp_sky.SkyGrid(sky_p['nside'], sky_p['dec_band_edges'])
+    setup = _flux_setup(E_bins, params)
+    F_nu, F_nb, B_nu, B_nb = _flux_from_setup(E_bins, params, setup, injection_weights(params),
+                                              band_costh=grid.costh_edges)
+    out = dict(E_eV=np.asarray(E_bins, dtype=np.float64), dec_band_edges=grid.band_edges,
+               band_omega=grid.band_omega, allsky_nu=F_nu, allsky_nubar=F_nb,
+               # the Earth's bands run in cos(zenith) = -sin(dec), increasing: reversed declination order
+               bands_nu=np.ascontiguousarray(B_nu[::-1]), bands_nubar=np.ascontiguousarray(B_nb[::-1]),
+               meta=dict(frame="equatorial J2000 (FK5)", healpix_ordering="RING",
+                         healpix_theta="pi/2 - dec", detector="South Pole: cos(zenith) = -sin(dec)",
+                         units="per unit solid angle, solver units (Phi_0 E^-p)",
+                         sun="isotropic Gauss-Legendre average", galactic="none"))
+    if sky_p['output'] == 'healpix':
+        out['nside'] = grid.nside
+        out['pixel_band'] = grid.band
+    return out
 
 
 def propagation_worker(args) -> Tuple[np.ndarray, np.ndarray]:
@@ -698,6 +760,44 @@ def build_solver_params(config: Dict) -> Tuple[np.ndarray, Dict]:
         params['si'] = dict(mediator=mediator, majorana=(nu_type == 'majorana'), dirac_sterile=sterile, m_phi_eV=m_phi,
                             g_flavor=g_flavor, channels=channels, phiphi=phiphi, z_substeps=int(z_sub),
                             E_extension=float(si_cfg['E_extension']))
+
+    # Per-direction output and the Galactic component (docs/dev/DIRECTIONS_PLAN.md, 2026-10-13).
+    sky_cfg = config['sky']
+    sky_out = str(sky_cfg['output']).strip().lower()
+    if sky_out not in ('allsky', 'bands', 'healpix'):
+        raise ValueError(f"sky.output must be 'allsky', 'bands' or 'healpix', got {sky_cfg['output']!r}")
+    nside = int(sky_cfg['nside'])
+    if nside < 1 or (nside & (nside - 1)) != 0:
+        raise ValueError(f"sky.nside must be a power of 2, got {sky_cfg['nside']!r}")
+    edges = sky_cfg['dec_band_edges_deg']
+    if edges is not None:
+        edges = np.radians(np.asarray(edges, dtype=np.float64))
+        if (edges.ndim != 1 or len(edges) < 2 or np.any(np.diff(edges) <= 0)
+                or abs(edges[0] + np.pi / 2) > 1e-9 or abs(edges[-1] - np.pi / 2) > 1e-9):
+            raise ValueError("sky.dec_band_edges_deg must increase from -90 to 90.")
+        edges[0], edges[-1] = -np.pi / 2, np.pi / 2
+    nodes_per_band = int(sky_cfg['earth_nodes_per_band'])
+    if nodes_per_band < 1:
+        raise ValueError("sky.earth_nodes_per_band must be >= 1.")
+    sun_w = str(sky_cfg['sun_weighting']).strip().lower()
+    if sun_w != 'isotropic':
+        raise ValueError("sky.sun_weighting: only 'isotropic' so far (the yearly weighting follows the anisotropy "
+                         "diagnostic, decision D4 of docs/dev/DIRECTIONS_PLAN.md).")
+    params['sky'] = dict(output=sky_out, nside=nside, dec_band_edges=edges, earth_nodes_per_band=nodes_per_band,
+                         sun_weighting=sun_w)
+    gal_cfg = config['galactic']
+    template = str(gal_cfg['template']).strip().lower()
+    if template not in ('cringe', 'pi0'):
+        raise ValueError(f"galactic.template must be 'cringe' or 'pi0', got {gal_cfg['template']!r}")
+    emission = str(gal_cfg['emission']).strip().lower()
+    if emission not in ('3d', 'local'):
+        raise ValueError(f"galactic.emission must be '3d' or 'local', got {gal_cfg['emission']!r}")
+    norm_gal = float(gal_cfg['norm_gal'])
+    x_gal = float(gal_cfg['f_e_S_gal'])
+    if norm_gal < 0.0 or not (0.0 <= x_gal <= 1.0):
+        raise ValueError("galactic.norm_gal must be >= 0 and galactic.f_e_S_gal in [0, 1].")
+    params['galactic'] = dict(enabled=bool(gal_cfg['enabled']), template=template, norm_gal=norm_gal,
+                              f_e_S_gal=x_gal, emission=emission)
 
     params['n_z_bins'] = int(config['grid']['n_z_bins'])
     # The transit to the Earth (2026-10-13, replacing the Milky Way trajectories): directions

@@ -159,3 +159,65 @@ def test_earth_phase_bands_through_the_solver():
     assert np.max(np.abs(F0_b - F0_all[None])) < 1e-12
     with pytest.raises(ValueError, match="earth_band_costh"):
         dps.propagate_earth_spatial(*_earth_args(), earth_band_costh=[-1.0, 0.0, 0.5], **kw)
+
+
+# =============================================================================
+# The solver's per-direction output (step 3): propagate_sky and the config sections
+# =============================================================================
+
+def _cfg(**over):
+    cfg = {"grid": {"n_E_bins": 8, "n_z_bins": 40, "n_sun_paths": 2, "N_steps_earth": 8, "E_min_eV": 1e13,
+                    "E_max_eV": 1e16},
+           "execution": {"n_cores": 1, "verbose": 0}, "sky": {"output": "healpix", "nside": 4}}
+    for k, v in over.items():
+        cfg.setdefault(k, {}).update(v)
+    return cfg
+
+
+def test_propagate_sky_dark_portal():
+    """Bands weighted by solid angle return the whole-sky flux to rounding, for neutrinos and
+    antineutrinos; the whole sky agrees with propagate_weighted's (another chord set) to the rule's
+    discretization; the declination order puts the Earth's strongest effect (straight up-going, dec ~ +90)
+    in the last band; the pixel map assigns every pixel its band."""
+    E, params = dps.build_solver_params(_cfg())
+    params["show_progress"] = False
+    out = dps.propagate_sky(E, params)
+    nb = len(out["dec_band_edges"]) - 1
+    assert nb == 20 and out["bands_nu"].shape == (20, 8, 3) and out["bands_nubar"].shape == (20, 8, 3)
+    w = out["band_omega"] / (4 * np.pi)
+    for kind in ("nu", "nubar"):
+        assert np.max(np.abs(np.tensordot(w, out[f"bands_{kind}"], axes=(0, 0)) - out[f"allsky_{kind}"])) \
+            < 1e-14 * np.max(out[f"allsky_{kind}"])
+    F_pw = dps.propagate_weighted(E, params)
+    tot = out["allsky_nu"] + out["allsky_nubar"]
+    assert np.max(np.abs(tot - F_pw)) < 1e-4 * np.max(F_pw)
+    dev = np.max(np.abs(out["bands_nu"] - out["allsky_nu"][None]), axis=(1, 2))
+    assert dev[0] < dev[-1]                        # dec -90 (straight down, ice) vs dec +90 (through the core)
+    g = dp_sky.SkyGrid(4)
+    assert np.array_equal(out["pixel_band"], g.band) and out["nside"] == 4
+
+
+def test_propagate_sky_secret_interactions_isotropic():
+    """Secret interactions: every band is the whole sky (isotropic transport)."""
+    E, params = dps.build_solver_params(_cfg(secret_interactions={"enabled": True, "texture": "tau",
+                                                                  "m_phi_eV": 5e6, "g_phi": 0.05}))
+    out = dps.propagate_sky(E, params)
+    for kind in ("nu", "nubar"):
+        assert np.array_equal(out[f"bands_{kind}"], np.repeat(out[f"allsky_{kind}"][None], 20, axis=0))
+
+
+def test_sky_and_galactic_config():
+    """Defaults keep today's behaviour; values are validated; the Galactic component is not wired yet."""
+    E, params = dps.build_solver_params({"execution": {"verbose": 0}})
+    assert params["sky"]["output"] == "allsky" and params["galactic"]["enabled"] is False
+    assert params["galactic"]["template"] == "cringe" and abs(params["galactic"]["f_e_S_gal"] - 1 / 3) < 1e-5
+    E, params = dps.build_solver_params({"sky": {"dec_band_edges_deg": [-90, 0, 90]}, "execution": {"verbose": 0}})
+    assert np.allclose(params["sky"]["dec_band_edges"], [-np.pi / 2, 0, np.pi / 2])
+    for bad in ({"sky": {"output": "maps"}}, {"sky": {"nside": 12}}, {"sky": {"sun_weighting": "yearly"}},
+                {"sky": {"dec_band_edges_deg": [-90, 10, 5, 90]}}, {"galactic": {"template": "kra"}},
+                {"galactic": {"f_e_S_gal": 1.5}}):
+        with pytest.raises(ValueError):
+            dps.build_solver_params(dict(bad, execution={"verbose": 0}))
+    E, params = dps.build_solver_params(_cfg(galactic={"enabled": True}))
+    with pytest.raises(NotImplementedError):
+        dps.propagate_sky(E, params)

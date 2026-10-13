@@ -146,6 +146,33 @@ def _build_default_config() -> Dict:
             # injected above it cascades into it
             "E_extension": 10.0
         },
+        "sky": {
+            # Per-direction output (docs/dev/DIRECTIONS_PLAN.md, 2026-10-13): 'allsky' (one flux for
+            # the whole sky, as every existing output), 'bands' (also per declination band) or
+            # 'healpix' (also HEALPix maps, equatorial J2000, RING). Read by propagate_sky only.
+            "output": "allsky",
+            "nside": 16,
+            # declination band edges in degrees, increasing from -90 to 90; None = 20 bands uniform
+            # in sin(dec) (decision D1), i.e. bands of 0.1 in cos(zenith) at the South Pole
+            "dec_band_edges_deg": None,
+            # Earth chords per band (the band edges are chord nodes; dp_spatial.earth_chord_nodes)
+            "earth_nodes_per_band": 2,
+            # the Sun per direction: 'isotropic' (today's Gauss-Legendre average); 'yearly' comes
+            # after the anisotropy diagnostic (decision D4)
+            "sun_weighting": "isotropic"
+        },
+        "galactic": {
+            # The Galactic-plane component (DIRECTIONS_PLAN Sections 3.4-3.6), off by default:
+            # template 'cringe' (Schwefer, Mertsch, Wiebusch 2023) or 'pi0' (Fermi-LAT 2012);
+            # norm_gal in units of the template's model flux (0.91: IceCube's 2026 combined fit to
+            # CRINGE); source composition (f_e_S_gal, 1 - f_e_S_gal, 0), floated on its own (D6);
+            # emission '3d' (emission points along each line of sight, D3) or 'local'.
+            "enabled": False,
+            "template": "cringe",
+            "norm_gal": 0.91,
+            "f_e_S_gal": 0.333333,
+            "emission": "3d"
+        },
         "source": {
             "p_index": 2.5,
             "Phi_0": 1.0,
@@ -255,6 +282,7 @@ def create_default_config(filename: str = "../config/config_dark_portal.json") -
     default_config["standard_mixing"].pop("V_SM_struct", None)
     default_config["dark_portal"].pop("U_LRI_struct", None)
     default_config["secret_interactions"].pop("g_matrix", None)
+    default_config["sky"].pop("dec_band_edges_deg", None)
     os.makedirs(os.path.dirname(os.path.abspath(filename)), exist_ok=True)
     with open(filename, 'w') as f:
         json.dump(default_config, f, indent=4)

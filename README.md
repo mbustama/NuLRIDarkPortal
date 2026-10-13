@@ -288,6 +288,17 @@ When `enabled` is true, secret interactions replace the dark portal (whose secti
 * `z_substeps` (int): Redshift steps per energy bin; `grid.n_z_bins` is unused (Default: `1`).
 * `E_extension` (float): The transport's grid extends above `E_max_eV` by this factor (Default: `10`).
 
+### `[sky]` (config only; read by `propagate_sky`)
+Per-direction output (`docs/dev/DIRECTIONS_PLAN.md`, 2026-10-13). Every existing output is the whole-sky flux and ignores this section.
+* `output` (str): `"allsky"` (default), `"bands"` (also the flux per declination band, neutrinos and antineutrinos separately) or `"healpix"` (also the band of every HEALPix pixel: equatorial J2000, RING, θ = π/2 − δ).
+* `nside` (int): HEALPix resolution (Default: `16`, 3.7° pixels).
+* `dec_band_edges_deg` (list or `null`): band edges from −90 to 90 (Default: 20 bands uniform in sin δ, i.e. 0.1 in cos(zenith) at the South Pole, where cos(zenith) = −sin δ).
+* `earth_nodes_per_band` (int): Earth chords per band; the band edges are chord nodes, so the phase-aware zenith average splits exactly into bands (Default: `2`, 41 chords).
+* `sun_weighting` (str): `"isotropic"` (today's average over the angle to the Sun); the yearly per-direction weighting follows an anisotropy diagnostic.
+
+### `[galactic]` (config only; not wired yet)
+The Galactic-plane component (plan Sections 3.4–3.6), off by default: `enabled`; `template` (`"cringe"`, Schwefer, Mertsch & Wiebusch 2023, or `"pi0"`, Fermi-LAT 2012); `norm_gal` (in units of the template's model flux; default 0.91, IceCube's 2026 combined fit to CRINGE); `f_e_S_gal` (source composition (x, 1 − x, 0), floated on its own; default 1/3, pion decay); `emission` (`"3d"`: emission points along each line of sight, or `"local"`).
+
 ### `[source]`
 * `--p_index` (float): Injection spectral index (Default: `2.5`).
 * `--Phi_0` (float): Source normalization (Default: `1.0`).
