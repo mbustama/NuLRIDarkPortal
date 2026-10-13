@@ -588,7 +588,14 @@ Yukawa-smoothed profile as our own Galaxy (Appendix~\ref{app:transit}) added to 
 and not diluting with $(1+z)^3$. Only the injection changes: the injected flavors split over the
 host's eigenstates, which leave the host adiabatically. With $s = 1$ the transition moves from
 $\gd\epsp|U|^2/\mzd^2\approx10^4$ to $\sim10^{-3}$--$1$~eV$^{-2}$ (a test: deep in it both settings
-give the same composition).
+give the same composition). The three potential planes with $s = 1$ (Tycho, commit
+\texttt{971e44b}): for $e\mu$ the lowest excluded coupling is unchanged in 37 of 40 mass columns
+and one grid row (a decade) lower in the other three ($10^{-30}$--$10^{-26}$~eV); for $\mu\tau$
+it moves by one row at most; for $e\tau$, whose high-coupling exclusion is this transition, the
+excluded region now starts at $\gd\epsp|U|^2/\mzd^2\sim10^{-2}$ instead of $10^{3}$--$10^4$~eV$^{-2}$,
+which lowers the limit by $\sim7$ decades between $10^{-25}$ and $10^{-17}$~eV. The $e\mu$ and $\mu\tau$
+limits therefore do not depend on where the sources sit; the $e\tau$ limit below $10^{-17}$~eV
+does.
 
 \textit{A first plane (2026-10-13; not for quoting; computed before the regeneration fix of
 Appendix~\ref{app:regeneration}).}---For the $e\mu$ texture at $u = 0.5$ and
