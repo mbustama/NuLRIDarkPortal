@@ -9,6 +9,44 @@ Turn the dark-portal fluxes into predicted IceCube event distributions (reconstr
 per event class), with realistic detector response, backgrounds and systematics; run the heavy
 work on Tycho; show the statistical analysis is sound with coverage tests.
 
+## The pivot of 2026-10-13: secret interactions, event data, directions
+
+Mauricio, 2026-10-13: test secret neutrino interactions generally (as in arXiv:2001.04994), in
+addition to the dark portal; use several data sets (HESE 7.5 yr, IceCube DR2 muons, future
+telescopes); treat arrival directions individually, keeping the all-sky average as a flag.
+Decisions after the assessment (AskUserQuestion, same day):
+
+- **Model.** A scalar mediator (Majorana and Dirac neutrinos) with the full cross section of
+  Esteban, Pandey, Brdar & Beacom (arXiv:2107.13568, Appendix A: s, t and u channels, their
+  interference, double-scalar production, and the final-state spectra), **and also a vector
+  mediator** (decided "Also a vector mediator"). Couplings g_ab in the flavor basis, g_ij =
+  sum_ab U*_ai U_bj g_ab in the mass basis; benchmarks universal, nu_e-, nu_mu- and nu_tau-only.
+  Their cross sections are adopted where needed, not their code (nuSIprop).
+- **Order** ("Secret interactions first"): the secret-interaction module first, tested on the
+  present flavor-triangle analysis; then per-direction output, HESE, DR2 muons and the event
+  likelihood (items 3-7 below); then forecasts.
+- **Galactic sources** ("Include from the start"): a Galactic-plane component built with the
+  per-direction output -- unabsorbed by the relic neutrinos (kpc paths), emitted in the local
+  Galactic potential, switchable off.
+- **Validation of the module:** reproduce 2001.04994 under its simplifications (scalar, s-channel
+  only, relics at rest with one 0.1 eV mass, one species, HESE 6 yr; its code in
+  ../SecretNuInt, published 90% curve in fig1/v2/limits_new_prior.txt; mind its normalization,
+  g^4/16pi in the paper's likelihood but g^4/4pi elsewhere in that code) and 2107.13568's
+  spectra (full against s-channel only and the delta-function approximation).
+
+Findings of the assessment, to keep: absorption on the relic neutrinos is isotropic (their
+Galactic clustering adds <~1e-5 of the cosmological column), so no extra distortion toward the
+Galactic Centre; neutrinos from Galactic sources travel only kpc and stay unabsorbed, so the
+plane looks *less* distorted; the dark-portal potential depends on direction through the Earth
+(zenith), the Sun (angle to it, in a mass window) and, for Galactic sources only, the potential
+where they are emitted -- the Galactic transit is adiabatic, so extragalactic neutrinos see no
+direction dependence from it; nu-nucleon scattering through the dark mediator in the Earth is
+estimated negligible (to check). Reusable elsewhere: ../NuAnisotropy holds the HESE 7.5-yr
+per-event MC with reconstructed directions (303 MB), atmospheric weights and self-veto
+corrections, the data with directions and an UltraNest fit; ../NuFlavorSingleSource has no
+HESE or DR2 implementation (analytic responses) but MCEq tables with Barr derivatives and the
+MESE effective areas; no DR2 muon implementation exists anywhere yet (item 4 below).
+
 ## Order of work
 
 0. **Solver corrections and the new analysis** -- the solver part is **done** 2026-10-12: three
