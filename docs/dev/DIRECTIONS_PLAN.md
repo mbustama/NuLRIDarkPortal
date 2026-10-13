@@ -1,7 +1,7 @@
 # Plan: per-direction output and Galactic sources
 
-Status: **agreed 2026-10-13** (decisions D1-D4 answered by Mauricio: bands + N_side 16; CRINGE + pi0;
-full 3-D emission; Sun diagnostic first; D5, the downloads, pending their sizes). Nothing implemented yet. Written after four read-only surveys: the
+Status: **agreed 2026-10-13** (decisions D1-D6 answered by Mauricio: bands + N_side 16; CRINGE + pi0;
+full 3-D emission; Sun diagnostic first; all downloads on Tycho; x_gal floated). Nothing implemented yet. Written after four read-only surveys: the
 solver's direction handling (this repository), the literature on Galactic diffuse neutrinos, the
 literature on new physics with directions, and the sibling projects' directional data
 (`../NuAnisotropy`, `../NuFlavorSingleSource`, `../toise`, `../PLEnuM`). Every physics choice below
@@ -431,8 +431,10 @@ output's metadata, like `tools/mw_sky_density.py` does for the Galactic map toda
 ## 9. Decisions for Mauricio
 
 **Answered 2026-10-13:** D1 = bands + N_side 16; D2 = CRINGE + pi0; D3 = full 3-D; D4 = diagnostic first.
-D5 (downloads on Tycho) pending the record sizes. Added by Mauricio: the Galactic source composition
-varies as (x, 1 - x, 0) (Section 3.4); D6 below.
+Added by Mauricio: the Galactic source composition varies as (x, 1 - x, 0) (Section 3.4).
+**Answered later the same day:** D5 = all downloads on Tycho (CRINGE map, CR distribution and
+unresolved-source map; the 1.2 GB 3-D gas file; IceCube's Galactic-plane release); D6 = x_gal floats
+on its own.
 
 - **D6, the Galactic x.** Float x_gal on its own, default 1/3 (Recommended: Galactic and extragalactic
   sources need not share a composition; the event data can separate them by direction); or tie it to
