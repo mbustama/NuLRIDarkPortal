@@ -93,7 +93,8 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                        n_z_thermal: int = 0, use_gpu: bool = False,
                        thermal_analytic: bool = True,
                        earth_step_scheme: str = "left",
-                       earth_zenith_average: str = "plain") -> Tuple[np.ndarray, np.ndarray]:
+                       earth_zenith_average: str = "plain",
+                       earth_sky: str = "up") -> Tuple[np.ndarray, np.ndarray]:
     """
     Executes the complete spectrum integration, driving the underlying JIT kernels.
     Neutrinos and antineutrinos are evolved together through the cosmological phase (an
@@ -287,7 +288,8 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                                           N_steps_earth=N_steps_earth, external_pool=external_pool,
                                           U_LRI_struct=sp["S_eff"], V_SM_struct=sp["V_SM_eff"],
                                           use_gpu=use_gpu, earth_step_scheme=earth_step_scheme,
-                                          earth_zenith_average=earth_zenith_average)
+                                          earth_zenith_average=earth_zenith_average,
+                                          earth_sky=earth_sky)
         # DOMAIN CHECK: same contract as the thermal-grid check above -- never return NaN
         # silently. (The known non-finite mechanism here, unitarity loss of the spatial
         # propagator at large phases, is excluded by propagator_3x3's exactly unitary form
@@ -420,7 +422,8 @@ def _flux_from_setup(E_bins: np.ndarray, params: Dict, setup: Dict, injection,
         use_gpu=params.get('use_gpu', False),
         thermal_analytic=params.get('thermal_analytic', True),
         earth_step_scheme=params.get('earth_step_scheme', 'left'),
-        earth_zenith_average=params.get('earth_zenith_average', 'plain')
+        earth_zenith_average=params.get('earth_zenith_average', 'plain'),
+        earth_sky=params.get('earth_sky', 'up')
     )
 
 
@@ -610,6 +613,9 @@ def build_solver_params(config: Dict) -> Tuple[np.ndarray, Dict]:
     # Average over the Earth chords: 'phase' (exact integration of each block's LRI phase
     # over cos(zenith)) or 'plain' (historical equal-weight mean) -- see
     # dp_spatial.average_earth_chords. 'phase' needs the phase-exact 'avg' steps.
+    params['earth_sky'] = str(config['grid']['earth_sky']).strip().lower()
+    if params['earth_sky'] not in ('full', 'up'):
+        raise ValueError(f"grid.earth_sky must be 'full' or 'up', got {params['earth_sky']!r}")
     params['earth_zenith_average'] = str(config['grid']['earth_zenith_average']).strip().lower()
     if params['earth_zenith_average'] not in ('phase', 'plain'):
         raise ValueError(f"grid.earth_zenith_average must be 'phase' or 'plain', got {params['earth_zenith_average']!r}")
@@ -797,6 +803,7 @@ if __name__ == "__main__":
     parser.add_argument("--n_z_thermal", type=int, default=None, help="Coarse z-samples for the thermal-rate grid (default 0 = exact, no interpolation; see build_thermal_grid before enabling)")
     parser.add_argument("--thermal_analytic", type=str, default=None, help="Set to 'false' to use the 100-point midpoint reference kernel for the thermal rates instead of the semi-analytic default (see build_thermal_grid)")
     parser.add_argument("--earth_step_scheme", type=str, default=None, help="Earth-transit potential discretization: 'avg' (default: exact step-averaged potential, step-count-independent LRI phase -- see dp_spatial._earth_chord_worker) or 'left' (historical left-endpoint sampling, kept for reproducing pre-2026-07 results)")
+    parser.add_argument("--earth_sky", type=str, default=None, help="Directions averaged at the detector: 'full' (default: the whole sky, equal weight per cos(zenith); down-going neutrinos cross only the ice above the detector) or 'up' (up-going only, through the Earth)")
     parser.add_argument("--earth_zenith_average", type=str, default=None, help="Average over the Earth chords: 'phase' (default: integrate each block of the chords' density matrices against its dark-portal phase over cos(zenith), removing the chord-sampling floor) or 'plain' (historical equal-weight mean; required with --earth_step_scheme left)")
     parser.add_argument("--n_mw_paths", type=int, default=None, help="Number of Milky Way trajectories for solid-angle average")
     parser.add_argument("--n_earth_chords", type=int, default=None, help="Number of Earth chords for PREM evaluation")
@@ -887,6 +894,7 @@ if __name__ == "__main__":
     if args.thermal_analytic is not None: config["grid"]["thermal_analytic"] = str_to_bool(args.thermal_analytic)
     if args.earth_step_scheme is not None: config["grid"]["earth_step_scheme"] = args.earth_step_scheme
     if args.earth_zenith_average is not None: config["grid"]["earth_zenith_average"] = args.earth_zenith_average
+    if args.earth_sky is not None: config["grid"]["earth_sky"] = args.earth_sky
     if args.n_mw_paths is not None: config["grid"]["n_mw_paths"] = args.n_mw_paths
     if args.n_earth_chords is not None: config["grid"]["n_earth_chords"] = args.n_earth_chords
     if args.N_steps_MW is not None: config["grid"]["N_steps_MW"] = args.N_steps_MW

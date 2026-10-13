@@ -1,6 +1,6 @@
 {
- "_comment": "Exclusion plane, light mediators, e-tau (T16) texture with |U|^2 = 1e-3 and epsilon' = 1e-4: the coherent potential is proportional to g_D epsilon' |U|^2 (the split between the factors enters only through the Debye mass, negligible here), so the plane is quoted in that product. NOT FOR QUOTING until down-going directions enter the zenith average: only up-going chords are averaged now, which overstates the Earth's effect. Read per mediator mass at Delta chi^2 = 3.84.",
- "name": "pion_2050_case_5_light_etau",
+ "_comment": "Exclusion plane for the coherent potential, mu-tau (T17) texture with |U|^2 = 1e-3 and epsilon' = 0.1, from ultralight to GeV mediators: the potential is proportional to g_D epsilon' |U|^2, and with epsilon' g/c_W >> g_D |U|^2 (here up to the largest product scanned) the absorption coupling Sum G ~ g_D |U|^2 epsilon' g/c_W depends on the same product, so the plane is a function of it alone (the Debye mass, which depends on g_D |U|^2, is negligible here). At MeV masses the Earth's own potential is far from negligible: with g_D epsilon' = 1e-5 at 2 MeV it is ~1e-8 eV against a vacuum term of ~1e-16 eV. Whole sky, equal weights. Read per mediator mass at Delta chi^2 = 3.84.",
+ "name": "pion_2050_case_5_potential_mutau",
  "data": {
   "surface": "pion_2050_case_5"
  },
@@ -31,10 +31,10 @@
   },
   "dark_portal": {
    "u_tau": 0.03162277660168379,
-   "epsilon_prime": 0.0001,
+   "epsilon_prime": 0.1,
    "use_debye_screening": true,
-   "u_e": 0.03162277660168379,
-   "u_mu": 0.0
+   "u_e": 0.0,
+   "u_mu": 0.03162277660168379
   },
   "source": {
    "p_index": 2.5,
@@ -64,7 +64,7 @@
    "start": 1e-10,
    "bounds": [
     1e-31,
-    100000.0
+    10000000000.0
    ],
    "space": "log10"
   },
@@ -72,7 +72,7 @@
    "start": 1e-40,
    "bounds": [
     1e-62,
-    1e-08
+    1e-05
    ],
    "space": "log10"
   }
@@ -94,19 +94,19 @@
    "y": "g_D_eps_u2",
    "x_range": [
     1e-30,
-    10000.0
+    1000000000.0
    ],
    "y_range": [
     1e-60,
-    1e-10
+    1e-06
    ],
-   "nx": 35,
-   "ny": 51,
+   "nx": 40,
+   "ny": 55,
    "raster": "m_Zd_eV"
   }
  ],
  "asimov": {
   "g_D_eps_u2": 1e-62
  },
- "output_dir": "output/analysis/pion_2050_case_5_light_etau"
+ "output_dir": "output/analysis/pion_2050_case_5_potential_mutau"
 }

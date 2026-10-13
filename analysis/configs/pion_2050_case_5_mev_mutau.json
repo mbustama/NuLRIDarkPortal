@@ -1,5 +1,5 @@
 {
- "_comment": "Exclusion plane, MeV mediators, mu-tau (T17) texture of the theory notes and epsilon' = 0: resonant absorption alone (the coherent potential vanishes with epsilon', and at MeV masses it would be ~1e-22 of the vacuum term anyway), so every observable depends on g_D |U|^2 alone and the limit on it holds for any |U|. Read per mediator mass at Delta chi^2 = 3.84 (decided 2026-10-13). The internal |U|^2 = 0.25 only keeps g_D below its perturbative bound over the whole range; with epsilon' = 0 the result depends on g_D |U|^2 alone (tested).",
+ "_comment": "Exclusion plane, MeV mediators, mu-tau (T17) texture of the theory notes and epsilon' = 0: resonant absorption alone (epsilon' = 0 switches off the coherent potential, which at MeV masses would otherwise dominate the Earth transit whenever g_D epsilon' |U|^2 >~ 1e-13; see the potential planes), so every observable depends on g_D |U|^2 alone and the limit on it holds for any |U|. The internal |U|^2 = 0.25 only keeps g_D below its perturbative bound over the whole range (tested). Whole sky, equal weights. Read per mediator mass at Delta chi^2 = 3.84 (decided 2026-10-13).",
  "name": "pion_2050_case_5_mev_mutau",
  "data": {
   "surface": "pion_2050_case_5"

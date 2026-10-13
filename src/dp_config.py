@@ -140,6 +140,7 @@ def _build_default_config() -> Dict:
             # chord-sampling floor; "plain" is the historical equal-weight mean (see
             # dp_spatial.average_earth_chords).
             "earth_zenith_average": "phase",
+            "earth_sky": "full",
             "N_steps_earth": 25,
             "r_start_kpc": 100.0
         },

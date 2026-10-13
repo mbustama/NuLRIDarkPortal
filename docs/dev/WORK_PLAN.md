@@ -131,6 +131,15 @@ linear in it), so it can float. Backgrounds included from the start.
 
 ## Done
 
+- 2026-10-13: the detector flux averages the whole sky with equal weights (`grid.earth_sky = "full"`,
+  the default; `"up"` kept), decided with Mauricio; down-going chords cross only the ice above the
+  detector (1.5 km to ~140 km). Dilution of the Earth's effect: half while the ice adds little
+  phase, none once it mixes flavors too. At the MeV benchmarks the dark-portal phase is 6e5 rad
+  through the core, 7 rad straight down: f_e - f_mu = 1e-3 (inband), 3e-3 (strong). The Earth's
+  own potential at MeV masses is ~1e-8 eV (not negligible); potential planes now span 1e-30 eV to
+  1 GeV with epsilon' = 0.1. Checkpoint identities include the merged solver config and the
+  solver's source digest.
+
 - 2026-10-13: every absorption feeds both secondaries (a neutrino, 3E^2/E_j^3, and an antineutrino,
   3(E_j-E)^2/E_j^3, or the mirror image); neutrinos and antineutrinos evolve together through the
   cosmological phase (2x2 system per bin). Decided with Mauricio, who also confirmed: no factor

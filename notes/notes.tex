@@ -353,6 +353,21 @@ by up to $10^{-2}$ whenever the step count changed. The default is $25$ steps si
 matrices against its dark-portal phase over $\cos\theta_z$ (Appendix~\ref{app:zenith}), not by
 an equal-weight mean.
 
+\textit{The whole sky (2026-10-13).}---A detector sees neutrinos from every direction. Since
+2026-10-13 the average runs over the whole sky with equal weight per $\cos\theta_z$ (the decided
+default; up-going only remains an option): down-going neutrinos cross only the ice above the
+detector, $1.5$~km straight down to $\sim140$~km at the horizon, against up to $12{,}740$~km
+through the Earth. The down-going chords mirror the up-going ones, and the phase-aware average
+reproduces the exact integral over the sky to $10^{-5}$ (a test against $400{,}001$ directions).
+How much the sky dilutes the Earth's effect depends on the potential: by half while the ice adds
+little phase (a dark-portal phase through the core below $\sim50$~rad), less as the near-horizon
+paths start to mix flavors, not at all once the ice mixes them from above too. At the MeV
+benchmarks the phase is $6\times10^{5}$~rad through the core, $680$~rad at the horizon and
+$7$~rad straight down, so near-vertical down-going neutrinos keep part of the flavor structure of
+the flux arriving at the Earth: $f_e$ and $f_\mu$, equal from below, differ by $10^{-3}$ at
+``inband'' and $3\times10^{-3}$ at ``strong''. The detector's own acceptance per direction will
+replace the equal weights in the event-rate analysis (Sec.~\ref{sec:rates}).
+
 \subsection{Parallelism and cost}
 
 Milky Way paths and Earth chords are independent; they run in a persistent pool of processes
@@ -414,9 +429,10 @@ total, and vanishing sterile mixing must reproduce standard propagation. At prod
 the energy (number) reaching the Earth is $0.99910$ ($0.99827$) of the no-interaction value at
 ``below'', $0.94135$ ($1.09231$) at ``inband'', $0.99995$ ($1.00074$) at ``strong'' and
 $0.99944$ ($0.99901$) at ``cosmoX2''; the energy-averaged fractions are
-$(0.32899, 0.32899, 0.34201)$, $(0.33190, 0.33190, 0.33621)$, $(0.32900, 0.32900, 0.34199)$
-and $(0.32899, 0.32899, 0.34201)$, and change by $\le1.2\times10^{-7}$ between 1000 and 2000
-redshift steps (2026-10-13, Appendix~\ref{app:regeneration}). The number can exceed the
+$(0.32903, 0.32896, 0.34201)$, $(0.33241, 0.33138, 0.33621)$, $(0.33050, 0.32751, 0.34199)$
+and $(0.32899, 0.32899, 0.34201)$ over the whole sky ($f_e = f_\mu$ from below: Sec.~\ref{sec:earth}),
+and change by $\le1.2\times10^{-7}$ between 1000 and 2000 redshift steps (2026-10-13,
+Appendix~\ref{app:regeneration}). The number can exceed the
 no-interaction value: each absorption turns one particle into two.
 
 \subsection{Record of validated changes}
@@ -445,6 +461,7 @@ Date, commit & Change & Result \\
 2026-10-12 \texttt{944360d} & Resonant absorption scales with the couplings & A correction: energy at the Earth $3\times10^{-3}\to0.999$ of the no-interaction value at ``below'' (Appendix~\ref{app:bwnorm}) \\
 2026-10-12 \texttt{2066f3b} & Exactly unitary propagator & below, inband, strong unchanged to five digits; ``cosmoX2'' fractions move by $3.5\times10^{-4}$ and become reproducible (Appendix~\ref{app:unitarity}) \\
 2026-10-13 & Both secondaries of every absorption & inband fractions move by $1.8\times10^{-3}$; energy at the Earth $0.841\to0.941$ (inband), $0.982\to0.99995$ (strong) (Appendix~\ref{app:regeneration}) \\
+2026-10-13 & The whole sky at the detector & $f_e - f_\mu$ from $0$ to $10^{-3}$ (inband), $3\times10^{-3}$ (strong); energies unchanged (Sec.~\ref{sec:earth}) \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -505,15 +522,16 @@ must be extended before a limit is read. Coverage tests still have to confirm th
 a coupling bounded at zero the asymptotic one-sided value is $2.71$.
 
 \textit{Planes by regime (decided 2026-10-13).}---The observables depend on $\gd$ and the sterile
-mixing only through products: with $\epsp = 0$, which leaves the resonant absorption alone,
-through $\gd|U_{\alpha4}|^2$; and the coherent potential is proportional to $\gd\epsp|U_{\alpha4}|^2$
-(the split between the factors enters only through the Debye mass, negligible here). A free mixing
-would therefore always slide to zero, so the planes scan the products, and their limits hold for
-any mixing: MeV mediators with $\epsp = 0$ in ($\mzd$, $\gd|U_{\alpha4}|^2$) and light mediators
-in ($\mzd$, $\gd\epsp|U_{\alpha4}|^2$), for each of the three benchmark textures (T13), (T16),
-(T17). A test checks that splitting a product differently leaves the fractions unchanged
-($10^{-12}$ with $\epsp = 0$; $10^{-6}$ for the potential). The light-mediator planes cannot be
-quoted until down-going directions enter the zenith average.
+mixing only through products, so a free mixing would always slide to zero; the planes scan the
+products, and their limits hold for any mixing. MeV planes set $\epsp = 0$, which switches off the
+coherent potential and leaves the resonant absorption, a function of $\gd|U_{\alpha4}|^2$ alone.
+Potential planes run from ultralight to GeV mediators in $\gd\epsp|U_{\alpha4}|^2$, to which the
+potential is proportional; with $\epsp = 0.1$ the absorption coupling
+$\Sigma G\approx\gd|U_{\alpha4}|^2\,\epsp g/c_W$ depends on the same product. At MeV masses the
+Earth's own potential is far from negligible: $\sim10^{-8}$~eV at $\gd\epsp = 10^{-5}$ and
+$2$~MeV, against a vacuum term of $\sim10^{-16}$~eV. Each regime is run for the three benchmark
+textures (T13), (T16), (T17). A test checks that splitting a product differently leaves the
+fractions unchanged ($10^{-12}$ with $\epsp = 0$; $10^{-6}$ for the potential).
 
 \textit{A first plane (2026-10-13; not for quoting; computed before the regeneration fix of
 Appendix~\ref{app:regeneration}).}---For the $e\mu$ texture at $u = 0.5$ and
@@ -682,9 +700,9 @@ then; their size on the corrected solver is not known. \note{Re-measure}
 \texttt{135ed02}) and $0.71$~s after them ($1.04$~s on one core). \note{VERIFY: find what
 changed between July and \texttt{135ed02}}
 
-\textit{Up-going only.}---The chords span the up-going hemisphere; down-going neutrinos, which
-cross only the overburden, are not in the average. The per-direction output of
-Sec.~\ref{sec:plan} will give both. \note{Open}
+\textit{Up-going only (resolved 2026-10-13).}---The average now covers the whole sky with equal
+weights (Sec.~\ref{sec:earth}); the per-direction output of Sec.~\ref{sec:plan} will add the
+detector's acceptance.
 
 \textit{Implementation queue.}---The core-count fix is done (2026-10-12): pools are sized from the
 process's CPU affinity capped by the SLURM allocation, not from the machine's core count. Next,
@@ -753,7 +771,10 @@ floors: ``below'', ``inband'' and ``strong'' agree to $\le4\times10^{-11}$ in fl
 $\le10^{-13}$ in flavor fractions; ``cosmoX2'' moves by $1.4\times10^{-3}$ pointwise and
 $1.0\times10^{-4}$ in the energy-averaged fractions, its known sensitivity to the last digit.
 At mediator masses of order MeV the coherent potentials are $\sim10^{-22}$ of the vacuum term, so
-only the resonant absorption acts. The corrections matter for light mediators, where the
+only the resonant absorption acts. (Correction, 2026-10-13: this holds for the cosmological and
+Galactic potentials changed here. The Earth's own potential, sourced by densities 24 orders of
+magnitude higher, is $\sim10^{-8}$~eV at the benchmark couplings, far above the vacuum term; see
+Sec.~\ref{sec:stats}.) The corrections matter for light mediators, where the
 potential grows as $1/\mzd^2$; we compared the old and new code at three such masses, with the
 default couplings. At $\mzd = 10^{-2}$~eV the total flux changes by up to 32\%, the flavor
 fractions at single energies by up to $0.074$ and the energy-averaged fractions by up to

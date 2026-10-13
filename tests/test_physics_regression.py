@@ -2403,12 +2403,54 @@ def test_zenith_phase_average_matches_continuum():
                 assert np.max(np.abs(rho_k[:, 0].mean(axis=0) - ref)) > 1e-3
 
 
+def test_full_sky_average_matches_continuum_and_dilutes_the_earth():
+    """With down-going directions (decided 2026-10-13) the 'phase' average runs over the whole
+    sky, cos(zenith) from -1 to 1, where down-going chords cross only the ice above the
+    detector (1.5 to ~140 km). It must equal the exact integral over the sky of the
+    potential-dominated evolution (dense trapezoid, 400,001 directions); a potential that
+    leaves the ice above unchanged must show half the up-going effect, and a very strong
+    one the fully mixed limit."""
+    import dp_spatial
+    S = np.outer([0.5, 0.5, 0.0], [0.5, 0.5, 0.0]).astype(complex)
+    rng = np.random.default_rng(4)
+    B = rng.normal(size=(3, 3)) + 1j * rng.normal(size=(3, 3))
+    rho_in = B @ B.conj().T
+    rho_in /= np.trace(rho_in).real
+    up = np.linspace(-1.0, 0.0, 12)
+    full = np.concatenate([up, -up[-2::-1]])
+    c_dense = np.linspace(-1.0, 1.0, 400_001)
+    col_dense = dp_spatial._earth_columns(c_dense, 1.5, 0.0, dps.earth_yukawa_table(None))
+    assert abs(dps.get_baseline_earth(1.5, 1.0) - 1.5) < 1e-12
+    for psi_max in (0.1, 3.0, 52.0, 1e3):
+        alpha = psi_max / col_dense[0]
+        rho_k, evolve, P = _synthetic_chords(full, alpha, rho_in, S)
+        got = dps.average_earth_chords(rho_k, full, alpha / dp_spatial._KM_IN_EV_INV, S, 1.5,
+                                       0.0, 1.0, dps.earth_yukawa_table(None), "phase")[0]
+        ref = np.trapz(np.array([evolve(alpha * c) for c in col_dense]), c_dense, axis=0) / 2.0
+        assert np.max(np.abs(got - ref)) < 1e-5, (psi_max, np.max(np.abs(got - ref)))
+    # How much the sky dilutes the Earth's effect depends on the potential: while the ice
+    # above adds little phase (core phase <~ 50 rad: <= 0.06 rad at the horizon) the down-going
+    # half is untouched and the flavor shift halves; for strong potentials both halves mix
+    # fully and the average reaches the block-diagonal limit sum_g P_g rho P_g.
+    def averaged(nodes, psi_core):
+        alpha = psi_core / col_dense[0]
+        rho_k, _, P = _synthetic_chords(nodes, alpha, rho_in, S)
+        return dps.average_earth_chords(rho_k, nodes, alpha / dp_spatial._KM_IN_EV_INV, S, 1.5, 0.0,
+                                        1.0, dps.earth_yukawa_table(None), "phase")[0], P
+    for psi_core in (3.0, 52.0):
+        shift_up = np.real(np.diag(averaged(up, psi_core)[0] - rho_in))
+        shift_full = np.real(np.diag(averaged(full, psi_core)[0] - rho_in))
+        np.testing.assert_allclose(shift_full, 0.5 * shift_up, rtol=0.02, atol=1e-7)
+    got, P = averaged(full, 1e9)
+    assert np.max(np.abs(got - sum(p @ rho_in @ p for p in P))) < 1e-4
+
+
 def test_zenith_average_options_and_numba_crossings():
     """'phase' needs the phase-exact 'avg' steps (direct callers asking otherwise get an
     error; run_solver maps 'left' to the historical 'plain'), unknown options are rejected,
     and the numba crossing finder used for the fine grid agrees with the chords' own."""
     import dp_spatial
-    for costh in np.linspace(-1.0, 0.0, 41):
+    for costh in np.linspace(-1.0, 1.0, 81):              # up- and down-going
         B = dps.get_baseline_earth(1.5, costh)
         np.testing.assert_allclose(dp_spatial._earth_layer_crossings_nb(B, costh, 1.5),
                                    dps._earth_layer_crossings(B, costh, 1.5), rtol=0, atol=1e-9)
@@ -2425,6 +2467,10 @@ def test_zenith_average_options_and_numba_crossings():
         dps.propagate_earth_spatial(*args, N_steps_MW=2, N_steps_earth=4, show_progress=False,
                                     verbose=0, earth_step_scheme="avg", earth_zenith_average="median")
     assert dps.DEFAULT_CONFIG["grid"]["earth_zenith_average"] == "phase"
+    assert dps.DEFAULT_CONFIG["grid"]["earth_sky"] == "full"
+    with pytest.raises(ValueError, match="earth_sky"):
+        dps.propagate_earth_spatial(*args, N_steps_MW=2, N_steps_earth=4, show_progress=False,
+                                    verbose=0, earth_step_scheme="avg", earth_sky="down")
 
 
 def test_core_count_respects_slurm_allocation_and_affinity(monkeypatch):

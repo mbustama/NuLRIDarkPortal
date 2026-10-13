@@ -1244,7 +1244,8 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
                             N_steps_earth: int = 500, external_pool=None,
                             U_LRI_struct=None, V_SM_struct=None, use_gpu: bool = False,
                             earth_step_scheme: str = "left",
-                            earth_zenith_average: str = "plain") -> np.ndarray:
+                            earth_zenith_average: str = "plain",
+                            earth_sky: str = "up") -> np.ndarray:
     """
     Executes pure spatial ODE through Milky Way and Earth with active tracking.
     Milky Way trajectories and Earth chords are mutually independent, so when n_cores > 1
@@ -1271,6 +1272,9 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
         against its LRI phase over costh -- see average_earth_chords; the config default)
         or 'plain' (historical equal-weight mean over chords, the signature default);
         'phase' requires earth_step_scheme = 'avg'.
+      earth_sky: 'full' (the whole sky, equal weight per costh; the config default since
+        2026-10-13) or 'up' (up-going directions only, the signature default and the only
+        option until then).
       external_pool, U_LRI_struct, V_SM_struct, use_gpu: see below.
 
     Returns: (N_E, 3) flavor fluxes at the detector depth.
@@ -1304,16 +1308,23 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
     n_workers = max(1, min(int(n_cores), available_cores()))
     if earth_zenith_average not in _ZENITH_AVERAGES:
         raise ValueError(f"earth_zenith_average must be one of {_ZENITH_AVERAGES}, got {earth_zenith_average!r}")
+    if earth_sky not in ("full", "up"):
+        raise ValueError(f"earth_sky must be 'full' or 'up', got {earth_sky!r}")
     if earth_zenith_average == "phase" and earth_step_scheme != "avg":
         raise ValueError("The 'phase' zenith average needs the phase-exact earth_step_scheme = 'avg' "
                          "(under 'left' each chord's phase carries a Riemann error); use 'plain' with 'left'.")
 
     # --- Dynamic Earth Chords ---
+    # n_earth_chords evenly spaced chords from exact core transit (costh = -1) to the horizon
+    # (0); with earth_sky = 'full' (decided 2026-10-13) the down-going hemisphere gets the
+    # mirror image, up to straight down (+1), whose chords cross only the ice above the
+    # detector (1.5 km straight down, ~140 km at the horizon). The zenith average then
+    # weights every cos(zenith) of the whole sky equally.
     if n_earth_chords <= 1:
-        earth_costh = np.array([-1.0])
+        earth_costh = np.array([-1.0]) if earth_sky == "up" else np.array([-1.0, 1.0])
     else:
-        # Evenly spaced chords from exact core transit (-1.0) to grazing (0.0)
-        earth_costh = np.linspace(-1.0, 0.0, int(n_earth_chords))
+        up = np.linspace(-1.0, 0.0, int(n_earth_chords))
+        earth_costh = up if earth_sky == "up" else np.concatenate([up, -up[-2::-1]])
 
     # --- Dynamic Milky Way Paths ---
     if n_mw_paths <= 1:

@@ -43,13 +43,15 @@ analysis, a command line, checkpoints, provenance.
 
 ## Exclusion planes by regime (decided 2026-10-13)
 
-The observables depend on g_D and the sterile mixing only through products: with epsilon' = 0
-(absorption only) through g_D |U|^2, and the coherent potential through g_D epsilon' |U|^2. A free
-mixing therefore always slides to zero, so the planes scan the products (model parameters
-`g_D_u2` and `g_D_eps_u2`, which set g_D from the configured texture) and their limits hold for
-any mixing: MeV planes with epsilon' = 0 in (m_Zd, g_D |U|^2), light-mediator planes in
-(m_Zd, g_D epsilon' |U|^2), for the three benchmark textures, read per mass at 3.84. The light
-planes wait for down-going directions before they can be quoted.
+The observables depend on g_D and the sterile mixing only through products, so a free mixing
+always slides to zero; the planes scan the products (model parameters `g_D_u2` and
+`g_D_eps_u2`) and their limits hold for any mixing. MeV planes set epsilon' = 0 (absorption
+alone, a function of g_D |U|^2). Potential planes run from ultralight to GeV mediators with
+epsilon' = 0.1: the potential is proportional to g_D epsilon' |U|^2, and with epsilon' g/c_W >>
+g_D |U|^2 the absorption coupling depends on the same product. At MeV masses the Earth's own
+potential is NOT negligible (1e-8 eV at g_D epsilon' = 1e-5, 2 MeV, against a 1e-16 eV vacuum
+term); an earlier statement that it was "1e-22 of the vacuum term" applies to the cosmological
+and Galactic potentials only. All read per mass at 3.84, whole sky with equal weights.
 
 ## Findings to keep in mind
 

@@ -118,12 +118,19 @@ class AnalysisConfig:
 
     def identity(self, data_centre=None, extra=None) -> str:
         """Digest of everything that decides a chi^2 or a constrained minimum: the data term
-        (and its re-centring), the solver configuration, the free parameters with their
-        bounds and spaces, and the priors; plus `extra` (a scan's grid). Checkpoints carry
-        it, so results computed under another configuration are never reused. Fit settings
-        and starts are left out: rerunning with better ones resumes, keeping the best fits."""
+        (and its re-centring), the solver configuration merged with the solver's defaults, the
+        solver's source code (dp_core._source_digest), the free parameters with their bounds
+        and spaces, and the priors; plus `extra` (a scan's grid). Checkpoints carry it, so
+        results computed under another configuration, other defaults or other code are never
+        reused. Fit settings and starts are left out: rerunning with better ones resumes,
+        keeping the best fits."""
+        from dp_config import merge_config_with_defaults
+        import dp_core
+        solver = merge_config_with_defaults(copy.deepcopy(dict(self.solver)))
+        solver = {k: v for k, v in solver.items() if k not in ("execution", "output")}
         d = dict(data=self.surface, centre=None if data_centre is None else [float(c) for c in data_centre],
-                 solver=self.solver, parameters=[[p.name, p.space, list(p.bounds)] for p in self.parameters],
+                 solver=solver, code=dp_core._source_digest(),
+                 parameters=[[p.name, p.space, list(p.bounds)] for p in self.parameters],
                  priors=[[type(p).__name__, sorted(dataclasses.asdict(p).items())] for p in self.priors], extra=extra)
         return hashlib.sha256(json.dumps(d, sort_keys=True, default=str).encode()).hexdigest()[:16]
 
