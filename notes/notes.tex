@@ -871,7 +871,7 @@ Number balance & $10^{-14}$, every texture, $M$ = 1~keV--1~GeV, $g$ up to 1 \\
 Absorption alone vs quadrature of $e^{-\tau}$ along each path & median $10^{-12}$--$10^{-4}$; up to $1.2\%$ in the bins at a narrow resonance's sharp edge (one step per bin; $0.2\%$ with four) \\
 Bins and steps vs 1601 bins, four steps per bin (nested grids: no interpolation) & at 401 bins, spectra $2\times10^{-3}$ pointwise (median $2\times10^{-4}$), up to 4\% in the one bin below a very narrow resonance's edge ($g = 0.01$; first order in the bin width); energy-averaged fractions $\le2\times10^{-4}$ in all eight cases (scalar and vector, Majorana and Dirac) \\
 2107.13568 Fig.~5 & reproduced (Fig.~\ref{fig:si_fig5}) \\
-2107.13568 Fig.~3 (Majorana, Dirac) & Majorana within 1--4\%; Dirac 1\% below the dips, 9\% above the first dip (open; Fig.~\ref{fig:si_fig3}) \\
+2107.13568 Fig.~3 (Majorana, Dirac) vs their code, nuSIprop & $0.6\%$ above the first dip, $0.2\%$ at the Dirac peak (with the corrected source weighting; Table~\ref{tab:source_checks}) \\
 Tree amplitudes by brute force (explicit spinors; Majorana fermions by fermion flow) & (A12), its complex form, the Dirac visible/sterile split $10^{-15}$; vector $|\mathcal M|^2$ $10^{-12}$, longitudinal fraction $3\times10^{-14}$ \\
 Vector: tensors vs $\int d\sigma/dt$; narrow $s$ channel vs the Z-burst normalization & $10^{-10}$; $2\times10^{-4}$ \\
 Dirac: absorption alone; tracked regeneration over Majorana's & equal to Majorana's (3 digits); $0.499$--$0.500$ \\
@@ -892,10 +892,12 @@ Figure~\ref{fig:si_fig5} repeats Fig.~5 of 2107.13568 ($\nu_\tau$ couplings, $M 
 $\nusum = 0.1$~eV in normal ordering, an $E^{-2}$ flux): the two dips at
 $\Eres = M^2/2m_j$, the bump of the regenerated neutrinos below them, the slow recovery above the
 resonance at $g = 0.1$ (where the $t$ and $u$ channels and double-scalar production dominate), and
-the narrow-width approximation that does not depend on $g$ once $g\gtrsim10^{-3}$. Our full
-computation at $g = 0.1$ peaks $\sim5\%$ above theirs below the dips; with their (printed)
-double-scalar coupling the difference halves, the rest being within the differences of source
-evolution and cosmology.
+the narrow-width approximation that does not depend on $g$ once $g\gtrsim10^{-3}$. At $g = 0.1$,
+with their inputs and without double-scalar production (our \texttt{phiphi = "off"}, their default),
+our transport agrees with their code, nuSIprop, extrapolated in the bin width, to 1\% from 10~TeV to
+10~PeV; at its default 300 bins nuSIprop is still 6--11\% low near the peak (2.09 against 2.35 at
+10~TeV), and so is their figure. (Before the correction of App.~\ref{app:source_jacobian} our curve
+differed from theirs by up to 35\%, at 100~TeV.)
 
 \begin{figure}[t]
 \centering
@@ -908,18 +910,18 @@ printed in the paper. \file{tools/si_validation.py}~\texttt{fig5}.}
 \end{figure}
 
 Figure~\ref{fig:si_fig3} repeats the bottom panel of their Fig.~3, the same model at $g = 0.01$
-with Majorana and with Dirac neutrinos. Read off their figure, the Majorana curve peaks at $1.42$
-below the dips (ours $1.40$) and at $1.21$ just above the first dip (ours $1.25$); the Dirac curve,
-with the sterile secondaries dropped as they do, peaks at $1.11$ below the dips (ours $1.12$) but
-only $0.91$ above the first dip, where ours gives $1.00$. Our curves obey two exact relations:
-absorption alone is the same for both kinds of neutrino (to three digits at every energy), and with
-the sterile secondaries tracked the Dirac regeneration is exactly half the Majorana one ($0.499$--$0.500$
-of it at every energy), as the parity mirror of Sec.~\ref{sec:si_dirac_vector} requires; dropping
-them keeps $0.42$--$0.47$ of it. Their Dirac curve would need $\sim0.3$ just above the first dip
-against $\sim0.47$ below the dips, which no single treatment gives; the source of this one
-difference is open (their code, nuSIprop, would settle it). The source composition plays no
-role here: with $1:1:1$ (equal mass states, as theirs) or $1:2:0$ the curves agree to three digits,
-every state being absorbed in the dips.
+with Majorana and with Dirac neutrinos. With their inputs ($z_{\max} = 5$, $H_0 = 70$, NuFIT~5.0, their
+relic density) our transport agrees with their code, nuSIprop, which reproduces their figure: to
+$0.6\%$ just above the first dip and $0.2\%$ at the Dirac peak, Majorana and Dirac alike
+(Table~\ref{tab:source_checks}). The 9\% difference first found just above the first dip for Dirac
+neutrinos came from our sources' redshift weighting, not from the Dirac physics
+(App.~\ref{app:source_jacobian}). Our curves also obey two exact relations: absorption alone is the
+same for both kinds of neutrino (to three digits at every energy), and with the sterile secondaries
+tracked the Dirac regeneration is exactly half the Majorana one ($0.499$--$0.500$ of it at every
+energy), as the parity mirror of Sec.~\ref{sec:si_dirac_vector} requires; dropping them, as the paper
+does, keeps $0.42$--$0.47$ of it. The source composition plays no role here: with $1:1:1$ (equal mass
+states, as theirs) or $1:2:0$ the curves agree to three digits, every state being absorbed in the
+dips.
 
 \begin{figure}[t]
 \centering
@@ -1775,6 +1777,67 @@ the Sun's direction and the zenith angle at the South Pole were uncorrelated. In
 under a potential $10^{14}$ times the vacuum term, the propagator still evolves the two states
 orthogonal to the potential as degenerate (Sec.~\ref{sec:numerics}), a phase error of at most
 $8\times10^{-3}$~rad across the Earth at 10~TeV.
+
+\subsection{The sources' redshift weighting (2026-10-13)}
+\label{app:source_jacobian}
+
+Sources of comoving density $R(z)$ (the star-formation rate) that emit $\Phi_0E_s^{-p}$ neutrinos
+per unit source energy and time give today
+\begin{equation}
+n(E) = \int_0^{z_{\max}}dz\,\frac{R(z)\,\Phi_0\,[E(1+z)]^{-p}}{H(z)}\,,
+\end{equation}
+because the time element $dt = dz/[(1+z)H]$ and the energy interval, narrower by $1+z$ at arrival,
+cancel. Both transports work on a grid of observed energy, where the injection per unit observed
+energy must carry $dE_s/dE = 1+z$. The main solver (\file{dp_cosmo.step_cosmological_pair}) had
+omitted it since its first version, and \file{src/dp_si.py} copied it, so a source at $z$ was weighted
+by $R(z)/(1+z)$. Fixed in commit SOURCEFIX (the $1+z$ in both injections, their references and tests,
+and two new tests: the free-streaming flux against the closed form above, and the main solver's ratio
+of $z_{\max} = 4$ to $z_{\max} = 1$, 16\% off before).
+
+\textit{How it was found.}---The 9\% difference with Fig.~3 of 2107.13568
+(Sec.~\ref{sec:si_validation}) survived every check of the Dirac physics. Their code, nuSIprop, run on
+Tycho, reproduces their figure, and with the standard weighting (equivalent to our
+\texttt{rho\_evol = 1} before the fix) our transport matches it, Majorana and Dirac alike
+(Table~\ref{tab:source_checks}).
+
+\textit{Independent checks.}---(i) A Monte Carlo of $2\times10^7$ neutrinos emitted in cosmic time at
+the rate $R(z)$ and redshifted one by one: the emission redshifts of those arriving in one energy bin
+follow the standard weighting ($\chi^2/{\rm dof} = 1.05$, against 1681 for the old one; mean emission
+redshift $1.066$, against $1.065$ and $0.823$, for $E^{-2}$). (ii) Free streaming destroys nothing:
+the standard form returns every emitted neutrino (ratio $1$ to $10^{-12}$), the old one 55\% of them.
+(iii) The transport equation of arXiv:2001.04994 (its Eq.~2,
+$\partial_t\tilde n = \partial_E(HE\tilde n) + \mathcal L$, $\mathcal L$ per unit source energy)
+integrates to the standard form. (iv) Waxman and Bahcall's $\xi_z$ for $E^{-2}$ sources, $\simeq3$ for
+star-formation-like evolution: $2.33$ with the standard weighting (our $R(z)$ to $z = 4$), $1.28$ with
+the old.
+
+\begin{table}[h]
+\centering
+\caption{\textbf{Fig.~3 of 2107.13568} ($\nu_\tau$ couplings, $M = 5$~MeV, $g = 0.01$,
+$\nusum = 0.1$~eV, $E^{-2}$, their inputs: $z_{\max} = 5$, $H_0 = 70$, NuFIT~5.0): all-flavor flux over
+the free one at its peak below the dips and just above the first dip.}
+\label{tab:source_checks}
+\small
+\begin{tabular}{lcccc}
+\toprule
+ & Majorana peak & Majorana, above dip & Dirac peak & Dirac, above dip \\
+\midrule
+Paper (read off) & 1.418 & 1.205 & 1.110 & 0.914 \\
+nuSIprop (their code, 300 and 600 bins) & 1.423 & 1.207 & 1.109 & 0.917 \\
+Ours, weighting $R(z)/(1+z)$ (before) & 1.408 & 1.241 & 1.114 & 0.993 \\
+Ours, standard weighting & 1.442 & 1.204 & 1.111 & 0.911 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+At $g = 0.1$ (their Fig.~5; without double-scalar production) our corrected transport agrees with
+nuSIprop extrapolated in the bin width to 1\% from 10~TeV to 10~PeV; the old weighting was off by up
+to 35\%.
+
+\textit{Effect.}---Without interactions the flux is a pure power law either way, and the flavor
+composition does not depend on the weighting; with them, weight moves to higher redshift, where the
+relic density, the cosmological potential and the resonance crossings differ. Every plane was
+recomputed (Sec.~\ref{sec:si_models} and Sec.~\ref{sec:stats}); SOURCEEFFECT
 
 \subsection{The mixing-parameter priors (found 2026-10-12)}
 \label{app:priors}

@@ -286,6 +286,30 @@ def test_number_balance(tex, M, g):
     assert info["secondaries_in_grid"] <= info["secondaries_expected"] * (1 + 1e-12)
 
 
+def test_free_streaming_counts_every_neutrino():
+    """Without interactions every emitted neutrino arrives. Sources of comoving density R(z) emitting
+    Phi_0 E_s^-p per unit source energy and time give today n(E) = int dz R(z) Phi_0 (E (1+z))^-p / H(z)
+    (dt = dz / ((1+z) H), and the energy interval shrinks by 1+z: the factors cancel). The transport and
+    its free-streaming reference against this closed form; the weighting R(z)/(1+z) of the code until
+    2026-10-13 kept 55% of the emitted neutrinos and is 16% off in this ratio of redshift ranges."""
+    from scipy.integrate import quad
+    from dp_cosmo import calc_R_source
+    kw = _transport_kw()
+    E = _grid(60)
+    P = (np.abs(kw["U_pmns"]) ** 2).T @ kw["rho_src"]
+
+    def closed(zmax):
+        f = lambda z: calc_R_source(z, 0.0) * (1 + z) ** -2.5 / (H0 * np.sqrt(0.315 * (1 + z) ** 3 + 0.685))
+        return quad(f, 0, zmax, points=[1.0], epsabs=0, epsrel=1e-13, limit=200)[0] * np.outer(E ** -2.5, P)
+
+    for zmax in [1.0, 4.0]:
+        ref = closed(zmax)
+        assert np.max(np.abs(si.free_streaming_flux(E, zmax, H0, 0.315, 0.685, kw["U_pmns"], kw["rho_src"], 2.5, 0.0, 1.0)
+                             / ref - 1)) < 1e-10
+    gm = si.mass_basis_couplings(si.flavor_couplings("tau", 1e-30), kw["U_pmns"])
+    F = si.propagate_si(E, M=5e6, g_mass=gm, **kw)
+    assert np.max(np.abs(F / closed(4.0) - 1)) < 1e-10
+
 def test_absorption_only_is_below_free_streaming():
     """Without regeneration the fluxes only lose particles; with it the s channel at 5 MeV piles
     secondaries below the dips (2107.13568, Fig. 5)."""
@@ -316,8 +340,10 @@ def test_delta_limit_independent_of_coupling():
 
 def test_fig5_regression():
     """The 2107.13568 Fig. 5 setup (nu_tau, M = 5 MeV, g = 0.1, E^-2, sum of masses 0.1 eV,
-    normal ordering) on the analysis grid: all-flavor flux over free streaming at 1e4 and 1e7 GeV,
-    as validated on 2026-10-13 (reproduces the paper's curves; 1600-bin reference within 4e-3)."""
+    normal ordering) on the analysis grid: all-flavor flux over free streaming at 1e4 and 1e7 GeV.
+    Values of the standard source weighting (fixed 2026-10-13; 2.208 and 0.581 before). Validated
+    against their code, nuSIprop, with their inputs and without double-scalar production: within 1%
+    of its result extrapolated in the bin width, from 1e4 to 1e7 GeV."""
     from scipy.optimize import brentq
     U = C.construct_PMNS(np.radians(33.44), np.radians(8.57), np.radians(49.2), np.radians(197.0))
     m1 = brentq(lambda m: C.get_mass_eigenvalues(m, 7.42e-5, 2.517e-3, "normal").sum() - 0.1, 1e-6, 0.1)
@@ -328,8 +354,8 @@ def test_fig5_regression():
     F = si.propagate_si(E, M=5e6, g_mass=gm, **kw)
     F0 = si.free_streaming_flux(E, 4.0, H0, 0.315, 0.685, U, kw["rho_src"], 2.0, 0.0, 1.0)
     r = F.sum(1) / F0.sum(1)
-    assert abs(r[0] - 2.208) < 0.01
-    assert abs(r[np.argmin(np.abs(E - 1e16))] - 0.581) < 0.01
+    assert abs(r[0] - 2.494) < 0.01
+    assert abs(r[np.argmin(np.abs(E - 1e16))] - 0.509) < 0.01
 
 
 # =============================================================================
@@ -646,7 +672,7 @@ def test_vector_quasi_elastic_limit(majorana):
     z = np.linspace(0.0, 4.0, 2001)
     Hz = H0 * np.sqrt(0.315 * (1 + z) ** 3 + 0.685)
     X = cumulative_trapezoid((1 + z) ** 2 / Hz, z, initial=0.0)
-    S = (1 + z) ** -2.5 * np.array([calc_R_source(v, 0.0) for v in z]) / (Hz * (1 + z))
+    S = (1 + z) ** -2.5 * np.array([calc_R_source(v, 0.0) for v in z]) / Hz
     P = (np.abs(U) ** 2).T @ kw["rho_src"]
     trapz = np.trapezoid if hasattr(np, "trapezoid") else np.trapz     # NumPy 2 renamed it
     Fz = np.array([expm(K0 * x) @ P for x in X])

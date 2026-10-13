@@ -212,7 +212,8 @@ def step_cosmological_pair(z: float, dt: float, R_z: float, E_bins: np.ndarray,
     (sorted) into the intergalactic eigenstates. Equal to c_z_* unless the sources sit in a
     host galaxy (source.host_galaxy_scale > 0, 2026-10-13); then the buffers are filled.
 
-    Arguments: z, dt -- redshift and time step (eV^-1); R_z -- source evolution; E_bins --
+    Arguments: z, dt -- redshift and time step (eV^-1); R_z -- source evolution (sources per comoving
+    volume, relative to z = 0: the injection per unit observed energy carries dE_z/dE = 1+z); E_bins --
     observed energies (eV); F_nu, F_nb -- (N_E, 3) mass-state fluxes of neutrinos and
     antineutrinos, updated in place; w_nu, w_nb -- their injection weights; rho_src -- source
     flavor composition; P_table_*, log_s0_*, inv_dlogs_*, c_z_* -- each species' sigma-table
@@ -271,7 +272,12 @@ def step_cosmological_pair(z: float, dt: float, R_z: float, E_bins: np.ndarray,
     c_b = np.empty(3)
     for i in range(N_E - 1, -1, -1):
         E_z = E_bins[i] * (1.0 + z)
-        inj_spectrum = Phi_0 * (E_z**(-p_index)) * R_z
+        # sources emit Phi_0 E_z^-p per unit source energy E_z = E (1+z); per unit observed energy E
+        # that is (1+z) times more (dE_z/dE), so the flux today is int dz R(z) Phi_0 (E (1+z))^-p / H(z),
+        # the standard result (number of emitted neutrinos conserved). Without the (1+z), until
+        # 2026-10-13, a source at z was weighted by R(z)/(1+z): 45% of the emitted neutrinos lost
+        # (SFR to z = 4) and the absorption/potential effects weighted toward low z.
+        inj_spectrum = Phi_0 * (E_z**(-p_index)) * R_z * (1.0 + z)
         # regeneration densities into bin i from absorptions above it
         from_nu_same = pref3[i] * s3_nu
         from_nb_same = pref3[i] * s3_nb

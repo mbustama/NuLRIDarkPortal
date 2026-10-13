@@ -292,7 +292,7 @@ When `enabled` is true, secret interactions replace the dark portal (whose secti
 * `--p_index` (float): Injection spectral index (Default: `2.5`).
 * `--Phi_0` (float): Source normalization (Default: `1.0`).
 * `--z_max` (float): Maximum redshift (Default: `4.0`).
-* `--rho_evol` (float): Source evolution index on top of the SFR (Default: `0.0`).
+* `--rho_evol` (float): Source evolution index on top of the SFR (Default: `0.0`). The sources' comoving density is $R(z) = {\rm SFR}(z)\,(1+z)^{\rm rho\_evol}$, and the flux today is $E^{-p}\int dz\,R(z)(1+z)^{-p}/H(z)$: the injection per unit observed energy carries $dE_{\rm source}/dE = 1+z$, so every emitted neutrino arrives. Until 2026-10-13 that factor was missing (a source at $z$ weighted by $R(z)/(1+z)$; notes, Corrections).
 * `--f_e_S`, `--f_mu_S`, `--f_tau_S` (float): Source flavor ratios (Defaults: `0.333333, 0.666667, 0.0` — pion decay).
 * `--is_antineutrino` (str): `"sum"`/`"both"` ($\nu + \bar\nu$), `"true"` ($\bar\nu$ only), `"false"` ($\nu$ only) (Default: `"sum"`).
 * `--nubar_to_nu_ratio` (float): $\bar\nu/\nu$ injection ratio for `"sum"` mode (Default: `1.0`).

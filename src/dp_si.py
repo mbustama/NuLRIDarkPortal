@@ -253,12 +253,15 @@ def phiphi_coupling(g, i, j, mode="coherent"):
     """Coupling factor of nu_i nu_j -> phi phi: |(lambda lambda^dag)_ij|^2 = |sum_k lambda_ik
     lambda*_kj|^2 (coherent, the default: the exchanged nu_k connects lambda at one vertex to
     lambda* at the other, the relic at the opposite helicity) or sum_k |lambda_ik|^2 |lambda_jk|^2
-    (as printed in 2107.13568, real couplings)."""
+    (as printed in 2107.13568, real couplings); 'off' drops double-scalar production (validation:
+    nuSIprop's default)."""
+    if mode == "off":
+        return 0.0
     if mode == "coherent":
         return float(abs(np.dot(g[i, :], np.conjugate(g[:, j]))) ** 2)
     if mode == "paper":
         return float(np.sum(np.abs(g[i, :]) ** 2 * np.abs(g[j, :]) ** 2))
-    raise ValueError(f"phiphi coupling mode must be 'coherent' or 'paper', got {mode!r}")
+    raise ValueError(f"phiphi coupling mode must be 'coherent', 'paper' or 'off', got {mode!r}")
 
 
 def dsigma_dt_scalar_majorana_phiphi(s, t, M, g, i, j, mode="coherent"):
@@ -1499,8 +1502,10 @@ def _si_sweep(F, E, dE, S0, J, Nq, Lq, Dq, jt, w, qe, Ctau, Creg, tabB, tabO, no
 
 def _step_time_and_injection(L_lo, L_hi, H0, Om, OL, p_index, rho_evol, Phi_0):
     """(dt, T_inj) over the step ln(1+z) in [L_lo, L_hi]: dt = int dL / H(z) and
-    T_inj = int Phi_0 (1+z)^-p R(z) dL / H(z) (dt = dz / (H (1+z)) = dL / H), by Gauss-Legendre
-    split at the kinks of R(z) (z = 1 and z = 4)."""
+    T_inj = int Phi_0 (1+z)^(1-p) R(z) dL / H(z) (dt = dz / (H (1+z)) = dL / H), by Gauss-Legendre
+    split at the kinks of R(z) (z = 1 and z = 4). The injection per unit observed energy is
+    R Phi_0 (E (1+z))^-p times dE_z/dE = 1+z: the flux today int dz R (1+z)^-p / H(z) E^-p, the
+    standard result (dp_cosmo.step_cosmological_pair; the (1+z) was missing until 2026-10-13)."""
     from dp_cosmo import calc_R_source
     cuts = [L_lo] + [L for L in (np.log(2.0), np.log(5.0)) if L_lo < L < L_hi] + [L_hi]
     dt = 0.0
@@ -1511,7 +1516,7 @@ def _step_time_and_injection(L_lo, L_hi, H0, Om, OL, p_index, rho_evol, Phi_0):
             zp1 = np.exp(L)
             Hz = H0 * np.sqrt(Om * zp1 ** 3 + OL)
             dt += w * (b - a) / Hz
-            T += w * (b - a) * Phi_0 * zp1 ** (-p_index) * calc_R_source(zp1 - 1.0, rho_evol) / Hz
+            T += w * (b - a) * Phi_0 * zp1 ** (1.0 - p_index) * calc_R_source(zp1 - 1.0, rho_evol) / Hz
     return dt, T
 
 
@@ -1729,8 +1734,9 @@ def propagate_si(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta
 def free_streaming_flux(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, rho_src, p_index, rho_evol, Phi_0,
                         n=4000):
     """The mass-state fluxes without interactions, (N_E, 3): E^-p P_a int_0^z_max Phi_0 (1+z)^-p
-    R(z) / (H (1+z)) dz, by Gauss-Legendre on n nodes split at the kinks of R(z) -- the reference
-    for the no-coupling limit of propagate_si."""
+    R(z) / H(z) dz (the standard result: every emitted neutrino arrives), by Gauss-Legendre on n
+    nodes in ln(1+z) split at the kinks of R(z) -- the reference for the no-coupling limit of
+    propagate_si."""
     from dp_cosmo import calc_R_source
     Lmax = np.log1p(z_max)
     cuts = [0.0] + [L for L in (np.log(2.0), np.log(5.0)) if L < Lmax] + [Lmax]
@@ -1740,6 +1746,6 @@ def free_streaming_flux(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, rho_src, p_
         L = a + (b - a) * 0.5 * (x + 1.0)
         zp1 = np.exp(L)
         R = np.array([calc_R_source(z, rho_evol) for z in zp1 - 1.0])
-        T += np.sum(0.5 * w * (b - a) * Phi_0 * zp1 ** (-p_index) * R / (H0 * np.sqrt(Omega_m * zp1 ** 3 + Omega_L)))
+        T += np.sum(0.5 * w * (b - a) * Phi_0 * zp1 ** (1.0 - p_index) * R / (H0 * np.sqrt(Omega_m * zp1 ** 3 + Omega_L)))
     P_src = (np.abs(np.asarray(U_pmns)) ** 2).T @ np.asarray(rho_src, dtype=np.float64)
     return np.outer(np.asarray(E_bins, dtype=np.float64) ** (-p_index) * T, P_src)

@@ -111,7 +111,7 @@ def _reference(E, edges, masses, n0, M2, MG, Cabs, p, GX, GW, glx, glw, H0_):
                 for a in range(3):
                     tn[a] += GW[h] * (zg - a_) * k[a]
             zp1 = 1.0 + zg
-            S = zp1 ** (-p) * calc_R_source(zg, 0.0) / (H0_ * np.sqrt(0.315 * zp1 ** 3 + 0.685) * zp1)
+            S = zp1 ** (-p) * calc_R_source(zg, 0.0) / (H0_ * np.sqrt(0.315 * zp1 ** 3 + 0.685))
             for a in range(3):
                 res[a] += GW[g] * (b_ - a_) * S * np.exp(-tn[a])
         for h in range(len(GX)):

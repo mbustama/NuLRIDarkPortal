@@ -821,7 +821,7 @@ def test_cascade_step_balances_number_at_any_optical_depth():
         for Phi_0, w in ((0.0, (0.5, 0.5)), (1e50, (0.5, 0.5)), (1e50, (1.0, 0.0))):
             F_nb_in = F_nb0 if w[1] > 0 else np.zeros_like(F_nb0)
             F_nu1, F_nb1, R_nu, R_nb, P_nu, P_nb = _one_pair_step(E_bins, F_nu0, F_nb_in, Gamma, dt, Phi_0, tables, w)
-            inj = Phi_0 * (E_bins * 1.5)**(-2.5) * dt                 # z = 0.5, R_z = 1; weights sum to 1
+            inj = Phi_0 * (E_bins * 1.5)**(-2.5) * 1.5 * dt           # z = 0.5, R_z = 1, dE_z/dE = 1.5; weights sum to 1
             absorbed = (R_nu + R_nb) * dt * dE
             before = np.sum((F_nu0 + F_nb_in).sum(axis=1) * dE) + np.sum(inj * dE)
             after = np.sum((F_nu1 + F_nb1).sum(axis=1) * dE)
@@ -841,7 +841,7 @@ def test_cascade_step_limits():
     w = (0.3, 0.7)
     F_nu1, F_nb1, R_nu, R_nb, P_nu, P_nb = _one_pair_step(E_bins, F_nu0, F_nb0, np.zeros((len(E_bins), 3)),
                                                           dt, 1e50, tables, w)
-    inj_spec = 1e50 * (E_bins * 1.5)**(-2.5)
+    inj_spec = 1e50 * (E_bins * 1.5)**(-2.5) * 1.5      # z = 0.5: per unit observed energy, dE_z/dE = 1.5
     rho = np.array([0.333, 0.667, 0.0])
     np.testing.assert_allclose(F_nu1, F_nu0 + w[0] * np.einsum("iak,a->ik", P_nu, rho) * inj_spec[:, None] * dt, rtol=1e-14)
     np.testing.assert_allclose(F_nb1, F_nb0 + w[1] * np.einsum("iak,a->ik", P_nb, rho) * inj_spec[:, None] * dt, rtol=1e-14)
@@ -2560,3 +2560,27 @@ def test_vanishing_sterile_mixing_recovers_standard_propagation(tmp_path):
         c["dark_portal"].update(u_e=u, u_mu=u)
         out.append(dps.run_solver(c)[1])
     np.testing.assert_allclose(out[1], out[0], rtol=1e-8)
+
+
+def test_source_redshift_weighting_main_solver():
+    """The main solver's sources weigh in as int dz R(z) (1+z)^-p / H(z) -- every emitted neutrino
+    arrives (the injection per unit observed energy carries dE_z/dE = 1+z). Without interactions the
+    flux is a pure power law and the ratio of z_max = 4 to z_max = 1 is that of the closed form (to the
+    z-grid's first-order error); the weighting R(z)/(1+z) used until 2026-10-13 gives 16% less."""
+    from scipy.integrate import quad
+    import dark_portal_solver as dps
+    from dp_cosmo import calc_R_source
+    fl = {}
+    for zmax in [1.0, 4.0]:
+        cfg = {"dark_portal": {"u_e": 0.0, "u_mu": 0.0, "u_tau": 0.0, "g_D": 1e-30},
+               "source": {"z_max": zmax, "p_index": 2.5},
+               "grid": {"n_E_bins": 20, "n_z_bins": 400, "n_earth_chords": 2, "n_sun_paths": 2},
+               "execution": {"n_cores": 1, "verbose": 0}}
+        E, params = dps.build_solver_params(cfg)
+        fl[zmax] = dps.propagate_weighted(E, params).sum(1)
+    Om, OL = params["Omega_m"], params["Omega_L"]
+    I = lambda zmax: quad(lambda z: calc_R_source(z, 0.0) * (1 + z) ** -2.5 / np.sqrt(Om * (1 + z) ** 3 + OL),
+                          0, zmax, points=[1.0], limit=200)[0]
+    ratio = fl[4.0] / fl[1.0]
+    assert np.ptp(ratio) < 1e-12 * ratio.mean()
+    assert abs(ratio.mean() / (I(4.0) / I(1.0)) - 1) < 5e-3
