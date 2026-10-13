@@ -410,6 +410,14 @@ def _flux_setup(E_bins: np.ndarray, params: Dict) -> Dict:
     if HAS_NUMBA:
         numba.set_num_threads(max(1, int(params.get('n_cores', 1))))
 
+    if params.get('si_enabled', False):
+        # Secret interactions (dp_si): no thermal grid, no potentials; the couplings in the mass
+        # basis and the relic densities per mass state (the cosmology's eta, as for the dark portal)
+        import dp_si
+        g_mass = dp_si.mass_basis_couplings(params['si']['g_flavor'], U_pmns_base)
+        eta_mass = (np.abs(U_pmns_base) ** 2).T @ np.asarray(eta_bg, dtype=np.float64)
+        return dict(si=True, rho_src=rho_src, U_pmns_base=U_pmns_base, g_mass=g_mass, eta_mass=eta_mass)
+
     # The thermal-rate grid depends only on |U_pmns| and |u_arr| magnitudes, which
     # conjugation never changes -- so it is identical for the neutrino and antineutrino
     # calls below. Computing it once here and sharing it (instead of letting each flavor
@@ -437,6 +445,30 @@ def _flux_from_setup(E_bins: np.ndarray, params: Dict, setup: Dict, injection,
     """
     if rho_src is None:
         rho_src = setup['rho_src']
+    if setup.get('si', False):
+        # Secret interactions: dp_si propagates both helicities of each mass state together (exact
+        # for their sum whatever the injection, the interaction being CP-symmetric); the sum is
+        # split here in the injection's proportions, which is what a detector without charge
+        # separation needs -- the actual nu/nubar split of the secondaries is not modelled.
+        import dp_si
+        w_nu, w_nb = float(injection[0]), float(injection[1])
+        w_tot = w_nu + w_nb
+        if w_tot <= 0.0:
+            z = np.zeros((len(E_bins), 3))
+            return z, z.copy()
+        si_p = params['si']
+        U = setup['U_pmns_base']
+        F_mass = dp_si.propagate_si(E_bins, params['z_max'], params['H0_eV'], params['Omega_m'], params['Omega_L'],
+                                    U, params['m_nu_bg_arr'], params['T_nu0_eV'], setup['eta_mass'], rho_src,
+                                    params['p_index'], params['rho_evol'], params['Phi_0'] * w_tot,
+                                    si_p['m_phi_eV'], setup['g_mass'], majorana=si_p['majorana'],
+                                    channels=si_p['channels'], phiphi=si_p['phiphi'],
+                                    z_substeps=si_p['z_substeps'], E_extension=si_p['E_extension'])
+        F_fl = np.ascontiguousarray(F_mass @ (np.abs(U) ** 2).T)
+        if not np.isfinite(F_fl).all():
+            raise ValueError(f"Non-finite flux from the secret-interaction transport at m_phi_eV="
+                             f"{si_p['m_phi_eV']:.6g}, g_phi texture {si_p['g_flavor'].tolist()}.")
+        return F_fl * (w_nu / w_tot), F_fl * (w_nb / w_tot)
     return propagate_spectrum(
         E_bins, setup['z_bins'], rho_src,
         params['H0_eV'], params['Omega_m'], params['Omega_L'],
@@ -628,6 +660,41 @@ def build_solver_params(config: Dict) -> Tuple[np.ndarray, Dict]:
     if params['host_galaxy_scale'] < 0.0:
         raise ValueError("source.host_galaxy_scale must be >= 0 (0: sources in the cosmic mean density).")
     
+    # Secret neutrino interactions (dp_si, 2026-10-13): when enabled they replace the dark portal
+    # (see DEFAULT_CONFIG's comments).
+    si_cfg = config['secret_interactions']
+    params['si_enabled'] = bool(si_cfg['enabled'])
+    if params['si_enabled']:
+        mediator = str(si_cfg['mediator']).strip().lower()
+        if mediator != 'scalar':
+            raise ValueError(f"secret_interactions.mediator must be 'scalar' (a vector mediator is not implemented "
+                             f"yet), got {si_cfg['mediator']!r}")
+        nu_type = str(si_cfg['neutrino_type']).strip().lower()
+        if nu_type != 'majorana':
+            raise ValueError(f"secret_interactions.neutrino_type must be 'majorana' (Dirac is not implemented yet), "
+                             f"got {si_cfg['neutrino_type']!r}")
+        m_phi, g_phi = float(si_cfg['m_phi_eV']), float(si_cfg['g_phi'])
+        if not (m_phi > 0.0 and np.isfinite(m_phi)):
+            raise ValueError("secret_interactions.m_phi_eV must be strictly positive.")
+        if not (0.0 <= g_phi < np.sqrt(4.0 * np.pi)):
+            raise ValueError(f"secret_interactions.g_phi ({g_phi}) must be in [0, sqrt(4 pi)) (perturbativity).")
+        channels = str(si_cfg['channels']).strip().lower()
+        if channels not in ('full', 's', 'delta'):
+            raise ValueError(f"secret_interactions.channels must be 'full', 's' or 'delta', got {si_cfg['channels']!r}")
+        phiphi = str(si_cfg['phiphi_coupling']).strip().lower()
+        if phiphi not in ('coherent', 'paper'):
+            raise ValueError(f"secret_interactions.phiphi_coupling must be 'coherent' or 'paper', got "
+                             f"{si_cfg['phiphi_coupling']!r}")
+        z_sub = si_cfg['z_substeps']
+        if not isinstance(z_sub, int) or z_sub < 1:
+            raise ValueError("secret_interactions.z_substeps must be an integer >= 1.")
+        if not float(si_cfg['E_extension']) >= 1.0:
+            raise ValueError("secret_interactions.E_extension must be >= 1.")
+        import dp_si
+        g_flavor = dp_si.flavor_couplings(si_cfg['texture'], g_phi, si_cfg['g_matrix'])   # validates the texture
+        params['si'] = dict(majorana=True, m_phi_eV=m_phi, g_flavor=g_flavor, channels=channels, phiphi=phiphi,
+                            z_substeps=int(z_sub), E_extension=float(si_cfg['E_extension']))
+
     params['n_z_bins'] = int(config['grid']['n_z_bins'])
     # The transit to the Earth (2026-10-13, replacing the Milky Way trajectories): directions
     # to the Sun in its coherent transit, and the frame table's spacing (dp_transit).

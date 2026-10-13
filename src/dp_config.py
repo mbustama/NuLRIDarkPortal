@@ -113,6 +113,33 @@ def _build_default_config() -> Dict:
             "use_debye_screening": True,
             "U_LRI_struct": None
         },
+        "secret_interactions": {
+            # Secret neutrino interactions (dp_si, 2026-10-13): the neutrinos scatter on the relic
+            # neutrinos through a new mediator phi (arXiv:2001.04994; cross sections of
+            # arXiv:2107.13568, Appendix A). When enabled they REPLACE the dark portal: the
+            # propagation is dp_si's cosmological transport of decohered mass states (no coherent
+            # potential), and the dark_portal section is ignored.
+            "enabled": False,
+            "mediator": "scalar",           # 'scalar' (a vector mediator: not yet)
+            "neutrino_type": "majorana",    # 'majorana' (Dirac: not yet)
+            "m_phi_eV": 5.0e6,
+            "g_phi": 0.01,
+            # flavor-basis couplings: 'universal' (g delta_ab), 'e', 'mu', 'tau' (g on that flavor
+            # alone), or 'matrix' (g_phi times g_matrix, a real symmetric 3x3)
+            "texture": "tau",
+            "g_matrix": None,
+            # 'full' (s, t, u channels, interference, double-scalar production), 's' (s channel
+            # only) or 'delta' (its narrow-width limit): the approximations of 2107.13568, Fig. 5
+            "channels": "full",
+            # double-scalar production: 'coherent', ((g^2)_ij)^2, or 'paper', sum_k g_ik^2 g_jk^2 as
+            # printed in 2107.13568 (see dp_si)
+            "phiphi_coupling": "coherent",
+            # redshift steps per energy bin: steps uniform in ln(1+z), so grid.n_z_bins is unused
+            "z_substeps": 1,
+            # the transport's grid extends above grid.E_max_eV by this factor, so that what is
+            # injected above it cascades into it
+            "E_extension": 10.0
+        },
         "source": {
             "p_index": 2.5,
             "Phi_0": 1.0,
@@ -221,6 +248,7 @@ def create_default_config(filename: str = "../config/config_dark_portal.json") -
     # generated JSON so the file shows only actively-used settings.
     default_config["standard_mixing"].pop("V_SM_struct", None)
     default_config["dark_portal"].pop("U_LRI_struct", None)
+    default_config["secret_interactions"].pop("g_matrix", None)
     os.makedirs(os.path.dirname(os.path.abspath(filename)), exist_ok=True)
     with open(filename, 'w') as f:
         json.dump(default_config, f, indent=4)

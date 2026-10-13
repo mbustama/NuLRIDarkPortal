@@ -281,3 +281,38 @@ def test_fig5_regression():
     r = F.sum(1) / F0.sum(1)
     assert abs(r[0] - 2.208) < 0.01
     assert abs(r[np.argmin(np.abs(E - 1e16))] - 0.581) < 0.01
+
+
+# =============================================================================
+# The solver's dispatch and the analysis
+# =============================================================================
+
+def test_solver_dispatch_and_analysis_model():
+    """With secret_interactions.enabled the solver's flux functions return dp_si's transport in
+    flavor (the injection's nu/nubar split of the total), and the analysis floats m_phi_eV and
+    g_phi like any solver key; unsupported settings fail at parsing."""
+    import dark_portal_solver as dps
+    cfg = {"secret_interactions": {"enabled": True, "texture": "tau", "m_phi_eV": 5e6, "g_phi": 0.05},
+           "grid": {"n_E_bins": 100}, "execution": {"n_cores": 1, "verbose": 0}}
+    E, params = dps.build_solver_params(cfg)
+    F = dps.propagate_weighted(E, params)
+    U = C.construct_PMNS(params["th12"], params["th13"], params["th23"], params["d_cp"])
+    gm = si.mass_basis_couplings(si.flavor_couplings("tau", 0.05), U)
+    Fm = si.propagate_si(E, params["z_max"], params["H0_eV"], params["Omega_m"], params["Omega_L"], U,
+                         params["m_nu_bg_arr"], params["T_nu0_eV"], np.ones(3),
+                         np.array([params["f_e_S"], params["f_mu_S"], params["f_tau_S"]]), params["p_index"],
+                         params["rho_evol"], params["Phi_0"], 5e6, gm)
+    assert np.allclose(F, Fm @ (np.abs(U) ** 2).T, rtol=1e-12, atol=0)
+    Fa, Fb = dps.propagate_nu_nubar(E, params)
+    w = dps.injection_weights(params)
+    assert np.allclose(w[0] * Fa + w[1] * Fb, F, rtol=1e-12, atol=0)
+    sys.path.insert(0, REPO)
+    from analysis.model import FlavorModel
+    model = FlavorModel(cfg, free_names=["m_phi_eV", "g_phi"])
+    f1 = model.fractions({"m_phi_eV": 5e6, "g_phi": 0.05})
+    f0 = model.fractions({"m_phi_eV": 5e6, "g_phi": 0.0})
+    assert np.max(np.abs(f1 - f0)) > 1e-4 and abs(f1.sum() - 1) < 1e-12    # 9e-4 in f_e
+    for bad in [{"mediator": "vector"}, {"neutrino_type": "dirac"}, {"texture": "sterile"}, {"g_phi": 4.0},
+                {"channels": "t"}, {"z_substeps": 0}]:
+        with pytest.raises(ValueError):
+            dps.build_solver_params({"secret_interactions": dict(enabled=True, **bad)})

@@ -985,6 +985,10 @@ def propagate_si(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta
 
     masses = np.ascontiguousarray(masses, dtype=np.float64)
     g_mass = np.ascontiguousarray(g_mass, dtype=np.float64)
+    if not np.any(g_mass):
+        # no coupling: free streaming (the transport's Breit-Wigner would have zero width)
+        out = free_streaming_flux(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, rho_src, p_index, rho_evol, Phi_0)
+        return (out, dict(no_coupling=True)) if return_diagnostics else out
     M2 = M * M
     Gam = scalar_width(M, g_mass, majorana)
     MG = M * Gam
