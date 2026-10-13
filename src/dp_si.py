@@ -387,6 +387,189 @@ def coupling_tensors(g, mode="coherent", channels="full"):
 
 
 # =============================================================================
+# DIRAC NEUTRINOS AND THE VECTOR MEDIATOR (2026-10-13, after the brute-force checks of
+# tests/amplitudes_bruteforce.py; choices decided with Mauricio)
+# =============================================================================
+#
+# Dirac, scalar: L = -phi h_ij nubar_i nu_j with h = U^dag G U (Hermitian; the right-handed neutrinos
+# rotating like the left-handed ones, 2107.13568's convention -- nothing observable fixes their
+# basis). Every vertex joins a state that interacts weakly (nu_L, nubar_R: visible) to a sterile one
+# (nu_R, nubar_L). The relics, at rest and unpolarized, present both helicities to the incident
+# neutrino, and the scalar couples to both. Per incident visible nu_a on relic mass state r (relic nu
+# and nubar, half the density per helicity each) the absorption is the appendix's Eq. (A8) and the
+# secondaries split as in dirac_scalar_tensors (derived and checked against the brute force; the
+# appendix's Table I overstates the visible part by up to 3.5%). By parity an incident sterile
+# neutrino gives the same with visibility swapped (checked), so the visible flux is (S + D)/2 with S
+# evolving under the kernel visible + invisible and D under visible - invisible ('track', decided);
+# 'drop' discards the sterile secondaries, as the paper does.
+#
+# Vector, left-handed currents (decided): L = -V_mu G_ab nubar_a gamma^mu P_L nu_b, mass basis
+# U^dag G U for Majorana and Dirac alike. Only the relic components that behave as nu_L (helicity -)
+# and as nubar_R (+) interact: a Majorana relic offers both, 56 + 56 per mass state, a Dirac one half
+# of them (28 nu_L + 28 nubar_R), so Dirac rates are half the Majorana ones (kappa). Every secondary
+# is visible. Squared amplitudes (checked): nu nubar -> nu nubar 4 u^2 |A_s/(s - M^2 + i M Gamma) +
+# A_t/(t - M^2)|^2 with A_s = G_ra G_kl, A_t = G_ka G_rl; nu nu -> nu nu 4 s^2 |A_t/(t - M^2) +
+# A_u/(u - M^2)|^2 with A_t = G_ka G_lr, A_u = G_la G_kr; nu nubar -> V V 4 |(G G^dag)_ar|^2
+# [t/u + u/t + 4 M^2 s/(t u) - M^4 (1/t^2 + 1/u^2)], each V decaying at once into nu nubar with the
+# spectrum of its polarization in the relic rest frame, where it is ultrarelativistic: longitudinal
+# fraction f_L = 8 s M^2 (t - M^2)^2 / (t^2 (u - M^2)^2) / |M|^2 (the light-cone polarization
+# k/M - M p2/(k.p2); checked), decays 6z(1-z) per neutrino, transverse ones 3z^2 + 3(1-z)^2 for the
+# pair. Width M sum |G|^2 / 24 pi. The s channel reproduces the Z-burst <sigma> = 2 sqrt(2) pi G_F
+# for the Standard-Model coupling.
+#
+# Above the resonance the vector's t channel is forward-peaked, sigma ~ |G|^4 / (4 pi M^2): nearly
+# every scattering leaves the incident neutrino in its own energy bin and moves ~M^2 / 2 m into the
+# recoiling relic. The transport removes those no-op returns from a bin's own equations exactly
+# (QE profiles: the absorption counts only incident daughters that leave the bin or change mass
+# state, from complementary integrals computed without cancellation) and keeps every recoil.
+
+def mass_basis_couplings_model(g_flavor, U, mediator="scalar", majorana=True):
+    """Mass-basis couplings for flavor-basis G: U^T G U for a scalar and Majorana neutrinos
+    (mass_basis_couplings), U^dag G U for a scalar and Dirac neutrinos and for the vector."""
+    if mediator == "scalar" and majorana:
+        return mass_basis_couplings(g_flavor, U)
+    G = np.asarray(g_flavor, dtype=np.complex128)
+    U = np.asarray(U, dtype=np.complex128)
+    return np.ascontiguousarray(np.conjugate(U).T @ G @ U)
+
+
+def mediator_width(M, g, mediator="scalar", majorana=True):
+    """Total width into neutrinos: scalar M sum |g|^2 / 8 pi (1/2 of it for Majorana, Eq. A15),
+    vector coupled to left-handed currents M sum |G|^2 / 24 pi."""
+    S = float(np.sum(np.abs(np.asarray(g)) ** 2))
+    if mediator == "vector":
+        return M * S / (24.0 * np.pi)
+    return (0.5 if majorana else 1.0) * M * S / (8.0 * np.pi)
+
+
+def dirac_scalar_tensors(h, channels="full"):
+    """Coupling tensors of the scalar with Dirac neutrinos, in the profile set of coupling_tensors
+    (flat, P2, P3, P4, P5, P6, double scalar): (Cvis, Cinv, G2), the visible and the sterile
+    secondaries of mass state c per incident visible nu_a on relic r (CP-even; the relic weights,
+    1/2 for each of nu and nubar, included). With w = (1/2, ..., 1/4) the absorption is
+    sum_q w_q sum_c (Cvis + Cinv) J_q N_q, which is Eq. (A8) plus double-scalar production (A10)."""
+    h = np.asarray(h, dtype=np.complex128)
+    hc = np.conjugate(h)
+    H = h @ hc.T
+    G2 = float(np.sum(np.abs(h) ** 2))
+    Cv = np.zeros((N_PROFILES, 3, 3, 3))
+    Ci = np.zeros((N_PROFILES, 3, 3, 3))
+    p16 = 16.0 * np.pi
+    for a in range(3):
+        for r in range(3):
+            Cpp = abs(H[a, r]) ** 2 / (64.0 * np.pi)
+            for c in range(3):
+                Cv[0, a, r, c] = abs(h[a, r]) ** 2 * H[c, c].real / p16
+                Ci[0, a, r, c] = Cv[0, a, r, c]
+                Ci[1, a, r, c] = abs(h[c, a]) ** 2 * H[r, r].real / (8.0 * np.pi)
+                Cv[2, a, r, c] = H[a, a].real * abs(h[r, c]) ** 2 / p16
+                Ci[2, a, r, c] = Cv[2, a, r, c]
+                Ci[3, a, r, c] = (h[r, a] * hc[c, a] * H[c, r]).real / p16
+                Ci[4, a, r, c] = (h[c, a] * hc[c, r] * H[a, r]).real / p16
+                Cv[5, a, r, c] = (h[r, a] * hc[r, c] * H[a, c]).real / p16
+                if G2 > 0:
+                    Cv[6, a, r, c] = 2.0 * Cpp * H[c, c].real / G2
+                    Ci[6, a, r, c] = Cv[6, a, r, c]
+    ch = str(channels).strip().lower()
+    if ch in ("s", "delta"):
+        Cv[1:] = 0.0
+        Ci[1:] = 0.0
+    elif ch != "full":
+        raise ValueError(f"secret interactions: channels must be 'full', 's' or 'delta', got {channels!r}")
+    return np.ascontiguousarray(Cv), np.ascontiguousarray(Ci), G2
+
+
+# The vector's ten regeneration profiles, in the energy fraction of the secondary itself
+# (mu = M^2/s; x: the neutrino of the incident line or of the nu nubar s channel, y: the
+# antineutrino or the recoiling relic):
+#   0 x^2 (s channel, nu)                       1 (1-y)^2 (s channel, nubar)
+#   2 x^2/((1-x)+mu)^2 (t channel, nu nubar: the incident's daughter -- forward-peaked)
+#   3 (1-y)^2/(y+mu)^2 (its recoiling antineutrino)
+#   4 x^2/((1-x)+mu) (s-t interference, nu)     5 (1-y)^2/(y+mu) (s-t interference, nubar)
+#   6 1/((1-x)+mu)^2 (t channel, nu nu: the incident's daughter -- forward-peaked)
+#   7 1/(x+mu)^2 (its recoil)                    8 1/((1-x+mu)(x+mu)) (t-u interference)
+#   9 the neutrinos of vector-pair production (normalized to 1)
+N_VPROFILES = 10
+VECTOR_JT = np.array([0, 0, 2, 2, 1, 1, 2, 2, 2, 3], dtype=np.int64)
+VECTOR_W = np.array([0.5, 0.5, 1.0, 0.0, 0.5, 0.5, 1.0, 0.0, 0.5, 0.25])
+VECTOR_QE = np.array([0, 0, 1, 0, 0, 0, 1, 0, 0, 0], dtype=np.int64)
+SCALAR_JT = np.array([0, 2, 2, 1, 2, 1, 3], dtype=np.int64)
+SCALAR_W = np.array([0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.25])
+SCALAR_QE = np.zeros(7, dtype=np.int64)
+
+
+def vector_tensors(G, majorana=True, channels="full"):
+    """Coupling tensors of the vector coupled to left-handed currents, profile set above:
+    (C (10, 3, 3, 3) [q, a, r, c], G2). Kinematic factors: profiles 0, 1 times s/BW; 2, 3, 6, 7, 8
+    times 1/s; 4, 5 times (s - M^2)/BW; 9 times vv_kinematic(s). kappa = 1 (Majorana), 1/2
+    (Dirac) multiplies everything. The absorption is sum_q VECTOR_W[q] sum_c C J N (with the
+    forward-peaked daughters' no-op returns removed in the transport)."""
+    G = np.asarray(G, dtype=np.complex128)
+    Gc = np.conjugate(G)
+    H = G @ Gc.T
+    G2 = float(np.sum(np.abs(G) ** 2))
+    kap = 1.0 if majorana else 0.5
+    C = np.zeros((N_VPROFILES, 3, 3, 3))
+    p4 = 4.0 * np.pi
+    for a in range(3):
+        for r in range(3):
+            Cvv = kap * abs(H[a, r]) ** 2 / (8.0 * np.pi)
+            for c in range(3):
+                C[0, a, r, c] = kap * abs(G[r, a]) ** 2 * H[c, c].real / p4
+                C[1, a, r, c] = C[0, a, r, c]
+                C[2, a, r, c] = kap * abs(G[c, a]) ** 2 * H[r, r].real / p4
+                C[3, a, r, c] = kap * H[a, a].real * abs(G[r, c]) ** 2 / p4
+                C[4, a, r, c] = -2.0 * kap * (G[r, a] * Gc[c, a] * H[c, r]).real / p4
+                C[5, a, r, c] = -2.0 * kap * (G[r, a] * Gc[r, c] * H[a, c]).real / p4
+                C[6, a, r, c] = kap * abs(G[c, a]) ** 2 * H[r, r].real / p4
+                C[7, a, r, c] = kap * H[a, a].real * abs(G[c, r]) ** 2 / p4
+                C[8, a, r, c] = 2.0 * kap * (G[c, a] * Gc[c, r] * H[a, r]).real / p4
+                if G2 > 0:
+                    C[9, a, r, c] = 4.0 * Cvv * H[c, c].real / G2
+    ch = str(channels).strip().lower()
+    if ch in ("s", "delta"):
+        C[2:] = 0.0
+    elif ch != "full":
+        raise ValueError(f"secret interactions: channels must be 'full', 's' or 'delta', got {channels!r}")
+    return np.ascontiguousarray(C), G2
+
+
+@njit(cache=True)
+def vv_kinematic(s, M2):
+    """I_VV(s): the vector-pair cross section is |(G G^dag)_ar|^2 I_VV / (8 pi) (times kappa),
+    I_VV = [2 (s^2 + 4 M^4) Lambda / (s - 2 M^2) - 4 r] / s^2, r = sqrt(s (s - 4 M^2)),
+    Lambda = ln((A + r)/(A - r)) = 2 ln((A + r)/(2 M^2)), A = s - 2 M^2; 0 below s = 4 M^2."""
+    if s <= 4.0 * M2:
+        return 0.0
+    A = s - 2.0 * M2
+    r = np.sqrt(s * (s - 4.0 * M2))
+    Lam = 2.0 * np.log((A + r) / (2.0 * M2))
+    return (2.0 * (s * s + 4.0 * M2 * M2) * Lam / A - 4.0 * r) / (s * s)
+
+
+def vector_dsigma_dt(s, t, M, Gam, G, a, r, k, l, relic="nubar", cp=0):
+    """dsigma/dt for an incident nu_a (left-handed) on a relic of mass state r acting as 'nubar'
+    (nu nubar -> nu_k nubar_l, s and t channels) or as 'nu' (nu nu -> nu_k nu_l, t and u channels,
+    1/2 for k = l), t = (p_a - p_k)^2, fixed relic helicity (no kappa), eV^-4; for checks. cp: 0 for
+    the CP-even part, -1 for an incident neutrino, +1 for an antineutrino (as
+    dsigma_dt_scalar_majorana)."""
+    M2 = M * M
+    u = -s - t
+    if relic == "nubar":
+        As = G[r, a] * G[k, l]
+        At = G[k, a] * G[r, l]
+        bw = (s - M2) ** 2 + M2 * Gam ** 2
+        X = As * np.conjugate(At)
+        amp2 = (abs(As) ** 2 / bw + abs(At) ** 2 / (t - M2) ** 2
+                + 2.0 * (X.real * (s - M2) - cp * X.imag * M * Gam) / (bw * (t - M2)))
+        return 4.0 * u * u * amp2 / (16.0 * np.pi * s * s)
+    At = G[k, a] * G[l, r]
+    Au = G[l, a] * G[k, r]
+    sym = 0.5 if k == l else 1.0
+    return sym * 4.0 * s * s * abs(At / (t - M2) + Au / (u - M2)) ** 2 / (16.0 * np.pi * s * s)
+
+
+# =============================================================================
 # REGENERATION PROFILES: BIN INTEGRALS
 # =============================================================================
 
@@ -604,6 +787,289 @@ def build_profile_table_tri(mu_list, d_max, dlnE, n_u):
     return B, offsets
 
 
+# --- the vector's profiles ---------------------------------------------------------------------
+
+@njit(cache=True)
+def _vec_profiles_at(x, mu, out):
+    """Vector profiles 0..8 at x (out[0..8]); see N_VPROFILES."""
+    v = 1.0 - x
+    out[0] = x * x
+    out[1] = v * v
+    out[2] = x * x / ((v + mu) * (v + mu))
+    out[3] = v * v / ((x + mu) * (x + mu))
+    out[4] = x * x / (v + mu)
+    out[5] = v * v / (x + mu)
+    out[6] = 1.0 / ((v + mu) * (v + mu))
+    out[7] = 1.0 / ((x + mu) * (x + mu))
+    out[8] = 1.0 / ((v + mu) * (x + mu))
+
+
+@njit(cache=True)
+def _vec_bin_integrals(x_lo, x_hi, mu, glx, glw, out, tmp):
+    """Integrals of the vector profiles 0..8 over [x_lo, x_hi]: exact for 0, 1, 6, 7, 8; for the
+    forward-peaked 2 and 4 the closed forms on the top bins when mu < bin width (stable there),
+    Gauss-Legendre otherwise and for 3 and 5 (peaked at x -> 0, where geometric bins resolve them)."""
+    D = x_hi - x_lo
+    wlo = 1.0 - x_lo + mu
+    whi = 1.0 - x_hi + mu
+    a = 1.0 - x_lo
+    b = 1.0 - x_hi
+    out[0] = D * (x_hi * x_hi + x_hi * x_lo + x_lo * x_lo) / 3.0
+    out[1] = D * (a * a + a * b + b * b) / 3.0
+    out[6] = D / (wlo * whi)
+    out[7] = D / ((x_lo + mu) * (x_hi + mu))
+    out[8] = (np.log1p(D / (x_lo + mu)) + np.log1p(D / whi)) / (1.0 + 2.0 * mu)
+    top = mu < D and (1.0 - x_hi) < 2.0 * D
+    for p in (2, 3, 4, 5):
+        out[p] = 0.0
+    for k in range(len(glx)):
+        _vec_profiles_at(x_lo + D * glx[k], mu, tmp)
+        out[3] += glw[k] * tmp[3]
+        out[5] += glw[k] * tmp[5]
+        if not top:
+            out[2] += glw[k] * tmp[2]
+            out[4] += glw[k] * tmp[4]
+    out[3] *= D
+    out[5] *= D
+    if top:
+        ly = np.log1p(D / whi)
+        out[2] = (1.0 + mu) ** 2 * D / (wlo * whi) - 2.0 * (1.0 + mu) * ly + D
+        out[4] = (1.0 + mu) ** 2 * ly - 2.0 * (1.0 + mu) * D + 0.5 * D * (wlo + whi)
+    else:
+        out[2] *= D
+        out[4] *= D
+
+
+@njit(cache=True)
+def vector_norms(mu, glx, glw, out):
+    """Integrals over [0, 1] of the ten vector profiles at mu (the last, the pair spectrum, 1):
+    closed forms below mu = 0.5, Gauss-Legendre of the smooth integrands above (where the closed
+    forms of profiles 2-5 cancel, ~1/(3 mu^2))."""
+    L = np.log1p(1.0 / mu)
+    out[0] = 1.0 / 3.0
+    out[1] = 1.0 / 3.0
+    if mu < 0.5:
+        NB = (1.0 + mu) / mu - 2.0 * (1.0 + mu) * L + 1.0
+        NC = (1.0 + mu) ** 2 * L - 1.5 - mu
+    else:
+        NB = 0.0
+        NC = 0.0
+        for k in range(len(glx)):
+            x = glx[k]
+            w = 1.0 - x + mu
+            NB += glw[k] * x * x / (w * w)
+            NC += glw[k] * x * x / w
+    out[2] = NB
+    out[3] = NB
+    out[4] = NC
+    out[5] = NC
+    out[6] = 1.0 / (mu * (1.0 + mu))
+    out[7] = out[6]
+    out[8] = 2.0 * L / (1.0 + 2.0 * mu)
+    out[9] = 1.0
+
+
+@njit(cache=True)
+def vector_qe_complements(mu, h, glx, glw, out):
+    """For the forward-peaked daughters (profiles 2 and 6), the integral over [0, 1/h] -- everything
+    but the parent's own bin [1/h, 1] -- computed without the cancellation of N - B(0) when nearly all
+    of the profile sits in the top bin (mu << bin width). out[2], out[6]; the rest 0."""
+    for q in range(N_VPROFILES):
+        out[q] = 0.0
+    xh = 1.0 / h
+    whi = 1.0 - xh + mu
+    wlo = 1.0 + mu
+    out[6] = xh / (whi * wlo)
+    if mu < 0.1:
+        out[2] = (1.0 + mu) ** 2 * xh / (whi * wlo) - 2.0 * (1.0 + mu) * np.log(wlo / whi) + xh
+    else:
+        if mu < 0.5:
+            NB = (1.0 + mu) / mu - 2.0 * (1.0 + mu) * np.log1p(1.0 / mu) + 1.0
+        else:
+            NB = 0.0
+            for k in range(len(glx)):
+                x = glx[k]
+                NB += glw[k] * x * x / ((1.0 - x + mu) * (1.0 - x + mu))
+        top = 0.0
+        for k in range(len(glx)):
+            x = xh + (1.0 - xh) * glx[k]
+            top += glw[k] * x * x / ((1.0 - x + mu) * (1.0 - x + mu))
+        out[2] = NB - top * (1.0 - xh)
+
+
+@njit(cache=True)
+def _vv_g(u, beta, delta, mu):
+    """The vector pair's energy distribution in u = ln((x - x_-)/(x_+ - x)), with its longitudinal
+    part: returns (g, gL, x), g = D a b / (beta T^2 U^2) and gL = f_L g = 2 mu (1-x)^2 a b /
+    (beta T^2 x^2), where a = x - x_-, b = x_+ - x, T = b + delta, U = a + delta,
+    D = (T^2 + U^2) a b + 4 mu T U (in units of s: t = -T, u = -U)."""
+    if u >= 0.0:
+        e = np.exp(-u)
+        a = beta / (1.0 + e)
+        b = beta * e / (1.0 + e)
+    else:
+        e = np.exp(u)
+        a = beta * e / (1.0 + e)
+        b = beta / (1.0 + e)
+    x = 0.5 * (1.0 - beta) + a
+    T = b + delta
+    U = a + delta
+    D = (T * T + U * U) * a * b + 4.0 * mu * T * U
+    g = D * a * b / (beta * T * T * U * U)
+    gL = 2.0 * mu * (1.0 - x) * (1.0 - x) * a * b / (beta * T * T * x * x)
+    return g, gL, x
+
+
+@njit(cache=True)
+def _cum_left(f, h):
+    """Cumulative integral from the left on a uniform grid: trapezoid with the Euler-Maclaurin end
+    correction (O(h^4))."""
+    n = len(f)
+    C = np.empty(n)
+    C[0] = 0.0
+    for k in range(1, n):
+        C[k] = C[k - 1] + 0.5 * h * (f[k - 1] + f[k])
+    d0 = (f[1] - f[0]) / h
+    for k in range(n):
+        km = max(k - 1, 0)
+        kp = min(k + 1, n - 1)
+        C[k] -= h * h / 12.0 * ((f[kp] - f[km]) / ((kp - km) * h) - d0)
+    return C
+
+
+@njit(cache=True)
+def _cum_right(f, h):
+    """Cumulative integral from the right (C[k] = int_{u_k}^{u_end} f), as _cum_left."""
+    n = len(f)
+    C = np.empty(n)
+    C[n - 1] = 0.0
+    for k in range(n - 2, -1, -1):
+        C[k] = C[k + 1] + 0.5 * h * (f[k] + f[k + 1])
+    dn = (f[n - 1] - f[n - 2]) / h
+    for k in range(n):
+        km = max(k - 1, 0)
+        kp = min(k + 1, n - 1)
+        C[k] -= h * h / 12.0 * (dn - (f[kp] - f[km]) / ((kp - km) * h))
+    return C
+
+
+@njit(cache=True)
+def _herm(C, f, k, tt, h, sign):
+    """Cubic Hermite interpolation of a cumulative integral C (derivative sign * f) at node k + tt."""
+    h00 = 2 * tt ** 3 - 3 * tt ** 2 + 1
+    h10 = tt ** 3 - 2 * tt ** 2 + tt
+    h01 = -2 * tt ** 3 + 3 * tt ** 2
+    h11 = tt ** 3 - tt ** 2
+    return h00 * C[k] + sign * h10 * h * f[k] + h01 * C[k + 1] + sign * h11 * h * f[k + 1]
+
+
+@njit(cache=True)
+def _vv_nu_bins(mu, edges, n_u, out):
+    """Bin integrals of the neutrino spectrum of vector-pair production per neutrino (normalized to
+    1): each V at energy fraction x decays into nu nubar, transverse ones (1 - f_L) with the pair's
+    spectrum (3 z^2 + 3 (1-z)^2)/2 per neutrino, longitudinal ones 6 z (1-z), z = E_nu / E_V. With
+    G_T(z) = z^3 - 3/2 z^2 + 3/2 z and G_L(z) = 3 z^2 - 2 z^3 the cumulative spectra,
+    H(y) = F0(y) + 3/2 y F1T - 3/2 y^2 F2T + y^3 F3T + 3 y^2 F2L - 2 y^3 F3L,
+    F0 = int_{x<y} f, FnT = int_{x>y} f (1 - f_L) / x^n, FnL = int_{x>y} f f_L / x^n."""
+    nb = len(edges) - 1
+    for d in range(nb):
+        out[d] = 0.0
+    if mu >= 0.25:
+        return
+    beta = np.sqrt(1.0 - 4.0 * mu)
+    delta = 4.0 * mu * mu / ((1.0 + beta) * (1.0 + beta))
+    x_m = mu + delta
+    x_p = 1.0 - mu - delta
+    U = np.log(beta / delta) + 25.0
+    h = 2.0 * U / (n_u - 1)
+    g = np.empty(n_u)
+    t1 = np.empty(n_u)
+    t2 = np.empty(n_u)
+    t3 = np.empty(n_u)
+    l2 = np.empty(n_u)
+    l3 = np.empty(n_u)
+    for k in range(n_u):
+        gk, gL, x = _vv_g(-U + k * h, beta, delta, mu)
+        gT = gk - gL
+        g[k] = gk
+        t1[k] = gT / x
+        t2[k] = gT / (x * x)
+        t3[k] = gT / (x * x * x)
+        l2[k] = gL / (x * x)
+        l3[k] = gL / (x * x * x)
+    C0 = _cum_left(g, h)
+    C1T = _cum_right(t1, h)
+    C2T = _cum_right(t2, h)
+    C3T = _cum_right(t3, h)
+    C2L = _cum_right(l2, h)
+    C3L = _cum_right(l3, h)
+    Z = C0[n_u - 1]
+    Hprev = 0.0
+    for d in range(nb, -1, -1):
+        y = edges[d]
+        if y <= x_m:
+            H = 1.5 * y * C1T[0] - 1.5 * y * y * C2T[0] + y ** 3 * C3T[0] + 3.0 * y * y * C2L[0] - 2.0 * y ** 3 * C3L[0]
+        elif y >= x_p:
+            H = Z
+        else:
+            uu = np.log((y - x_m) / (x_p - y))
+            f = (uu + U) / h
+            k = int(f)
+            if k < 0:
+                k = 0
+            elif k > n_u - 2:
+                k = n_u - 2
+            tt = f - k
+            H = (_herm(C0, g, k, tt, h, 1.0) + 1.5 * y * _herm(C1T, t1, k, tt, h, -1.0)
+                 - 1.5 * y * y * _herm(C2T, t2, k, tt, h, -1.0) + y ** 3 * _herm(C3T, t3, k, tt, h, -1.0)
+                 + 3.0 * y * y * _herm(C2L, l2, k, tt, h, -1.0) - 2.0 * y ** 3 * _herm(C3L, l3, k, tt, h, -1.0))
+        if d < nb:
+            out[d] = (H - Hprev) / Z
+        Hprev = H
+
+
+@njit(cache=True, parallel=True)
+def build_vector_table_tri(mu_list, d_max, dlnE, n_u):
+    """The vector's profile table in triangular storage, as build_profile_table_tri:
+    (B (total, 10), offsets)."""
+    n_mu = len(mu_list)
+    offsets = np.zeros(n_mu + 1, dtype=np.int64)
+    for n in range(n_mu):
+        offsets[n + 1] = offsets[n] + d_max[n] + 1
+    B = np.zeros((offsets[n_mu], N_VPROFILES))
+    h = np.exp(0.5 * dlnE)
+    n_edges = 0
+    for n in range(n_mu):
+        n_edges = max(n_edges, d_max[n] + 2)
+    edges = np.empty(n_edges)
+    edges[0] = 1.0
+    for d in range(1, n_edges):
+        edges[d] = h ** (-(2 * d - 1))
+    glx16, glw16 = _GL16_X, _GL16_W
+    glx6, glw6 = _GL6_X, _GL6_W
+    for n in prange(n_mu):
+        mu = mu_list[n]
+        o = offsets[n]
+        nd = d_max[n] + 1
+        tmp = np.empty(9)
+        out9 = np.empty(9)
+        for d in range(nd):
+            x_hi = edges[d]
+            x_lo = edges[d + 1]
+            if d < 8:
+                _vec_bin_integrals(x_lo, x_hi, mu, glx16, glw16, out9, tmp)
+            else:
+                _vec_bin_integrals(x_lo, x_hi, mu, glx6, glw6, out9, tmp)
+            for p in range(9):
+                B[o + d, p] = out9[p]
+        if mu < 0.25:
+            pb = np.empty(nd)
+            _vv_nu_bins(mu, edges[:nd + 1], n_u, pb)
+            for d in range(nd):
+                B[o + d, 9] = pb[d]
+    return B, offsets
+
+
 # =============================================================================
 # COSMOLOGICAL TRANSPORT
 # =============================================================================
@@ -616,18 +1082,25 @@ def build_profile_table_tri(mu_list, d_max, dlnE, n_u):
 #
 # Steps are uniform in ln(1+z), Delta = dlnE / z_substeps, so that the scale mu = M^2 / s of a
 # bin at a step's midpoint, mu = M^2 / (2 E_0 m_r) exp(-(j q + m + 1/2) Delta), falls on one lattice
-# per relic state: the regeneration profiles are tabulated once per run (build_profile_table_tri)
-# and depend on the mediator mass and the relic masses only, not on the couplings. The top step,
-# shortened so that it starts at z_max exactly, has a table of its own.
+# per relic state: the regeneration profiles are tabulated once per run (build_profile_table_tri,
+# build_vector_table_tri) and depend on the mediator mass and the relic masses only, not on the
+# couplings. The top step, shortened so that it starts at z_max exactly, has a table of its own.
+#
+# A model is a profile set (scalar: 7, vector: 10), for each profile q the kinematic factor it
+# carries (jt: 0 s/BW, 1 (s - M^2)/BW, 2 1/s, 3 the pair cross section), its weight in the
+# absorption (w: 1/2 for each secondary of a 2 -> 2 event, 1/4 for pair production, 1 and 0 for a
+# forward-peaked daughter and its recoil), whether it is such a daughter (qe), and coupling tensors
+# Ctau (absorption) and Creg (secondaries) [q, a, r, c].
 #
 # Per step and bin, the optical depth is integrated exactly over the step: the Breit-Wigner terms
-# (s channel and its interference) through theta = atan((s - M^2)/(M Gamma)), in which any
-# resonance -- however narrow -- is smooth, and the others by Gauss-Legendre in s. The bins are
-# then swept from high to low energy, each solving its equations over the step exactly (constant
-# rates and sources; dp_cosmo._absorption_factors) and passing down what it absorbed: its own
-# secondaries (a 3 x 3 system over the mass states) and those landing in lower bins, with the
-# exact bin integrals of their spectra. Every 2 -> 2 absorption yields two secondaries and every
-# double-scalar one four, less what falls below the grid.
+# through theta = atan((s - M^2)/(M Gamma)), in which any resonance -- however narrow -- is smooth,
+# the others by Gauss-Legendre in s. The bins are then swept from high to low energy, each solving
+# its equations over the step exactly (constant rates and sources; dp_cosmo._absorption_factors)
+# and passing down what it absorbed: its own secondaries (a 3 x 3 system over the mass states) and
+# those landing in lower bins, with the exact bin integrals of their spectra. Every 2 -> 2 event
+# yields two secondaries and every pair-production one four, less what falls below the grid. For a
+# forward-peaked daughter (qe) the absorption counts only the events whose daughter leaves the bin or
+# changes mass state -- the others change nothing -- while their recoils are all kept.
 
 @njit(cache=True)
 def _absorption_factors(G, dt):
@@ -643,6 +1116,36 @@ def _absorption_factors(G, dt):
     return e, a1, dt - a1
 
 
+_PADE6 = np.array([1.0, 0.5, 5.0 / 44.0, 1.0 / 66.0, 1.0 / 792.0, 1.0 / 23760.0, 1.0 / 1235520.0])
+
+
+@njit(cache=True)
+def _expm_small(A):
+    """exp(A) of a small dense matrix: scaling and squaring with the diagonal Pade approximant of
+    degree 6 (the scaled norm below 1/2, where its error is below 1e-17)."""
+    n = A.shape[0]
+    nrm = 0.0
+    for i in range(n):
+        rs = 0.0
+        for j in range(n):
+            rs += abs(A[i, j])
+        nrm = max(nrm, rs)
+    sq = 0
+    if nrm > 0.5:
+        sq = int(np.ceil(np.log2(nrm / 0.5)))
+    X = A / (2.0 ** sq)
+    I = np.eye(n)
+    X2 = X @ X
+    X4 = X2 @ X2
+    X6 = X4 @ X2
+    Uo = X @ (_PADE6[1] * I + _PADE6[3] * X2 + _PADE6[5] * X4)
+    Ve = _PADE6[0] * I + _PADE6[2] * X2 + _PADE6[4] * X4 + _PADE6[6] * X6
+    E = np.linalg.solve(Ve - Uo, Ve + Uo)
+    for _ in range(sq):
+        E = E @ E
+    return E
+
+
 @njit(cache=True)
 def _w_of_s(s, Em2, n0r, H0, Om, OL):
     """n_r(z) dt/ds at s = Em2 (1 + z), Em2 = 2 E m_r: n0r (1+z)^2 / (Em2 H(z))."""
@@ -650,78 +1153,92 @@ def _w_of_s(s, Em2, n0r, H0, Om, OL):
     return n0r * zp1 * zp1 / (Em2 * H0 * np.sqrt(Om * zp1 ** 3 + OL))
 
 
+@njit(cache=True)
+def _pair_kinematic(prof, s, M2):
+    if prof == 0:
+        return phiphi_kinematic(s, M2)
+    return vv_kinematic(s, M2)
+
+
 @njit(cache=True, parallel=True)
-def _step_integrals(E, zp1_lo, zp1_hi, zp1_mid, masses, n0, M2, MG, H0, Om, OL, delta_mode,
-                    Js, Jint, Jinv, Jpp, N2, N4, N5):
-    """Per bin j and relic r, the step's time integrals of the target density times
-        s/BW (Js), (s - M^2)/BW (Jint), 1/s (Jinv), I_phiphi(s) (Jpp),
-    and the profile norms at the step's midpoint (N2, N4, N5). BW = (s - M^2)^2 + (M Gamma)^2."""
+def _step_integrals(E, zp1_lo, zp1_hi, zp1_mid, masses, n0, M2, MG, H0, Om, OL, delta_mode, prof,
+                    hbin, J, Nq, Lq):
+    """Per bin j and relic r, the step's time integrals of the target density times the four
+    kinematic factors, J[j, r, :] = (s/BW, (s - M^2)/BW, 1/s, pair cross section), with
+    BW = (s - M^2)^2 + (M Gamma)^2; the profile norms at the step's midpoint, Nq[j, r, :], and
+    for forward-peaked daughters their part outside the parent's bin, Lq[j, r, :] (hbin = exp(dlnE/2))."""
     N = len(E)
+    P = Nq.shape[2]
     b = MG
     for j in prange(N):
+        tmp = np.empty(10)
+        tmpL = np.empty(10)
         for r in range(3):
-            Js[j, r] = 0.0
-            Jint[j, r] = 0.0
-            Jinv[j, r] = 0.0
-            Jpp[j, r] = 0.0
-            N2[j, r] = 0.0
-            N4[j, r] = 0.0
-            N5[j, r] = 0.0
+            for k in range(4):
+                J[j, r, k] = 0.0
+            for q in range(P):
+                Nq[j, r, q] = 0.0
+                Lq[j, r, q] = 0.0
             m = masses[r]
             if m <= 0.0 or n0[r] <= 0.0:
                 continue
             Em2 = 2.0 * E[j] * m
             s_lo = Em2 * zp1_lo
             s_hi = Em2 * zp1_hi
-            rr = Em2 * zp1_mid / M2
-            n2, n4, n5 = profile_norms(rr, _GL24_X, _GL24_W)
-            N2[j, r] = n2
-            N4[j, r] = n4
-            N5[j, r] = n5
-            # smooth terms: Gauss-Legendre in s
+            mu = M2 / (Em2 * zp1_mid)
+            if prof == 0:
+                n2, n4, n5 = profile_norms(1.0 / mu, _GL24_X, _GL24_W)
+                Nq[j, r, 0] = 1.0
+                Nq[j, r, 1] = n2
+                Nq[j, r, 2] = n2
+                Nq[j, r, 3] = n4
+                Nq[j, r, 4] = n5
+                Nq[j, r, 5] = n4
+                Nq[j, r, 6] = 1.0
+            else:
+                vector_norms(mu, _GL24_X, _GL24_W, tmp)
+                vector_qe_complements(mu, hbin, _GL24_X, _GL24_W, tmpL)
+                for q in range(P):
+                    Nq[j, r, q] = tmp[q]
+                    Lq[j, r, q] = tmpL[q]
             ds = s_hi - s_lo
             a = 0.0
             for k in range(len(_GL8_X)):
                 s = s_lo + ds * _GL8_X[k]
                 a += _GL8_W[k] * _w_of_s(s, Em2, n0[r], H0, Om, OL) / s
-            Jinv[j, r] = a * ds
+            J[j, r, 2] = a * ds
             if s_hi > 4.0 * M2:
                 sa = max(s_lo, 4.0 * M2)
                 dsp = s_hi - sa
                 a = 0.0
                 for k in range(len(_GL8_X)):
                     s = sa + dsp * _GL8_X[k]
-                    a += _GL8_W[k] * _w_of_s(s, Em2, n0[r], H0, Om, OL) * phiphi_kinematic(s, M2)
-                Jpp[j, r] = a * dsp
-            # Breit-Wigner terms
+                    a += _GL8_W[k] * _w_of_s(s, Em2, n0[r], H0, Om, OL) * _pair_kinematic(prof, s, M2)
+                J[j, r, 3] = a * dsp
             v_lo = s_lo - M2
             v_hi = s_hi - M2
             if delta_mode:
                 if v_lo <= 0.0 < v_hi:
-                    Js[j, r] = M2 * _w_of_s(M2, Em2, n0[r], H0, Om, OL) * np.pi / b
+                    J[j, r, 0] = M2 * _w_of_s(M2, Em2, n0[r], H0, Om, OL) * np.pi / b
                 continue
             near = 0.0
             if v_lo > 0.0:
                 near = v_lo
             elif v_hi < 0.0:
                 near = -v_hi
+            a1_ = 0.0
+            a2_ = 0.0
             if near > 2.0 * ds:
-                # the resonance is far outside the step: plain Gauss-Legendre in s
-                a1_ = 0.0
-                a2_ = 0.0
                 for k in range(len(_GL8_X)):
                     s = s_lo + ds * _GL8_X[k]
                     v = s - M2
                     wbw = _w_of_s(s, Em2, n0[r], H0, Om, OL) / (v * v + b * b)
                     a1_ += _GL8_W[k] * wbw * s
                     a2_ += _GL8_W[k] * wbw * v
-                Js[j, r] = a1_ * ds
-                Jint[j, r] = a2_ * ds
+                J[j, r, 0] = a1_ * ds
+                J[j, r, 1] = a2_ * ds
             else:
-                # theta = atan(v / b): int A(s) ds / (v^2 + b^2) = (1/b) int A(s(theta)) dtheta
                 dth = np.arctan2(b * (v_hi - v_lo), b * b + v_hi * v_lo)
-                a1_ = 0.0
-                a2_ = 0.0
                 for k in range(len(_GL8_X)):
                     tp = np.tan(dth * _GL8_X[k])
                     v = (v_lo + b * tp) / (1.0 - v_lo * tp / b)
@@ -729,27 +1246,36 @@ def _step_integrals(E, zp1_lo, zp1_hi, zp1_mid, masses, n0, M2, MG, H0, Om, OL, 
                     wv = _w_of_s(s, Em2, n0[r], H0, Om, OL)
                     a1_ += _GL8_W[k] * wv * s
                     a2_ += _GL8_W[k] * wv * v
-                Js[j, r] = a1_ * dth / b
-                Jint[j, r] = a2_ * dth / b
+                J[j, r, 0] = a1_ * dth / b
+                J[j, r, 1] = a2_ * dth / b
 
 
 @njit(cache=True)
-def _si_sweep(F, E, dE, S0, Js, Jint, Jinv, Jpp, N2, N4, N5, Cabs, Creg,
-              tabB, tabO, node, dt, reg, diag):
+def _si_sweep(F, E, dE, S0, J, Nq, Lq, jt, w, qe, Ctau, Creg, tabB, tabO, node, dt, reg, diag, exact_bin):
     """One redshift step of the transport (module notes above). F (N, 3) is updated in place.
-    S0 (N, 3): injection rate per unit energy over the step. tabB (3, rows, 7) / tabO (3, nodes+1):
-    each relic's profile table (triangular); node (N, 3): the table node of bin j and relic r.
-    reg (N, 3): scratch for the regeneration rates. diag (6,) accumulates: absorbed number,
-    secondaries in the grid, secondaries expected (in the grid or below it), absorbed energy,
-    energy of the secondaries in the grid (at the bin centres), injected number."""
+    S0 (N, 3): injection rate per unit energy over the step. J, Nq, Lq: _step_integrals. jt, w, qe,
+    Ctau, Creg: the model. tabB (3, rows, P) / tabO (3, nodes+1): each relic's profile table
+    (triangular); node (N, 3): the table node of bin j and relic r. reg (N, 3): scratch for the
+    regeneration rates. diag (6,) accumulates: absorbed number (events changing something),
+    secondaries in the grid, secondaries expected (in the grid or below it), absorbed energy, energy
+    of the secondaries in the grid (at the bin centres), injected number.
+
+    A bin's own equations: dF_c/dt = -G_c F_c + sum_a Q[c, a] G_a F_a + S_c over the step, G = tau/dt,
+    Q the secondaries landing in the bin per event. With exact_bin false (the scalar: Q ~ dlnE) the
+    secondaries landing in the bin are held at their step average (each state's exponential, plus a
+    3 x 3 system); with exact_bin true (the vector, whose quasi-elastic scatterings change the mass
+    state within the bin at rates far above the bin's losses -- a stiff system that the first scheme
+    would integrate to first order only) the equations are solved exactly, F(dt) and int F dt from the
+    exponential of the 7 x 7 augmented matrix [[-A, 0, S], [1, 0, 0], [0, 0, 0]]."""
     N = F.shape[0]
+    P = len(jt)
     for i in range(N):
         for c in range(3):
             reg[i, c] = 0.0
     tau = np.empty(3)
-    Wn = np.zeros((3, N_PROFILES, 3, 3))       # [r, q, a, c] per absorbed a
+    Wn = np.zeros((3, P, 3, 3))       # [r, q, a, c] per absorbed a
     Q = np.empty((3, 3))
-    Y = np.empty((3, N_PROFILES, 3))
+    Y = np.empty((3, P, 3))
     e_ = np.empty(3)
     a1_ = np.empty(3)
     g_ = np.empty(3)
@@ -757,99 +1283,123 @@ def _si_sweep(F, E, dE, S0, Js, Jint, Jinv, Jpp, N2, N4, N5, Cabs, Creg,
     R = np.empty(3)
     S = np.empty(3)
     Am = np.empty((3, 3))
-    Jq = np.empty(N_PROFILES)
-    Nq = np.empty(N_PROFILES)
+    Bm = np.zeros((7, 7))
+    Fnew = np.empty(3)
     for j in range(N - 1, -1, -1):
         for a in range(3):
             t = 0.0
             for r in range(3):
-                t += (Cabs[0, a, r] * Js[j, r] + (Cabs[1, a, r] * N2[j, r] + Cabs[3, a, r] * N5[j, r]) * Jinv[j, r]
-                      + Cabs[2, a, r] * N4[j, r] * Jint[j, r] + Cabs[4, a, r] * Jpp[j, r])
+                for q in range(P):
+                    if w[q] == 0.0:
+                        continue
+                    Jv = J[j, r, jt[q]]
+                    if Jv == 0.0:
+                        continue
+                    if qe[q] != 0:
+                        for c in range(3):
+                            t += w[q] * Ctau[q, a, r, c] * Jv * (Lq[j, r, q] if c == a else Nq[j, r, q])
+                    else:
+                        sc = Ctau[q, a, r, 0] + Ctau[q, a, r, 1] + Ctau[q, a, r, 2]
+                        t += w[q] * sc * Jv * Nq[j, r, q]
             tau[a] = t
-        expected = 0.0
         for r in range(3):
-            Jq[0] = Js[j, r]
-            Jq[1] = Jinv[j, r]
-            Jq[2] = Jinv[j, r]
-            Jq[3] = Jint[j, r]
-            Jq[4] = Jinv[j, r]
-            Jq[5] = Jint[j, r]
-            Jq[6] = Jpp[j, r]
-            Nq[0] = 1.0
-            Nq[1] = N2[j, r]
-            Nq[2] = N2[j, r]
-            Nq[3] = N4[j, r]
-            Nq[4] = N5[j, r]
-            Nq[5] = N4[j, r]
-            Nq[6] = 1.0
-            for q in range(N_PROFILES):
+            for q in range(P):
+                Jv = J[j, r, jt[q]]
                 for a in range(3):
                     for c in range(3):
-                        Wn[r, q, a, c] = Creg[q, a, r, c] * Jq[q] / tau[a] if tau[a] > 0.0 else 0.0
-        # own-bin secondaries per absorbed a
+                        Wn[r, q, a, c] = Creg[q, a, r, c] * Jv / tau[a] if tau[a] != 0.0 else 0.0
+        # own-bin secondaries per absorbed a (no forward-peaked daughter of the same state: no-ops)
         for c in range(3):
             for a in range(3):
                 Q[c, a] = 0.0
         for r in range(3):
             o = tabO[r, node[j, r]]
-            for q in range(N_PROFILES):
+            for q in range(P):
                 b0 = tabB[r, o, q]
                 for a in range(3):
                     for c in range(3):
+                        if qe[q] != 0 and c == a:
+                            continue
                         Q[c, a] += Wn[r, q, a, c] * b0
         for a in range(3):
-            e_[a], a1_[a], g_[a] = _absorption_factors(tau[a] / dt, dt)
             S[a] = S0[j, a] + reg[j, a]
-            rhs[a] = F[j, a] * (1.0 - e_[a]) + S[a] * g_[a]
-        for c in range(3):
+        if exact_bin:
+            # in units of the step (tau_s = t/dt) and of the step's source, so that every entry is
+            # of order the rates: dF/dtau_s = -(A dt) F + (S dt / ssc) ssc, d<F>/dtau_s = F
+            ssc = 0.0
+            for c in range(3):
+                ssc = max(ssc, abs(S[c]) * dt)
+            if ssc == 0.0:
+                ssc = 1.0
+            for c in range(7):
+                for a in range(7):
+                    Bm[c, a] = 0.0
+            for c in range(3):
+                for a in range(3):
+                    Ga = max(tau[a], 0.0)
+                    Bm[c, a] = -(Ga if c == a else 0.0) + Q[c, a] * Ga
+                Bm[c, 6] = S[c] * dt / ssc
+                Bm[3 + c, c] = 1.0
+            Ex = _expm_small(Bm)
+            own = 0.0
             for a in range(3):
-                Am[c, a] = (dt if c == a else 0.0) - g_[c] * Q[c, a]
-        # 3 x 3 solve (cofactors; Am ~ dt (1 - O(dlnE)), well conditioned)
-        c00 = Am[1, 1] * Am[2, 2] - Am[1, 2] * Am[2, 1]
-        c01 = Am[1, 2] * Am[2, 0] - Am[1, 0] * Am[2, 2]
-        c02 = Am[1, 0] * Am[2, 1] - Am[1, 1] * Am[2, 0]
-        det = Am[0, 0] * c00 + Am[0, 1] * c01 + Am[0, 2] * c02
-        c10 = Am[0, 2] * Am[2, 1] - Am[0, 1] * Am[2, 2]
-        c11 = Am[0, 0] * Am[2, 2] - Am[0, 2] * Am[2, 0]
-        c12 = Am[0, 1] * Am[2, 0] - Am[0, 0] * Am[2, 1]
-        c20 = Am[0, 1] * Am[1, 2] - Am[0, 2] * Am[1, 1]
-        c21 = Am[0, 2] * Am[1, 0] - Am[0, 0] * Am[1, 2]
-        c22 = Am[0, 0] * Am[1, 1] - Am[0, 1] * Am[1, 0]
-        R[0] = (c00 * rhs[0] + c10 * rhs[1] + c20 * rhs[2]) / det
-        R[1] = (c01 * rhs[0] + c11 * rhs[1] + c21 * rhs[2]) / det
-        R[2] = (c02 * rhs[0] + c12 * rhs[1] + c22 * rhs[2]) / det
-        own = 0.0
-        for c in range(3):
-            sc = S[c]
+                # events of state a over the step (per unit energy), as a rate: (tau_a/dt) <F_a>
+                avgF = Ex[3 + a, 6] * ssc
+                for b in range(3):
+                    avgF += Ex[3 + a, b] * F[j, b]
+                R[a] = max(tau[a], 0.0) / dt * avgF
+            for c in range(3):
+                fn = Ex[c, 6] * ssc
+                for b in range(3):
+                    fn += Ex[c, b] * F[j, b]
+                for a in range(3):
+                    own += Q[c, a] * R[a]
+                Fnew[c] = fn
+            for c in range(3):
+                F[j, c] = Fnew[c]
+                diag[5] += S0[j, c] * dt * dE[j]
+        else:
             for a in range(3):
-                sc += Q[c, a] * R[a]
-                own += Q[c, a] * R[a]
-            F[j, c] = F[j, c] * e_[c] + sc * a1_[c]
-            diag[5] += S0[j, c] * dt * dE[j]
-        absorbed = 0.0
-        for a in range(3):
-            absorbed += R[a]
+                e_[a], a1_[a], g_[a] = _absorption_factors(max(tau[a], 0.0) / dt, dt)
+                rhs[a] = F[j, a] * (1.0 - e_[a]) + S[a] * g_[a]
+            for c in range(3):
+                for a in range(3):
+                    Am[c, a] = (dt if c == a else 0.0) - g_[c] * Q[c, a]
+            c00 = Am[1, 1] * Am[2, 2] - Am[1, 2] * Am[2, 1]
+            c01 = Am[1, 2] * Am[2, 0] - Am[1, 0] * Am[2, 2]
+            c02 = Am[1, 0] * Am[2, 1] - Am[1, 1] * Am[2, 0]
+            det = Am[0, 0] * c00 + Am[0, 1] * c01 + Am[0, 2] * c02
+            c10 = Am[0, 2] * Am[2, 1] - Am[0, 1] * Am[2, 2]
+            c11 = Am[0, 0] * Am[2, 2] - Am[0, 2] * Am[2, 0]
+            c12 = Am[0, 1] * Am[2, 0] - Am[0, 0] * Am[2, 1]
+            c20 = Am[0, 1] * Am[1, 2] - Am[0, 2] * Am[1, 1]
+            c21 = Am[0, 2] * Am[1, 0] - Am[0, 0] * Am[1, 2]
+            c22 = Am[0, 0] * Am[1, 1] - Am[0, 1] * Am[1, 0]
+            R[0] = (c00 * rhs[0] + c10 * rhs[1] + c20 * rhs[2]) / det
+            R[1] = (c01 * rhs[0] + c11 * rhs[1] + c21 * rhs[2]) / det
+            R[2] = (c02 * rhs[0] + c12 * rhs[1] + c22 * rhs[2]) / det
+            own = 0.0
+            for c in range(3):
+                sc = S[c]
+                for a in range(3):
+                    sc += Q[c, a] * R[a]
+                    own += Q[c, a] * R[a]
+                F[j, c] = F[j, c] * e_[c] + sc * a1_[c]
+                diag[5] += S0[j, c] * dt * dE[j]
+        absorbed = R[0] + R[1] + R[2]
         diag[0] += absorbed * dt * dE[j]
         diag[3] += absorbed * dt * dE[j] * E[j]
         diag[1] += own * dt * dE[j]
         diag[4] += own * dt * dE[j] * E[j]
-        # secondaries expected per absorbed a (in the grid or below it)
+        expected = 0.0
         for r in range(3):
-            Nq[0] = 1.0
-            Nq[1] = N2[j, r]
-            Nq[2] = N2[j, r]
-            Nq[3] = N4[j, r]
-            Nq[4] = N5[j, r]
-            Nq[5] = N4[j, r]
-            Nq[6] = 1.0
-            for q in range(N_PROFILES):
+            for q in range(P):
                 for a in range(3):
                     for c in range(3):
-                        expected += R[a] * Wn[r, q, a, c] * Nq[q]
+                        expected += R[a] * Wn[r, q, a, c] * (Lq[j, r, q] if (qe[q] != 0 and c == a) else Nq[j, r, q])
         diag[2] += expected * dt * dE[j]
-        # pass the secondaries down
         for r in range(3):
-            for q in range(N_PROFILES):
+            for q in range(P):
                 for c in range(3):
                     y = 0.0
                     for a in range(3):
@@ -865,7 +1415,7 @@ def _si_sweep(F, E, dE, S0, Js, Jint, Jinv, Jpp, N2, N4, N5, Cabs, Creg,
                 inv = 1.0 / dE[i]
                 for c in range(3):
                     acc = 0.0
-                    for q in range(N_PROFILES):
+                    for q in range(P):
                         acc += Y[r, q, c] * tabB[r, o + d, q]
                     reg[i, c] += acc * inv
                     pushed += acc
@@ -891,21 +1441,24 @@ def _step_time_and_injection(L_lo, L_hi, H0, Om, OL, p_index, rho_evol, Phi_0):
     return dt, T
 
 
-def _tri_table(mu0, n_nodes, stride, N, dlnE, Delta, n_u, offset=0.5, mu_list=None):
-    """Triangular profile table for nodes n = 0..n_nodes-1 at mu = mu0 exp(-(n + offset) Delta)
-    (or at mu_list), children d <= min(n // stride, N - 1)."""
+def _tri_table(prof, mu0, n_nodes, stride, N, dlnE, Delta, n_u, offset=0.5, mu_list=None):
+    """Triangular profile table (prof 0: scalar, 1: vector) for nodes n = 0..n_nodes-1 at
+    mu = mu0 exp(-(n + offset) Delta) (or at mu_list), children d <= min(n // stride, N - 1)."""
     n = np.arange(n_nodes)
     if mu_list is None:
         mu_list = mu0 * np.exp(-(n + offset) * Delta)
     d_max = np.minimum(n // stride, N - 1).astype(np.int64)
-    return build_profile_table_tri(np.ascontiguousarray(mu_list, dtype=np.float64), d_max, dlnE, n_u)
+    mu_list = np.ascontiguousarray(mu_list, dtype=np.float64)
+    if prof == 0:
+        return build_profile_table_tri(mu_list, d_max, dlnE, n_u)
+    return build_vector_table_tri(mu_list, d_max, dlnE, n_u)
 
 
-def _stack_tables(tabs):
-    """Pad the relics' (B, offsets) into (3, rows, 7) and (3, nodes + 1) arrays."""
+def _stack_tables(tabs, P):
+    """Pad the relics' (B, offsets) into (3, rows, P) and (3, nodes + 1) arrays."""
     rows = max(t[0].shape[0] for t in tabs)
     nodes = max(len(t[1]) for t in tabs)
-    B = np.zeros((3, rows, N_PROFILES))
+    B = np.zeros((3, rows, P))
     O = np.zeros((3, nodes), dtype=np.int64)
     for r, (b, o) in enumerate(tabs):
         B[r, :b.shape[0]] = b
@@ -917,9 +1470,9 @@ def _stack_tables(tabs):
 _TABLE_CACHE = {}
 _TABLE_CACHE_MAX = 2
 # Memory: the lattice tables grow as N^2 z_substeps (about 30 MB for the three relics at the
-# analysis grid, 515 bins with the extension and one step per bin; 1.5 GB at 1830 bins and four
-# substeps). Only sets up to this size are kept between calls (scans over the coupling at a fixed
-# mediator mass reuse them); larger ones are rebuilt each call and freed.
+# analysis grid with the scalar's seven profiles, 515 bins with the extension and one step per bin;
+# 1.5 GB at 1830 bins and four substeps). Only sets up to this size are kept between calls (scans
+# over the coupling at a fixed mediator mass reuse them); larger ones are rebuilt each call and freed.
 _TABLE_CACHE_MAX_BYTES = 128 * 2 ** 20
 
 
@@ -931,31 +1484,32 @@ def _tables_nbytes(tabs):
     return n
 
 
-def _profile_tables(M, masses, E0, N, dlnE, q, K, top_full, L_top_mid, n_u):
+def _profile_tables(prof, M, masses, E0, N, dlnE, q, K, top_full, L_top_mid, n_u):
     """Lattice and top-step profile tables for the three relics, cached (up to
-    _TABLE_CACHE_MAX_BYTES each) by everything they depend on: the mediator and relic masses and
-    the grids -- not the couplings."""
-    key = (float(M), tuple(float(m) for m in masses), float(E0), int(N), float(dlnE), int(q), int(K),
+    _TABLE_CACHE_MAX_BYTES each) by everything they depend on: the profile set, the mediator and
+    relic masses and the grids -- not the couplings."""
+    key = (int(prof), float(M), tuple(float(m) for m in masses), float(E0), int(N), float(dlnE), int(q), int(K),
            bool(top_full), float(L_top_mid), int(n_u))
     hit = _TABLE_CACHE.get(key)
     if hit is not None:
         return hit
+    P = N_PROFILES if prof == 0 else N_VPROFILES
     Delta = dlnE / q
     m_max = K - 1 if top_full else K - 2
     n_lat = (N - 1) * q + m_max + 1
     lat, top = [], []
     for r in range(3):
         if masses[r] <= 0.0:
-            dummy = (np.zeros((1, N_PROFILES)), np.array([0, 1], dtype=np.int64))
+            dummy = (np.zeros((1, P)), np.array([0, 1], dtype=np.int64))
             lat.append(dummy)
             top.append(dummy)
             continue
         mu0 = M * M / (2.0 * E0 * masses[r])
-        lat.append(_tri_table(mu0, n_lat, q, N, dlnE, Delta, n_u))
+        lat.append(_tri_table(prof, mu0, n_lat, q, N, dlnE, Delta, n_u))
         if not top_full:
             mu_top = mu0 * np.exp(-np.arange(N) * dlnE - L_top_mid)
-            top.append(_tri_table(mu0, N, 1, N, dlnE, Delta, n_u, mu_list=mu_top))
-    out = (_stack_tables(lat), _stack_tables(top) if not top_full else None)
+            top.append(_tri_table(prof, mu0, N, 1, N, dlnE, Delta, n_u, mu_list=mu_top))
+    out = (_stack_tables(lat, P), _stack_tables(top, P) if not top_full else None)
     del lat, top
     if _tables_nbytes(out) <= _TABLE_CACHE_MAX_BYTES:
         while len(_TABLE_CACHE) >= _TABLE_CACHE_MAX:
@@ -964,10 +1518,37 @@ def _profile_tables(M, masses, E0, N, dlnE, q, K, top_full, L_top_mid, n_u):
     return out
 
 
+def model_spec(g_mass, mediator="scalar", majorana=True, phiphi="coherent", channels="full",
+               dirac_sterile="track"):
+    """The transport's description of a model: dict(prof, jt, w, qe, Ctau, runs, G2) where runs is a
+    list of (Creg, weight), the visible flux being sum weight * F(run). Scalar and Majorana: one run;
+    scalar and Dirac: 'track' -> runs (Cvis + Cinv, 1/2) and (Cvis - Cinv, 1/2) (sum and difference
+    of visible and sterile, exact by parity), 'drop' -> (Cvis, 1) as 2107.13568; vector: one run."""
+    med = str(mediator).strip().lower()
+    if med == "scalar":
+        if majorana:
+            _, C, G2 = coupling_tensors(g_mass, phiphi, channels)
+            return dict(prof=0, jt=SCALAR_JT, w=SCALAR_W, qe=SCALAR_QE, Ctau=C, runs=[(C, 1.0)], G2=G2)
+        Cv, Ci, G2 = dirac_scalar_tensors(g_mass, channels)
+        Ctau = np.ascontiguousarray(Cv + Ci)
+        mode = str(dirac_sterile).strip().lower()
+        if mode == "track":
+            runs = [(Ctau, 0.5), (np.ascontiguousarray(Cv - Ci), 0.5)]
+        elif mode == "drop":
+            runs = [(Cv, 1.0)]
+        else:
+            raise ValueError(f"secret interactions: dirac_sterile must be 'track' or 'drop', got {dirac_sterile!r}")
+        return dict(prof=0, jt=SCALAR_JT, w=SCALAR_W, qe=SCALAR_QE, Ctau=Ctau, runs=runs, G2=G2)
+    if med == "vector":
+        C, G2 = vector_tensors(g_mass, majorana, channels)
+        return dict(prof=1, jt=VECTOR_JT, w=VECTOR_W, qe=VECTOR_QE, Ctau=C, runs=[(C, 1.0)], G2=G2)
+    raise ValueError(f"secret interactions: mediator must be 'scalar' or 'vector', got {mediator!r}")
+
+
 def propagate_si(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta_mass, rho_src,
                  p_index, rho_evol, Phi_0, M, g_mass, majorana=True, channels="full",
                  phiphi="coherent", z_substeps=1, E_extension=10.0, n_u=4096,
-                 return_diagnostics=False, regeneration=True):
+                 return_diagnostics=False, regeneration=True, mediator="scalar", dirac_sterile="track"):
     """Cosmological transport of the astrophysical neutrinos under secret interactions.
 
     Arguments: E_bins -- the (geometric) energy grid of the result, eV; z_max, H0 (eV),
@@ -976,19 +1557,19 @@ def propagate_si(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta
     relic density per mass state relative to the standard one; rho_src -- (3,) source flavor
     composition; p_index, rho_evol, Phi_0 -- source spectrum E^-p, evolution R(z) (1+z)^rho_evol
     (dp_cosmo.calc_R_source), normalization; M -- mediator mass, eV; g_mass -- (3, 3) mass-basis
-    couplings, complex symmetric (mass_basis_couplings); majorana -- neutrino nature (Dirac: not yet);
-    channels -- 'full', 's' (s channel only) or 'delta' (its narrow-width limit), the
-    approximations compared in 2107.13568; phiphi -- 'coherent' or 'paper' (module notes);
-    z_substeps -- redshift steps per energy bin (Delta ln(1+z) = dlnE / z_substeps);
-    E_extension -- the grid is extended above E_bins[-1] by this factor so that what is injected
-    above it cascades into it; n_u -- nodes of the double-scalar spectra; regeneration -- False
-    drops the secondaries (absorption alone, for validation).
+    couplings (mass_basis_couplings_model); majorana -- the neutrinos' nature; mediator -- 'scalar'
+    or 'vector' (left-handed currents); channels -- 'full', 's' (s channel only) or 'delta' (its
+    narrow-width limit), the approximations compared in 2107.13568; phiphi -- 'coherent' or
+    'paper' (scalar, Majorana; module notes); dirac_sterile -- 'track' or 'drop' (scalar, Dirac);
+    z_substeps -- redshift steps per energy bin (Delta ln(1+z) = dlnE / z_substeps); E_extension --
+    the grid is extended above E_bins[-1] by this factor so that what is injected above it cascades
+    into it; n_u -- nodes of the pair-production spectra; regeneration -- False drops the
+    secondaries (absorption alone, for validation).
 
-    Returns the (N_E, 3) mass-state fluxes at z = 0 (both helicities), on E_bins; with
-    return_diagnostics also a dict of the number and energy bookkeeping."""
+    Returns the (N_E, 3) mass-state fluxes at z = 0 of the visible neutrinos (both helicities), on
+    E_bins; with return_diagnostics also a dict of the number and energy bookkeeping (of the first
+    run: for Dirac 'track', visible plus sterile)."""
     from dp_core import compute_dE_geometric
-    if not majorana:
-        raise NotImplementedError("secret interactions: Dirac neutrinos are not implemented yet")
     E_bins = np.asarray(E_bins, dtype=np.float64)
     N_E = len(E_bins)
     dlnE = float(np.log(E_bins[1] / E_bins[0]))
@@ -1015,30 +1596,35 @@ def propagate_si(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta
         out = free_streaming_flux(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, rho_src, p_index, rho_evol, Phi_0)
         return (out, dict(no_coupling=True)) if return_diagnostics else out
     M2 = M * M
-    Gam = scalar_width(M, g_mass, majorana)
+    Gam = mediator_width(M, g_mass, mediator, majorana)
     MG = M * Gam
-    Cabs, Creg, G2 = coupling_tensors(g_mass, phiphi, channels)
-    if not regeneration:
-        Creg[:] = 0.0
+    spec = model_spec(g_mass, mediator, majorana, phiphi, channels, dirac_sterile)
+    prof = spec["prof"]
+    P = len(spec["jt"])
     delta_mode = str(channels).strip().lower() == "delta"
     n0 = relic_density_per_helicity(T_nu0) * np.asarray(eta_mass, dtype=np.float64)
     P_src = (np.abs(np.asarray(U_pmns)) ** 2).T @ np.asarray(rho_src, dtype=np.float64)
 
-    (lat_B, lat_O), top = _profile_tables(M, masses, E[0], N, dlnE, q, K, top_full, L_top_mid, n_u)
+    (lat_B, lat_O), top = _profile_tables(prof, M, masses, E[0], N, dlnE, q, K, top_full, L_top_mid, n_u)
 
-    F = np.zeros((N, 3))
+    runs = spec["runs"]
+    Fs = [np.zeros((N, 3)) for _ in runs]
+    diags = [np.zeros(6) for _ in runs]
     reg = np.zeros((N, 3))
-    diag = np.zeros(6)
-    Js, Jint, Jinv, Jpp, N2, N4, N5 = (np.zeros((N, 3)) for _ in range(7))
+    J = np.zeros((N, 3, 4))
+    Nq = np.zeros((N, 3, P))
+    Lq = np.zeros((N, 3, P))
     node = np.zeros((N, 3), dtype=np.int64)
     jj = np.arange(N, dtype=np.int64)
     Ep = E ** (-p_index)
+    hbin = float(np.exp(0.5 * dlnE))
+    Cregs = [np.ascontiguousarray(C if regeneration else np.zeros_like(C)) for C, _ in runs]
     for m in range(K - 1, -1, -1):
         L_lo, L_hi = L_edges[m], L_edges[m + 1]
         dt, T_inj = _step_time_and_injection(L_lo, L_hi, H0, Omega_m, Omega_L, p_index, rho_evol, Phi_0)
         S0 = np.ascontiguousarray(np.outer(Ep * (T_inj / dt), P_src))
         _step_integrals(E, np.exp(L_lo), np.exp(L_hi), np.exp(0.5 * (L_lo + L_hi)), masses, n0, M2, MG,
-                        H0, Omega_m, Omega_L, delta_mode, Js, Jint, Jinv, Jpp, N2, N4, N5)
+                        H0, Omega_m, Omega_L, delta_mode, prof, hbin, J, Nq, Lq)
         if m == K - 1 and not top_full:
             tB, tO = top
             node[:] = jj[:, None]
@@ -1048,15 +1634,20 @@ def propagate_si(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta
         for r in range(3):
             if masses[r] <= 0.0:
                 node[:, r] = 0
-        _si_sweep(F, E, dE, S0, Js, Jint, Jinv, Jpp, N2, N4, N5, Cabs, Creg, tB, tO, node, dt, reg, diag)
+        for k in range(len(runs)):
+            _si_sweep(Fs[k], E, dE, S0, J, Nq, Lq, spec["jt"], spec["w"], spec["qe"], spec["Ctau"], Cregs[k],
+                      tB, tO, node, dt, reg, diags[k], prof == 1)
+    F = sum(wt * Fk for (_, wt), Fk in zip(runs, Fs))
     out = np.ascontiguousarray(F[:N_E])
     if not return_diagnostics:
         return out
+    diag = diags[0]
+    F0 = Fs[0]
     info = dict(absorbed=diag[0], secondaries_in_grid=diag[1], secondaries_expected=diag[2],
                 energy_absorbed=diag[3], energy_secondaries_in_grid=diag[4], injected=diag[5],
-                final_number=float(np.sum(F * dE[:, None])), final_number_in_E_bins=float(np.sum(out * dE[:N_E, None])),
-                final_energy=float(np.sum(F * (E * dE)[:, None])), width=Gam, n_steps=K, N_grid=N, top_full=top_full,
-                F_extended=F.copy(), E_extended=E.copy())
+                final_number=float(np.sum(F0 * dE[:, None])), final_number_in_E_bins=float(np.sum(F0[:N_E] * dE[:N_E, None])),
+                final_energy=float(np.sum(F0 * (E * dE)[:, None])), width=Gam, n_steps=K, N_grid=N, top_full=top_full,
+                F_extended=F.copy(), E_extended=E.copy(), visible_number=float(np.sum(F * dE[:, None])))
     return out, info
 
 

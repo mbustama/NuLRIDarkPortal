@@ -361,8 +361,8 @@ def test_solver_dispatch_and_analysis_model():
     f1 = model.fractions({"m_phi_eV": 5e6, "g_phi": 0.05})
     f0 = model.fractions({"m_phi_eV": 5e6, "g_phi": 0.0})
     assert np.max(np.abs(f1 - f0)) > 1e-4 and abs(f1.sum() - 1) < 1e-12    # 9e-4 in f_e
-    for bad in [{"mediator": "vector"}, {"neutrino_type": "dirac"}, {"texture": "sterile"}, {"g_phi": 4.0},
-                {"channels": "t"}, {"z_substeps": 0}]:
+    for bad in [{"mediator": "tensor"}, {"neutrino_type": "weyl"}, {"texture": "sterile"}, {"g_phi": 4.0},
+                {"channels": "t"}, {"z_substeps": 0}, {"dirac_sterile": "keep"}]:
         with pytest.raises(ValueError):
             dps.build_solver_params({"secret_interactions": dict(enabled=True, **bad)})
 
@@ -508,3 +508,102 @@ def test_bruteforce_scalar_dirac():
                  + 0.5 * g[1, k] * g[2, l] * g[1, l] * g[2, k] * (1 / s + 2 * M2 * (M2 + s) / (s ** 2 * (2 * M2 + s)) * L)
                  for k in range(3) for l in range(3)) / (16 * np.pi)
         assert abs(tot / A8 - 1) < 1e-9
+
+
+# =============================================================================
+# Dirac neutrinos and the vector mediator in the transport
+# =============================================================================
+
+def test_dirac_scalar_transport():
+    """Scalar, Dirac: number balance of the visible+sterile run; tracking the sterile secondaries
+    only adds visible neutrinos (they regenerate visible ones); without coupling, free streaming."""
+    kw = _transport_kw(p_index=2.0)
+    E = _grid(150)
+    gm = si.mass_basis_couplings_model(si.flavor_couplings("tau", 0.1), kw["U_pmns"], "scalar", False)
+    Ft, info = si.propagate_si(E, M=5e6, g_mass=gm, majorana=False, return_diagnostics=True, **kw)
+    bal = (info["final_number"] - info["injected"]) - (info["secondaries_in_grid"] - info["absorbed"])
+    assert abs(bal) < 1e-12 * info["injected"]
+    Fd = si.propagate_si(E, M=5e6, g_mass=gm, majorana=False, dirac_sterile="drop", **kw)
+    assert np.all(np.isfinite(Ft)) and np.all(Ft >= 0) and np.all(Fd >= 0)
+    assert np.all(Ft >= Fd * (1 - 1e-12))
+    assert np.max(Ft.sum(1) / Fd.sum(1)) > 1.05          # sterile secondaries matter below the dips
+    g0 = si.mass_basis_couplings_model(si.flavor_couplings("tau", 1e-30), kw["U_pmns"], "scalar", False)
+    F0 = si.propagate_si(E, M=5e6, g_mass=g0, majorana=False, **kw)
+    assert np.max(np.abs(F0 / si.free_streaming_flux(E, 4.0, H0, 0.315, 0.685, kw["U_pmns"], kw["rho_src"], 2.0, 0.0, 1.0) - 1)) < 1e-12
+
+
+@pytest.mark.parametrize("majorana", [True, False])
+def test_vector_transport(majorana):
+    """Vector coupled to left-handed currents: number balance, positivity, free streaming without
+    coupling, and the forward-peaked regime (1 keV, where nearly every scattering is quasi-elastic)."""
+    kw = _transport_kw()
+    E = _grid(150)
+    for tex, M, g in [("tau", 5e6, 0.1), ("universal", 1e3, 0.1), ("mu", 1e9, 1.0)]:
+        gm = si.mass_basis_couplings_model(si.flavor_couplings(tex, g), kw["U_pmns"], "vector", majorana)
+        F, info = si.propagate_si(E, M=M, g_mass=gm, mediator="vector", majorana=majorana, return_diagnostics=True, **kw)
+        bal = (info["final_number"] - info["injected"]) - (info["secondaries_in_grid"] - info["absorbed"])
+        assert abs(bal) < 1e-9 * info["injected"]
+        assert np.all(np.isfinite(F)) and np.all(F >= -1e-12 * F.max())
+    g0 = si.mass_basis_couplings_model(si.flavor_couplings("tau", 1e-30), kw["U_pmns"], "vector", majorana)
+    F0 = si.propagate_si(E, M=5e6, g_mass=g0, mediator="vector", majorana=majorana, **kw)
+    assert np.max(np.abs(F0 / si.free_streaming_flux(E, 4.0, H0, 0.315, 0.685, kw["U_pmns"], kw["rho_src"], 2.5, 0.0, 1.0) - 1)) < 1e-12
+
+
+def test_vector_cross_sections():
+    """The vector's closed forms: the tensors' channel sums against the integral of
+    vector_dsigma_dt over the final states and both relic components; the narrow-width s channel
+    integrates to 2 pi |G_ra|^2 per relic component (the Z-burst normalization); Dirac = Majorana/2."""
+    from scipy import integrate
+    rng = np.random.default_rng(4)
+    A = rng.normal(size=(3, 3)) + 1j * rng.normal(size=(3, 3))
+    G = 0.2 * (A + A.conj().T)
+    M = 1.0
+    Gam = si.mediator_width(M, G, "vector")
+    Cm, _ = si.vector_tensors(G, True)
+    Cd, _ = si.vector_tensors(G, False)
+    assert np.allclose(Cd, 0.5 * Cm, rtol=0, atol=0)
+    for s in [0.4, 3.0, 30.0]:
+        mu = M * M / s
+        Nq = np.empty(10)
+        si.vector_norms(mu, si._GL24_X, si._GL24_W, Nq)
+        bw = (s - M * M) ** 2 + M * M * Gam ** 2
+        kin = [s / bw, (s - M * M) / bw, 1.0 / s, si.vv_kinematic(s, M * M)]
+        for a, r in [(0, 0), (1, 2)]:
+            tens = sum(si.VECTOR_W[q] * Cm[q, a, r].sum() * kin[si.VECTOR_JT[q]] * Nq[q] for q in range(9))
+            # nu nubar: distinguishable final particles, every ordered (k, l); nu nu: identical-type
+            # particles, the unordered final states (the 1/2 for k = l is in vector_dsigma_dt)
+            quad = 0.0
+            for k in range(3):
+                for l in range(3):
+                    quad += integrate.quad(lambda t: si.vector_dsigma_dt(s, t, M, Gam, G, a, r, k, l, relic="nubar"),
+                                           -s, 0, epsrel=1e-12, limit=200)[0]
+                    if l >= k:
+                        quad += integrate.quad(lambda t: si.vector_dsigma_dt(s, t, M, Gam, G, a, r, k, l, relic="nu"),
+                                               -s, 0, epsrel=1e-12, limit=200)[0]
+            assert abs(tens / quad - 1) < 1e-10
+    g1 = np.zeros((3, 3))
+    g1[0, 0] = 1e-3
+    Gam1 = si.mediator_width(1.0, g1, "vector")
+    val = integrate.quad(lambda s: integrate.quad(lambda t: sum(si.vector_dsigma_dt(s, t, 1.0, Gam1, g1, 0, 0, k, l)
+                                                               for k in range(3) for l in range(3)), -s, 0)[0],
+                         1 - 1e4 * Gam1, 1 + 1e4 * Gam1, points=[1.0], limit=400, epsrel=1e-10)[0]
+    assert abs(val / (2 * np.pi * 1e-6) - 1) < 2e-4
+
+
+@pytest.mark.parametrize("mediator,nu_type", [("scalar", "dirac"), ("vector", "majorana"), ("vector", "dirac")])
+def test_solver_dispatch_new_models(mediator, nu_type):
+    """The solver's flux functions run the Dirac scalar and the vector through dp_si with the
+    model's mass-basis couplings (U^dag G U)."""
+    import dark_portal_solver as dps
+    cfg = {"secret_interactions": {"enabled": True, "mediator": mediator, "neutrino_type": nu_type, "texture": "tau",
+                                   "m_phi_eV": 5e6, "g_phi": 0.05},
+           "grid": {"n_E_bins": 100}, "execution": {"n_cores": 1, "verbose": 0}}
+    E, params = dps.build_solver_params(cfg)
+    F = dps.propagate_weighted(E, params)
+    U = C.construct_PMNS(params["th12"], params["th13"], params["th23"], params["d_cp"])
+    gm = np.conjugate(U).T @ si.flavor_couplings("tau", 0.05) @ U
+    Fm = si.propagate_si(E, params["z_max"], params["H0_eV"], params["Omega_m"], params["Omega_L"], U,
+                         params["m_nu_bg_arr"], params["T_nu0_eV"], np.ones(3),
+                         np.array([params["f_e_S"], params["f_mu_S"], params["f_tau_S"]]), params["p_index"],
+                         params["rho_evol"], params["Phi_0"], 5e6, gm, majorana=(nu_type == "majorana"), mediator=mediator)
+    assert np.allclose(F, Fm @ (np.abs(U) ** 2).T, rtol=1e-12, atol=0)

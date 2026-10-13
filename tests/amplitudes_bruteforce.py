@@ -234,3 +234,23 @@ def dirac_nunubar(s, cos3, M, Gam, h, a, r, k, l, h1, h2, h3, h4):
 def visible(kind, hel):
     """Left-handed neutrinos and right-handed antineutrinos interact through the weak force."""
     return (kind == "nu" and hel < 0) or (kind == "nubar" and hel > 0)
+
+
+def vector_pair_lab_longitudinal(s, cos3, M):
+    """nu_L(p1) nubar_R(p2) -> V(k1) V(k2): |M|^2 with V1 longitudinal in the RELIC rest frame
+    (reached from the CM frame by a boost along the collision axis), summed over V2's polarizations.
+    For a V that is ultrarelativistic there, its longitudinal state is the light-cone polarization
+    eps_0 = k/M - M q/(k.q), q along the relic's momentum p2 (q null: unchanged by that boost)."""
+    p1, p2, k1, k2 = cm_kinematics(s, cos3, M, M)
+    t = mdot(p1 - k1, p1 - k1)
+    uu = mdot(p1 - k2, p1 - k2)
+    e0 = (k1 / M - M * p2 / mdot(k1, p2)).astype(complex)
+    ub = bar(v(p2, +0.5))
+    u1 = u(p1, -0.5)
+    tot = 0.0
+    s1 = slash(np.conj(e0))
+    for e2 in pols(k2, M):
+        s2 = slash(np.conj(e2))
+        amp = ub @ (s2 @ PL @ slash(p1 - k1) @ s1 / t + s1 @ PL @ slash(p1 - k2) @ s2 / uu) @ PL @ u1
+        tot += abs(amp) ** 2
+    return tot, t, uu, mdot(k1, p2)

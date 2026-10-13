@@ -414,7 +414,8 @@ def _flux_setup(E_bins: np.ndarray, params: Dict) -> Dict:
         # Secret interactions (dp_si): no thermal grid, no potentials; the couplings in the mass
         # basis and the relic densities per mass state (the cosmology's eta, as for the dark portal)
         import dp_si
-        g_mass = dp_si.mass_basis_couplings(params['si']['g_flavor'], U_pmns_base)
+        g_mass = dp_si.mass_basis_couplings_model(params['si']['g_flavor'], U_pmns_base, params['si']['mediator'],
+                                                  params['si']['majorana'])
         eta_mass = (np.abs(U_pmns_base) ** 2).T @ np.asarray(eta_bg, dtype=np.float64)
         return dict(si=True, rho_src=rho_src, U_pmns_base=U_pmns_base, g_mass=g_mass, eta_mass=eta_mass)
 
@@ -463,7 +464,8 @@ def _flux_from_setup(E_bins: np.ndarray, params: Dict, setup: Dict, injection,
                                     params['p_index'], params['rho_evol'], params['Phi_0'] * w_tot,
                                     si_p['m_phi_eV'], setup['g_mass'], majorana=si_p['majorana'],
                                     channels=si_p['channels'], phiphi=si_p['phiphi'],
-                                    z_substeps=si_p['z_substeps'], E_extension=si_p['E_extension'])
+                                    z_substeps=si_p['z_substeps'], E_extension=si_p['E_extension'],
+                                    mediator=si_p['mediator'], dirac_sterile=si_p['dirac_sterile'])
         F_fl = np.ascontiguousarray(F_mass @ (np.abs(U) ** 2).T)
         if not np.isfinite(F_fl).all():
             raise ValueError(f"Non-finite flux from the secret-interaction transport at m_phi_eV="
@@ -666,13 +668,14 @@ def build_solver_params(config: Dict) -> Tuple[np.ndarray, Dict]:
     params['si_enabled'] = bool(si_cfg['enabled'])
     if params['si_enabled']:
         mediator = str(si_cfg['mediator']).strip().lower()
-        if mediator != 'scalar':
-            raise ValueError(f"secret_interactions.mediator must be 'scalar' (a vector mediator is not implemented "
-                             f"yet), got {si_cfg['mediator']!r}")
+        if mediator not in ('scalar', 'vector'):
+            raise ValueError(f"secret_interactions.mediator must be 'scalar' or 'vector', got {si_cfg['mediator']!r}")
         nu_type = str(si_cfg['neutrino_type']).strip().lower()
-        if nu_type != 'majorana':
-            raise ValueError(f"secret_interactions.neutrino_type must be 'majorana' (Dirac is not implemented yet), "
-                             f"got {si_cfg['neutrino_type']!r}")
+        if nu_type not in ('majorana', 'dirac'):
+            raise ValueError(f"secret_interactions.neutrino_type must be 'majorana' or 'dirac', got {si_cfg['neutrino_type']!r}")
+        sterile = str(si_cfg['dirac_sterile']).strip().lower()
+        if sterile not in ('track', 'drop'):
+            raise ValueError(f"secret_interactions.dirac_sterile must be 'track' or 'drop', got {si_cfg['dirac_sterile']!r}")
         m_phi, g_phi = float(si_cfg['m_phi_eV']), float(si_cfg['g_phi'])
         if not (m_phi > 0.0 and np.isfinite(m_phi)):
             raise ValueError("secret_interactions.m_phi_eV must be strictly positive.")
@@ -692,8 +695,9 @@ def build_solver_params(config: Dict) -> Tuple[np.ndarray, Dict]:
             raise ValueError("secret_interactions.E_extension must be >= 1.")
         import dp_si
         g_flavor = dp_si.flavor_couplings(si_cfg['texture'], g_phi, si_cfg['g_matrix'])   # validates the texture
-        params['si'] = dict(majorana=True, m_phi_eV=m_phi, g_flavor=g_flavor, channels=channels, phiphi=phiphi,
-                            z_substeps=int(z_sub), E_extension=float(si_cfg['E_extension']))
+        params['si'] = dict(mediator=mediator, majorana=(nu_type == 'majorana'), dirac_sterile=sterile, m_phi_eV=m_phi,
+                            g_flavor=g_flavor, channels=channels, phiphi=phiphi, z_substeps=int(z_sub),
+                            E_extension=float(si_cfg['E_extension']))
 
     params['n_z_bins'] = int(config['grid']['n_z_bins'])
     # The transit to the Earth (2026-10-13, replacing the Milky Way trajectories): directions

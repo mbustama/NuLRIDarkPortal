@@ -120,8 +120,11 @@ def _build_default_config() -> Dict:
             # propagation is dp_si's cosmological transport of decohered mass states (no coherent
             # potential), and the dark_portal section is ignored.
             "enabled": False,
-            "mediator": "scalar",           # 'scalar' (a vector mediator: not yet)
-            "neutrino_type": "majorana",    # 'majorana' (Dirac: not yet)
+            # 'scalar' or 'vector' (coupled to left-handed currents, G nubar gamma^mu P_L nu V_mu)
+            "mediator": "scalar",
+            # 'majorana' or 'dirac'. Dirac, scalar: every vertex has a sterile state (nu_R, nubar_L);
+            # Dirac, vector: half the Majorana rates (only nu_L- and nubar_R-like relic components)
+            "neutrino_type": "majorana",
             "m_phi_eV": 5.0e6,
             "g_phi": 0.01,
             # flavor-basis couplings: 'universal' (g delta_ab), 'e', 'mu', 'tau' (g on that flavor
@@ -134,6 +137,9 @@ def _build_default_config() -> Dict:
             # double-scalar production: 'coherent', ((g^2)_ij)^2, or 'paper', sum_k g_ik^2 g_jk^2 as
             # printed in 2107.13568 (see dp_si)
             "phiphi_coupling": "coherent",
+            # scalar with Dirac neutrinos: 'track' the sterile secondaries, which scatter too and turn
+            # back into visible ones (exact, by parity), or 'drop' them as 2107.13568 does
+            "dirac_sterile": "track",
             # redshift steps per energy bin: steps uniform in ln(1+z), so grid.n_z_bins is unused
             "z_substeps": 1,
             # the transport's grid extends above grid.E_max_eV by this factor, so that what is

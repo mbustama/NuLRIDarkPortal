@@ -8,6 +8,10 @@ for the test suite; run on Tycho (slurm/si_validation.sh). Results go to output/
                                                finest run, spectra and energy-averaged flavor fractions
   python tools/si_validation.py fig5           2107.13568 Fig. 5 (full, s channel, delta function;
                                                coherent and paper double-scalar couplings)
+  python tools/si_validation.py fig3           2107.13568 Fig. 3 (bottom): Majorana against Dirac, the
+                                               sterile secondaries dropped (the paper) and tracked
+  python tools/si_validation.py models         one benchmark's spectrum under the four models (scalar or
+                                               vector mediator, Majorana or Dirac neutrinos)
 """
 import argparse
 import json
@@ -167,15 +171,18 @@ def run_absorption():
 
 def run_convergence():
     kw = _kw()
-    cases = [("tau", 5e6, 0.1), ("tau", 5e6, 0.01), ("universal", 1e5, 0.03), ("e", 1e9, 1.0)]
+    cases = [("tau", 5e6, 0.1, "scalar", True), ("tau", 5e6, 0.01, "scalar", True), ("universal", 1e5, 0.03, "scalar", True),
+             ("e", 1e9, 1.0, "scalar", True), ("tau", 5e6, 0.1, "scalar", False), ("tau", 5e6, 0.1, "vector", True),
+             ("universal", 1e3, 0.03, "vector", True), ("tau", 1e6, 0.01, "vector", False)]
     ladder = [(200, 1), (200, 2), (400, 1), (400, 2), (400, 4), (800, 1), (800, 2)]
     ref_N, ref_q = 1600, 4
     out = []
-    for tex, M, g in cases:
-        gm = si.mass_basis_couplings(si.flavor_couplings(tex, g), U_ANA)
+    for tex, M, g, med, maj in cases:
+        gm = si.mass_basis_couplings_model(si.flavor_couplings(tex, g), U_ANA, med, maj)
+        mk = dict(mediator=med, majorana=maj)
         Er = _grid(ref_N)
         t0 = time.time()
-        Fr = si.propagate_si(Er, M=M, g_mass=gm, z_substeps=ref_q, **kw)
+        Fr = si.propagate_si(Er, M=M, g_mass=gm, z_substeps=ref_q, **mk, **kw)
         t_ref = time.time() - t0
         F0r = si.free_streaming_flux(Er, 4.0, H0, OM, OL, U_ANA, RHO, 2.5, 0.0, 1.0)
         rr = Fr.sum(1) / F0r.sum(1)
@@ -184,14 +191,14 @@ def run_convergence():
         for N, q in ladder:
             E = _grid(N)
             t0 = time.time()
-            F = si.propagate_si(E, M=M, g_mass=gm, z_substeps=q, **kw)
+            F = si.propagate_si(E, M=M, g_mass=gm, z_substeps=q, **mk, **kw)
             dtm = time.time() - t0
             r = F.sum(1) / si.free_streaming_flux(E, 4.0, H0, OM, OL, U_ANA, RHO, 2.5, 0.0, 1.0).sum(1)
             d = np.abs(r - np.interp(np.log(E), np.log(Er), rr))[(E > 1.2e13) & (E < 1e16)]
             rows.append(dict(N=N, q=q, time_s=dtm, max_dev=float(d.max()), median_dev=float(np.median(d)),
                              fraction_dev=float(np.max(np.abs(_fractions(E, F, U_ANA) - fr_ref)))))
-            print(tex, M, g, rows[-1], flush=True)
-        out.append(dict(texture=tex, M_eV=M, g=g, reference=dict(N=ref_N, q=ref_q, time_s=t_ref,
+            print(med, "Majorana" if maj else "Dirac", tex, M, g, rows[-1], flush=True)
+        out.append(dict(mediator=med, majorana=maj, texture=tex, M_eV=M, g=g, reference=dict(N=ref_N, q=ref_q, time_s=t_ref,
                                                                     fractions=fr_ref.tolist()), ladder=rows))
     _save("convergence", dict(note="all-flavor flux over free streaming vs the 1600-bin, 4-substep run "
                                     "(pointwise, 1.2e4-1e7 GeV) and energy-averaged flavor fractions", cases=out))
@@ -243,11 +250,76 @@ def run_fig5():
     print("wrote", os.path.join(OUT, "fig5.png"))
 
 
+# =============================================================================
+# 2107.13568 Fig. 3 (bottom): Majorana against Dirac
+# =============================================================================
+
+def _paper_setup():
+    from scipy.optimize import brentq
+    U = C.construct_PMNS(np.radians(33.44), np.radians(8.57), np.radians(49.2), np.radians(197.0))
+    m1 = brentq(lambda m: C.get_mass_eigenvalues(m, 7.42e-5, 2.517e-3, "normal").sum() - 0.1, 1e-6, 0.1)
+    return U, C.get_mass_eigenvalues(m1, 7.42e-5, 2.517e-3, "normal")
+
+
+def run_fig3():
+    U, masses = _paper_setup()
+    kw = _kw(U=U, masses=masses, p_index=2.0)
+    E = _grid(400)
+    F0 = si.free_streaming_flux(E, 4.0, H0, OM, OL, U, RHO, 2.0, 0.0, 1.0).sum(1)
+    curves = {}
+    for label, maj, mode in [("Majorana", True, "track"), ("Dirac, sterile dropped (the paper)", False, "drop"),
+                             ("Dirac, sterile tracked", False, "track")]:
+        gm = si.mass_basis_couplings_model(si.flavor_couplings("tau", 0.01), U, "scalar", maj)
+        F = si.propagate_si(E, M=5e6, g_mass=gm, majorana=maj, dirac_sterile=mode, **kw)
+        curves[label] = (F.sum(1) / F0).tolist()
+    _save("fig3", dict(note="2107.13568 Fig. 3 (bottom): nu_tau, M = 5 MeV, g = 0.01, E^-2, sum m = 0.1 eV NO", E_eV=E.tolist(),
+                       curves=curves))
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    fig, ax = plt.subplots(figsize=(6, 3.8))
+    for (label, cv), ls in zip(curves.items(), ["-", "--", ":"]):
+        ax.plot(E / 1e9, cv, ls, color="C3", label=label)
+    ax.axhline(1, color="gray", lw=0.5)
+    ax.set_xscale("log")
+    ax.set_xlim(1e4, 1e6)
+    ax.set_ylim(0, 1.6)
+    ax.set_xlabel(r"$E_\nu$ [GeV]")
+    ax.set_ylabel(r"$E^2\,d\Phi/dE$ / no $\nu$SI")
+    ax.legend(fontsize=8)
+    ax.set_title(r"$\nu_\tau$, $M_\phi$ = 5 MeV, g = 0.01, $\Sigma m_\nu$ = 0.1 eV (NO); cf. 2107.13568 Fig. 3", fontsize=9)
+    fig.tight_layout()
+    fig.savefig(os.path.join(OUT, "fig3.png"), dpi=120)
+    print("wrote", os.path.join(OUT, "fig3.png"))
+
+
+# =============================================================================
+# the four models on one benchmark
+# =============================================================================
+
+def run_models():
+    kw = _kw()
+    E = _grid(400)
+    F0 = si.free_streaming_flux(E, 4.0, H0, OM, OL, U_ANA, RHO, 2.5, 0.0, 1.0)
+    out = {}
+    for M, g in [(5e6, 0.03), (1e5, 0.01)]:
+        for med, maj in [("scalar", True), ("scalar", False), ("vector", True), ("vector", False)]:
+            gm = si.mass_basis_couplings_model(si.flavor_couplings("tau", g), U_ANA, med, maj)
+            F = si.propagate_si(E, M=M, g_mass=gm, mediator=med, majorana=maj, **kw)
+            out[f"{med}_{'majorana' if maj else 'dirac'}_M{M:g}_g{g:g}"] = dict(
+                ratio=(F.sum(1) / F0.sum(1)).tolist(), fractions=_fractions(E, F, U_ANA).tolist())
+            print(med, maj, M, g, out[f"{med}_{'majorana' if maj else 'dirac'}_M{M:g}_g{g:g}"]["fractions"], flush=True)
+    _save("models", dict(note="nu_tau couplings, pion sources E^-2.5, z <= 4, analysis mixing; all-flavor flux / free "
+                              "streaming and energy-averaged fractions", E_eV=E.tolist(),
+                         fractions_free=_fractions(E, F0, U_ANA).tolist(), runs=out))
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("what", nargs="+", choices=["absorption", "convergence", "fig5"])
+    ap.add_argument("what", nargs="+", choices=["absorption", "convergence", "fig5", "fig3", "models"])
     args = ap.parse_args()
     for w in args.what:
         t0 = time.time()
-        {"absorption": run_absorption, "convergence": run_convergence, "fig5": run_fig5}[w]()
+        {"absorption": run_absorption, "convergence": run_convergence, "fig5": run_fig5, "fig3": run_fig3,
+         "models": run_models}[w]()
         print(f"{w}: {time.time() - t0:.0f} s", flush=True)
