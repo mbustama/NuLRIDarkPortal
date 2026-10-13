@@ -1816,7 +1816,7 @@ of $z_{\max} = 4$ to $z_{\max} = 1$, 16\% off before).
 (Sec.~\ref{sec:si_validation}) survived every check of the Dirac physics. Their code, nuSIprop, run on
 Tycho, reproduces their figure, and with the standard weighting (equivalent to our
 \texttt{rho\_evol = 1} before the fix) our transport matches it, Majorana and Dirac alike
-(Table~\ref{tab:source_checks}).
+(Table~\ref{tab:source_checks}, Fig.~\ref{fig:si_nusiprop}).
 
 \textit{Independent checks.}---(i) A Monte Carlo of $2\times10^7$ neutrinos emitted in cosmic time at
 the rate $R(z)$ and redshifted one by one: the emission redshifts of those arriving in one energy bin
@@ -1851,6 +1851,15 @@ Ours, standard weighting & 1.442 & 1.204 & 1.111 & 0.911 \\
 At $g = 0.1$ (their Fig.~5; without double-scalar production) our corrected transport agrees with
 nuSIprop extrapolated in the bin width to 1\% from 10~TeV to 10~PeV; the old weighting was off by up
 to 35\%.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{../output/figures/si_nusiprop_comparison.png}
+\caption{\textbf{Against nuSIprop}, the code of 2107.13568, with its inputs: its Fig.~3 (Majorana and
+Dirac, $g = 0.01$) and Fig.~5 ($g = 0.1$, without double-scalar production), nuSIprop at 300 and 600
+bins against our transport with the corrected source weighting and with the old one.}
+\label{fig:si_nusiprop}
+\end{figure}
 
 \textit{Effect.}---Without interactions the flux is a pure power law either way, and the flavor
 composition does not depend on the weighting; with them, weight moves to higher redshift, where the
