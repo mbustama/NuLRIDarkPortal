@@ -1,7 +1,8 @@
 # Plan: per-direction output and Galactic sources
 
 Status: **agreed 2026-10-13** (decisions D1-D6 answered by Mauricio: bands + N_side 16; CRINGE + pi0;
-full 3-D emission; Sun diagnostic first; all downloads on Tycho; x_gal floated). Nothing implemented yet. Written after four read-only surveys: the
+full 3-D emission; Sun diagnostic first; all downloads on Tycho; x_gal floated). Steps 1-5 implemented
+(2026-10-13; outcomes of D4 and step 5 in Section 9). Written after four read-only surveys: the
 solver's direction handling (this repository), the literature on Galactic diffuse neutrinos, the
 literature on new physics with directions, and the sibling projects' directional data
 (`../NuAnisotropy`, `../NuFlavorSingleSource`, `../toise`, `../PLEnuM`). Every physics choice below
@@ -450,6 +451,30 @@ on its own.
 - **D4 outcome (2026-10-13):** the yearly per-direction Sun weighting changes per-pixel energy-averaged
   flavor fractions by <= 1.2e-3 (twelve points across the Sun's window; tools/sun_anisotropy.py):
   the Sun stays isotropic; single-path transits (sun_path_cos) and dp_sky.sun_path_weights remain.
+- **Step 5 outcome (2026-10-13): the templates and their conventions, checked against IceCube.** Reduced
+  on Tycho (tools/prepare_galactic.py; src/data/galactic_cringe.npz, galactic_pi0.npz; N_side 16,
+  72 GeV-1e8 GeV). Frames read off the maps: CRINGE is Galactic (55.7% of the 100-TeV flux at |b| < 5 deg,
+  4.9% if read as equatorial); IceCube's pi0 template is equatorial; toise's copy of it is Galactic and,
+  rotated by dp_sky, correlates 0.997 with IceCube's. Conventions: per flavor, nu + nubar, for both
+  (CRINGE's record; its Eq. 12 is the pp per-flavor relation; IceCube's README); the pi0 model flux is
+  E^2 Phi(100 TeV) = 4.4e-12 TeV cm^-2 s^-1 sky-integrated per flavor ([IC26] supplement; the 2023 fit
+  21.8e-12 is 4.95 times it, so [GP23] and [IC26] share the convention, settling the trap of Section 10).
+  **Finding: IceCube's "CRINGE" is the diffuse map plus CRINGE's unresolved-source map**
+  (Neutrino_Unresolved_Fiducial_256): times 0.91 the sum lies on [IC26] Fig. 4's inner-Galaxy curve to
+  0.1-0.25% from 3 to 37 TeV, the diffuse map alone at 28-54% of it; pi0 x 4.99 lies on its curve to
+  0.47% (Fig. 4 read from its SVG path coordinates: src/data/ic26_fig4_digitized.json; test T6 in
+  tests/test_galactic.py). The unresolved sources carry 75% of CRINGE's sky-integrated flux at 100 TeV.
+  **Consequence for step 6:** the emission distances must mix two distributions per pixel and energy:
+  gas x cosmic rays for the diffuse share, the source distribution for the unresolved share (CRINGE's
+  unresolved sources follow Ferriere 2001 [Fer01]; to be read from the CRINGE paper before step 6), the
+  latter dominating above ~30 TeV -- the "unresolved-source variant" of Section 3.6 becomes the main
+  term, not a systematic. Implemented: dp_galactic (templates, interpolation, composition (x, 1 - x, 0),
+  averaged transfer), propagate_sky's Galactic component (secret interactions: unattenuated, averaged
+  oscillations; dark portal, emission 'local': emitted at the local potential, decohered into the local
+  eigenstates by dp_transit.flavor_populations, then the Sun and the Earth per band). Checks: the
+  transfer conserves the flux to 3e-14; the vacuum limit is the averaged oscillation to 1e-12 with the
+  Earth's standard matter potential off, and with it on moves the bands through the Earth by the MSW
+  effect on the arriving mass-state mixture (2.4e-5 at 10 TeV through the core, falling as 1/E).
 - **D4, the Sun per direction.** Keep the isotropic Sun average now and measure the anisotropy it would
   produce in its window (Recommended); or implement the yearly per-direction weighting now.
 - **D5, downloads on Tycho.** CRINGE (Zenodo 7859442), the 3-D gas (Zenodo 12578443) and IceCube's
@@ -459,10 +484,11 @@ on its own.
 
 ## 10. Unverified items and risks
 
-- The per-flavor normalization convention of [GP23] (supplement versus Eq. 5): settle with the release
-  notebooks before quoting numbers (test T6 depends on it).
-- CRINGE map frame (Galactic expected) and exact file sizes; the URL of IceCube's 2026 template release
-  [IC26] was not found.
+- ~~The per-flavor normalization convention of [GP23]~~ settled 2026-10-13: per flavor, nu + nubar, as
+  the release notebook states; [IC26] Fig. 4 is labelled the same way and our templates reproduce it
+  (Section 9, step 5 outcome).
+- ~~CRINGE map frame~~ Galactic (read off the map, step 5). The URL of IceCube's 2026 template release
+  [IC26] was not found; its CRINGE is diffuse + unresolved sources (step 5 outcome).
 - Whether the Fermi 2012 supplement [Fer12] is still online (the toise copy covers the pi0 map).
 - Whether the DR2 / point-source effective areas include Earth absorption explicitly ([PS10] defines
   rates with A_eff but does not say; [HESE21] does for HESE); needed for the event-rate step, not here.

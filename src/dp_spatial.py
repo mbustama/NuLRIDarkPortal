@@ -1422,7 +1422,7 @@ def _run_spatial_tasks(worker_fn, tasks, desc, n_workers, show_progress, externa
 def transit_to_earth(E_bins: np.ndarray, F_mass_arrival: np.ndarray, M_rot: np.ndarray,
                      U_LRI_struct: np.ndarray, Coef: float, m_eff: float, n_n0_eV3: float,
                      R_H_eV_inv: float, earth_yk, n_sun_paths: int = 8,
-                     transit_dtheta: float = 0.002, sun_path_cos=None):
+                     transit_dtheta: float = 0.002, sun_path_cos=None, arrival: str = "eigen"):
     """The transit from the cosmological arrival to the sphere r = r_split around the Earth
     (dp_transit's module notes): the adiabatic Galactic map at the Yukawa-smoothed local
     density, the coherent transit through the Sun's potential (n_sun_paths directions) and the
@@ -1434,7 +1434,11 @@ def transit_to_earth(E_bins: np.ndarray, F_mass_arrival: np.ndarray, M_rot: np.n
     n_sun_paths; transit_dtheta -- the frame table's spacing (dp_transit.build_frame_table);
     sun_path_cos -- None (the isotropic Gauss-Legendre average over n_sun_paths directions) or the
     cosine of one angle to the Sun, for that single path (per-direction Sun weighting: the average is
-    linear, so the paths' results weighted by w_p return the isotropic one; DIRECTIONS_PLAN step 4).
+    linear, so the paths' results weighted by w_p return the isotropic one; DIRECTIONS_PLAN step 4);
+    arrival -- 'eigen' (F_mass_arrival as above) or 'flavor': F_mass_arrival holds instead the flavor
+    fractions of neutrinos emitted inside the Galaxy at the local potential, which reach the Sun
+    decohered in the local eigenstates (dp_transit.flavor_populations; the Galactic component,
+    DIRECTIONS_PLAN step 5).
 
     Returns (rho (N_E, 3, 3) at r_split, n_amb_eV3 -- the ambient density the chords add:
     Galaxy, Sun and Moon at the Earth -- and a dict of diagnostics).
@@ -1452,10 +1456,17 @@ def transit_to_earth(E_bins: np.ndarray, F_mass_arrival: np.ndarray, M_rot: np.n
         n_moon = N_n_moon * (m_eff**2) / (4.0 * np.pi * d_moon_eV_inv) * np.exp(-m_eff * d_moon_eV_inv)
     n_bg = n_gal + n_moon
     N_E = len(E_bins)
+    E_c = np.ascontiguousarray(E_bins, dtype=np.float64)
+    F_arr = np.ascontiguousarray(F_mass_arrival, dtype=np.float64)
+    if arrival == "flavor":
+        F_pop = np.empty_like(F_arr)
+        dp_transit.flavor_populations(E_c, F_arr, 2.0 * coef_abs, n_bg, tab["Q"], tab["Mp"], tab["s"],
+                                      tab["floor"], F_pop)
+        F_arr = F_pop
+    elif arrival != "eigen":
+        raise ValueError(f"arrival must be 'eigen' or 'flavor', got {arrival!r}")
     rho = np.empty((N_E, 3, 3), dtype=np.complex128)
-    dp_transit.galactic_map(np.ascontiguousarray(E_bins, dtype=np.float64),
-                            np.ascontiguousarray(F_mass_arrival, dtype=np.float64), 2.0 * coef_abs, n_bg,
-                            tab["Q"], tab["Mp"], tab["s"], tab["floor"], rho)
+    dp_transit.galactic_map(E_c, F_arr, 2.0 * coef_abs, n_bg, tab["Q"], tab["Mp"], tab["s"], tab["floor"], rho)
     if sun_path_cos is None:
         ca, w = dp_transit.sun_paths(n_sun_paths)
     else:
@@ -1493,7 +1504,7 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
                             earth_zenith_average: str = "plain",
                             earth_sky: str = "up",
                             earth_band_costh=None, earth_nodes_per_band: int = 2,
-                            sun_path_cos=None):
+                            sun_path_cos=None, arrival: str = "eigen"):
     """
     The spatial handover: from the cosmological arrival to the detector, through the Galaxy,
     the Sun, the Earth's exterior and the Earth (transit_to_earth, then the chords). Earth
@@ -1538,6 +1549,9 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
         (average_earth_chords_bands; per-direction output, docs/dev/DIRECTIONS_PLAN.md step 2).
       sun_path_cos: None (the Sun averaged isotropically, as always) or one cosine of the angle to the
         Sun: the transit along that single path (transit_to_earth), for per-direction Sun weighting.
+      arrival: 'eigen' (F_mass_arrival as above, the extragalactic flux) or 'flavor' (F_mass_arrival holds
+        the flavor fractions of neutrinos emitted inside the Galaxy at the local potential: the Galactic
+        component, transit_to_earth).
 
     Returns: (N_E, 3) flavor fluxes at the detector depth; with earth_band_costh, the tuple
     (whole-sky (N_E, 3), per band (N_b, N_E, 3)).
@@ -1651,7 +1665,8 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
         safe_print(f"\n--- Spatial Handover Commencing ({lbl}) ---")
     rho_surf_avg, n_n_amb_eV3, tinfo = transit_to_earth(
         E_bins, F_mass_arrival, M_rot, U_LRI_struct, Coef, m_eff, n_n0_eV3, R_H_eV_inv, earth_yk,
-        n_sun_paths=n_sun_paths, transit_dtheta=transit_dtheta, sun_path_cos=sun_path_cos)
+        n_sun_paths=n_sun_paths, transit_dtheta=transit_dtheta, sun_path_cos=sun_path_cos,
+        arrival=arrival)
     if verbose == 2:
         safe_print(f"Transit to the Earth: Galactic density {tinfo['n_gal_eV3']:.3e} eV^3, Sun "
                    f"{tinfo['n_sun_eV3']:.3e} eV^3 ({tinfo['n_active_sun']} bins coherent), Earth's "

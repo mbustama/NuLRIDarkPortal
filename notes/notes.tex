@@ -1193,6 +1193,46 @@ the yearly per-direction weighting minus the isotropic Sun average, per HEALPix 
 \label{fig:sun_aniso}
 \end{figure}
 
+\textit{The Galactic templates (decision D2).}---Two templates, each in IceCube's convention (per
+flavor, $\nu+\bar\nu$; the release README of doi:10.21234/8v5d-rn16) and reduced on Tycho to
+equatorial $N_{\rm side} = 16$ maps from 72~GeV to $10^8$~GeV (\file{tools/prepare_galactic.py}):
+CRINGE (Schwefer, Mertsch \& Wiebusch 2023, Zenodo 7859442) and the Fermi-LAT $\pi^0$ template with
+$E^{-2.7}$, whose model flux is $E^2\Phi(100~{\rm TeV}) = 4.4\times10^{-12}$~TeV~cm$^{-2}$~s$^{-1}$,
+sky-integrated per flavor (arXiv:2607.25966, supplement). The frames are read off the maps (CRINGE is
+Galactic, IceCube's $\pi^0$ map equatorial; toise's Galactic copy of the latter, rotated by our code,
+correlates with it at 0.997). The test is IceCube's own fit: times its 2026 normalizations (0.91 for
+CRINGE, 4.99 for $\pi^0$) our inner-Galaxy spectra ($|b| < 15^\circ$, $|l| < 20^\circ$) lie on the curves
+of arXiv:2607.25966 Fig.~4, read from the figure's SVG path coordinates, to 0.25\% and 0.47\%
+(Fig.~\ref{fig:galactic_templates}). That test exposed what IceCube calls CRINGE: the diffuse map
+\emph{plus} CRINGE's unresolved-source map. The diffuse map alone reaches only 28--54\% of the fitted
+curve, and is softer; the unresolved sources carry 75\% of the sky-integrated flux at 100~TeV and
+dominate the inner Galaxy above $\sim$30~TeV. For the dark portal's emission points (plan step 6) this
+makes the source distribution, not the gas, the main term above 30~TeV.
+
+\textit{The Galactic component.}---We keep each template's all-flavor total and apply our own physics
+(\file{src/dp_galactic.py}): sources of composition $(x, 1-x, 0)$ (decision D6, $x$ floated on its
+own; $1/3$ for pion decay), $\nu:\bar\nu = 1:1$. Under secret interactions the Galactic flux is
+unattenuated (the Galactic relic column is $\sim$$10^{-5}$ of the cosmological one) with oscillations
+averaged over kiloparsecs. For the dark portal, emission at the local potential (the 3-D emission points
+come in step 6): the flavors decohere into the local eigenstates, populations $\sum_\alpha
+f_\alpha|W_{\alpha k}|^2$, and from there cross the Sun and the Earth as the extragalactic flux does, per
+declination band. \file{propagate_sky} returns the component in physical units next to the extragalactic
+one. Checks (\file{tests/test_galactic.py}): the transfer conserves the flux to $3\times10^{-14}$ and is
+linear in $x$; without the dark potential it is the averaged oscillation to $10^{-12}$; with the Earth's
+standard matter potential on, the bands through the Earth move by the MSW effect on the arriving
+mass-state mixture, $2.4\times10^{-5}$ at 10~TeV through the core and falling as $1/E$.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{../output/figures/galactic_templates.png}
+\caption{\textbf{The Galactic templates.} Top: CRINGE (diffuse plus unresolved sources) times 0.91 at
+30~TeV, equatorial, with the 20 declination bands. Bottom left: inner-Galaxy spectra, ours (lines)
+against IceCube's 2026 best fits (circles, arXiv:2607.25966 Fig.~4) and its all-sky astrophysical flux
+(grey); the dotted line is CRINGE's diffuse map alone. Bottom right: the band means the per-band output
+carries.}
+\label{fig:galactic_templates}
+\end{figure}
+
 \section{Planned work}
 \label{sec:plan}
 

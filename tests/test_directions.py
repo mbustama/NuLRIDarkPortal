@@ -207,7 +207,8 @@ def test_propagate_sky_secret_interactions_isotropic():
 
 
 def test_sky_and_galactic_config():
-    """Defaults keep today's behaviour; values are validated; the Galactic component is not wired yet."""
+    """Defaults keep today's behaviour; values are validated; the dark portal's Galactic emission '3d' (the
+    default) is step 6 (tests/test_galactic.py covers the component)."""
     E, params = dps.build_solver_params({"execution": {"verbose": 0}})
     assert params["sky"]["output"] == "allsky" and params["galactic"]["enabled"] is False
     assert params["galactic"]["template"] == "cringe" and abs(params["galactic"]["f_e_S_gal"] - 1 / 3) < 1e-5

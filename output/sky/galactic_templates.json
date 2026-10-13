@@ -1,0 +1,34 @@
+{
+ "note": "T6: per-flavor nu + nubar E^2 Phi (GeV cm^-2 s^-1 sr^-1) averaged over |b| < 15 deg, |l| < 20 deg, against arXiv:2607.25966 Fig. 4",
+ "ratios": {
+  "cringe vs IceCube cringe": {
+   "min": 1.0011867014135416,
+   "max": 1.0025139046897844,
+   "E_range_GeV": [
+    3275.53,
+    36592.24
+   ]
+  },
+  "cringe_diffuse vs IceCube cringe": {
+   "min": 0.2770421110587879,
+   "max": 0.5360596984873996,
+   "E_range_GeV": [
+    3275.53,
+    36592.24
+   ]
+  },
+  "pi0 vs IceCube pi0": {
+   "min": 1.0046321591574439,
+   "max": 1.004685411913936,
+   "E_range_GeV": [
+    1469.9,
+    22284.03
+   ]
+  }
+ },
+ "cringe_south_fraction_30TeV": 0.6310194534526291,
+ "cringe_unresolved_share_sky_100TeV": 0.7524932893095032,
+ "cringe_diffuse_south_fraction_30TeV": 0.5827426259534874,
+ "pi0_south_fraction_30TeV": 0.5564997156907384,
+ "commit": "6ccd8a9"
+}

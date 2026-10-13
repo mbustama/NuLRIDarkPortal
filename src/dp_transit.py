@@ -753,6 +753,23 @@ def galactic_map(E_bins, F, coef2, n_bg, Q, Mp, s, floor, rho_out):
 
 
 @njit(cache=True, parallel=True)
+def flavor_populations(E_bins, F_flavor, coef2, n_bg, Q, Mp, s, floor, F_out):
+    """Neutrinos emitted inside the Galaxy at the local potential (docs/dev/DIRECTIONS_PLAN.md,
+    Section 3.6, emission 'local'): flavor fractions F_flavor (N_E, 3) decohere over the kpc to the
+    Sun into the local eigenstates (ascending eigenvalues, sigma = E coef2 n_bg), with populations
+    F_out[i, k] = sum_a F_flavor[i, a] |W[a, k]|^2 -- the input galactic_map expects."""
+    for i in prange(len(E_bins)):
+        vals = np.empty(3)
+        W = np.empty((3, 3), dtype=np.complex128)
+        frame_at(Q, Mp, s, floor, E_bins[i] * coef2 * n_bg, vals, W)
+        for k in range(3):
+            acc = 0.0
+            for a in range(3):
+                acc += F_flavor[i, a] * (W[a, k].real ** 2 + W[a, k].imag ** 2)
+            F_out[i, k] = acc
+
+
+@njit(cache=True, parallel=True)
 def nearfield_transit(E_bins, rho_in, active, coef2, n_bg, C, m, D, ca, w, t_max, sig_nodes,
                       nu_nodes, W_nodes, K_nodes, Q, Mp, s, floor, glx, glw, rho_out):
     """March every active energy bin along the paths ca[p] (weights w[p], starts t_max[p]) of

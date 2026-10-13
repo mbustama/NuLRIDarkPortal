@@ -162,14 +162,17 @@ def _build_default_config() -> Dict:
             "sun_weighting": "isotropic"
         },
         "galactic": {
-            # The Galactic-plane component (DIRECTIONS_PLAN Sections 3.4-3.6), off by default:
-            # template 'cringe' (Schwefer, Mertsch, Wiebusch 2023) or 'pi0' (Fermi-LAT 2012);
-            # norm_gal in units of the template's model flux (0.91: IceCube's 2026 combined fit to
-            # CRINGE); source composition (f_e_S_gal, 1 - f_e_S_gal, 0), floated on its own (D6);
-            # emission '3d' (emission points along each line of sight, D3) or 'local'.
+            # The Galactic-plane component (DIRECTIONS_PLAN Sections 3.4-3.6; dp_galactic), off by
+            # default: template 'cringe' (Schwefer, Mertsch, Wiebusch 2023: diffuse plus unresolved
+            # sources, as IceCube fits it), 'cringe_diffuse' (the diffuse part) or 'pi0' (Fermi-LAT
+            # 2012, E^-2.7); norm_gal in units of the template's model flux, None = IceCube's 2026
+            # combined fit (0.91 for CRINGE, 4.99 for pi0; 1 for cringe_diffuse); source composition
+            # (f_e_S_gal, 1 - f_e_S_gal, 0), floated on its own (D6); emission '3d' (emission points
+            # along each line of sight, D3; step 6) or 'local' (at the local potential). Read by
+            # propagate_sky only; secret interactions leave the Galactic flux unattenuated.
             "enabled": False,
             "template": "cringe",
-            "norm_gal": 0.91,
+            "norm_gal": None,
             "f_e_S_gal": 0.333333,
             "emission": "3d"
         },
