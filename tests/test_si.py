@@ -365,3 +365,146 @@ def test_solver_dispatch_and_analysis_model():
                 {"channels": "t"}, {"z_substeps": 0}]:
         with pytest.raises(ValueError):
             dps.build_solver_params({"secret_interactions": dict(enabled=True, **bad)})
+
+
+# =============================================================================
+# Brute-force amplitudes (tests/amplitudes_bruteforce.py): explicit Dirac matrices and spinors,
+# Majorana fermions by the fermion-flow rules of Denner et al. -- independent of every closed form
+# =============================================================================
+
+sys.path.insert(0, os.path.dirname(__file__))
+
+
+def test_bruteforce_reproduces_textbook_qed():
+    """The brute-force engine itself: Bhabha (LR -> LR) and Moller (LL -> LL) by photon exchange
+    give 4 e^4 u^2 (1/s + 1/t)^2 and 4 e^4 s^2 (1/t + 1/u)^2."""
+    import amplitudes_bruteforce as B
+    for s, c in [(7.0, 0.3), (2.0, -0.6)]:
+        m2, t, u = B.vector_nunubar(s, c, 1e-9, 1.0, 1.0)
+        assert abs(m2 / (4 * u * u * (1 / s + 1 / t) ** 2) - 1) < 1e-12
+        m2, t, u = B.vector_nunu(s, c, 1e-9, 1.0, 1.0)
+        assert abs(m2 / (4 * s * s * (1 / t + 1 / u) ** 2) - 1) < 1e-12
+
+
+def test_bruteforce_vector_mediator():
+    """A vector coupled to left-handed currents, any complex couplings: nu nubar -> nu nubar is
+    4 u^2 |A_s/(s - M^2) + A_t/(t - M^2)|^2, nu nu -> nu nu is 4 s^2 |A_t/(t - M^2) + A_u/(u - M^2)|^2,
+    and nu nubar -> V V is 4 [t/u + u/t + 4 M^2 s/(t u) - M^4 (1/t^2 + 1/u^2)]."""
+    import amplitudes_bruteforce as B
+    rng = np.random.default_rng(1)
+    for s, c, M in [(7.0, 0.3, 1.3), (0.3, 0.1, 1.0), (40.0, 0.9, 2.0)]:
+        As, At, Au = rng.normal(size=3) + 1j * rng.normal(size=3)
+        m2, t, u = B.vector_nunubar(s, c, M, As, At)
+        assert abs(m2 / (4 * u * u * abs(As / (s - M * M) + At / (t - M * M)) ** 2) - 1) < 1e-12
+        m2, t, u = B.vector_nunu(s, c, M, At, Au)
+        assert abs(m2 / (4 * s * s * abs(At / (t - M * M) + Au / (u - M * M)) ** 2) - 1) < 1e-12
+    for s, c, M in [(4.5, -0.2, 1.0), (1e4, 0.95, 3.0)]:
+        m2, t, u = B.vector_pair(s, c, M)
+        br = t / u + u / t + 4 * M * M * s / (t * u) - M ** 4 * (1 / t ** 2 + 1 / u ** 2)
+        assert abs(m2 / (4 * br) - 1) < 1e-12
+
+
+def test_bruteforce_scalar_majorana():
+    """Majorana neutrinos, scalar exchange: Eq. (A12) for real couplings; for complex ones the
+    generalization of dsigma_dt_scalar_majorana including its CP-odd term (cp = -1 for an incident
+    neutrino, +1 for an antineutrino); double-scalar production with the coherent factor."""
+    import amplitudes_bruteforce as B
+    rng = np.random.default_rng(5)
+    M, Gam = 1.0, 0.05
+    A = rng.normal(size=(3, 3)) + 1j * rng.normal(size=(3, 3))
+    for lam in (0.4 * (A.real + A.real.T), 0.4 * (A + A.T)):
+        for h1, cp in [(-0.5, -1), (0.5, 1)]:
+            for s, c in [(0.7, 0.2), (1.02, -0.5), (9.0, 0.8)]:
+                for (i, j, k, l) in [(0, 0, 0, 0), (0, 1, 2, 2), (1, 2, 0, 1)]:
+                    bf, t = B.majorana_dsigma_dt(s, c, M, Gam, lam, i, j, k, l, h1=h1)
+                    an = si.dsigma_dt_scalar_majorana(s, t, M, Gam, lam, i, j, k, l, cp=cp)
+                    assert abs(bf / an - 1) < 1e-12
+    lam = 0.4 * (A + A.T)
+    for s, c in [(5.0, 0.3), (40.0, -0.7)]:
+        for (i, j) in [(0, 0), (0, 2)]:
+            bf, t = B.majorana_phiphi(s, c, M, lam, i, j)
+            assert abs(bf / si.dsigma_dt_scalar_majorana_phiphi(s, t, M, lam, i, j, mode="coherent") - 1) < 1e-12
+
+
+def _dirac_secondaries_bruteforce(B, s, x, M, Gam, h, a, r, h1=-0.5):
+    """Visible and invisible secondaries of each mass state at energy fraction x for an incident
+    nu_a of helicity h1 on unpolarized relic nu_r and nubar_r (weight 1/2 each in units of the
+    density per helicity), and the absorption density."""
+    HS = (-0.5, 0.5)
+    vis, inv, tot = np.zeros(3), np.zeros(3), 0.0
+    for h2 in HS:
+        for k in range(3):
+            for l in range(3):
+                for h3 in HS:
+                    for h4 in HS:
+                        d = abs(B.dirac_nunu(s, 2 * x - 1, M, h, a, r, k, l, h1, h2, h3, h4)[0]) ** 2 / (32 * np.pi * s)
+                        tot += 0.5 * d
+                        (vis if B.visible("nu", h3) else inv)[k] += d
+                        d = abs(B.dirac_nunubar(s, 2 * x - 1, M, Gam, h, a, r, k, l, h1, h2, h3, h4)[0]) ** 2 / (32 * np.pi * s)
+                        tot += d
+                        (vis if B.visible("nu", h3) else inv)[k] += d
+                        d = abs(B.dirac_nunubar(s, 1 - 2 * x, M, Gam, h, a, r, k, l, h1, h2, h3, h4)[0]) ** 2 / (32 * np.pi * s)
+                        (vis if B.visible("nubar", h4) else inv)[l] += d
+    return vis, inv, tot
+
+
+def _dirac_secondaries_closed(s, x, M, Gam, h, a, r):
+    """The derived Dirac coefficients (CP-even): number densities of visible and invisible nu_c at x."""
+    H = h @ h.conj().T
+    M2 = M * M
+    mu = M2 / s
+    bw = (s - M2) ** 2 + M2 * Gam ** 2
+    P = [1.0, (1 - x) ** 2 / ((1 - x) + mu) ** 2, x ** 2 / (x + mu) ** 2, (1 - x) / ((1 - x) + mu),
+         x * (1 - x) / ((x + mu) * (1 - x + mu)), x / (x + mu)]
+    kin = [s / bw, 1 / s, 1 / s, (s - M2) / bw, 1 / s, (s - M2) / bw]
+    p16 = 16 * np.pi
+    vis, inv = np.zeros(3), np.zeros(3)
+    for c in range(3):
+        Cv = [abs(h[a, r]) ** 2 * H[c, c].real / p16, 0.0, H[a, a].real * abs(h[r, c]) ** 2 / p16, 0.0, 0.0,
+              (h[r, a] * np.conj(h[r, c]) * H[a, c]).real / p16]
+        Ci = [abs(h[a, r]) ** 2 * H[c, c].real / p16, abs(h[c, a]) ** 2 * H[r, r].real / (8 * np.pi),
+              H[a, a].real * abs(h[r, c]) ** 2 / p16, (h[r, a] * np.conj(h[c, a]) * H[c, r]).real / p16,
+              (h[c, a] * np.conj(h[c, r]) * H[a, r]).real / p16, 0.0]
+        vis[c] = sum(Cv[q] * kin[q] * P[q] for q in range(6))
+        inv[c] = sum(Ci[q] * kin[q] * P[q] for q in range(6))
+    return vis, inv
+
+
+def test_bruteforce_scalar_dirac():
+    """Dirac neutrinos, scalar exchange (h = U^dag G U, Hermitian): the visible (nu_L, nubar_R) and
+    invisible (nu_R, nubar_L) secondaries of each mass state, CP-averaged (the brute force with h and
+    with h*), equal the derived coefficients; the total equals the appendix's Eq. (A8) for real
+    couplings; an incident nu_R gives those of a nu_L with visibility swapped (parity)."""
+    import amplitudes_bruteforce as B
+    from scipy import integrate
+    rng = np.random.default_rng(9)
+    M = 1.0
+    A = rng.normal(size=(3, 3)) + 1j * rng.normal(size=(3, 3))
+    for h in (0.3 * (A.real + A.real.T), 0.3 * (A + A.conj().T)):
+        Gam = np.sum(abs(h) ** 2) * M / (8 * np.pi)
+        for s in [0.5, 1.03, 6.0]:
+            for x in [0.13, 0.91]:
+                for (a, r) in [(0, 0), (1, 2)]:
+                    v1, i1, _ = _dirac_secondaries_bruteforce(B, s, x, M, Gam, h, a, r)
+                    v2, i2, _ = _dirac_secondaries_bruteforce(B, s, x, M, Gam, h.conj(), a, r)
+                    vm, im = _dirac_secondaries_closed(s, x, M, Gam, h, a, r)
+                    sc = max(abs(v1).max(), abs(i1).max())
+                    assert np.max(np.abs(0.5 * (v1 + v2) - vm)) < 1e-13 * sc
+                    assert np.max(np.abs(0.5 * (i1 + i2) - im)) < 1e-13 * sc
+                    w1, j1, _ = _dirac_secondaries_bruteforce(B, s, x, M, Gam, h, a, r, h1=0.5)
+                    w2, j2, _ = _dirac_secondaries_bruteforce(B, s, x, M, Gam, h.conj(), a, r, h1=0.5)
+                    assert np.max(np.abs(0.5 * (w1 + w2) - im)) < 1e-13 * sc
+                    assert np.max(np.abs(0.5 * (j1 + j2) - vm)) < 1e-13 * sc
+    g = 0.3 * (A.real + A.real.T)
+    Gam = np.sum(g ** 2) * M / (8 * np.pi)
+    for s in [0.5, 6.0]:
+        tot = integrate.quad(lambda x: _dirac_secondaries_bruteforce(B, s, x, M, Gam, g, 1, 2)[2], 0, 1, epsrel=1e-10)[0]
+        M2 = M * M
+        bw = (s - M2) ** 2 + M2 * Gam ** 2
+        L = np.log(M2 / (M2 + s))
+        A8 = sum(g[1, 2] ** 2 * g[k, l] ** 2 * s / bw
+                 + (1.5 * g[1, k] ** 2 * g[2, l] ** 2 + 0.5 * g[1, l] ** 2 * g[2, k] ** 2) * ((s + 2 * M2) / (s * (s + M2)) + 2 * M2 / s ** 2 * L)
+                 - g[1, 2] * g[k, l] * g[1, k] * g[2, l] * (M2 / s - 1) * (s + M2 * L) / bw
+                 + 0.5 * g[1, k] * g[2, l] * g[1, l] * g[2, k] * (1 / s + 2 * M2 * (M2 + s) / (s ** 2 * (2 * M2 + s)) * L)
+                 for k in range(3) for l in range(3)) / (16 * np.pi)
+        assert abs(tot / A8 - 1) < 1e-9
