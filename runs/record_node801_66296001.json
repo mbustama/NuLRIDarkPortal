@@ -1,0 +1,75 @@
+{
+ "provenance": {
+  "host": "node801.cluster",
+  "commit": "52f36fc6c1d5fa31e1b7fd3fd7fb2ebdbe425703",
+  "dirty": false,
+  "cores": 16,
+  "python": "3.12.15",
+  "numpy": "1.26.4",
+  "scipy": "1.15.3",
+  "numba": "0.60.0",
+  "svml": true,
+  "grid": {
+   "n_E_bins": 1000,
+   "n_z_bins": 1000,
+   "n_sun_paths": 8,
+   "transit_dtheta": 0.002,
+   "n_earth_chords": 12,
+   "N_steps_earth": 25,
+   "earth_sky": "full",
+   "earth_zenith_average": "phase"
+  }
+ },
+ "points": {
+  "below": {
+   "parameters": {
+    "m_Zd_eV": 300000.0
+   },
+   "energy_over_no_interaction": 0.9991006000401148,
+   "number_over_no_interaction": 0.9982672700820576,
+   "fractions": [
+    0.32902660200541173,
+    0.3289614358468613,
+    0.34201196214772694
+   ]
+  },
+  "inband": {
+   "parameters": {
+    "m_Zd_eV": 2000000.0
+   },
+   "energy_over_no_interaction": 0.9413507337278704,
+   "number_over_no_interaction": 1.092313920734132,
+   "fractions": [
+    0.3324149839215032,
+    0.3313756860899515,
+    0.33620932998854525
+   ]
+  },
+  "strong": {
+   "parameters": {
+    "m_Zd_eV": 20000000.0,
+    "g_D": 0.01
+   },
+   "energy_over_no_interaction": 0.999951815106618,
+   "number_over_no_interaction": 1.0007446364950339,
+   "fractions": [
+    0.33049809286244963,
+    0.3275086688900447,
+    0.3419932382475057
+   ]
+  },
+  "cosmoX2": {
+   "parameters": {
+    "m_Zd_eV": 40.0
+   },
+   "energy_over_no_interaction": 0.9994387753130128,
+   "number_over_no_interaction": 0.9990083672353713,
+   "fractions": [
+    0.3289946793959717,
+    0.328994679396355,
+    0.34201064120767327
+   ]
+  }
+ },
+ "seconds": 29.434777877293527
+}
