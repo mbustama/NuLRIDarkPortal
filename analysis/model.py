@@ -11,8 +11,10 @@ propagate_nu_nubar): the solver's defaults and checks stay the single source of 
 Three kinds of parameter need no solver call, because the fluxes are linear in them
 (checked to 1.6e-15): the source flavor composition, the neutrino/antineutrino ratio and
 the normalization. The model therefore caches, per point of the propagation parameters,
-the neutrino and antineutrino fluxes -- for the configured source composition when it is
-fixed, or for the pure-flavor sources when it is free -- and combines them on demand.
+the flux at the detector -- for the configured sources in one coupled evolution of
+neutrinos and antineutrinos when the ratio is fixed, or the responses to neutrino and to
+antineutrino sources separately when it floats; for the configured source composition, or
+for the pure-flavor sources when the composition floats -- and combines them on demand.
 
 Aliases: s12sq, s13sq, s23sq (sin^2 of the mixing angles) are mapped to th*_deg.
 
@@ -87,6 +89,7 @@ class FlavorModel:
         free_src = [k for k in SOURCE_KEYS if k in free_names]
         # Pure-flavor sources needed when the composition is free: the floated ones, the one
         # taking the remainder, and any fixed at a nonzero value
+        self.ratio_free = "nubar_to_nu_ratio" in free_names
         self.basis = None
         self.remainder = None
         if free_src:
@@ -112,9 +115,11 @@ class FlavorModel:
             out[(section, key)] = v
         return out
 
-    def fluxes(self, values: Mapping) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """(E_bins, F_nu, F_nubar) for the propagation parameters in `values`; with the
-        pure-flavor basis the fluxes have a leading source axis."""
+    def fluxes(self, values: Mapping) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray]]:
+        """For the propagation parameters in `values`: (E_bins, F, None) with F the flux at the
+        detector for the configured sources, or, when the nubar/nu ratio floats,
+        (E_bins, F_from_nu, F_from_nb), the responses to unit neutrino and antineutrino
+        sources. With the pure-flavor basis the fluxes have a leading source axis."""
         ov = self._overrides(values)
         key = tuple(sorted((s, k, v if isinstance(v, str) else float(v)) for (s, k), v in ov.items()))
         hit = self._cache.get(key)
@@ -131,9 +136,12 @@ class FlavorModel:
         E, params = dps.build_solver_params(cfg)
         params["show_progress"] = False
         sources = None if self.basis is None else [np.eye(3)[i] for i in self.basis]
-        F_nu, F_nubar = dps.propagate_nu_nubar(E, params, sources=sources)
+        if self.ratio_free:
+            F_a, F_b = dps.propagate_nu_nubar(E, params, sources=sources)
+        else:
+            F_a, F_b = dps.propagate_weighted(E, params, sources=sources), None
         self.n_solver_calls += 1
-        out = (E, F_nu, F_nubar)
+        out = (E, F_a, F_b)
         self._cache[key] = out
         if len(self._cache) > self._cache_size:
             self._cache.popitem(last=False)
@@ -142,25 +150,18 @@ class FlavorModel:
     def flux(self, values: Mapping) -> Tuple[np.ndarray, np.ndarray]:
         """(E_bins, flux at the detector) with the source composition and the
         neutrino/antineutrino ratio applied, as run_solver weights them."""
-        E, F_nu, F_nubar = self.fluxes(values)
+        E, F_a, F_b = self.fluxes(values)
         if self.basis is not None:
             comp = self.composition(values)
-            F_nu = np.tensordot(comp[self.basis], F_nu, axes=(0, 0))
-            F_nubar = np.tensordot(comp[self.basis], F_nubar, axes=(0, 0))
-        mode = str(self.base["source"]["is_antineutrino"]).strip().lower()
-        if mode in ("sum", "both"):
-            ratio = float(values.get("nubar_to_nu_ratio", self.base["source"]["nubar_to_nu_ratio"]))
-            if ratio == 0.0:
-                F = F_nu
-            elif not np.isfinite(ratio):
-                F = F_nubar
-            else:
-                F = (1.0 / (1.0 + ratio)) * F_nu + (ratio / (1.0 + ratio)) * F_nubar
-        elif mode in ("true", "antineutrino", "antinu", "nubar"):
-            F = F_nubar
-        else:
-            F = F_nu
-        return E, F
+            F_a = np.tensordot(comp[self.basis], F_a, axes=(0, 0))
+            if F_b is not None:
+                F_b = np.tensordot(comp[self.basis], F_b, axes=(0, 0))
+        if F_b is None:
+            return E, F_a
+        src = dict(self.base["source"])
+        src["nubar_to_nu_ratio"] = float(values.get("nubar_to_nu_ratio", src["nubar_to_nu_ratio"]))
+        w_nu, w_nb = dps.injection_weights(src)
+        return E, w_nu * F_a + w_nb * F_b
 
     def composition(self, values: Mapping) -> np.ndarray:
         """(f_e_S, f_mu_S, f_tau_S) at the source, with the remainder rule of the module

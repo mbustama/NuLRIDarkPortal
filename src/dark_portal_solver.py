@@ -49,7 +49,7 @@ from dp_thermal import (  # noqa: F401
 )
 from dp_cosmo import (  # noqa: F401
     calc_H_Hubble, calc_R_source, calc_V_LRI_cosmo, get_adiabatic_mixing_cosmo,
-    _build_sigma_projection_table, step_cosmological_propagation, cascade_kernel_weights,
+    _build_sigma_projection_table, step_cosmological_pair, cascade_kernel_weights, cross_kernel_weights,
 )
 from dp_spatial import (  # noqa: F401
     calc_MW_neutron_density, calc_earth_density, get_baseline_earth,
@@ -84,7 +84,7 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                        m_nu_bg_arr: np.ndarray, n_n0: float, T_nu0: float,
                        use_debye_screening: bool, detector_depth_km: float,
                        use_SM_potential: bool, n_e_earth: float,
-                       is_antineutrino: bool, p_index: float, rho_evol: float,
+                       injection, p_index: float, rho_evol: float,
                        Phi_0: float, eta_bg: np.ndarray, n_mw_paths: int, n_earth_chords: int,
                        N_steps_MW: int = 25, r_start_kpc: float = 100.0,
                        show_progress: bool = True, verbose: int = 1, n_cores: int = 1,
@@ -93,9 +93,12 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                        n_z_thermal: int = 0, use_gpu: bool = False,
                        thermal_analytic: bool = True,
                        earth_step_scheme: str = "left",
-                       earth_zenith_average: str = "plain") -> np.ndarray:
+                       earth_zenith_average: str = "plain") -> Tuple[np.ndarray, np.ndarray]:
     """
     Executes the complete spectrum integration, driving the underlying JIT kernels.
+    Neutrinos and antineutrinos are evolved together through the cosmological phase (an
+    absorption of either emits one secondary of each kind) and then separately through the
+    Milky Way and the Earth.
     Includes verbose level 2 for periodic redshift status updates.
 
     Arguments:
@@ -103,11 +106,9 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
       z_bins: redshift grid, DESCENDING from z_max to 0 (the integration direction).
       rho_src: (3,) source flavor composition (f_e, f_mu, f_tau).
       H0, Omega_m, Omega_L: flat-LCDM cosmology (H0 already converted to eV).
-      U_pmns: (3, 3) PMNS matrix; pass conj(U_pmns) for the antineutrino call
-        (propagation_worker's convention -- see the NOTE on structures below).
+      U_pmns: (3, 3) PMNS matrix, neutrino convention (conjugated here for antineutrinos).
       M_sq: (3, 3) complex diagonal mass-squared matrix diag(0, dm21, dm31_signed).
-      u_arr: (3,) complex sterile mixing amplitudes (u_e, u_mu, u_tau), pre-conjugated
-        by the caller for antineutrinos.
+      u_arr: (3,) complex sterile mixing amplitudes (u_e, u_mu, u_tau), neutrino convention.
       m_Zd, g_D, eps_prime: dark mediator mass (eV) and couplings.
       m_nu_bg_arr: (3,) neutrino background mass eigenvalues (eV).
       n_n0: cosmological neutron density today (eV^3); T_nu0: CnuB temperature (eV).
@@ -115,8 +116,9 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
       detector_depth_km: detector depth below the Earth surface.
       use_SM_potential / n_e_earth: standard MSW matter potential inside the Earth
         (electron density in eV^3).
-      is_antineutrino: single-species flag for THIS call (the "sum" weighting lives
-        in the callers).
+      injection: (w_nu, w_nb), the weights of the neutrino and antineutrino injection
+        (e.g. (1, 0) for neutrino sources only, (1/2, 1/2) for nubar/nu = 1). Until
+        2026-10-13 this was a single-species flag and each call propagated one kind alone.
       p_index, rho_evol, Phi_0: source spectrum E^-p, redshift evolution, normalization.
       eta_bg: (3,) CnuB flavor asymmetries.
       n_mw_paths, n_earth_chords: spatial-averaging counts (solid angle / zenith).
@@ -131,13 +133,13 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
       thermal_analytic: semi-analytic thermal momentum kernel (True, default) vs the
         midpoint reference kernel.
 
-    Returns: (N_E, 3) flavor fluxes at the detector for this CP state.
+    Returns: (F_nu, F_nb), the (N_E, 3) flavor fluxes of neutrinos and of antineutrinos
+    at the detector; a detector without charge separation sees their sum.
 
     U_LRI_struct / V_SM_struct, if given, are dimensionless 3x3 Hermitian flavor structure
     matrices overriding the default LRI texture (u_i * conj(u_j)) and SM matter-potential
-    texture (diag(1, 0, 0)). Pass them in NEUTRINO convention regardless of
-    is_antineutrino: the antineutrino conjugation (V -> -conj(V)) is applied centrally
-    here, matching how u_arr/U_pmns arrive pre-conjugated from propagation_worker. The
+    texture (diag(1, 0, 0)). Pass them in NEUTRINO convention: the antineutrino
+    conjugation (V -> -conj(V)) is applied centrally here, as for U_pmns and u_arr. The
     overrides affect only the coherent forward-scattering potentials -- the Debye
     screening mass and the thermal attenuation/regeneration rates remain tied to the
     u_e/u_mu/u_tau amplitudes (config keys: dark_portal.U_LRI_struct,
@@ -147,9 +149,9 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
     to propagate_earth_spatial, reused across many calls instead of creating a fresh one each
     time -- see _run_spatial_tasks's docstring for why this matters under 'spawn'.
 
-    precomputed_Gamma_grid_all lets a caller that evaluates both neutrinos and antineutrinos
-    (e.g. is_antineutrino="sum") compute the thermal-rate grid once and pass it to both calls,
-    since it is identical for both (see compute_gamma_grid_inputs).
+    precomputed_Gamma_grid_all lets a caller reuse a thermal-rate grid across calls (it is
+    the same for both kinds, and independent of the source composition; see
+    compute_gamma_grid_inputs).
 
     N_steps_earth controls the number of path-length steps per Earth chord (analogous to
     N_steps_MW for the Milky Way phase), and earth_step_scheme selects the potential
@@ -173,52 +175,20 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         # from inside each of its own worker processes.
         numba.set_num_threads(max(1, int(n_cores)))
 
+    if isinstance(injection, (bool, np.bool_)) or np.ndim(injection) != 1 or len(injection) != 2:
+        raise TypeError("propagate_spectrum: injection must be the pair (w_nu, w_nb); the single-species "
+                        "is_antineutrino flag was replaced on 2026-10-13")
+    w_nu, w_nb = float(injection[0]), float(injection[1])
     N_E = len(E_bins)
     dz = z_bins[0] - z_bins[1]
-    lbl = "Anti-Nu" if is_antineutrino else "Nu"
-
-    # U_pmns and M_sq never change within this call, so the vacuum-oscillation matrix product
-    # U_pmns @ M_sq @ conj(U_pmns).T is precomputed exactly once here instead of being
-    # recomputed (identically) on every single (E, z) evaluation downstream -- see
-    # get_adiabatic_mixing_cosmo's docstring for where this is consumed.
-    M_rot = np.ascontiguousarray(U_pmns @ M_sq @ np.ascontiguousarray(np.conjugate(U_pmns).T))
-
-    # Resolve the LRI flavor structure once for the whole call. The default is the outer
-    # product of the sterile mixing vector; since u_arr arrives pre-conjugated for
-    # antineutrinos, building it here lands in the right convention automatically. A user
-    # override arrives in neutrino convention and is conjugated here (single-transform
-    # convention: the downstream kernels then only flip the sign).
-    if U_LRI_struct is None:
-        U_LRI_struct_eff = np.outer(u_arr, np.conjugate(u_arr))
-    else:
-        U_LRI_struct_eff = np.conjugate(U_LRI_struct) if is_antineutrino else U_LRI_struct
-    U_LRI_struct_eff = np.ascontiguousarray(U_LRI_struct_eff, dtype=np.complex128)
-
-    V_SM_struct_eff = None
-    if V_SM_struct is not None:
-        V_SM_struct_eff = np.conjugate(V_SM_struct) if is_antineutrino else V_SM_struct
-        V_SM_struct_eff = np.ascontiguousarray(V_SM_struct_eff, dtype=np.complex128)
 
     sum_G, sum_G_alpha, eta_mass = compute_gamma_grid_inputs(U_pmns, u_arr, g_D, eps_prime, eta_bg)
-
-    F_mass = np.zeros((N_E, 3), dtype=np.float64)
-
     BR = np.zeros(3, dtype=np.float64)
     if sum_G > 0:
         BR = sum_G_alpha / sum_G
 
-    # The cascade kernel's exact bin integrals depend only on the (fixed) energy grid
-    # (see dp_cosmo.cascade_kernel_weights).
-    W_kernel, pref_kernel, self_frac = cascade_kernel_weights(E_bins)
-
-
-    # Pre-allocated buffers for the compiled stepper (projections; absorbed rates)
-    P_all = np.zeros((N_E, 3, 3), dtype=np.float64)
-    R_abs = np.zeros(N_E, dtype=np.float64)
-
-    # Pre-compute the thermal interaction rates for the entire grid before sequential stepping.
-    # Reuse the caller's precomputed grid when given one (see the docstring above) instead of
-    # redoing this identical, expensive O(N_z * N_E) calculation for the antineutrino call.
+    # Pre-compute the thermal interaction rates for the entire grid before sequential stepping
+    # (the same for both kinds); reuse the caller's grid when given one.
     if precomputed_Gamma_grid_all is not None:
         Gamma_grid_all = precomputed_Gamma_grid_all
     else:
@@ -236,11 +206,8 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
             f"epsilon_prime={eps_prime:.6g}: these dark-portal parameter values are outside "
             f"the numerically supported domain of thermal_averaged_rates_flavor.")
 
-    # SIGMA-TABLE for the cosmological mixing (see _build_sigma_projection_table):
-    # the |U|^2 projections at any (E, z) depend only on sigma = E * c_z with
-    # c_z = +/- 2 (1+z) A_LRI(z) (sign carries the antineutrino V -> -V transform,
-    # matching get_adiabatic_mixing_cosmo's convention). Tabulate once per call over the
-    # exact sigma range the grid spans, then every z-step is pure interpolation.
+    # The LRI coefficient along the redshift grid (neutrino sign): c_z = 2 (1+z) A_LRI(z), the
+    # sigma-table coordinate per unit energy (see _build_sigma_projection_table).
     c_z_arr = np.empty(len(z_bins), dtype=np.float64)
     c_W_ = 0.88
     m_Z_ = 91.18 * GeV
@@ -251,65 +218,88 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         denom_k = max(m_Zd**2 + m_D_sq_k, 1e-25)
         A_k = (g_D * eps_prime) / denom_k * (4.0 * c_W_ * m_Z_**2 / g_weak_) * (np.sqrt(2.0) / 2.0 * G_F * n_n0 * (1.0 + zk)**3)
         c_z_arr[k] = 2.0 * (1.0 + zk) * A_k
-    if is_antineutrino:
-        c_z_arr = -c_z_arr
 
-    # Signed structure matrix entering H(sigma) = M_rot + sigma * S_signed: the table is
-    # built over |sigma|, with the sign folded into S.
-    S_signed = np.ascontiguousarray(-U_LRI_struct_eff if is_antineutrino else U_LRI_struct_eff)
-    abs_c = np.abs(c_z_arr)
-    sig_min = max(E_bins[0] * abs_c.min(), 1e-30 * max(np.max(np.abs(M_rot)), 1e-300))
-    sig_max = max(E_bins[-1] * abs_c.max(), sig_min * 2.0)
-    N_sigma = 4096
-    sigma_nodes = np.geomspace(sig_min, sig_max, N_sigma)
-    P_table = _build_sigma_projection_table(M_rot, S_signed, sigma_nodes)
-    log_s0 = np.log(sigma_nodes[0])
-    inv_dlogs = (N_sigma - 1) / np.log(sig_max / sig_min)
+    # Per kind: the vacuum matrix U M U^dag (computed once), the LRI and SM textures with the
+    # antineutrino transform (U -> conj U, u -> conj u, V -> -conj V) applied here, centrally,
+    # and the sigma-table of the cosmological mixing.
+    species = []
+    for anti in (False, True):
+        U_s = np.ascontiguousarray(np.conjugate(U_pmns)) if anti else np.ascontiguousarray(U_pmns)
+        u_s = np.ascontiguousarray(np.conjugate(u_arr)) if anti else np.ascontiguousarray(u_arr)
+        M_rot = np.ascontiguousarray(U_s @ M_sq @ np.ascontiguousarray(np.conjugate(U_s).T))
+        if U_LRI_struct is None:
+            S_eff = np.outer(u_s, np.conjugate(u_s))
+        else:
+            S_eff = np.conjugate(U_LRI_struct) if anti else U_LRI_struct
+        S_eff = np.ascontiguousarray(S_eff, dtype=np.complex128)
+        V_SM_eff = None
+        if V_SM_struct is not None:
+            V_SM_eff = np.ascontiguousarray(np.conjugate(V_SM_struct) if anti else V_SM_struct, dtype=np.complex128)
+        c_z = -c_z_arr if anti else c_z_arr
+        # H(sigma) = M_rot + sigma * S_signed, tabulated over |sigma| with the sign folded into S
+        S_signed = np.ascontiguousarray(-S_eff if anti else S_eff)
+        abs_c = np.abs(c_z)
+        sig_min = max(E_bins[0] * abs_c.min(), 1e-30 * max(np.max(np.abs(M_rot)), 1e-300))
+        sig_max = max(E_bins[-1] * abs_c.max(), sig_min * 2.0)
+        N_sigma = 4096
+        sigma_nodes = np.geomspace(sig_min, sig_max, N_sigma)
+        P_table = _build_sigma_projection_table(M_rot, S_signed, sigma_nodes)
+        species.append(dict(anti=anti, u=u_s, M_rot=M_rot, S_eff=S_eff, V_SM_eff=V_SM_eff, c_z=c_z,
+                            P_table=P_table, log_s0=np.log(sigma_nodes[0]),
+                            inv_dlogs=(N_sigma - 1) / np.log(sig_max / sig_min),
+                            F=np.zeros((N_E, 3), dtype=np.float64), P_all=np.zeros((N_E, 3, 3), dtype=np.float64),
+                            R=np.zeros(N_E, dtype=np.float64)))
+    nu, nb = species
 
-    iterator = tqdm(range(1, len(z_bins)), desc=f"Cosmo Phase ({lbl})", leave=False) if (dp_core.HAS_TQDM and show_progress) else range(1, len(z_bins))
+    # The cascade kernels' exact bin integrals depend only on the (fixed) energy grid
+    W3, pref3, self_same = cascade_kernel_weights(E_bins)
+    W1, W2, c1, c2, self_cross = cross_kernel_weights(E_bins)
+
+    iterator = tqdm(range(1, len(z_bins)), desc="Cosmo Phase", leave=False) if (dp_core.HAS_TQDM and show_progress) else range(1, len(z_bins))
     z_print_mod = max(1, len(z_bins) // 10)
-
     if verbose == 2:
-        safe_print(f"\n--- Cosmological Integration Started (z_max = {z_bins[0]:.2f}) ({lbl}) ---")
-
+        safe_print(f"\n--- Cosmological Integration Started (z_max = {z_bins[0]:.2f}) ---")
     for k in iterator:
         z = z_bins[k]
         dt = dz / (calc_H_Hubble(z, H0, Omega_m, Omega_L) * (1.0 + z))
         R_z = calc_R_source(z, rho_evol)
-
         if verbose == 2 and k % z_print_mod == 0:
             safe_print(f"Cosmological propagation: currently integrating at redshift z = {z:.4f}")
-
-        step_cosmological_propagation(z, dt, R_z, E_bins, F_mass, rho_src,
-                                      P_table, log_s0, inv_dlogs, c_z_arr[k],
-                                      p_index, Phi_0, BR, W_kernel, pref_kernel, self_frac, P_all,
-                                      np.ascontiguousarray(Gamma_grid_all[k, :, :]), R_abs)
-
+        step_cosmological_pair(z, dt, R_z, E_bins, nu["F"], nb["F"], w_nu, w_nb, rho_src,
+                               nu["P_table"], nu["log_s0"], nu["inv_dlogs"], nu["c_z"][k],
+                               nb["P_table"], nb["log_s0"], nb["inv_dlogs"], nb["c_z"][k],
+                               p_index, Phi_0, BR, W3, pref3, self_same, W1, W2, c1, c2, self_cross,
+                               nu["P_all"], nb["P_all"], np.ascontiguousarray(Gamma_grid_all[k, :, :]),
+                               nu["R"], nb["R"])
     if verbose == 2:
         safe_print(f"Cosmological baseline finished at z = {z_bins[-1]:.4f}.")
 
-    F_earth = propagate_earth_spatial(E_bins, F_mass, M_rot, u_arr, m_Zd, g_D, eps_prime,
-                                      T_nu0, use_debye_screening, eta_bg, detector_depth_km,
-                                      use_SM_potential, n_e_earth, is_antineutrino, n_mw_paths, n_earth_chords,
-                                      N_steps_MW=N_steps_MW, r_start_kpc=r_start_kpc,
-                                      show_progress=show_progress, verbose=verbose, n_cores=n_cores,
-                                      N_steps_earth=N_steps_earth, external_pool=external_pool,
-                                      U_LRI_struct=U_LRI_struct_eff, V_SM_struct=V_SM_struct_eff,
-                                      use_gpu=use_gpu, earth_step_scheme=earth_step_scheme,
-                                      earth_zenith_average=earth_zenith_average)
-
-    # DOMAIN CHECK: same contract as the thermal-grid check above -- never return NaN
-    # silently. (The known non-finite mechanism here, unitarity loss of the spatial
-    # propagator at large phases, is excluded by propagator_3x3's exactly unitary form
-    # since 2026-10-12; this is the safety net for anything not yet diagnosed.)
-    if not np.isfinite(F_earth).all():
-        raise ValueError(
-            f"Non-finite flux out of the spatial handover at m_Zd_eV={m_Zd:.6g}, "
-            f"g_D={g_D:.6g}, epsilon_prime={eps_prime:.6g} "
-            f"({'antineutrino' if is_antineutrino else 'neutrino'} pass): these dark-portal "
-            f"parameter values are outside the numerically supported domain.")
-
-    return F_earth
+    out = []
+    for sp in species:
+        if not np.any(sp["F"]):
+            out.append(np.zeros((N_E, 3), dtype=np.float64))   # nothing of this kind arrives
+            continue
+        F_earth = propagate_earth_spatial(E_bins, sp["F"], sp["M_rot"], sp["u"], m_Zd, g_D, eps_prime,
+                                          T_nu0, use_debye_screening, eta_bg, detector_depth_km,
+                                          use_SM_potential, n_e_earth, sp["anti"], n_mw_paths, n_earth_chords,
+                                          N_steps_MW=N_steps_MW, r_start_kpc=r_start_kpc,
+                                          show_progress=show_progress, verbose=verbose, n_cores=n_cores,
+                                          N_steps_earth=N_steps_earth, external_pool=external_pool,
+                                          U_LRI_struct=sp["S_eff"], V_SM_struct=sp["V_SM_eff"],
+                                          use_gpu=use_gpu, earth_step_scheme=earth_step_scheme,
+                                          earth_zenith_average=earth_zenith_average)
+        # DOMAIN CHECK: same contract as the thermal-grid check above -- never return NaN
+        # silently. (The known non-finite mechanism here, unitarity loss of the spatial
+        # propagator at large phases, is excluded by propagator_3x3's exactly unitary form
+        # since 2026-10-12; this is the safety net for anything not yet diagnosed.)
+        if not np.isfinite(F_earth).all():
+            raise ValueError(
+                f"Non-finite flux out of the spatial handover at m_Zd_eV={m_Zd:.6g}, "
+                f"g_D={g_D:.6g}, epsilon_prime={eps_prime:.6g} "
+                f"({'antineutrino' if sp['anti'] else 'neutrino'} pass): these dark-portal "
+                f"parameter values are outside the numerically supported domain.")
+        out.append(F_earth)
+    return out[0], out[1]
 
 
 # =============================================================================
@@ -402,37 +392,30 @@ def _flux_setup(E_bins: np.ndarray, params: Dict) -> Dict:
                 U_pmns_base=U_pmns_base, Gamma_grid_all=Gamma_grid_all)
 
 
-def _flux_from_setup(E_bins: np.ndarray, params: Dict, setup: Dict, is_anti: bool,
-                     rho_src: np.ndarray = None) -> np.ndarray:
-    """One flux at the detector, (N_E, 3), from a _flux_setup.
+def _flux_from_setup(E_bins: np.ndarray, params: Dict, setup: Dict, injection,
+                     rho_src: np.ndarray = None) -> Tuple[np.ndarray, np.ndarray]:
+    """The neutrino and antineutrino fluxes at the detector, each (N_E, 3), from a _flux_setup.
 
-    Arguments: E_bins, params, setup -- as for _flux_setup; is_anti -- antineutrinos
-    (conjugated mixing); rho_src -- source flavor composition (default: the configured one).
+    Arguments: E_bins, params, setup -- as for _flux_setup; injection -- (w_nu, w_nb), the
+    weights of the neutrino and antineutrino sources; rho_src -- source flavor composition
+    (default: the configured one).
     """
-    show_progress = params.get('show_progress', True)
-    verbose = params.get('verbose', 1)
-    z_bins = setup['z_bins']
-    M_sq = setup['M_sq']
-    eta_bg = setup['eta_bg']
-    Gamma_grid_all = setup['Gamma_grid_all']
     if rho_src is None:
         rho_src = setup['rho_src']
-    # Enforce C-contiguous alignment when passing matrices to Numba kernels
-    U_pmns = np.ascontiguousarray(np.conjugate(setup['U_pmns_base'])) if is_anti else setup['U_pmns_base']
-    u_arr = np.ascontiguousarray(np.conjugate(setup['u_arr_base'])) if is_anti else setup['u_arr_base']
-
     return propagate_spectrum(
-        E_bins, z_bins, rho_src,
+        E_bins, setup['z_bins'], rho_src,
         params['H0_eV'], params['Omega_m'], params['Omega_L'],
-        U_pmns, M_sq, u_arr, params['m_Zd_eV'], params['g_D'], params['epsilon_prime'],
+        setup['U_pmns_base'], setup['M_sq'], setup['u_arr_base'],
+        params['m_Zd_eV'], params['g_D'], params['epsilon_prime'],
         params['m_nu_bg_arr'], params['n_n0_eV3'], params['T_nu0_eV'],
         params['use_debye_screening'], params['detector_depth_km'],
         params['use_SM_potential'], params['n_e_earth_eV3'],
-        is_anti, params['p_index'], params['rho_evol'], params['Phi_0'], eta_bg,
+        injection, params['p_index'], params['rho_evol'], params['Phi_0'], setup['eta_bg'],
         params['n_mw_paths'], params['n_earth_chords'],
         params['N_steps_MW'], params['r_start_kpc'],
-        show_progress=show_progress, verbose=verbose, n_cores=params.get('n_cores', 1),
-        precomputed_Gamma_grid_all=Gamma_grid_all, N_steps_earth=params.get('N_steps_earth', 500),
+        show_progress=params.get('show_progress', True), verbose=params.get('verbose', 1),
+        n_cores=params.get('n_cores', 1),
+        precomputed_Gamma_grid_all=setup['Gamma_grid_all'], N_steps_earth=params.get('N_steps_earth', 500),
         U_LRI_struct=params.get('U_LRI_struct', None), V_SM_struct=params.get('V_SM_struct', None),
         use_gpu=params.get('use_gpu', False),
         thermal_analytic=params.get('thermal_analytic', True),
@@ -441,56 +424,63 @@ def _flux_from_setup(E_bins: np.ndarray, params: Dict, setup: Dict, is_anti: boo
     )
 
 
+def injection_weights(params: Dict) -> Tuple[float, float]:
+    """(w_nu, w_nb), the weights of the neutrino and antineutrino sources: from
+    source.is_antineutrino ('false': neutrinos only; 'true': antineutrinos only; 'sum':
+    both, in the ratio source.nubar_to_nu_ratio)."""
+    flag_val = str(params.get('is_antineutrino', 'sum')).strip().lower()
+    if flag_val in ['sum', 'both']:
+        ratio = float(params.get('nubar_to_nu_ratio', 1.0))
+        if not np.isfinite(ratio):
+            return 0.0, 1.0
+        return 1.0 / (1.0 + ratio), ratio / (1.0 + ratio)
+    if flag_val in ['true', 'antineutrino', 'antinu', 'nubar']:
+        return 0.0, 1.0
+    return 1.0, 0.0
+
+
+def propagate_weighted(E_bins: np.ndarray, params: Dict, sources=None) -> np.ndarray:
+    """The flux at the detector (neutrinos plus antineutrinos, (N_E, 3)) for the configured
+    sources (injection_weights) -- one coupled evolution. With sources, a sequence of (3,)
+    source compositions sharing one thermal-rate grid, returns (n_sources, N_E, 3)."""
+    setup = _flux_setup(E_bins, params)
+    w = injection_weights(params)
+    if sources is None:
+        return sum(_flux_from_setup(E_bins, params, setup, w))
+    return np.stack([sum(_flux_from_setup(E_bins, params, setup, w, np.ascontiguousarray(np.asarray(r, dtype=np.float64))))
+                     for r in sources])
+
+
 def propagate_nu_nubar(E_bins: np.ndarray, params: Dict, sources=None):
-    """Neutrino and antineutrino fluxes at the detector, separately, for one parameter
-    point -- for callers that weight them (or the source flavors) themselves, such as the
-    analysis package, which keeps both and makes the ratio and the source composition
-    free parameters (the solver is linear in the source composition).
+    """The flux at the detector (neutrinos plus antineutrinos) for neutrino sources alone and
+    for antineutrino sources alone, per unit injection -- for callers that weight the two
+    themselves, such as the analysis package with a free nubar/nu ratio (the fluxes are
+    linear in the injection). Since 2026-10-13 each is a coupled evolution: neutrino sources
+    also produce antineutrinos, through the secondaries of every absorption.
 
     Arguments:
       E_bins: energy grid (eV); params: the dict built by build_solver_params.
       sources: None for the configured source composition, or a sequence of (3,)
         compositions sharing one thermal-rate grid.
-    Returns: (F_nu, F_nubar), each (N_E, 3) -- or (n_sources, N_E, 3) when sources is given.
+    Returns: (F_from_nu, F_from_nb), each (N_E, 3) -- or (n_sources, N_E, 3) when sources
+    is given.
     """
     setup = _flux_setup(E_bins, params)
+    srcs = [None] if sources is None else [np.ascontiguousarray(np.asarray(r, dtype=np.float64)) for r in sources]
+    out_nu = [sum(_flux_from_setup(E_bins, params, setup, (1.0, 0.0), r)) for r in srcs]
+    out_nb = [sum(_flux_from_setup(E_bins, params, setup, (0.0, 1.0), r)) for r in srcs]
     if sources is None:
-        return (_flux_from_setup(E_bins, params, setup, False),
-                _flux_from_setup(E_bins, params, setup, True))
-    srcs = [np.ascontiguousarray(np.asarray(r, dtype=np.float64)) for r in sources]
-    return (np.stack([_flux_from_setup(E_bins, params, setup, False, r) for r in srcs]),
-            np.stack([_flux_from_setup(E_bins, params, setup, True, r) for r in srcs]))
+        return out_nu[0], out_nb[0]
+    return np.stack(out_nu), np.stack(out_nb)
 
 
 def propagation_worker(args) -> Tuple[np.ndarray, np.ndarray]:
-    """Unpacks arguments and executes the physics simulation."""
+    """Unpacks arguments and executes the physics simulation: one coupled evolution of the
+    configured neutrino and antineutrino sources, summed at the detector."""
     E_bins, params = args
     setup = _flux_setup(E_bins, params)
-
-    def compute_flux(is_anti: bool) -> np.ndarray:
-        return _flux_from_setup(E_bins, params, setup, is_anti)
-
-    flag_val = str(params.get('is_antineutrino', 'sum')).strip().lower()
-    
-    if flag_val in ['sum', 'both']:
-        ratio = params.get('nubar_to_nu_ratio', 1.0)
-        # Degenerate weights: skip the propagation whose weight is exactly zero instead
-        # of computing a full spectrum and multiplying it away -- a free 2x for
-        # nu-only/nubar-only studies configured through the ratio.
-        if ratio == 0.0:
-            flux_at_earth = compute_flux(False)
-        elif not np.isfinite(ratio):
-            flux_at_earth = compute_flux(True)
-        else:
-            w_nu = 1.0 / (1.0 + ratio)
-            w_nubar = ratio / (1.0 + ratio)
-            flux_at_earth = w_nu * compute_flux(False) + w_nubar * compute_flux(True)
-    elif flag_val in ['true', 'antineutrino', 'antinu', 'nubar']:
-        flux_at_earth = compute_flux(True)
-    else:
-        flux_at_earth = compute_flux(False)
-    
-    return E_bins, flux_at_earth
+    F_nu, F_nb = _flux_from_setup(E_bins, params, setup, injection_weights(params))
+    return E_bins, F_nu + F_nb
 
 
 def build_solver_params(config: Dict) -> Tuple[np.ndarray, Dict]:

@@ -59,9 +59,10 @@ transit, which had left $\sim10^{-2}$ of noise in the predicted flavor fractions
 (Appendix~\ref{app:zenith}). Late that day we found three errors in the solver itself, present
 since its first version, and corrected them: the cosmological cascade created neutrinos without
 bound, the resonant absorption did not depend on the size of the couplings, and the propagator of
-the Milky Way and Earth transits was not unitary (Appendices~\ref{app:cascade}--\ref{app:unitarity}).
-Every result of the statistical analysis, and every effect size quoted for the earlier
-corrections, was obtained before these fixes.
+the Milky Way and Earth transits was not unitary (Appendices~\ref{app:cascade}--\ref{app:unitarity}); on 2026-10-13 we made every absorption
+feed both of its secondaries, a neutrino and an antineutrino, where only one had been kept
+(Appendix~\ref{app:regeneration}). Every result of the statistical analysis, and every effect
+size quoted for the earlier corrections, was obtained before these fixes.
 \end{minipage}}
 \end{center}
 
@@ -410,12 +411,13 @@ error that both share; three such errors survived from the first version of the 
 against conservation: the energy and number of neutrinos reaching the Earth must not exceed
 those of the same run without interactions, the spatial phase must conserve every energy bin's
 total, and vanishing sterile mixing must reproduce standard propagation. At production settings
-the energy (number) reaching the Earth is $0.99898$ ($0.99805$) of the no-interaction value at
-``below'', $0.84068$ ($0.95504$) at ``inband'', $0.98239$ ($0.99993$) at ``strong'' and
-$0.99934$ ($0.99883$) at ``cosmoX2''; the energy-averaged fractions are
-$(0.32899, 0.32899, 0.34202)$, $(0.33100, 0.33100, 0.33801)$, $(0.32900, 0.32900, 0.34201)$
-and $(0.32899, 0.32899, 0.34201)$, and change by $\le4\times10^{-7}$ between 1000 and 2000
-redshift steps (commit \texttt{2066f3b}).
+the energy (number) reaching the Earth is $0.99910$ ($0.99827$) of the no-interaction value at
+``below'', $0.94135$ ($1.09231$) at ``inband'', $0.99995$ ($1.00074$) at ``strong'' and
+$0.99944$ ($0.99901$) at ``cosmoX2''; the energy-averaged fractions are
+$(0.32899, 0.32899, 0.34201)$, $(0.33190, 0.33190, 0.33621)$, $(0.32900, 0.32900, 0.34199)$
+and $(0.32899, 0.32899, 0.34201)$, and change by $\le1.2\times10^{-7}$ between 1000 and 2000
+redshift steps (2026-10-13, Appendix~\ref{app:regeneration}). The number can exceed the
+no-interaction value: each absorption turns one particle into two.
 
 \subsection{Record of validated changes}
 
@@ -442,6 +444,7 @@ Date, commit & Change & Result \\
 2026-10-12 \texttt{7dc95e9} & Cosmological cascade conserves number & A correction: the energy at the Earth was up to $10^{67}$ times the injected one (Appendix~\ref{app:cascade}) \\
 2026-10-12 \texttt{944360d} & Resonant absorption scales with the couplings & A correction: energy at the Earth $3\times10^{-3}\to0.999$ of the no-interaction value at ``below'' (Appendix~\ref{app:bwnorm}) \\
 2026-10-12 \texttt{2066f3b} & Exactly unitary propagator & below, inband, strong unchanged to five digits; ``cosmoX2'' fractions move by $3.5\times10^{-4}$ and become reproducible (Appendix~\ref{app:unitarity}) \\
+2026-10-13 & Both secondaries of every absorption & inband fractions move by $1.8\times10^{-3}$; energy at the Earth $0.841\to0.941$ (inband), $0.982\to0.99995$ (strong) (Appendix~\ref{app:regeneration}) \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -501,7 +504,8 @@ than $3.84$ is flagged: its couplings never reached the region without an effect
 must be extended before a limit is read. Coverage tests still have to confirm the threshold; for
 a coupling bounded at zero the asymptotic one-sided value is $2.71$.
 
-\textit{A first plane (2026-10-13; not for quoting).}---For the $e\mu$ texture at $u = 0.5$ and
+\textit{A first plane (2026-10-13; not for quoting; computed before the regeneration fix of
+Appendix~\ref{app:regeneration}).}---For the $e\mu$ texture at $u = 0.5$ and
 $\epsp = 10^{-4}$ (configuration \texttt{pion\_2050\_case\_5\_exclusion}, $45\times41$ points,
 commit \texttt{19f953d}), the 2050 projection excludes at 95\% $\gd > 3.7\times10^{-9}$ at
 $\mzd = 0.1$~MeV, $3.3\times10^{-7}$ at $1$~MeV (with an allowed island at
@@ -1034,6 +1038,41 @@ reaching the Earth falls from $1.0003$ to $0.99934$ of the no-interaction value.
 move from $(0.32917, 0.32917, 0.34166)$ to $(0.32899, 0.32899, 0.34201)$. The point no longer
 depends on the last digit, on the number of chords or on the number of Earth steps
 (Sec.~\ref{sec:validation} and~\ref{sec:open}).
+
+\subsection{Both secondaries of every absorption (2026-10-13)}
+\label{app:regeneration}
+
+An absorption $\nu(E_j) + \bar\nu_{\rm relic} \to Z_D \to \nu + \bar\nu$ emits two particles. The
+$Z_D$ is polarized along the incoming neutrino, so the outgoing neutrino carries the spectrum
+$3E^2/E_j^3$ (on average $\tfrac34$ of $E_j$) and the antineutrino $3(E_j-E)^2/E_j^3$ (the
+remaining $\tfrac14$); an absorbed antineutrino gives the mirror image. The code kept only the
+secondary of the absorbed particle's own kind and propagated neutrinos and antineutrinos
+independently, as Eq.~(T6) of the theory notes does, which regenerates $\rho$ only from $\rho$.
+Half of the regenerated particles and a quarter of the absorbed energy were dropped.
+
+\textit{Fix.}---We now evolve neutrinos and antineutrinos together through the cosmological
+phase. Within a redshift step, each energy bin receives both kinds of secondaries from the
+absorptions above it; the second kernel, integrated exactly over the bins, separates into three
+running sums over the parents, and a bin's own secondaries of both kinds make each bin a $2\times2$
+linear system, which we solve directly. The Milky Way and Earth transits stay separate for the
+two kinds. A step balances the number of particles to rounding for $\Gamma\Delta t$ from
+$10^{-8}$ to $10^{10}$: every absorption adds one particle, less the secondaries that fall below
+the grid (a test). The analysis evolves the configured sources in one coupled run, and the
+responses to neutrino and antineutrino sources separately only when their ratio floats.
+
+\textit{Effect.}---At production settings the energy reaching the Earth rises from $0.841$ to
+$0.941$ of the no-interaction value at ``inband'' and from $0.982$ to $0.99995$ at ``strong'',
+and the number from $0.955$ to $1.092$ and from $0.99993$ to $1.00074$: what is left is the
+energy of secondaries below 10~TeV. The energy-averaged fractions move by $1.8\times10^{-3}$ at
+``inband'' ($f_\tau$: $0.33801\to0.33621$) and by $\le2\times10^{-5}$ at the other points.
+
+\textit{On the theory notes.}---Section~4 of the theory notes asks for a factor $\tfrac12$ in the
+absorption rate for identical initial-state background particles. We do not apply it, and we
+think the sentence should be reworded: the rate of one high-energy neutrino counts each relic it
+can annihilate with once (one helicity state, $56$~cm$^{-3}$ per mass state), which is Eq.~(T7)
+as written; a factor $\tfrac12$ belongs to final states integrated over all angles, where it is
+part of the width (T11), and to collision rates within one gas of identical particles.
+Equation~(T6) should include the regeneration of $\rho$ from $\bar\rho$ described above.
 
 \subsection{The mixing-parameter priors (found 2026-10-12)}
 \label{app:priors}

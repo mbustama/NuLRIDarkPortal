@@ -483,10 +483,10 @@ def test_energy_averaged_ratios_uses_shared_dE_helper():
 # =============================================================================
 
 def _propagate_small(u_arr, is_anti, U_LRI_struct=None, V_SM_struct=None, use_SM=False):
-    """Minimal, fast propagate_spectrum call used by the structure-override tests.
-    Mirrors propagation_worker's conventions: U_pmns/u_arr are conjugated here for
-    antineutrinos, while structure overrides are passed in neutrino convention
-    (propagate_spectrum conjugates those internally)."""
+    """Minimal, fast propagate_spectrum call used by the structure-override tests: neutrino
+    (is_anti False) or antineutrino sources alone, everything in neutrino convention
+    (propagate_spectrum applies the antineutrino transforms itself). Returns the flux at
+    the detector, neutrinos plus antineutrinos."""
     E_bins = np.logspace(13, 16, 12)
     z_bins = np.linspace(4.0, 0.0, 12)
     rho_src = np.array([0.333333, 0.666667, 0.0])
@@ -496,16 +496,14 @@ def _propagate_small(u_arr, is_anti, U_LRI_struct=None, V_SM_struct=None, use_SM
     H0 = 67.4 * dps.km_per_s / dps.Mpc_to_eV_inv
     m_nu_bg = np.array([0.01, np.sqrt(0.01**2 + 7.41e-5), np.sqrt(0.01**2 + 2.511e-3)])
 
-    local_U_pmns = np.ascontiguousarray(np.conjugate(U_pmns)) if is_anti else U_pmns
-    local_u = np.ascontiguousarray(np.conjugate(u_arr)) if is_anti else np.ascontiguousarray(u_arr)
-
-    return dps.propagate_spectrum(
-        E_bins, z_bins, rho_src, H0, 0.315, 0.685, local_U_pmns, M_sq,
-        local_u, 2.0e6, 1e-4, 0.1, m_nu_bg, 0.25e-6 * dps.cm_inv3_to_eV3, 1.95e-4,
+    F_nu, F_nb = dps.propagate_spectrum(
+        E_bins, z_bins, rho_src, H0, 0.315, 0.685, U_pmns, M_sq,
+        np.ascontiguousarray(u_arr), 2.0e6, 1e-4, 0.1, m_nu_bg, 0.25e-6 * dps.cm_inv3_to_eV3, 1.95e-4,
         True, 1.5, use_SM, 1.5e24 * dps.cm_inv3_to_eV3,
-        is_anti, 2.5, 0.0, 1.0, np.ones(3), 1, 1,
+        (0.0, 1.0) if is_anti else (1.0, 0.0), 2.5, 0.0, 1.0, np.ones(3), 1, 1,
         N_steps_MW=5, r_start_kpc=100.0, show_progress=False, verbose=0, n_cores=1,
         N_steps_earth=5, U_LRI_struct=U_LRI_struct, V_SM_struct=V_SM_struct)
+    return F_nu + F_nb
 
 
 def test_structure_override_default_equals_absent():
@@ -731,33 +729,43 @@ def test_eigenvectors_3x3_matches_eigh():
 
 
 def _cascade_step_setup(N_E=40, seed=5):
-    """Synthetic inputs for one call of step_cosmological_propagation."""
+    """Synthetic inputs for one call of step_cosmological_pair: random mass-state fluxes of
+    both kinds and the sigma-tables of neutrinos and antineutrinos."""
     E_bins = np.logspace(13, 16, N_E)
     rng = np.random.default_rng(seed)
-    F_mass = rng.uniform(1e18, 1e22, size=(N_E, 3))
+    F_nu = rng.uniform(1e18, 1e22, size=(N_E, 3))
+    F_nb = rng.uniform(1e18, 1e22, size=(N_E, 3))
     U_pmns = np.ascontiguousarray(dps.construct_PMNS(np.radians(33.41), np.radians(8.58),
                                                      np.radians(49.1), np.radians(132.0)))
     M_sq = np.diag([0.0, 7.41e-5, 2.511e-3]).astype(np.complex128)
-    M_rot = np.ascontiguousarray(U_pmns @ M_sq @ np.conjugate(U_pmns).T)
     u_arr = np.array([0.5, 0.5, 0.0], dtype=np.complex128)
-    S = np.ascontiguousarray(np.outer(u_arr, np.conjugate(u_arr)))
     c_z = 1e-30
     sigma_nodes = np.geomspace(E_bins[0] * c_z * 0.5, E_bins[-1] * c_z * 2.0, 512)
-    P_table = dps._build_sigma_projection_table(M_rot, S, sigma_nodes)
     log_s0 = np.log(sigma_nodes[0])
     inv_dlogs = (len(sigma_nodes) - 1) / np.log(sigma_nodes[-1] / sigma_nodes[0])
-    return E_bins, F_mass, rng, (P_table, log_s0, inv_dlogs, c_z)
+    tables = []
+    for anti in (False, True):
+        U = np.conjugate(U_pmns) if anti else U_pmns
+        u = np.conjugate(u_arr) if anti else u_arr
+        M_rot = np.ascontiguousarray(U @ M_sq @ np.conjugate(U).T)
+        S = np.outer(u, np.conjugate(u))
+        P_table = dps._build_sigma_projection_table(M_rot, np.ascontiguousarray(-S if anti else S), sigma_nodes)
+        tables.append((P_table, log_s0, inv_dlogs, -c_z if anti else c_z))
+    return E_bins, F_nu, F_nb, rng, tables
 
 
-def _one_cascade_step(E_bins, F, Gamma, dt, Phi_0, table, BR=np.array([0.4, 0.35, 0.25])):
-    W, pref, selff = dps.cascade_kernel_weights(E_bins)
-    P_all = np.zeros((len(E_bins), 3, 3))
-    R = np.zeros(len(E_bins))
-    F = F.copy()
-    dps.step_cosmological_propagation(0.5, dt, 1.0, E_bins, F, np.array([0.333, 0.667, 0.0]),
-                                      *table, 2.5, Phi_0, BR, W, pref, selff, P_all,
-                                      np.ascontiguousarray(Gamma), R)
-    return F, R, P_all
+def _one_pair_step(E_bins, F_nu, F_nb, Gamma, dt, Phi_0, tables, w=(0.5, 0.5),
+                   BR=np.array([0.4, 0.35, 0.25])):
+    W3, pref3, self_same = dps.cascade_kernel_weights(E_bins)
+    W1, W2, c1, c2, self_cross = dps.cross_kernel_weights(E_bins)
+    N = len(E_bins)
+    P_nu, P_nb = np.zeros((N, 3, 3)), np.zeros((N, 3, 3))
+    R_nu, R_nb = np.zeros(N), np.zeros(N)
+    F_nu, F_nb = F_nu.copy(), F_nb.copy()
+    dps.step_cosmological_pair(0.5, dt, 1.0, E_bins, F_nu, F_nb, w[0], w[1], np.array([0.333, 0.667, 0.0]),
+                               *tables[0], *tables[1], 2.5, Phi_0, BR, W3, pref3, self_same,
+                               W1, W2, c1, c2, self_cross, P_nu, P_nb, np.ascontiguousarray(Gamma), R_nu, R_nb)
+    return F_nu, F_nb, R_nu, R_nb, P_nu, P_nb
 
 
 def test_cascade_kernel_weights_are_exact_bin_integrals():
@@ -781,59 +789,132 @@ def test_cascade_kernel_weights_are_exact_bin_integrals():
         assert abs(selff[j] / ref_self - 1.0) < 1e-12
 
 
-def test_cascade_step_conserves_number_at_any_optical_depth():
-    """One cosmological step must conserve neutrino number exactly, whatever the optical
-    depth per step: after = before + injected - (secondaries lost below the grid). Until
-    2026-10-12 the regenerated source was each bin's initial rate Gamma F held over the
-    whole step, which re-emitted up to Gamma dt (1e10 near resonance) times more neutrinos
-    than were absorbed and inflated the fluxes by up to 1e70."""
-    E_bins, F0, rng, table = _cascade_step_setup()
+def test_cross_kernel_weights_are_exact_bin_integrals():
+    """The secondary of the other kind carries 3 (E_j - E)^2 / E_j^3 (the remaining quarter
+    of the energy): its discrete weights must be the exact bin integrals, adding up to
+    (1 - E_lo,0 / E_j)^3, everything above the grid's lower edge."""
+    from scipy.integrate import quad
+    E = np.logspace(13, 16.5, 300)
+    W3, pref3, _ = dps.cascade_kernel_weights(E)
+    W1, W2, c1, c2, self_cross = dps.cross_kernel_weights(E)
+    dE = dps.compute_dE_geometric(E)
+    h = np.sqrt(E[1] / E[0])
+
+    def frac(i, j):
+        return (c1[i] * W1[j] - c2[i] * W2[j] + pref3[i] * W3[j]) * dE[i] / dE[j]
+    for j in (0, 1, 7, 150, 299):
+        kept = self_cross[j] + sum(frac(i, j) for i in range(j))
+        assert abs(kept - (1.0 - E[0] / h / E[j])**3) < 1e-10, j
+        for i in {0, j // 2, max(j - 1, 0)}:
+            if i < j:
+                ref = quad(lambda e: 3 * (E[j] - e)**2 / E[j]**3, E[i] / h, E[i] * h, epsrel=1e-13)[0]
+                assert abs(frac(i, j) / ref - 1.0) < 1e-8, (i, j)
+        ref_self = quad(lambda e: 3 * (E[j] - e)**2 / E[j]**3, E[j] / h, E[j], epsrel=1e-13)[0]
+        assert abs(self_cross[j] / ref_self - 1.0) < 1e-10
+
+
+def test_cascade_step_balances_number_at_any_optical_depth():
+    """One cosmological step must balance the number of neutrinos plus antineutrinos
+    exactly, whatever the optical depth per step: every absorption removes one particle and
+    emits two (one of each kind), so after = before + injected + absorbed - (secondaries
+    lost below the grid). Until 2026-10-12 the regenerated source was each bin's initial
+    rate Gamma F held over the whole step (up to 1e70 too many particles); until 2026-10-13
+    only the secondary of the absorbed particle's own kind was kept."""
+    E_bins, F_nu0, F_nb0, rng, tables = _cascade_step_setup()
     dE = dps.compute_dE_geometric(E_bins)
-    h = np.sqrt(E_bins[1] / E_bins[0])
+    x0 = E_bins[0] / np.sqrt(E_bins[1] / E_bins[0]) / E_bins        # E_lo,0 / E_j
+    lost_frac = x0**3 + (1.0 - (1.0 - x0)**3)                        # same-kind + other-kind losses
     dt = 1.0
     for gdt_scale in (1e-8, 1e-2, 1.0, 1e3, 1e10):
         Gamma = rng.uniform(0.1, 1.0, size=(len(E_bins), 3)) * gdt_scale / dt
-        for Phi_0 in (0.0, 1e50):
-            F1, R, P_all = _one_cascade_step(E_bins, F0, Gamma, dt, Phi_0, table)
-            inj = Phi_0 * (E_bins * 1.5)**(-2.5) * dt          # z = 0.5, R_z = 1
-            lost = np.sum(R * dt * dE * (E_bins[0] / h / E_bins)**3)
-            before = np.sum(F0.sum(axis=1) * dE) + np.sum(inj * dE)
-            after = np.sum(F1.sum(axis=1) * dE)
-            assert abs(after - (before - lost)) <= 1e-11 * before, (gdt_scale, Phi_0, after, before, lost)
-            assert np.all(F1 >= 0.0)
+        for Phi_0, w in ((0.0, (0.5, 0.5)), (1e50, (0.5, 0.5)), (1e50, (1.0, 0.0))):
+            F_nb_in = F_nb0 if w[1] > 0 else np.zeros_like(F_nb0)
+            F_nu1, F_nb1, R_nu, R_nb, P_nu, P_nb = _one_pair_step(E_bins, F_nu0, F_nb_in, Gamma, dt, Phi_0, tables, w)
+            inj = Phi_0 * (E_bins * 1.5)**(-2.5) * dt                 # z = 0.5, R_z = 1; weights sum to 1
+            absorbed = (R_nu + R_nb) * dt * dE
+            before = np.sum((F_nu0 + F_nb_in).sum(axis=1) * dE) + np.sum(inj * dE)
+            after = np.sum((F_nu1 + F_nb1).sum(axis=1) * dE)
+            expected = before + np.sum(absorbed) - np.sum(absorbed * lost_frac)
+            assert abs(after - expected) <= 1e-11 * max(before, expected), (gdt_scale, Phi_0, w, after, expected)
+            assert np.all(F_nu1 >= 0.0) and np.all(F_nb1 >= 0.0)
+            if w[1] == 0.0 and gdt_scale >= 1.0:
+                assert np.sum(F_nb1) > 0.0                           # antineutrinos from neutrino absorptions
 
 
 def test_cascade_step_limits():
-    """Without absorption the step is pure injection, F + S dt. For a small optical depth
-    per step it agrees with the explicit first-order update to O(Gamma dt)."""
-    E_bins, F0, rng, table = _cascade_step_setup()
+    """Without absorption the step is pure injection, F + w S dt for each kind. For a small
+    optical depth per step it agrees with the explicit first-order update (rates G F held
+    over the step, each absorption feeding both kinds) to O(Gamma dt)."""
+    E_bins, F_nu0, F_nb0, rng, tables = _cascade_step_setup()
     dt = 2.0
-    F1, R, P_all = _one_cascade_step(E_bins, F0, np.zeros((len(E_bins), 3)), dt, 1e50, table)
+    w = (0.3, 0.7)
+    F_nu1, F_nb1, R_nu, R_nb, P_nu, P_nb = _one_pair_step(E_bins, F_nu0, F_nb0, np.zeros((len(E_bins), 3)),
+                                                          dt, 1e50, tables, w)
     inj_spec = 1e50 * (E_bins * 1.5)**(-2.5)
     rho = np.array([0.333, 0.667, 0.0])
-    expected = F0 + np.einsum("iak,a->ik", P_all, rho) * inj_spec[:, None] * dt
-    np.testing.assert_allclose(F1, expected, rtol=1e-14)
-    assert np.all(R == 0.0)
-    # small optical depth: compare with the explicit update (rate G F held over the step)
+    np.testing.assert_allclose(F_nu1, F_nu0 + w[0] * np.einsum("iak,a->ik", P_nu, rho) * inj_spec[:, None] * dt, rtol=1e-14)
+    np.testing.assert_allclose(F_nb1, F_nb0 + w[1] * np.einsum("iak,a->ik", P_nb, rho) * inj_spec[:, None] * dt, rtol=1e-14)
+    assert np.all(R_nu == 0.0) and np.all(R_nb == 0.0)
+    # small optical depth: the explicit update
     BR = np.array([0.4, 0.35, 0.25])
     Gamma = rng.uniform(0.1, 1.0, size=(len(E_bins), 3)) * 1e-7 / dt
-    F1, R, P_all = _one_cascade_step(E_bins, F0, Gamma, dt, 0.0, table, BR)
-    W, pref, selff = dps.cascade_kernel_weights(E_bins)
-    G_mass = np.einsum("iak,ia->ik", P_all, Gamma)
-    R_expl = np.sum(G_mass * F0, axis=1)
-    above = np.concatenate([np.cumsum((R_expl * W)[::-1])[::-1][1:], [0.0]])
-    casc = pref * above + selff * R_expl
-    brp = np.einsum("iak,a->ik", P_all, BR)
-    F_expl = F0 * (1 - G_mass * dt) + brp * casc[:, None] * dt
-    np.testing.assert_allclose(F1, F_expl, rtol=1e-11, atol=0)
-    np.testing.assert_allclose(R, R_expl, rtol=1e-6)
+    F_nu1, F_nb1, R_nu, R_nb, P_nu, P_nb = _one_pair_step(E_bins, F_nu0, F_nb0, Gamma, dt, 0.0, tables, w, BR)
+    W3, pref3, self_same = dps.cascade_kernel_weights(E_bins)
+    W1, W2, c1, c2, self_cross = dps.cross_kernel_weights(E_bins)
+
+    def above(x):
+        return np.concatenate([np.cumsum(x[::-1])[::-1][1:], [0.0]])
+    G_nu = np.einsum("iak,ia->ik", P_nu, Gamma)
+    G_nb = np.einsum("iak,ia->ik", P_nb, Gamma)
+    Rn = np.sum(G_nu * F_nu0, axis=1)
+    Rb = np.sum(G_nb * F_nb0, axis=1)
+    same_n = pref3 * above(Rn * W3) + self_same * Rn
+    same_b = pref3 * above(Rb * W3) + self_same * Rb
+    cross_n = c1 * above(Rn * W1) - c2 * above(Rn * W2) + pref3 * above(Rn * W3) + self_cross * Rn
+    cross_b = c1 * above(Rb * W1) - c2 * above(Rb * W2) + pref3 * above(Rb * W3) + self_cross * Rb
+    F_nu_expl = F_nu0 * (1 - G_nu * dt) + np.einsum("iak,a->ik", P_nu, BR) * (same_n + cross_b)[:, None] * dt
+    F_nb_expl = F_nb0 * (1 - G_nb * dt) + np.einsum("iak,a->ik", P_nb, BR) * (same_b + cross_n)[:, None] * dt
+    # the exact step differs from the explicit one at O(G dt) of the regenerated part, which
+    # in the lowest bins is up to ~1e-3 of the flux (random spectra): ~1e-10 relative
+    np.testing.assert_allclose(F_nu1, F_nu_expl, rtol=1e-10, atol=0)
+    np.testing.assert_allclose(F_nb1, F_nb_expl, rtol=1e-10, atol=0)
+    # the exact absorbed number also includes secondaries absorbed within the step (up to
+    # ~1e-5 of the flux in the lowest bins, where the other kind's soft secondaries collect)
+    np.testing.assert_allclose(R_nu, Rn, rtol=1e-5)
+    np.testing.assert_allclose(R_nb, Rb, rtol=1e-5)
+
+
+def test_neutrino_sources_produce_antineutrinos_only_through_absorption():
+    """With neutrino sources alone, antineutrinos reach the detector only as secondaries of
+    absorptions: none without dark-portal interactions, some with them."""
+    E_bins = np.logspace(13, 16, 30)
+    z_bins = np.linspace(4.0, 0.0, 30)
+    U_pmns = np.ascontiguousarray(dps.construct_PMNS(np.radians(33.41), np.radians(8.58),
+                                                     np.radians(49.1), np.radians(132.0)))
+    M_sq = np.ascontiguousarray(np.diag([0.0, 7.41e-5, 2.511e-3]).astype(np.complex128))
+    H0 = 67.4 * dps.km_per_s / dps.Mpc_to_eV_inv
+    m_nu_bg = dps.get_mass_eigenvalues(0.01, 7.41e-5, 2.511e-3, "normal")
+    out = []
+    for u in (0.0, 0.5):
+        u_arr = np.ascontiguousarray(np.array([u, u, 0.0], dtype=np.complex128))
+        out.append(dps.propagate_spectrum(
+            E_bins, z_bins, np.array([1 / 3, 2 / 3, 0.0]), H0, 0.315, 0.685, U_pmns, M_sq,
+            u_arr, 2.0e6, 1e-4, 1e-4, m_nu_bg, 3.091e-8 * dps.cm_inv3_to_eV3, 1.676389e-4,
+            True, 1.5, False, 0.0, (1.0, 0.0), 2.5, 0.0, 1.0, np.ones(3), 1, 2,
+            N_steps_MW=3, show_progress=False, verbose=0, n_cores=1, N_steps_earth=5,
+            earth_step_scheme="avg", earth_zenith_average="phase"))
+    (F_nu0, F_nb0), (F_nu1, F_nb1) = out
+    assert np.all(F_nb0 == 0.0) and np.sum(F_nu0) > 0.0
+    assert np.sum(F_nb1) > 1e-3 * np.sum(F_nu1)
 
 
 def test_solver_never_returns_more_energy_than_injected(tmp_path):
-    """End to end, at the three MeV benchmark couplings: absorption and down-scattering can
-    only remove or degrade energy, so the energy flux at the detector stays below the
-    no-interaction one, and the energy-averaged flavor fractions converge in the redshift
-    step. Before 2026-10-12 the energy flux came out up to 1e67 times the injected one."""
+    """End to end, at the three MeV benchmark couplings: every absorption hands its energy to
+    its two secondaries (3/4 and 1/4 on average), so the energy flux at the detector equals
+    the no-interaction one less what falls below the grid -- never more, up to the placement
+    of secondaries at bin centres (2e-4 on this 60-bin grid) -- and the energy-averaged
+    flavor fractions converge in the redshift step. Before 2026-10-12 the energy flux came
+    out up to 1e67 times the injected one."""
     import copy
     base = dps.create_default_config(str(tmp_path / "cfg.json"))
     base["grid"].update(dict(n_E_bins=60, n_mw_paths=1, n_earth_chords=2, N_steps_MW=3, N_steps_earth=10))
@@ -850,7 +931,7 @@ def test_solver_never_returns_more_energy_than_injected(tmp_path):
     from flux_postprocessing import compute_energy_averaged_ratios as ratios
     for dp in (dict(m_Zd_eV=3e5), dict(m_Zd_eV=2e6), dict(m_Zd_eV=2e7, g_D=1e-2)):
         E, F = run(100, **dp)
-        assert np.sum(E * F.sum(axis=1) * dE) <= e0 * (1 + 1e-9), dp
+        assert np.sum(E * F.sum(axis=1) * dE) <= e0 * (1 + 1e-3), dp
         E, F4 = run(400, **dp)
         assert np.max(np.abs(ratios(E, F4) - ratios(E, F))) < 2e-3, dp
 
@@ -1105,9 +1186,9 @@ def test_run_solver_rejects_unknown_config_keys(tmp_path):
 
 
 def test_nubar_ratio_zero_skips_antineutrino_propagation(tmp_path):
-    """In 'sum' mode with nubar_to_nu_ratio = 0 the antineutrino propagation carries
-    exactly zero weight and must be skipped entirely -- the result must equal the
-    explicit neutrino-only mode bit for bit."""
+    """In 'sum' mode with nubar_to_nu_ratio = 0 only neutrinos are injected, exactly as in
+    the explicit neutrino-only mode: the two must agree bit for bit (the antineutrinos at
+    the detector are then only the secondaries of absorptions)."""
     import copy
     cfg = dps.create_default_config(str(tmp_path / "cfg.json"))
     cfg["grid"].update(dict(n_E_bins=10, n_z_bins=10, n_mw_paths=1, n_earth_chords=1,
@@ -1292,7 +1373,7 @@ def test_propagate_spectrum_raises_on_nonfinite_gamma_grid():
             E_bins, z_bins, np.array([0.33, 0.67, 0.0]),
             1.5e-33, 0.315, 0.685, np.ascontiguousarray(U_pmns), M_sq,
             u_arr, 2.0e6, 1e-4, 0.1, m_nu_bg, 2.5e-13, 1.95e-4,
-            True, 1.5, False, 0.0, False, 2.5, 0.0, 1.0, np.ones(3),
+            True, 1.5, False, 0.0, (1.0, 0.0), 2.5, 0.0, 1.0, np.ones(3),
             1, 1, N_steps_MW=3, show_progress=False, verbose=0, n_cores=1,
             precomputed_Gamma_grid_all=bad_grid, N_steps_earth=3)
 

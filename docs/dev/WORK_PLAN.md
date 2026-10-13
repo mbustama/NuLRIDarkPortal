@@ -131,6 +131,14 @@ linear in it), so it can float. Backgrounds included from the start.
 
 ## Done
 
+- 2026-10-13: every absorption feeds both secondaries (a neutrino, 3E^2/E_j^3, and an antineutrino,
+  3(E_j-E)^2/E_j^3, or the mirror image); neutrinos and antineutrinos evolve together through the
+  cosmological phase (2x2 system per bin). Decided with Mauricio, who also confirmed: no factor
+  1/2 in the absorption rate (the theory notes' Sec. 4 sentence and Eq. (T6) to be reworded).
+  Energy at Earth / no interaction: inband 0.841 -> 0.941, strong 0.982 -> 0.99995; inband
+  fractions move by 1.8e-3. Exclusion planes: split by regime (MeV with epsilon' = 0, limits on
+  g_D u^2; light mediators, limits on g_D epsilon' u^2), three textures, read per mass at 3.84.
+
 - 2026-10-12: solver corrections. Cascade (`7dc95e9`): the regenerated source was held at its
   start-of-step value while Gamma*dt reached 1e10, so the energy at Earth was up to 1e67 times
   the no-interaction value; now an exact per-step sweep that conserves number. Absorption
