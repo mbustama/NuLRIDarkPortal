@@ -590,6 +590,40 @@ def test_vector_cross_sections():
     assert abs(val / (2 * np.pi * 1e-6) - 1) < 2e-4
 
 
+@pytest.mark.parametrize("majorana", [True, False])
+def test_vector_quasi_elastic_limit(majorana):
+    """Far above a vector's resonance (1 keV: s/M^2 > 1e5 in the band) its t channel's forward peak only
+    converts mass states at fixed energy (energy transfer ~ M^2/s): in the closed form
+    dF/dz = (1+z)^2 / H(z) K0 F, K0[x, a] = 2 kappa n |G_xa|^2 Tr(G^dag G) / (4 pi M^2) minus the column
+    sums (both relic components; kappa = 1/2 for Dirac), one matrix exponential per source redshift. The
+    transport's flavor fractions agree to ~1e-6 (4e-6 at 1e14 eV); the conversions drive the composition
+    toward equal mass states, 1/3 of each flavor."""
+    from scipy.integrate import cumulative_trapezoid
+    from scipy.linalg import expm
+    from dp_cosmo import calc_R_source
+    kw = _transport_kw()
+    U = kw["U_pmns"]
+    M, g = 1e3, 1e-3
+    gm = si.mass_basis_couplings_model(si.flavor_couplings("e", g), U, "vector", majorana)
+    n0 = si.relic_density_per_helicity(kw["T_nu0"])
+    W = (2.0 if majorana else 1.0) * n0 * np.abs(gm) ** 2 * np.trace(gm.conj().T @ gm).real / (4 * np.pi * M * M)
+    K0 = W - np.diag(W.sum(0))
+    z = np.linspace(0.0, 4.0, 2001)
+    Hz = H0 * np.sqrt(0.315 * (1 + z) ** 3 + 0.685)
+    X = cumulative_trapezoid((1 + z) ** 2 / Hz, z, initial=0.0)
+    S = (1 + z) ** -2.5 * np.array([calc_R_source(v, 0.0) for v in z]) / (Hz * (1 + z))
+    P = (np.abs(U) ** 2).T @ kw["rho_src"]
+    trapz = np.trapezoid if hasattr(np, "trapezoid") else np.trapz     # NumPy 2 renamed it
+    Fz = np.array([expm(K0 * x) @ P for x in X])
+    Fa = trapz(S[:, None] * Fz, z, axis=0)
+    f_closed = (np.abs(U) ** 2) @ Fa / Fa.sum()
+    assert np.abs(f_closed - (np.abs(U) ** 2) @ P).max() > 5e-3         # a visible effect
+    E = _grid(201)
+    F = si.propagate_si(E, M=M, g_mass=gm, mediator="vector", majorana=majorana, **kw)
+    fl = F @ (np.abs(U) ** 2).T
+    for j in [60, 100, 150]:
+        assert np.abs(fl[j] / fl[j].sum() - f_closed).max() < 2e-5
+
 @pytest.mark.parametrize("mediator,nu_type", [("scalar", "dirac"), ("vector", "majorana"), ("vector", "dirac")])
 def test_solver_dispatch_new_models(mediator, nu_type):
     """The solver's flux functions run the Dirac scalar and the vector through dp_si with the
