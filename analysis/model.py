@@ -18,6 +18,14 @@ for the pure-flavor sources when the composition floats -- and combines them on 
 
 Aliases: s12sq, s13sq, s23sq (sin^2 of the mixing angles) are mapped to th*_deg.
 
+Coupling products: the data depend on the dark coupling and the sterile mixing only through
+products, so exclusion planes scan those directly (decided 2026-10-13). For a texture with
+|U|^2 = max_alpha |U_alpha4|^2 (the common value of the benchmark textures' two entries):
+  g_D_u2      = g_D |U|^2          sets g_D = g_D_u2 / |U|^2 (resonant absorption; with
+                                   epsilon' = 0 everything depends on it alone);
+  g_D_eps_u2  = g_D epsilon' |U|^2 sets g_D = g_D_eps_u2 / (epsilon' |U|^2) (the coherent
+                                   potential, which is proportional to it).
+
 Source composition: components that are not floated keep their configured values, except
 one that takes the remainder so that they sum to 1 -- f_tau_S when f_e_S and f_mu_S both
 float (the theory notes' parametrization), f_mu_S otherwise (f_e_S floated with f_tau_S
@@ -36,6 +44,7 @@ from dp_config import DEFAULT_CONFIG, merge_config_with_defaults
 from flux_postprocessing import compute_energy_averaged_ratios
 
 SOURCE_KEYS = ("f_e_S", "f_mu_S", "f_tau_S")
+PRODUCTS = ("g_D_u2", "g_D_eps_u2")
 LINEAR_KEYS = SOURCE_KEYS + ("nubar_to_nu_ratio", "Phi_0")
 ALIASES = {"s12sq": "th12_deg", "s13sq": "th13_deg", "s23sq": "th23_deg"}
 _SECTIONS = ("cosmology", "standard_mixing", "dark_portal", "source", "grid")
@@ -56,6 +65,8 @@ def sin2_to_deg(s: float) -> float:
 
 def solver_key(name: str) -> Tuple[str, str]:
     """(section, key) of the solver config entry a parameter sets."""
+    if name in PRODUCTS:
+        return "dark_portal", "g_D"
     key = ALIASES.get(name, name)
     return _section_of(key), key
 
@@ -106,13 +117,27 @@ class FlavorModel:
     # ------------------------------------------------------------------
     def _overrides(self, values: Mapping) -> Dict[Tuple[str, str], object]:
         out = {}
+        products = [n for n in PRODUCTS if n in values]
+        if len(products) > 1 or (products and "g_D" in values):
+            raise ValueError(f"Set g_D through at most one of g_D, {PRODUCTS}; got {sorted(values)}")
         for name, v in values.items():
-            if name in LINEAR_KEYS:
+            if name in LINEAR_KEYS or name in PRODUCTS:
                 continue
             section, key = solver_key(name)
             if name in ALIASES:
                 v = sin2_to_deg(v)
             out[(section, key)] = v
+        if products:
+            dp = self.base["dark_portal"]
+
+            def get(k):
+                return float(out.get(("dark_portal", k), dp[k]))
+            u2 = max(abs(get("u_e")), abs(get("u_mu")), abs(get("u_tau"))) ** 2
+            name = products[0]
+            scale = u2 if name == "g_D_u2" else u2 * get("epsilon_prime")
+            if scale <= 0.0:
+                raise ValueError(f"{name} needs a nonzero mixing{'' if name == 'g_D_u2' else ' and epsilon_prime'}")
+            out[("dark_portal", "g_D")] = float(values[name]) / scale
         return out
 
     def fluxes(self, values: Mapping) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray]]:

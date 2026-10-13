@@ -20,6 +20,7 @@ LABELS = {
     "d_cp_deg": r"$\delta_{\rm CP}$ [$^\circ$]", "dm21_sq": r"$\Delta m^2_{21}$ [eV$^2$]",
     "dm31_sq": r"$\Delta m^2_{31}$ [eV$^2$]", "m_lightest_eV": r"$m_{\rm lightest}$ [eV]",
     "f_e_S": r"$f_{e,S}$", "f_mu_S": r"$f_{\mu,S}$",
+    "g_D_u2": r"$g_D\,|U_{\alpha 4}|^2$", "g_D_eps_u2": r"$g_D\,\epsilon'\,|U_{\alpha 4}|^2$",
 }
 STYLES = [("0.25", "--"), ("0.45", "-."), ("0.65", ":")]
 

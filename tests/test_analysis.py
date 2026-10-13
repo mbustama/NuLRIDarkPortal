@@ -142,6 +142,30 @@ def test_free_source_composition_uses_the_linear_basis():
     assert model.n_solver_calls == n
 
 
+def test_coupling_products_are_what_the_data_see():
+    """Exclusion planes scan the coupling products (decided 2026-10-13). With epsilon' = 0
+    the fractions depend on g_D and the mixing only through g_D |U|^2; the coherent
+    potential depends on g_D epsilon' |U|^2 (up to the Debye mass, negligible here)."""
+    raw = _tiny_raw()
+    raw["profiles"], raw["planes"] = {}, []
+    out = []
+    for u, eps in ((0.0316, 0.0), (0.5, 0.0)):
+        r = copy.deepcopy(raw)
+        r["solver"]["dark_portal"].update(u_e=u, u_mu=u, u_tau=0.0, epsilon_prime=eps)
+        r["parameters"] = {"g_D_u2": {"start": 1e-5, "bounds": [1e-12, 1e-1], "space": "log10"}}
+        out.append(config_mod.from_dict(r).model().fractions({"g_D_u2": 3e-5, "m_Zd_eV": 2e6}))
+    np.testing.assert_allclose(out[0], out[1], rtol=0, atol=1e-12)
+    out = []
+    for u, eps in ((0.0316, 1e-4), (0.1, 1e-2)):
+        r = copy.deepcopy(raw)
+        r["solver"]["dark_portal"].update(u_e=u, u_mu=u, u_tau=0.0, epsilon_prime=eps)
+        r["parameters"] = {"g_D_eps_u2": {"start": 1e-30, "bounds": [1e-62, 1e-8], "space": "log10"}}
+        out.append(config_mod.from_dict(r).model().fractions({"g_D_eps_u2": 1e-29, "m_Zd_eV": 1e-2}))
+    np.testing.assert_allclose(out[0], out[1], rtol=0, atol=1e-6)
+    with pytest.raises(ValueError):
+        config_mod.from_dict(raw).model().fractions({"g_D_u2": 1e-5, "g_D": 1e-4, "m_Zd_eV": 2e6})
+
+
 def test_objective_charges_mixing_beyond_unitarity_continuously():
     cfg = config_mod.from_dict(_tiny_raw())
     obj = cfg.objective()

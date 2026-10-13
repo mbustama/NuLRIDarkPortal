@@ -560,8 +560,9 @@ def build_solver_params(config: Dict) -> Tuple[np.ndarray, Dict]:
         raise ValueError("Dark mediator gauge coupling g_D must be strictly positive.")
     if params['g_D'] >= np.sqrt(4 * np.pi):
         raise ValueError(f"Dark gauge coupling g_D ({params['g_D']:.2f}) exceeds the perturbativity bound (sqrt(4*pi)).")
-    if params['epsilon_prime'] <= 0:
-        raise ValueError("Kinetic mixing epsilon_prime must be strictly positive.")
+    if params['epsilon_prime'] < 0:
+        raise ValueError("Kinetic mixing epsilon_prime must be non-negative (0 switches off the coupling "
+                         "to matter: no coherent potential, absorption only).")
     params['use_debye_screening'] = config['dark_portal']['use_debye_screening']
     
     params['p_index'] = float(config['source']['p_index'])

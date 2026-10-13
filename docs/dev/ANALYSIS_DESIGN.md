@@ -41,6 +41,16 @@ analysis, a command line, checkpoints, provenance.
   m_Zd = 1e-2 eV; chords and paths converged to 1e-7). FrequentistAnalysis used 200 x 200 with
   50 and 50.
 
+## Exclusion planes by regime (decided 2026-10-13)
+
+The observables depend on g_D and the sterile mixing only through products: with epsilon' = 0
+(absorption only) through g_D |U|^2, and the coherent potential through g_D epsilon' |U|^2. A free
+mixing therefore always slides to zero, so the planes scan the products (model parameters
+`g_D_u2` and `g_D_eps_u2`, which set g_D from the configured texture) and their limits hold for
+any mixing: MeV planes with epsilon' = 0 in (m_Zd, g_D |U|^2), light-mediator planes in
+(m_Zd, g_D epsilon' |U|^2), for the three benchmark textures, read per mass at 3.84. The light
+planes wait for down-going directions before they can be quoted.
+
 ## Findings to keep in mind
 
 - **Null data and free couplings**: the 2050 projection is centred on standard physics, and
