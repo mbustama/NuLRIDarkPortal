@@ -646,8 +646,10 @@ generally, as in arXiv:2001.04994 (Bustamante, Rosenstr\"om, Shalgar \& Tamborra
 cross sections of arXiv:2107.13568 (Esteban, Pandey, Brdar \& Beacom, Appendix~A). The switch
 \texttt{secret\_interactions.enabled} replaces the dark portal by this model; everything
 downstream (the analysis, the scanner) is unchanged. This section describes the scalar mediator
-with Majorana neutrinos, implemented and validated on 2026-10-13 (\file{src/dp_si.py}, commits
-\texttt{781ae43}, \texttt{771cd46}); Dirac neutrinos and a vector mediator come next.
+with Majorana neutrinos (\file{src/dp_si.py}, commits \texttt{781ae43}, \texttt{771cd46}), then
+Dirac neutrinos and a vector mediator (\texttt{99a8ccc}, \texttt{d82231c};
+Sec.~\ref{sec:si_dirac_vector}), all implemented and validated on 2026-10-13, and the limits of the
+four models (Sec.~\ref{sec:si_models}).
 
 \subsection{Model and cross sections}
 \label{sec:si_model}
@@ -785,6 +787,28 @@ recoils). The transport removes from a bin's equations the returns that change n
 integrals, without cancellation), keeps every recoil, and solves the bin's three mass states exactly
 over the step with a matrix exponential, because the quasi-elastic conversions are fast enough to
 make them stiff (the scalar keeps its scheme, its returns being of order $\Delta\ln E$).
+Each return that changes nothing still costs the neutrino $\sim M^2/s$ of its energy, and at small
+$M$ there are enough of them to move it by many bins (at 1~keV and $g = 0.03$, $\sim10^7$ returns
+of $10^{-6}$ each; two thirds of the energy loss is in the returns, a third in the jumps out of the
+bin). The transport carries their losses as a drift in $\ln E$: an upwind flux to the bin below, in
+the daughter's state, at the rate of the returns times their mean shift
+$\int_{1/h}^1(-\ln x)P(x)\,dx$ (closed form plus a bounded remainder, $10^{-7}$ against 40 digits),
+which the top-down sweep passes on within the step however fast it is. Without it (until
+2026-10-13) the energy-averaged fractions of flavor-universal vector couplings at 1~keV and
+$g = 0.03$ moved by $7\times10^{-3}$ between 401 and 1601 bins, as much as the effects measured;
+with it, $10^{-4}$ ($3\times10^{-5}$ at 801 bins), and $\nu_e$ couplings at 1 and 10~keV agree to $10^{-4}$ or better at 401 bins; where nearly all the flux is gone ($10^{-4}$ of it left, $\nu_e$ at 100~keV and $g = 0.1$) to $10^{-3}$, falling with the bin width. The scalar has no forward peak and no drift.
+
+Far above the resonance this is all that happens: at $M = 1$~keV ($s/M^2 > 10^5$ in the band) a
+scattering moves the neutrino by $\sim M^2/s\sim10^{-6}$ in energy but projects it onto the
+coupled flavor ($\sum_k G_{ka}|\nu_k\rangle\propto|\nu_e\rangle$ for $\nu_e$ couplings), at the rate
+$W_{a\to x} = 2\kappa\, n\,|G_{xa}|^2\,{\rm Tr}(G^\dagger G)/4\pi M^2$ from both relic components.
+The flux at each energy then obeys $dF/dz = (1+z)^2 K_0F/H(z)$, $K_0 = W - {\rm diag}(\sum_xW_{x\cdot})$,
+solved by one matrix exponential per source redshift; the transport reproduces its flavor
+fractions to $10^{-6}$ (Majorana and Dirac, $g = 5\times10^{-4}$ and $10^{-3}$; a test). $W$ being
+symmetric, the conversions drive the flux toward equal mass states, $1/3$ of each flavor at Earth:
+a shift of $\sim0.01$ from the pion sources' $0.326:0.343:0.330$, which the 2050 projection
+resolves. The rate grows as $g^4/M^2$, so the limits below the resonant window follow
+$g\propto\sqrt M$ (Sec.~\ref{sec:si_models}).
 
 \begin{figure}[t]
 \centering
@@ -845,8 +869,14 @@ Double-scalar neutrino spectrum vs 30 digits & $2\times10^{-10}$ \\
 No coupling vs free streaming & $10^{-14}$ \\
 Number balance & $10^{-14}$, every texture, $M$ = 1~keV--1~GeV, $g$ up to 1 \\
 Absorption alone vs quadrature of $e^{-\tau}$ along each path & median $10^{-12}$--$10^{-4}$; up to $1.2\%$ in the bins at a narrow resonance's sharp edge (one step per bin; $0.2\%$ with four) \\
-Bins and steps vs 1600 bins, four steps per bin & spectra $2\times10^{-3}$ pointwise (median $2\times10^{-4}$) at 400 bins; energy-averaged fractions $10^{-5}$ \\
+Bins and steps vs 1601 bins, four steps per bin (nested grids: no interpolation) & at 401 bins, spectra $2\times10^{-3}$ pointwise (median $2\times10^{-4}$), up to 4\% in the one bin below a very narrow resonance's edge ($g = 0.01$; first order in the bin width); energy-averaged fractions $\le2\times10^{-4}$ in all eight cases (scalar and vector, Majorana and Dirac) \\
 2107.13568 Fig.~5 & reproduced (Fig.~\ref{fig:si_fig5}) \\
+2107.13568 Fig.~3 (Majorana, Dirac) & Majorana within 1--4\%; Dirac 1\% below the dips, 9\% above the first dip (open; Fig.~\ref{fig:si_fig3}) \\
+Tree amplitudes by brute force (explicit spinors; Majorana fermions by fermion flow) & (A12), its complex form, the Dirac visible/sterile split $10^{-15}$; vector $|\mathcal M|^2$ $10^{-12}$, longitudinal fraction $3\times10^{-14}$ \\
+Vector: tensors vs $\int d\sigma/dt$; narrow $s$ channel vs the Z-burst normalization & $10^{-10}$; $2\times10^{-4}$ \\
+Dirac: absorption alone; tracked regeneration over Majorana's & equal to Majorana's (3 digits); $0.499$--$0.500$ \\
+Vector far above the resonance vs its closed form (conversions at fixed energy) & flavor fractions $10^{-6}$ \\
+Vector drift integrals vs 40 digits; fractions at 201 vs 401 bins (1~keV) & $10^{-7}$; $1.5\times10^{-4}$ ($5\times10^{-3}$ without the drift) \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -875,6 +905,30 @@ over the flux without interactions; $\nu_\tau$ couplings, $M = 5$~MeV, $\nusum =
 ordering, $E^{-2}$ sources up to $z = 4$; 400 bins). Thin line: the double-scalar coupling as
 printed in the paper. \file{tools/si_validation.py}~\texttt{fig5}.}
 \label{fig:si_fig5}
+\end{figure}
+
+Figure~\ref{fig:si_fig3} repeats the bottom panel of their Fig.~3, the same model at $g = 0.01$
+with Majorana and with Dirac neutrinos. Read off their figure, the Majorana curve peaks at $1.42$
+below the dips (ours $1.40$) and at $1.21$ just above the first dip (ours $1.25$); the Dirac curve,
+with the sterile secondaries dropped as they do, peaks at $1.11$ below the dips (ours $1.12$) but
+only $0.91$ above the first dip, where ours gives $1.00$. Our curves obey two exact relations:
+absorption alone is the same for both kinds of neutrino (to three digits at every energy), and with
+the sterile secondaries tracked the Dirac regeneration is exactly half the Majorana one ($0.499$--$0.500$
+of it at every energy), as the parity mirror of Sec.~\ref{sec:si_dirac_vector} requires; dropping
+them keeps $0.42$--$0.47$ of it. Their Dirac curve would need $\sim0.3$ just above the first dip
+against $\sim0.47$ below the dips, which no single treatment gives; the source of this one
+difference is open (their code, nuSIprop, would settle it). The source composition plays no
+role here: with $1:1:1$ (equal mass states, as theirs) or $1:2:0$ the curves agree to three digits,
+every state being absorbed in the dips.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.6\textwidth]{../output/figures/si_fig3_repro.png}
+\caption{\textbf{Fig.~3 (bottom) of arXiv:2107.13568 recomputed}: Majorana neutrinos, and Dirac
+neutrinos with the sterile secondaries dropped (as the paper does) or tracked; $\nu_\tau$
+couplings, $M = 5$~MeV, $g = 0.01$, otherwise as Fig.~\ref{fig:si_fig5}.
+\file{tools/si_validation.py}~\texttt{fig3}, \file{tools/plot_si_summary.py}~\texttt{fig3}.}
+\label{fig:si_fig3}
 \end{figure}
 
 \subsection{The flavor-triangle planes}
@@ -952,11 +1006,125 @@ $U^TGU$ at $\delta_{CP} = 212^\circ$), and the universal coupling again.
 \label{fig:si_planes2}
 \end{figure}
 
-\textit{Not yet included.}---Dirac neutrinos (only the visible final states of the appendix's
-Table~I regenerate) and a vector mediator (decided 2026-10-13), the relic neutrinos' thermal
-momenta (relics are at rest here, as in both papers; this matters for a nearly massless lightest
-state, whose relics are relativistic), and the timing within the crossing step
-(Sec.~\ref{sec:si_validation}).
+\subsection{Four models}
+\label{sec:si_models}
+
+We repeated the four planes of Fig.~\ref{fig:si_planes} for the scalar with Dirac neutrinos and for
+the vector with Majorana and with Dirac neutrinos (configurations
+\file{pion_2050_case_5_si_{dirac,vector,vector_dirac}_*.json}, the same grid; Tycho jobs
+66302667 (commit \texttt{99a8ccc}) and 66304700--03 (\texttt{d82231c}, with the drift); 8--17 minutes
+per plane on 16 cores, the Dirac scalar the slowest, with two transport runs per point; the vector
+Dirac planes are in \file{output/figures/si_planes_vector_dirac.png}). Figure~\ref{fig:si_models_spectra} shows one benchmark
+under the four models, Fig.~\ref{fig:si_limits} and Table~\ref{tab:si_limits} the limits, and
+Figs.~\ref{fig:si_planes_vector} and \ref{fig:si_planes_dirac} two of the models' planes.
+
+\textit{The resonant window} (0.5--3~MeV) gives the strongest limits in all four, within a factor
+$\sim1.5$ of each other at its best mass (absorption alone being the same for Majorana and Dirac
+neutrinos, Sec.~\ref{sec:si_validation}). For the Dirac scalar the excluded region inside the
+window breaks into islands (Fig.~\ref{fig:si_planes_dirac}), where the composition's path passes back
+through the projection's centre, as it does more rarely for Majorana neutrinos
+(Sec.~\ref{sec:si_planes}); the per-mass reading then jumps to the top of the lowest allowed
+interval ($\nu_\tau$: $2.2\times10^{-4}$, against $9.0\times10^{-5}$ for Majorana).
+
+\textit{Below the window} the vector's quasi-elastic conversions (Sec.~\ref{sec:si_dirac_vector})
+set the limit for the single-flavor textures, $g\propto\sqrt M$: $4.9\times10^{-4}$ for $\nu_e$ at
+1~keV, twelve times below the scalar's $6.2\times10^{-3}$, with the flux intact. Their effect
+saturates at equal mass states, and where that shift is no longer enough (20--50~keV for $\nu_e$)
+the limit comes from hard scatterings, as for the scalar. Flavor-universal couplings stay diagonal in
+the mass basis for the vector and for the Dirac scalar, $U^\dagger(g\mathbb 1)U = g\mathbb 1$: no
+conversions, and the 1-MeV gap of $g\mathbb 1$ that $U^TU$ closes for the Majorana scalar
+(Sec.~\ref{sec:si_planes}) remains for all three ($g < 0.009$--$0.011$ there, against
+$2.4\times10^{-4}$). Below 400~keV universal vector couplings are not limited at all: the energy loss
+of their forward-peaked scatterings can remove the whole flux from the band (to $3\times10^{-4}$ of
+its number at 1~keV and $g = 0.03$) while hardly moving its composition ($f_e$ by $-0.016$,
+$\Delta\chi^2 < 3.84$), which normalized fractions cannot see. Spectral data will exclude that region
+outright. (Before the drift of Sec.~\ref{sec:si_dirac_vector}, it appeared excluded above
+$g\simeq4\times10^{-3}$: an artifact of the missing energy loss.)
+
+\textit{Above the window} the vector is limited further, because its cross section stays constant
+above the resonance where the scalar's falls as $1/s$: $g < 0.08$ for $\nu_e$ at 10~MeV (scalar
+$0.15$), and for $\nu_e$ a limit up to 100~MeV ($0.81$). Dirac rates of the vector are half the Majorana ones, and its
+limits are weaker by $2^{1/4}\simeq1.2$ wherever one process dominates (1~keV: $5.8\times10^{-4}$
+against $4.9\times10^{-4}$ for $\nu_e$).
+
+\begin{table}[h]
+\centering
+\caption{\textbf{95\% upper limits on $g$ of the four models} (projected 2050 flavor measurement,
+pion sources; per mass at $\Delta\chi^2 = 3.84$, the top of each column's lowest allowed interval).
+S/V: scalar/vector; M/D: Majorana/Dirac; best: the strongest limit and its mass in MeV; --: no limit
+up to $g = 1$ (or the column never reaches the no-effect limit). \file{output/analysis/}.}
+\label{tab:si_limits}
+\small
+\begin{tabular}{llccccc}
+\toprule
+Texture & Model & Best (MeV) & 1~keV & 100~keV & 10~MeV & 100~MeV \\
+\midrule
+$\nu_e$    & S, M & $1.7\times10^{-5}$ (0.56) & $6.2\times10^{-3}$ & $8.0\times10^{-3}$ & 0.15 & -- \\
+           & S, D & $1.9\times10^{-5}$ (0.56) & $5.9\times10^{-3}$ & $7.6\times10^{-3}$ & 0.23 & -- \\
+           & V, M & $1.4\times10^{-5}$ (0.56) & $4.9\times10^{-4}$ & $6.0\times10^{-3}$ & 0.08 & 0.81 \\
+           & V, D & $1.9\times10^{-5}$ (0.56) & $5.8\times10^{-4}$ & $7.5\times10^{-3}$ & 0.096 & 0.98 \\
+\midrule
+$\nu_\mu$  & S, M & $3.1\times10^{-5}$ (0.56) & $7.6\times10^{-3}$ & $9.9\times10^{-3}$ & 0.32 & -- \\
+           & S, D & $3.9\times10^{-5}$ (0.56) & $7.6\times10^{-3}$ & $9.2\times10^{-3}$ & 0.17 & -- \\
+           & V, M & $2.3\times10^{-5}$ (0.56) & $9.1\times10^{-4}$ & $5.1\times10^{-3}$ & 0.15 & -- \\
+           & V, D & $3.3\times10^{-5}$ (0.56) & $1.1\times10^{-3}$ & $6.1\times10^{-3}$ & 0.19 & -- \\
+\midrule
+$\nu_\tau$ & S, M & $9.0\times10^{-5}$ (0.75) & $8.7\times10^{-3}$ & 0.011 & 0.36 & -- \\
+           & S, D & $2.2\times10^{-4}$ (0.75) & $8.6\times10^{-3}$ & 0.011 & 0.2 & -- \\
+           & V, M & $6.2\times10^{-5}$ (0.75) & $8.1\times10^{-4}$ & $5.9\times10^{-3}$ & 0.18 & -- \\
+           & V, D & $8.8\times10^{-5}$ (0.75) & $9.6\times10^{-4}$ & $7.0\times10^{-3}$ & 0.21 & -- \\
+\midrule
+universal  & S, M & $8.8\times10^{-6}$ (0.56) & $4.8\times10^{-3}$ & $7.7\times10^{-3}$ & 0.075 & 0.81 \\
+           & S, D & $1.2\times10^{-5}$ (0.56) & $5.7\times10^{-3}$ & $7.8\times10^{-3}$ & 0.076 & 0.81 \\
+           & V, M & $6.1\times10^{-6}$ (0.56) & -- & -- & -- & -- \\
+           & V, D & $8.6\times10^{-6}$ (0.56) & -- & -- & -- & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{../output/figures/si_models_spectra.png}
+\caption{\textbf{One benchmark under the four models}: all-flavor flux over the flux without
+interactions, $\nu_\tau$ couplings, and the shift of the energy-averaged flavor fractions at Earth.
+Left: $M = 5$~MeV, $g = 0.03$ (the resonant dips; above them the vector's constant cross section
+keeps acting). Right: $M = 0.1$~MeV, $g = 0.01$ (resonances below the band: the scalar's
+non-resonant channels against the vector's forward peak). \file{tools/si_validation.py}~\texttt{models},
+\file{tools/plot_si_summary.py}~\texttt{models}.}
+\label{fig:si_models_spectra}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{../output/figures/si_limits_models.png}
+\caption{\textbf{95\% upper limits of the four models} per mediator mass and texture (as
+Fig.~\ref{fig:si_planes}). Gaps: masses with no limit up to $g = 1$, or whose lowest allowed
+interval is open. \file{tools/plot_si_summary.py}~\texttt{limits}.}
+\label{fig:si_limits}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{../output/figures/si_planes_vector.png}
+\caption{\textbf{Exclusion planes of the vector mediator} (Majorana neutrinos), as
+Fig.~\ref{fig:si_planes}. Below the window, the quasi-elastic conversions ($g\propto\sqrt M$) for
+single flavors. \file{tools/plot_si_summary.py}~\texttt{planes}, tag \texttt{vector\_}.}
+\label{fig:si_planes_vector}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{../output/figures/si_planes_dirac.png}
+\caption{\textbf{Exclusion planes of the scalar with Dirac neutrinos} (sterile secondaries
+tracked), as Fig.~\ref{fig:si_planes}: inside the resonant window the excluded region breaks into
+islands. \file{tools/plot_si_summary.py}~\texttt{planes}, tag \texttt{dirac\_}.}
+\label{fig:si_planes_dirac}
+\end{figure}
+
+\textit{Not yet included.}---The relic neutrinos' thermal momenta (relics are at rest here, as in
+both papers; this matters for a nearly massless lightest state, whose relics are relativistic), the
+timing within the crossing step (Sec.~\ref{sec:si_validation}), and spectral data, which would
+exclude outright the regions where the flux is absorbed without changing its composition.
 
 
 %==============================================================================

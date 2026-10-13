@@ -1,0 +1,188 @@
+{
+ "runs": [
+  {
+   "provenance": {
+    "time": "2026-10-13T18:28:57",
+    "git_commit": "1b7d29b94d3b5689f3ccf0506d82c81d45567d7a",
+    "git_dirty": false,
+    "config": "/lustre/astro/mbustama/NuLRIDarkPortal/analysis/configs/pion_2050_case_5_si_vector_dirac_universal.json",
+    "config_digest": "6893ddea09f987e1",
+    "host": "node819.cluster",
+    "python": "3.12.15",
+    "numpy": "1.26.4",
+    "scipy": "1.15.3",
+    "numba": "0.60.0",
+    "argv": [
+     "/lustre/astro/mbustama/NuLRIDarkPortal/analysis/__main__.py",
+     "analysis/configs/pion_2050_case_5_si_vector_dirac_universal.json",
+     "--workers",
+     "16"
+    ]
+   },
+   "workers": 16,
+   "tasks": [
+    {
+     "task": "fit",
+     "seconds": 295.4656583289616,
+     "nfev": 439
+    },
+    {
+     "task": "plane m_phi_eV/g_phi",
+     "seconds": 307.53513105819,
+     "nfev": 2401,
+     "passes": 0
+    }
+   ],
+   "data_centre": null,
+   "chi2_min": 8.791328554025313e-09,
+   "seconds": 603.7563388238195
+  },
+  {
+   "provenance": {
+    "time": "2026-10-13T20:00:51",
+    "git_commit": "d82231c2b9884f8986c7e5bbd91e29d5470391c4",
+    "git_dirty": false,
+    "config": "/lustre/astro/mbustama/NuLRIDarkPortal/analysis/configs/pion_2050_case_5_si_vector_dirac_universal.json",
+    "config_digest": "6893ddea09f987e1",
+    "host": "node808.cluster",
+    "python": "3.12.15",
+    "numpy": "1.26.4",
+    "scipy": "1.15.3",
+    "numba": "0.60.0",
+    "argv": [
+     "/lustre/astro/mbustama/NuLRIDarkPortal/analysis/__main__.py",
+     "analysis/configs/pion_2050_case_5_si_vector_dirac_universal.json",
+     "--workers",
+     "16"
+    ]
+   },
+   "workers": 16,
+   "tasks": [
+    {
+     "task": "fit",
+     "seconds": 273.84172014100477,
+     "nfev": 466
+    },
+    {
+     "task": "plane m_phi_eV/g_phi",
+     "seconds": 311.7820615656674,
+     "nfev": 2401,
+     "passes": 0
+    }
+   ],
+   "data_centre": null,
+   "chi2_min": 8.281507035690083e-09,
+   "seconds": 586.3610202688724
+  }
+ ],
+ "config": {
+  "_comment": "Exclusion plane of secret neutrino interactions, flavor-universal couplings, vector mediator coupled to left-handed currents, Dirac neutrinos (decided 2026-10-13 after the brute-force physics checks): the flavor-triangle analysis of the scalar-Majorana planes (projected 2050 measurement, pion sources) with the propagation of dp_si. Couplings from 1e-6. Read per mediator mass at Delta chi^2 = 3.84.",
+  "name": "pion_2050_case_5_si_vector_dirac_universal",
+  "data": {
+   "surface": "pion_2050_case_5"
+  },
+  "solver": {
+   "_comment": "Physics of the dark-portal planes (pion_2050_case_5: the projection's mixing, m_lightest = 0.01 eV, 1/3:2/3:0 sources with E^-2.5 up to z = 4), with secret interactions in place of the dark portal (dp_si: vector mediator coupled to left-handed currents, Dirac neutrinos; relics at rest). Grid: 400 energy bins, one redshift step per bin (energy-averaged fractions within 1e-5 of 1600 bins and four steps per bin at nu_tau, 5 MeV, g = 0.1; tools/si_validation.py convergence), the grid extended tenfold above 30 PeV.",
+   "cosmology": {
+    "H0_km_s_Mpc": 67.4,
+    "Omega_m": 0.315,
+    "Omega_L": 0.685,
+    "T_nu0_eV": 0.0001676389,
+    "n_n0_cm3": 3.091e-08,
+    "m_lightest_eV": 0.01,
+    "mass_ordering": "normal",
+    "eta_e": 1.0,
+    "eta_mu": 1.0,
+    "eta_tau": 1.0
+   },
+   "standard_mixing": {
+    "th12_deg": 33.70916346871883,
+    "th13_deg": 8.559057632313843,
+    "th23_deg": 43.280093616242404,
+    "d_cp_deg": 212.0,
+    "dm21_sq": 7.49e-05,
+    "dm31_sq": 0.002513,
+    "use_SM_potential": false,
+    "n_e_earth_cm3": 1.5e+24,
+    "detector_depth_km": 1.5
+   },
+   "source": {
+    "p_index": 2.5,
+    "Phi_0": 1.0,
+    "z_max": 4.0,
+    "rho_evol": 0.0,
+    "f_e_S": 0.3333,
+    "f_mu_S": 0.6667,
+    "f_tau_S": 0.0,
+    "is_antineutrino": "sum",
+    "nubar_to_nu_ratio": 1.0
+   },
+   "grid": {
+    "E_min_eV": 10000000000000.0,
+    "E_max_eV": 3e+16,
+    "n_E_bins": 400
+   },
+   "secret_interactions": {
+    "enabled": true,
+    "mediator": "vector",
+    "neutrino_type": "dirac",
+    "texture": "universal",
+    "channels": "full",
+    "phiphi_coupling": "coherent",
+    "z_substeps": 1,
+    "E_extension": 10.0,
+    "dirac_sterile": "track"
+   }
+  },
+  "parameters": {
+   "m_phi_eV": {
+    "start": 5000000.0,
+    "bounds": [
+     100.0,
+     10000000000.0
+    ],
+    "space": "log10"
+   },
+   "g_phi": {
+    "start": 0.01,
+    "bounds": [
+     1e-07,
+     3.0
+    ],
+    "space": "log10"
+   }
+  },
+  "priors": [],
+  "fit": {
+   "n_random": 3,
+   "seed": 20261012,
+   "max_evals": 400,
+   "fd_step": 0.001,
+   "ftol": 1e-09,
+   "xtol": 0.001,
+   "polish": true
+  },
+  "profiles": {},
+  "planes": [
+   {
+    "x": "m_phi_eV",
+    "y": "g_phi",
+    "x_range": [
+     1000.0,
+     1000000000.0
+    ],
+    "y_range": [
+     1e-06,
+     1.0
+    ],
+    "nx": 49,
+    "ny": 49,
+    "raster": "m_phi_eV"
+   }
+  ],
+  "asimov": {
+   "g_phi": 1e-07
+  },
+  "output_dir": "output/analysis/pion_2050_case_5_si_vector_dirac_universal"
+ }
+}

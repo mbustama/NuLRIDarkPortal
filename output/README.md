@@ -36,9 +36,13 @@ whole-sky average (`6cf6b2b`). Not for quoting.
 The `*_host` planes put the sources inside a Milky-Way-like host galaxy (`source.host_galaxy_scale = 1`);
 the others keep them in the cosmic mean density (the default).
 
-The `*_si_*` planes replace the dark portal by secret neutrino interactions (`src/dp_si.py`; scalar
-mediator, Majorana neutrinos): nu_e, nu_mu, nu_tau or flavor-universal couplings, in (m_phi, g).
+The `*_si_*` planes replace the dark portal by secret neutrino interactions (`src/dp_si.py`):
+nu_e, nu_mu, nu_tau, flavor-universal or two-flavor couplings, in (m_phi, g); `*_si_<texture>` for a
+scalar mediator with Majorana neutrinos, `*_si_dirac_*` for Dirac neutrinos (sterile secondaries
+tracked), `*_si_vector_*` and `*_si_vector_dirac_*` for a vector coupled to left-handed currents.
 `output/si_validation/` holds the validation runs of that module (`tools/si_validation.py`, Tycho job
-66300967 at `781ae43`: absorption against direct quadrature, convergence, 2107.13568 Fig. 5), and
+66300967 at `781ae43`: absorption against direct quadrature, 2107.13568 Fig. 5; job 66302931 at
+`1b7d29b`: Fig. 3; jobs 66304704 at `d82231c`: the four models on one benchmark, convergence on
+nested grids), and
 `output/si_planes/flavor_paths.json` the flavor paths of `tools/si_flavor_paths.py` (job 66301153 at
 `5b6ef9a`).
