@@ -117,21 +117,70 @@ def test_narrow_width_limit():
 
 
 def test_mass_basis_couplings():
-    """Universal couplings stay diagonal, a single flavor gives g |U_fi| |U_fj| whatever the CP
-    phase, and a generic texture with complex mass-basis couplings is refused."""
+    """Majorana mass-basis couplings lambda = U^T G U: a single flavor gives |lambda_ij| =
+    g |U_fi| |U_fj|; a flavor-universal coupling is g U^T U, off-diagonal at delta_CP = 212 deg
+    (it would be g 1 only without CP violation, as 2107.13568 assumes)."""
     U = _mixing()
     gu = si.mass_basis_couplings(si.flavor_couplings("universal", 0.3), U)
-    assert np.allclose(gu, 0.3 * np.eye(3), atol=1e-15)
+    assert np.allclose(gu, 0.3 * (U.T @ U), rtol=0, atol=1e-15)
+    assert 0.03 < np.max(np.abs(gu - 0.3 * np.eye(3))) < 0.05
     gt = si.mass_basis_couplings(si.flavor_couplings("tau", 0.2), U)
-    assert np.allclose(gt, 0.2 * np.outer(np.abs(U[2]), np.abs(U[2])), rtol=0, atol=1e-16)
-    with pytest.raises(ValueError):
-        si.mass_basis_couplings(si.flavor_couplings("matrix", 1.0, [[0, 1, 0], [1, 0, 0], [0, 0, 0]]), U)
+    assert np.allclose(np.abs(gt), 0.2 * np.outer(np.abs(U[2]), np.abs(U[2])), rtol=0, atol=1e-16)
+    gm = si.mass_basis_couplings(si.flavor_couplings("matrix", 1.0, [[0, 1, 0], [1, 0, 0], [0, 0, 0]]), U)
+    assert np.allclose(gm, gm.T) and np.max(np.abs(gm.imag)) > 1e-3
 
 
-def test_coupling_identities():
+def test_phases_drop_out():
+    """Every rate is invariant under the Majorana phases (U -> U diag(e^{i phi})), for any texture;
+    for a single flavor the Dirac phase drops out too (the tensors equal those of the real
+    couplings g |U_fi| |U_fj|)."""
+    U = _mixing()
+    G = np.random.default_rng(7).normal(size=(3, 3))
+    G = 0.1 * (G + G.T)
+    P = np.diag(np.exp(1j * np.array([0.0, 0.7, -1.9])))
+    A1, R1, _ = si.coupling_tensors(si.mass_basis_couplings(G, U))
+    A2, R2, _ = si.coupling_tensors(si.mass_basis_couplings(G, U @ P))
+    assert np.allclose(A1, A2, rtol=1e-12, atol=1e-30) and np.allclose(R1, R2, rtol=1e-12, atol=1e-30)
+    At, Rt, _ = si.coupling_tensors(si.mass_basis_couplings(si.flavor_couplings("tau", 0.2), U @ P))
+    Ar, Rr, _ = si.coupling_tensors(0.2 * np.outer(np.abs(U[2]), np.abs(U[2])))
+    assert np.allclose(At, Ar, rtol=1e-12, atol=1e-30) and np.allclose(Rt, Rr, rtol=1e-12, atol=1e-30)
+
+
+@pytest.mark.parametrize("s", [0.6, 30.0])
+def test_complex_couplings_total_is_integral_of_differential(s):
+    """With complex couplings the closed-form channel sums (coupling_tensors' identities) equal the
+    integral of the generalized differential cross section over t, summed over the final states,
+    plus double-scalar production; the CP-odd part averages out between nu and nubar."""
+    from scipy import integrate
+    rng = np.random.default_rng(11)
+    A = rng.normal(size=(3, 3)) + 1j * rng.normal(size=(3, 3))
+    g = 0.05 * (A + A.T)
+    M = 1.0
+    Gam = si.scalar_width(M, g)
+    for i, j in [(0, 0), (0, 2), (1, 2)]:
+        q = 0.0
+        for k in range(3):
+            for l in range(k, 3):
+                q += integrate.quad(lambda t: si.dsigma_dt_scalar_majorana(s, t, M, Gam, g, i, j, k, l),
+                                    -s, 0.0, epsabs=0, epsrel=1e-12, limit=200)[0]
+        if s > 4.0:
+            tm, tp = si.phiphi_t_range(s, M)
+            q += integrate.quad(lambda t: si.dsigma_dt_scalar_majorana_phiphi(s, t, M, g, i, j),
+                                tm, tp, epsabs=0, epsrel=1e-12, limit=400, points=[0.5 * (tm + tp)])[0]
+        assert abs(si.sigma_scalar_majorana_total(s, M, Gam, g, i, j) / q - 1) < 1e-10
+        cpm = [si.dsigma_dt_scalar_majorana(s, -0.3 * s, M, Gam, g, i, j, 0, 2, cp=c) for c in (-1, 0, 1)]
+        assert abs(0.5 * (cpm[0] + cpm[2]) - cpm[1]) <= 1e-14 * abs(cpm[1])
+
+
+@pytest.mark.parametrize("complex_couplings", [False, True])
+def test_coupling_identities(complex_couplings):
     """Every 2 -> 2 absorption yields two secondaries and every double-scalar one four: the sums
-    over the secondary's mass state of the regeneration coefficients against the absorption's."""
+    over the secondary's mass state of the regeneration coefficients against the absorption's
+    (real and complex couplings)."""
     g = _random_couplings(seed=5)
+    if complex_couplings:
+        A = np.random.default_rng(6).normal(size=(3, 3))
+        g = g + 0.05j * (A + A.T)
     Cabs, Creg, G2 = si.coupling_tensors(g)
     S = Creg.sum(axis=3)
     assert np.allclose(S[0], 2 * Cabs[0], rtol=1e-13, atol=0)

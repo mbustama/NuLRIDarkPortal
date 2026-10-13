@@ -5,6 +5,8 @@ plot_si_summary.py -- figures of the secret-interaction results of the flavor-tr
       the four exclusion planes (nu_e, nu_mu, nu_tau, flavor-universal couplings): per-mass
       Delta chi^2 and the 95% upper limit (the upper end of each mass column's lowest allowed
       interval at Delta chi^2 = 3.84), from output/analysis/pion_2050_case_5_si_*/data/;
+  python tools/plot_si_summary.py planes2 output/figures/si_planes_two_flavor.png
+      the same for couplings to two flavors (e+mu, e+tau, mu+tau) next to the universal one;
   python tools/plot_si_summary.py paths output/figures/si_flavor_paths.png
       the energy-averaged flavor composition along a coupling ladder at four mediator masses,
       against the projected 2050 measurement, and the all-flavor spectra at g = 0.1, from
@@ -26,14 +28,18 @@ TEX = [("e", r"$\nu_e$ couplings, $g\,\delta_{\alpha e}\delta_{\beta e}$"),
        ("mu", r"$\nu_\mu$ couplings, $g\,\delta_{\alpha\mu}\delta_{\beta\mu}$"),
        ("tau", r"$\nu_\tau$ couplings, $g\,\delta_{\alpha\tau}\delta_{\beta\tau}$"),
        ("universal", r"flavor-universal, $g\,\delta_{\alpha\beta}$")]
+TEX2 = [("e_mu", r"$\nu_e$ and $\nu_\mu$, $g\,{\rm diag}(1, 1, 0)$"),
+        ("e_tau", r"$\nu_e$ and $\nu_\tau$, $g\,{\rm diag}(1, 0, 1)$"),
+        ("mu_tau", r"$\nu_\mu$ and $\nu_\tau$, $g\,{\rm diag}(0, 1, 1)$"),
+        ("universal", r"flavor-universal, $g\,\delta_{\alpha\beta}$")]
 # resonance at E = M^2 / (2 m_j) inside 10 TeV - 30 PeV for some z <= 4, m_j = 0.01 .. 0.051 eV
 RES_BAND = (np.sqrt(2 * 0.01 * 1e13 / 5.0), np.sqrt(2 * 0.051 * 3e16))
 
 
-def planes(out):
+def planes(out, textures=None):
     fig, axes = plt.subplots(2, 2, figsize=(11, 8.6))
     mesh = None
-    for ax, (key, title) in zip(axes.ravel(), TEX):
+    for ax, (key, title) in zip(axes.ravel(), textures or TEX):
         path = f"{REPO}/output/analysis/pion_2050_case_5_si_{key}/data/plane_m_phi_eV_g_phi.json"
         if not os.path.exists(path):
             ax.text(0.5, 0.5, "not run yet", ha="center", transform=ax.transAxes)
@@ -127,4 +133,7 @@ def paths(out):
 
 
 if __name__ == "__main__":
-    {"planes": planes, "paths": paths}[sys.argv[1]](sys.argv[2])
+    if sys.argv[1] == "planes2":
+        planes(sys.argv[2], TEX2)       # the two-flavor textures and the universal one
+    else:
+        {"planes": planes, "paths": paths}[sys.argv[1]](sys.argv[2])

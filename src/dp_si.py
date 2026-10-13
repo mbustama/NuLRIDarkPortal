@@ -15,9 +15,18 @@ ultrarelativistic left-handed incident neutrino on a relic at rest and unpolariz
 decay spectrum A16 (flat in the lab).
 
 Conventions and choices:
-  - Mass-basis couplings g_ij = sum_ab U*_ai U_bj g_ab, taken real (no CP violation, as in
-    2107.13568; exact for a single coupled flavor, where the phases drop out of every rate, and
-    for a flavor-universal coupling).
+  - Mass-basis couplings lambda = U^T G U (complex symmetric) for flavor-basis couplings G (real
+    symmetric): for Majorana fields the scalar bilinear is nubar_a nu_b = sum_ij nubar_i
+    [(U^T G U)*_ij P_R + (U^T G U)_ij P_L] nu_j. 2107.13568 writes U^dag G U and takes it real,
+    which agrees only without CP violation; with delta_CP != 0 even a flavor-universal coupling is
+    off-diagonal in the mass basis (g U^T U). The cross sections are generalized to complex
+    couplings (moduli and real parts of the coupling products; they reduce to the paper's for real
+    ones). The Majorana phases drop out of every rate, and for a single coupled flavor so does
+    delta_CP (|lambda_ij| = g |U_fi| |U_fj|).
+  - CP: with complex couplings the s-t and s-u interference terms carry Re[C (s - M^2 - i M Gamma)];
+    the part Im(C) M Gamma, odd under nu <-> nubar, is a CP asymmetry of relative size Gamma/M =
+    sum |lambda|^2 / 16 pi. The transport, which follows both helicities together, uses the
+    CP-even part (exact for the sum up to O((Gamma/M)^2) for equal nu and nubar sources).
   - s = 2 E m_j for incident energy E (physical, at the redshift of the interaction) on a relic
     of mass m_j at rest. Relics with m_j = 0 do not scatter (s = 0); their thermal momenta are
     neglected throughout, as in both papers (an open item for a nearly massless lightest state).
@@ -71,17 +80,23 @@ N_CHANNELS = 5
 # COUPLINGS AND WIDTH
 # =============================================================================
 
+_FLAVOR_INDEX = {"e": 0, "mu": 1, "tau": 2}
+
+
 def flavor_couplings(texture, g, g_matrix=None):
     """The flavor-basis coupling matrix g_ab from a texture name: 'universal' (g delta_ab),
-    'e', 'mu', 'tau' (g on that flavor alone), or 'matrix' (g times the real symmetric 3x3
-    g_matrix)."""
+    'e', 'mu', 'tau' (g on that flavor alone), 'e+mu', 'e+tau', 'mu+tau' (g on each of two
+    flavors, diagonal), or 'matrix' (g times the real symmetric 3x3 g_matrix, any texture)."""
     t = str(texture).strip().lower()
     out = np.zeros((3, 3))
     if t == "universal":
         out[:] = g * np.eye(3)
-    elif t in ("e", "mu", "tau"):
-        f = {"e": 0, "mu": 1, "tau": 2}[t]
+    elif t in _FLAVOR_INDEX:
+        f = _FLAVOR_INDEX[t]
         out[f, f] = g
+    elif t in ("e+mu", "e+tau", "mu+tau"):
+        for f in t.split("+"):
+            out[_FLAVOR_INDEX[f], _FLAVOR_INDEX[f]] = g
     elif t == "matrix":
         if g_matrix is None:
             raise ValueError("secret interactions: texture 'matrix' needs g_matrix")
@@ -91,38 +106,24 @@ def flavor_couplings(texture, g, g_matrix=None):
         out[:] = g * m
     else:
         raise ValueError(f"secret interactions: unknown texture {texture!r} "
-                         "(universal, e, mu, tau, matrix)")
+                         "(universal, e, mu, tau, e+mu, e+tau, mu+tau, matrix)")
     return out
 
 
 def mass_basis_couplings(g_flavor, U):
-    """g_ij = sum_ab U*_ai U_bj g_ab. Returns the real 3x3 matrix used in the cross sections.
-
-    For a single coupled flavor (g_ab = g delta_af delta_bf) the phases of U_fi factor out of
-    every rate (2107.13568, Appendix A), and g_ij is taken as g |U_fi| |U_fj|; a flavor-universal
-    coupling gives g delta_ij exactly. Other textures must give real g_ij (to 1e-12 of the
-    largest), or this raises: their interference terms would need the CP-violating amplitudes."""
-    g_flavor = np.asarray(g_flavor, dtype=np.complex128)
+    """The couplings of the mass states of Majorana neutrinos, lambda = U^T G U (complex
+    symmetric 3x3), for flavor-basis couplings G (-1/2 G_ab nubar_a nu_b phi; see the module notes).
+    U may include Majorana phases, which drop out of every rate."""
+    G = np.asarray(g_flavor, dtype=np.complex128)
     U = np.asarray(U, dtype=np.complex128)
-    nz = np.argwhere(np.abs(g_flavor) > 0.0)
-    if len(nz) == 1 and nz[0][0] == nz[0][1]:
-        f = nz[0][0]
-        a = np.abs(U[f, :])
-        return np.real(g_flavor[f, f]) * np.outer(a, a)
-    g = np.conjugate(U).T @ g_flavor @ U          # g_ij = sum_ab conj(U_ai) g_ab U_bj
-    scale = max(np.max(np.abs(g)), 1e-300)
-    if np.max(np.abs(np.imag(g))) > 1e-12 * scale:
-        raise ValueError("secret interactions: the mass-basis couplings are complex; only textures "
-                         "with real g_ij (flavor-universal, a single flavor, or real matrices with "
-                         "delta_CP = 0) are supported")
-    return np.ascontiguousarray(np.real(g))
+    return np.ascontiguousarray(U.T @ G @ U)
 
 
 def scalar_width(M, g, majorana=True):
-    """Total width of the scalar, Eq. (A15): Gamma = c M / (8 pi) sum_kl g_kl^2, c = 1/2 for
+    """Total width of the scalar, Eq. (A15): Gamma = c M / (8 pi) sum_kl |g_kl|^2, c = 1/2 for
     Majorana neutrinos (identical final states), 1 for Dirac."""
     c = 0.5 if majorana else 1.0
-    return c * M / (8.0 * np.pi) * float(np.sum(np.asarray(g) ** 2))
+    return c * M / (8.0 * np.pi) * float(np.sum(np.abs(np.asarray(g)) ** 2))
 
 
 def relic_density_per_helicity(T_nu0):
@@ -214,32 +215,49 @@ def _bw(s, M, Gam):
     return (s - M * M) ** 2 + M * M * Gam * Gam
 
 
-def dsigma_dt_scalar_majorana(s, t, M, Gam, g, i, j, k, l):
-    """dsigma/dt for nu_i + nu_j -> nu_k + nu_l, Eq. (A12), with u = -s - t (massless final
-    states, relic mass neglected against s). The 1/2 for identical final states (k = l) is
-    included. Arguments: s, t (eV^2; t in [-s, 0]); M, Gam (eV); g -- 3x3 mass-basis couplings;
-    i, j, k, l -- mass indices. Returns eV^-4."""
+def dsigma_dt_scalar_majorana(s, t, M, Gam, g, i, j, k, l, cp=0):
+    """dsigma/dt for nu_i + nu_j -> nu_k + nu_l, Eq. (A12) generalized to complex couplings, with
+    u = -s - t (massless final states, relic mass neglected against s). The 1/2 for identical
+    final states (k = l) is included. Arguments: s, t (eV^2; t in [-s, 0]); M, Gam (eV); g -- 3x3
+    mass-basis couplings (complex symmetric); i, j, k, l -- mass indices; cp -- 0 for the CP-even
+    part (the average of neutrino and antineutrino; the transport's), -1 for an incident neutrino
+    (left-handed), +1 for an antineutrino: the s-t and s-u interference carry
+    Re[C (s - M^2 - i M Gamma)] = Re(C) (s - M^2) - cp Im(C) M Gamma, C the coupling product.
+    Returns eV^-4.
+
+    Helicity structure behind the generalization (incident h = -1/2, relic summed over its
+    helicity): with the relic at h = -1/2 the s channel (lambda_ij lambda_kl), t channel
+    (lambda_ik lambda_jl) and u channel (lambda_il lambda_jk) produce the same final state (both
+    outgoing at h = +1/2) and interfere; the s channel into two h = -1/2 neutrinos (lambda_ij
+    lambda*_kl) and, with the relic at h = +1/2, the t channel (lambda_ik lambda*_jl) and u channel
+    (lambda_il lambda*_jk) add incoherently. For real couplings this is Eq. (A12)."""
     u = -s - t
     M2 = M * M
     bw = _bw(s, M, Gam)
-    gij, gkl, gik, gjl, gil, gjk = g[i, j], g[k, l], g[i, k], g[j, l], g[i, l], g[j, k]
-    br = (gij ** 2 * gkl ** 2 / bw
-          + gik ** 2 * gjl ** 2 * (t * t / (s * s)) / (t - M2) ** 2
-          + gil ** 2 * gjk ** 2 * (u * u / (s * s)) / (u - M2) ** 2
-          + gij * gkl * gik * gjl * t * (1.0 - M2 / s) / (bw * (t - M2))
-          + gik * gjl * gil * gjk * (t * u / (s * s)) / ((u - M2) * (t - M2))
-          + gij * gkl * gil * gjk * u * (1.0 - M2 / s) / (bw * (u - M2)))
+    MG = M * Gam
+    lij, lkl, lik, ljl, lil, ljk = g[i, j], g[k, l], g[i, k], g[j, l], g[i, l], g[j, k]
+    Cst = lij * lkl * np.conjugate(lik * ljl)
+    Csu = lij * lkl * np.conjugate(lil * ljk)
+    Ctu = lik * ljl * np.conjugate(lil * ljk)
+    br = (abs(lij) ** 2 * abs(lkl) ** 2 / bw
+          + abs(lik) ** 2 * abs(ljl) ** 2 * (t * t / (s * s)) / (t - M2) ** 2
+          + abs(lil) ** 2 * abs(ljk) ** 2 * (u * u / (s * s)) / (u - M2) ** 2
+          + (Cst.real * (s - M2) - cp * Cst.imag * MG) * t / (s * bw * (t - M2))
+          + Ctu.real * (t * u / (s * s)) / ((u - M2) * (t - M2))
+          + (Csu.real * (s - M2) - cp * Csu.imag * MG) * u / (s * bw * (u - M2)))
     sym = 0.5 if k == l else 1.0
     return sym * br / (8.0 * np.pi)
 
 
 def phiphi_coupling(g, i, j, mode="coherent"):
-    """Coupling factor of nu_i nu_j -> phi phi: ((g^2)_ij)^2 (coherent, the default) or
-    sum_k g_ik^2 g_jk^2 (as printed in 2107.13568)."""
+    """Coupling factor of nu_i nu_j -> phi phi: |(lambda lambda^dag)_ij|^2 = |sum_k lambda_ik
+    lambda*_kj|^2 (coherent, the default: the exchanged nu_k connects lambda at one vertex to
+    lambda* at the other, the relic at the opposite helicity) or sum_k |lambda_ik|^2 |lambda_jk|^2
+    (as printed in 2107.13568, real couplings)."""
     if mode == "coherent":
-        return float(np.dot(g[i, :], g[:, j])) ** 2
+        return float(abs(np.dot(g[i, :], np.conjugate(g[:, j]))) ** 2)
     if mode == "paper":
-        return float(np.sum(g[i, :] ** 2 * g[j, :] ** 2))
+        return float(np.sum(np.abs(g[i, :]) ** 2 * np.abs(g[j, :]) ** 2))
     raise ValueError(f"phiphi coupling mode must be 'coherent' or 'paper', got {mode!r}")
 
 
@@ -271,14 +289,15 @@ def sigma_scalar_majorana_channels(s, M, Gam, g, i, j, mode="coherent"):
     r = s / M2
     N2, N4, N5 = profile_norms(r, _GL24_X, _GL24_W)
     bw = _bw(s, M, Gam)
-    g2 = g @ g
-    g3 = g2 @ g
-    G2 = float(np.sum(g * g))
+    g = np.asarray(g, dtype=np.complex128)
+    H = g @ np.conjugate(g)                       # lambda lambda^dag (lambda symmetric)
+    Q = np.conjugate(g) @ g @ np.conjugate(g)     # lambda* lambda lambda*
+    G2 = float(np.sum(np.abs(g) ** 2))
     out = np.empty(5)
-    out[0] = g[i, j] ** 2 * G2 / (16.0 * np.pi) * s / bw
-    out[1] = 2.0 * g2[i, i] * g2[j, j] / (16.0 * np.pi) * N2 / s
-    out[2] = 2.0 * g[i, j] * g3[i, j] / (16.0 * np.pi) * (s - M2) / bw * N4
-    out[3] = g2[i, j] ** 2 / (16.0 * np.pi) * N5 / s
+    out[0] = abs(g[i, j]) ** 2 * G2 / (16.0 * np.pi) * s / bw
+    out[1] = 2.0 * H[i, i].real * H[j, j].real / (16.0 * np.pi) * N2 / s
+    out[2] = 2.0 * (g[i, j] * Q[i, j]).real / (16.0 * np.pi) * (s - M2) / bw * N4
+    out[3] = abs(H[i, j]) ** 2 / (16.0 * np.pi) * N5 / s
     out[4] = phiphi_coupling(g, i, j, mode) / (32.0 * np.pi) * phiphi_kinematic(s, M2)
     return out
 
@@ -329,29 +348,35 @@ def coupling_tensors(g, mode="coherent", channels="full"):
     double-scalar one four: sum_c Creg[0] = 2 Cabs[0], sum_c (Creg[1] + Creg[2]) = 2 Cabs[1], ...
 
     channels: 'full'; 's' or 'delta' keep the s channel alone (2107.13568's approximations).
-    Returns (Cabs (5, 3, 3) [p, a, r], Creg (7, 3, 3, 3) [q, a, r, c], G2 = sum g_kl^2)."""
-    g = np.asarray(g, dtype=np.float64)
-    g2 = g @ g
-    g3 = g2 @ g
-    G2 = float(np.sum(g * g))
+    Complex couplings (lambda = U^T G U): with H = lambda lambda^dag and Q = lambda* lambda lambda*,
+        Cabs = |l_ar|^2 G2, 2 H_aa H_rr, 2 Re(l_ar Q_ar), |H_ar|^2 (all / 16 pi), |H_ar|^2 / 32 pi;
+        Creg = |l_ar|^2 H_cc, |l_ac|^2 H_rr, H_aa |l_rc|^2, Re(l_ar l*_ac H_cr), Re(l_ac l*_rc H_ra),
+               Re(l_ar l*_rc H_ca) (all / 8 pi), 4 Cabs[4] H_cc / G2
+    (CP-even parts; for real couplings H = g^2, Q = g^3).
+    Returns (Cabs (5, 3, 3) [p, a, r], Creg (7, 3, 3, 3) [q, a, r, c], G2 = sum |l_kl|^2)."""
+    g = np.asarray(g, dtype=np.complex128)
+    gc = np.conjugate(g)
+    H = g @ gc
+    Q = gc @ g @ gc
+    G2 = float(np.sum(np.abs(g) ** 2))
     Cabs = np.zeros((N_CHANNELS, 3, 3))
     Creg = np.zeros((N_PROFILES, 3, 3, 3))
     pi8, pi16 = 8.0 * np.pi, 16.0 * np.pi
     for a in range(3):
         for r in range(3):
-            Cabs[0, a, r] = g[a, r] ** 2 * G2 / pi16
-            Cabs[1, a, r] = 2.0 * g2[a, a] * g2[r, r] / pi16
-            Cabs[2, a, r] = 2.0 * g[a, r] * g3[a, r] / pi16
-            Cabs[3, a, r] = g2[a, r] ** 2 / pi16
+            Cabs[0, a, r] = abs(g[a, r]) ** 2 * G2 / pi16
+            Cabs[1, a, r] = 2.0 * H[a, a].real * H[r, r].real / pi16
+            Cabs[2, a, r] = 2.0 * (g[a, r] * Q[a, r]).real / pi16
+            Cabs[3, a, r] = abs(H[a, r]) ** 2 / pi16
             Cabs[4, a, r] = phiphi_coupling(g, a, r, mode) / (32.0 * np.pi)
             for c in range(3):
-                Creg[0, a, r, c] = g[a, r] ** 2 * g2[c, c] / pi8
-                Creg[1, a, r, c] = g[a, c] ** 2 * g2[r, r] / pi8
-                Creg[2, a, r, c] = g2[a, a] * g[r, c] ** 2 / pi8
-                Creg[3, a, r, c] = g[a, r] * g[a, c] * g2[c, r] / pi8
-                Creg[4, a, r, c] = g[a, c] * g[r, c] * g2[r, a] / pi8
-                Creg[5, a, r, c] = g[a, r] * g[r, c] * g2[c, a] / pi8
-                Creg[6, a, r, c] = (4.0 * Cabs[4, a, r] * g2[c, c] / G2) if G2 > 0 else 0.0
+                Creg[0, a, r, c] = abs(g[a, r]) ** 2 * H[c, c].real / pi8
+                Creg[1, a, r, c] = abs(g[a, c]) ** 2 * H[r, r].real / pi8
+                Creg[2, a, r, c] = H[a, a].real * abs(g[r, c]) ** 2 / pi8
+                Creg[3, a, r, c] = (g[a, r] * gc[a, c] * H[c, r]).real / pi8
+                Creg[4, a, r, c] = (g[a, c] * gc[r, c] * H[r, a]).real / pi8
+                Creg[5, a, r, c] = (g[a, r] * gc[r, c] * H[c, a]).real / pi8
+                Creg[6, a, r, c] = (4.0 * Cabs[4, a, r] * H[c, c].real / G2) if G2 > 0 else 0.0
     ch = str(channels).strip().lower()
     if ch in ("s", "delta"):
         Cabs[1:] = 0.0
@@ -950,8 +975,8 @@ def propagate_si(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta
     masses -- (3,) neutrino masses, eV; T_nu0 -- relic temperature today, eV; eta_mass -- (3,)
     relic density per mass state relative to the standard one; rho_src -- (3,) source flavor
     composition; p_index, rho_evol, Phi_0 -- source spectrum E^-p, evolution R(z) (1+z)^rho_evol
-    (dp_cosmo.calc_R_source), normalization; M -- mediator mass, eV; g_mass -- (3, 3) real
-    mass-basis couplings (mass_basis_couplings); majorana -- neutrino nature (Dirac: not yet);
+    (dp_cosmo.calc_R_source), normalization; M -- mediator mass, eV; g_mass -- (3, 3) mass-basis
+    couplings, complex symmetric (mass_basis_couplings); majorana -- neutrino nature (Dirac: not yet);
     channels -- 'full', 's' (s channel only) or 'delta' (its narrow-width limit), the
     approximations compared in 2107.13568; phiphi -- 'coherent' or 'paper' (module notes);
     z_substeps -- redshift steps per energy bin (Delta ln(1+z) = dlnE / z_substeps);
@@ -984,7 +1009,7 @@ def propagate_si(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta
     L_top_mid = 0.5 * (L_edges[K - 1] + L_edges[K])
 
     masses = np.ascontiguousarray(masses, dtype=np.float64)
-    g_mass = np.ascontiguousarray(g_mass, dtype=np.float64)
+    g_mass = np.ascontiguousarray(g_mass, dtype=np.complex128)
     if not np.any(g_mass):
         # no coupling: free streaming (the transport's Breit-Wigner would have zero width)
         out = free_streaming_flux(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, rho_src, p_index, rho_evol, Phi_0)
