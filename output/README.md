@@ -20,7 +20,10 @@ figures of the notes.
 | `analysis` | `pion_2050_case_5_si_e` | `fe8e2dc` | 2026-10-13T16:12 | node801.cluster |
 | `analysis` | `pion_2050_case_5_si_mu` | `fe8e2dc` | 2026-10-13T16:12 | node801.cluster |
 | `analysis` | `pion_2050_case_5_si_tau` | `fe8e2dc` | 2026-10-13T16:12 | node801.cluster |
-| `analysis` | `pion_2050_case_5_si_universal` | `fe8e2dc` | 2026-10-13T16:12 | node801.cluster |
+| `analysis` | `pion_2050_case_5_si_universal` | `a6570a6` | 2026-10-13T16:38 | node808.cluster |
+| `analysis` | `pion_2050_case_5_si_e_mu` | `a6570a6` | 2026-10-13T16:38 | node809.cluster |
+| `analysis` | `pion_2050_case_5_si_e_tau` | `a6570a6` | 2026-10-13T16:38 | node813.cluster |
+| `analysis` | `pion_2050_case_5_si_mu_tau` | `a6570a6` | 2026-10-13T16:38 | node816.cluster |
 | `analysis_pre_transit` | `pion_2050_case_5_exclusion` | `19f953d` | 2026-10-13T00:13 | laptop-6 |
 | `analysis_pre_transit` | `pion_2050_case_5_potential_emu` | `abe5c24` | 2026-10-13T10:07 | laptop-6 |
 | `analysis_pre_transit` | `pion_2050_case_5_potential_etau` | `1be2b97` | 2026-10-13T10:14 | laptop-6 |

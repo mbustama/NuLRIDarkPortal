@@ -653,12 +653,16 @@ with Majorana neutrinos, implemented and validated on 2026-10-13 (\file{src/dp_s
 \label{sec:si_model}
 
 A real scalar $\phi$ of mass $M$ couples to the neutrinos as
-$-\tfrac12\sum_{\alpha\beta}g_{\alpha\beta}\,\bar\nu_\alpha\nu_\beta\,\phi$, with
-$g_{ij} = \sum_{\alpha\beta}U^*_{\alpha i}U_{\beta j}\,g_{\alpha\beta}$ in the mass basis. We take
-$g_{ij}$ real, as 2107.13568 does: this is exact for a flavor-universal coupling ($g_{ij} =
-g\,\delta_{ij}$) and for a single coupled flavor $f$, whose phases cancel in every rate, so that
-$g_{ij} = g\,|U_{fi}||U_{fj}|$; other textures must give real $g_{ij}$ (the code refuses complex
-ones). A high-energy neutrino $\nu_i$ of energy $E$ scattering on a relic $\nu_j$ at rest has
+$-\tfrac12\sum_{\alpha\beta}G_{\alpha\beta}\,\bar\nu_\alpha\nu_\beta\,\phi$, for any real symmetric
+flavor texture $G$ (Mauricio, 2026-10-13: non-universal textures must be treated). For Majorana
+fields, $\nu_\alpha = \sum_i(U_{\alpha i}P_L + U^*_{\alpha i}P_R)\nu_i$, so
+$\bar\nu_\alpha\nu_\beta = \sum_{ij}\bar\nu_i[(U^TGU)^*_{ij}P_R + (U^TGU)_{ij}P_L]\nu_j$: the mass
+states couple through the complex symmetric matrix $\lambda = U^TGU$. The paper writes
+$g_{ij} = \sum U^*_{\alpha i}U_{\beta j}G_{\alpha\beta}$ and takes it real, which agrees only
+without CP violation; at $\delta_{CP} = 212^\circ$ even a flavor-universal coupling, $g\,U^TU$, has
+off-diagonal entries of $0.09$--$0.13\,g$. The Majorana phases drop out of every rate, and for a
+single coupled flavor $f$ so does $\delta_{CP}$, $|\lambda_{ij}| = g\,|U_{fi}||U_{fj}|$ (tests).
+A high-energy neutrino $\nu_i$ of energy $E$ scattering on a relic $\nu_j$ at rest has
 $s = 2Em_j$. The cross sections of the appendix cover $\nu_i\nu_j\to\nu_k\nu_l$ through the $s$,
 $t$ and $u$ channels and their interference (Eqs.~A11, A12), and, above $s = 4M^2$, double-scalar
 production $\nu_i\nu_j\to\phi\phi$ through neutrino exchange (A11, A13), each scalar decaying at
@@ -677,29 +681,48 @@ today. An independent narrow-width derivation agrees: an incident $\nu_L$ on an 
 has $\sigma = (\pi g^2/2)\,\delta(s - M^2)$ per relic, against $2\times56$ relics, while the
 appendix's $s$ channel integrates to $\pi g^2$ across the resonance (a test).
 
+\textit{Complex couplings.}---The appendix assumes real couplings; we generalized it from the
+helicity structure of the amplitudes. For an incident $\nu_i$ of helicity $-\tfrac12$ and the relic
+at $-\tfrac12$, the $s$ channel ($\lambda_{ij}\lambda_{kl}$), $t$ channel ($\lambda_{ik}\lambda_{jl}$)
+and $u$ channel ($\lambda_{il}\lambda_{jk}$) lead to the same final state (both neutrinos at
+$+\tfrac12$) and interfere; the $s$ channel into two neutrinos at $-\tfrac12$
+($\lambda_{ij}\lambda^*_{kl}$) and, with the relic at $+\tfrac12$, the $t$ channel
+($\lambda_{ik}\lambda^*_{jl}$) and the $u$ channel ($\lambda_{il}\lambda^*_{jk}$) add incoherently.
+Equation~(A12) becomes the same expression with moduli in the squared terms and real parts in the
+interference: the $s$--$t$ term carries ${\rm Re}[\lambda_{ij}\lambda_{kl}\lambda^*_{ik}\lambda^*_{jl}
+(s - M^2 - iM\Gamma)]$ and likewise $s$--$u$, the $t$--$u$ term
+${\rm Re}[\lambda_{ik}\lambda_{jl}\lambda^*_{il}\lambda^*_{jk}]$. The part with $M\Gamma$ changes
+sign between neutrinos and antineutrinos (whose couplings are conjugated): a CP asymmetry of
+relative size $\Gamma/M = \sum|\lambda|^2/16\pi$, which the transport, following both helicities
+together, averages out. A test integrates the generalized $d\sigma/dt$ for random complex
+couplings and recovers the closed-form channel sums below to $10^{-10}$.
+
 One formula we do not adopt. The amplitudes of double-scalar production, Eqs.~(A3) and (A4),
 sum over the exchanged neutrino $\nu_k$; with the neutrino masses neglected in its propagator the
-sum is coherent, and the rate carries $\big(\sum_k g_{ik}g_{kj}\big)^2 = ((g^2)_{ij})^2$. The
-appendix prints $\sum_k g_{ik}^2 g_{jk}^2$ in (A10), (A11) and (A13), the incoherent sum. The two
-agree for a flavor-universal coupling; for a single flavor $f$ the printed form is smaller by
-$\sum_k|U_{fk}|^4$, about $0.35$ for $\nu_\tau$. We use the coherent form; the option
-\texttt{phiphi\_coupling = "paper"} reproduces their figures (their Fig.~4 is consistent with the
-printed form).
+sum is coherent, and the rate carries $|\sum_k\lambda_{ik}\lambda^*_{kj}|^2 =
+|(\lambda\lambda^\dagger)_{ij}|^2$ (the exchanged neutrino connects $\lambda$ at one vertex to
+$\lambda^*$ at the other, the relic at the opposite helicity). The appendix prints
+$\sum_k g_{ik}^2 g_{jk}^2$ in (A10), (A11) and (A13), the incoherent sum. The two agree for a
+flavor-universal coupling without CP violation; for a single flavor $f$ the printed form is smaller
+by $\sum_k|U_{fk}|^4$, about $0.35$ for $\nu_\tau$, so it fails for non-universal textures. We use
+the coherent form; the option \texttt{phiphi\_coupling = "paper"} reproduces their figures (their
+Fig.~4 is consistent with the printed form).
 
 Summed over the final states, the absorption of $\nu_a$ on the relic $\nu_r$ is
 \begin{equation}
-\sigma_{ar} = \frac{g_{ar}^2 G_2}{16\pi}\frac{s}{B} + \frac{2(g^2)_{aa}(g^2)_{rr}N_2 + (g^2)_{ar}^2 N_5}{16\pi s}
- + \frac{2g_{ar}(g^3)_{ar}}{16\pi}\frac{(s - M^2)N_4}{B} + \frac{((g^2)_{ar})^2}{32\pi}I_{\phi\phi},
+\sigma_{ar} = \frac{|\lambda_{ar}|^2 G_2}{16\pi}\frac{s}{B} + \frac{2H_{aa}H_{rr}N_2 + |H_{ar}|^2 N_5}{16\pi s}
+ + \frac{2\,{\rm Re}(\lambda_{ar}Q_{ar})}{16\pi}\frac{(s - M^2)N_4}{B} + \frac{|H_{ar}|^2}{32\pi}I_{\phi\phi},
 \label{eq:si_sigma}
 \end{equation}
-with $G_2 = \sum_{kl}g_{kl}^2$, $B = (s-M^2)^2 + M^2\Gamma^2$, $N_{2,4,5}$ the integrals over the
+with $H = \lambda\lambda^\dagger$, $Q = \lambda^*\lambda\lambda^*$, $G_2 = \sum_{kl}|\lambda_{kl}|^2$,
+$B = (s-M^2)^2 + M^2\Gamma^2$, $N_{2,4,5}$ the integrals over the
 secondary's energy fraction $x$ of the profiles $(1-x)^2/(1-x+\mu)^2$, $(1-x)/(1-x+\mu)$ and
 $x(1-x)/[(x+\mu)(1-x+\mu)]$, $\mu = M^2/s$, and
 $I_{\phi\phi} = (s - 2M^2)\,\Phi(w)/s^2$, $\Phi(w) = 2(3 - w^2)\,\mathrm{artanh}\,w - 6w$,
 $w = \sqrt{s(s - 4M^2)}/(s - 2M^2)$. The secondaries follow the same couplings: for example the $t$
-channel gives $\nu_c$ with $x$-spectrum $g_{ac}^2(g^2)_{rr}(1-x)^2/[8\pi s(1-x+\mu)^2]$, and every
+channel gives $\nu_c$ with $x$-spectrum $|\lambda_{ac}|^2H_{rr}(1-x)^2/[8\pi s(1-x+\mu)^2]$, and every
 $2\to2$ absorption yields two secondaries and every double-scalar one four (identities that a test
-checks for random couplings). The closed forms cancel catastrophically in two places, near the
+checks for random real and complex couplings). The closed forms cancel catastrophically in two places, near the
 double-scalar threshold ($\Phi\sim w^5$) and far below the resonance ($N_2\sim s^2/3M^4$); there
 we use the series and Gauss--Legendre of cancellation-free integrands, and every kinematic integral
 agrees with 50-digit arithmetic to $4\times10^{-15}$ from threshold to $s/M^2 = 10^{14}$.
@@ -793,9 +816,11 @@ We ran the flavor-triangle analysis of Sec.~\ref{sec:stats} with the secret inte
 of the dark portal: the projected 2050 measurement for pion sources, the projection's mixing,
 $m_{\rm lightest} = 0.01$~eV, $E^{-2.5}$ sources up to $z = 4$, the whole sky (no Earth effect
 here), and planes in $(M, g)$ for four textures, $\nu_e$, $\nu_\mu$ or $\nu_\tau$ couplings alone
-and flavor-universal ones ($49\times49$ points from 1~keV to 1~GeV and $g = 10^{-6}$ to 1, read per
-mass at $\Delta\chi^2 = 3.84$; Tycho, commit \texttt{fe8e2dc}, 4--5 minutes each on 16 cores;
-configurations \file{pion_2050_case_5_si_*.json}). Every mass column reaches the region without an
+and flavor-universal ones, and three non-universal textures of two flavors, $g$ on $\nu_e$ and
+$\nu_\mu$, $\nu_e$ and $\nu_\tau$, or $\nu_\mu$ and $\nu_\tau$ ($49\times49$ points from 1~keV to
+1~GeV and $g = 10^{-6}$ to 1, read per mass at $\Delta\chi^2 = 3.84$; Tycho, commits
+\texttt{fe8e2dc} for the single flavors and \texttt{a6570a6}, with the couplings $U^TGU$, for the
+others; 4--9 minutes each on 16 cores; configurations \file{pion_2050_case_5_si_*.json}). Every mass column reaches the region without an
 effect: $\Delta\chi^2 = 0.00$ at $g = 10^{-6}$ (a first run starting at $g = 10^{-4}$ did not, near
 1~MeV). Figure~\ref{fig:si_planes} shows the planes and Fig.~\ref{fig:si_paths} how the composition
 moves.
@@ -803,20 +828,27 @@ moves.
 The limits have three regimes. Below $\sim200$~keV every resonance lies below the band and the
 non-resonant channels act alone, with $\sigma\sim g^4/8\pi s$ independent of $M$: the limit is
 flat, $g < 6\times10^{-3}$--$8\times10^{-3}$ ($\nu_e$), $8\times10^{-3}$--$10^{-2}$ ($\nu_\mu$,
-$\nu_\tau$), $5\times10^{-3}$--$8\times10^{-3}$ (universal). Between $\sim0.5$ and 3~MeV the
+$\nu_\tau$), $5\times10^{-3}$--$8\times10^{-3}$ (universal), $6\times10^{-3}$--$10^{-2}$ for the
+pairs with $\nu_e$. Between $\sim0.5$ and 3~MeV the
 resonances $\Eres = M^2/2m_j$ fall at 10--50~TeV, at the bottom of the band, where the $E^{-2.5}$
 flux dominates the energy-averaged fractions, and the limits drop by two to three decades:
 $g < 1.7\times10^{-5}$ ($\nu_e$, at 0.56~MeV), $3.1\times10^{-5}$ ($\nu_\mu$, 0.56~MeV),
-$9.0\times10^{-5}$ ($\nu_\tau$, 0.75~MeV), $8.6\times10^{-6}$ (universal, 0.56~MeV). Above, the
-resonances move above most of the flux and the limits weaken: at 10~MeV $g < 0.15$, $0.32$, $0.36$
-and $0.075$; above 30~MeV only the universal coupling is still limited ($g < 0.8$ at 100~MeV).
+$9.0\times10^{-5}$ ($\nu_\tau$, 0.75~MeV), $8.8\times10^{-6}$ (universal, 0.56~MeV), and
+$1.5\times10^{-5}$, $1.1\times10^{-5}$, $1.9\times10^{-5}$ for the pairs $e\mu$, $e\tau$, $\mu\tau$.
+Above, the resonances move above most of the flux and the limits weaken: at 10~MeV $g < 0.15$,
+$0.32$, $0.36$, $0.075$ and $0.10$, $0.08$, $0.14$; above 30~MeV only the universal coupling and the
+$e\tau$ pair are still limited ($g < 0.8$ and $0.9$ at 100~MeV).
 
 Two features follow from flavor fractions being the only observable. Flavor-blind absorption does
-not change the composition: universal couplings act on it only through the mass-dependent resonance
-energies, and near 1~MeV the effects of the $m_3$ and the $m_{1,2}$ resonances compensate, leaving
-an allowed gap ($g < 9\times10^{-3}$ there). And as $g$ grows the composition can pass back through
-the projection's centre: thin allowed islands run through the excluded regions (Fig.~\ref{fig:si_paths}
-shows the paths, nearly straight lines through the standard point). Spectral data will remove both;
+not change the composition: universal couplings act on it through the mass-dependent resonance
+energies and through the off-diagonal couplings of $g\,U^TU$. With $g\,\mathbb{1}$, as the paper
+would have it, the effects of the $m_3$ and the $m_{1,2}$ resonances compensated near 1~MeV and left
+an allowed gap ($g < 9\times10^{-3}$ there); the off-diagonal couplings close most of it
+($2.4\times10^{-4}$ at 1~MeV), and elsewhere the two agree to 1\% (median). And as $g$ grows the
+composition can pass back through the projection's centre: thin allowed islands and channels run
+through the excluded regions (the widest, for the $\mu\tau$ pair near 100~keV, raises the limit read
+there to $0.13$; Fig.~\ref{fig:si_paths} shows the paths, nearly straight lines through the standard
+point). Spectral data will remove both;
 they will also exclude much of the plane outright, since at $g\gtrsim10^{-2}$ below 1~MeV more than
 99\% of the flux below $10^7$~GeV is absorbed, which normalized fractions do not see. The resonant
 window overlaps the region below $\sim2$~MeV that Big-Bang nucleosynthesis already disfavors
@@ -840,6 +872,16 @@ $g$ goes from $10^{-3}$ to 1 at four mediator masses, against the projection's 6
 contours. Bottom: the all-flavor flux at $g = 0.1$ over the flux without interactions.
 \file{tools/si_flavor_paths.py} (Tycho), \file{tools/plot_si_summary.py}~\texttt{paths}.}
 \label{fig:si_paths}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{../output/figures/si_planes_two_flavor.png}
+\caption{\textbf{Non-universal textures of two flavors}, as Fig.~\ref{fig:si_planes}: $g$ on
+$\nu_e$ and $\nu_\mu$, $\nu_e$ and $\nu_\tau$, $\nu_\mu$ and $\nu_\tau$ (complex mass-basis couplings
+$U^TGU$ at $\delta_{CP} = 212^\circ$), and the universal coupling again.
+\file{tools/plot_si_summary.py}~\texttt{planes2}.}
+\label{fig:si_planes2}
 \end{figure}
 
 \textit{Not yet included.}---Dirac neutrinos (only the visible final states of the appendix's

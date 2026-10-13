@@ -2,12 +2,12 @@
  "runs": [
   {
    "provenance": {
-    "time": "2026-10-13T16:12:00",
-    "git_commit": "fe8e2dcebf0be2f51a16b99fd52c92db34270453",
+    "time": "2026-10-13T16:38:39",
+    "git_commit": "a6570a6d5ff685cbe78f4e996ca5f1c2679568bd",
     "git_dirty": false,
     "config": "/lustre/astro/mbustama/NuLRIDarkPortal/analysis/configs/pion_2050_case_5_si_universal.json",
-    "config_digest": "0475a8ffab62d8da",
-    "host": "node801.cluster",
+    "config_digest": "2a49c313a0b6fd82",
+    "host": "node808.cluster",
     "python": "3.12.15",
     "numpy": "1.26.4",
     "scipy": "1.15.3",
@@ -23,23 +23,23 @@
    "tasks": [
     {
      "task": "fit",
-     "seconds": 131.46729780407622,
-     "nfev": 337
+     "seconds": 174.90812547598034,
+     "nfev": 373
     },
     {
      "task": "plane m_phi_eV/g_phi",
-     "seconds": 170.0350463357754,
+     "seconds": 170.91849768627435,
      "nfev": 2401,
      "passes": 0
     }
    ],
    "data_centre": null,
-   "chi2_min": 1.58626800583761e-08,
-   "seconds": 302.25304538803175
+   "chi2_min": 1.1530332244547026e-10,
+   "seconds": 346.78435515472665
   }
  ],
  "config": {
-  "_comment": "Exclusion plane of secret neutrino interactions, flavor-universal couplings (g_ab = g delta_ab), scalar mediator of mass m_phi_eV: the flavor-triangle analysis of the dark-portal planes (projected 2050 measurement, pion sources) with the propagation of dp_si. Couplings from 1e-6, so that every mass column reaches the no-effect region (at 1e-4 the resonant absorption near 1 MeV already gives Delta chi^2 = 5). Read per mediator mass at Delta chi^2 = 3.84 (decided 2026-10-13 for the dark portal's planes).",
+  "_comment": "Exclusion plane of secret neutrino interactions, flavor-universal couplings (g_ab = g delta_ab), scalar mediator of mass m_phi_eV: the flavor-triangle analysis of the dark-portal planes (projected 2050 measurement, pion sources) with the propagation of dp_si. Couplings from 1e-6, so that every mass column reaches the no-effect region (at 1e-4 the resonant absorption near 1 MeV already gives Delta chi^2 = 5). Read per mediator mass at Delta chi^2 = 3.84 (decided 2026-10-13 for the dark portal's planes). Mass-basis couplings g U^T U (Majorana; off-diagonal 0.09-0.13 g at delta_CP = 212 deg), since 2026-10-13.",
   "name": "pion_2050_case_5_si_universal",
   "data": {
    "surface": "pion_2050_case_5"
