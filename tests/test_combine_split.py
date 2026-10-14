@@ -72,3 +72,31 @@ def test_triangle_map_search_finds_the_first_crossing():
     b, _ = RT.search(lambda x: 0.0, -62.0, -6.0)
     assert b is None
     assert len(RT.ratio_points()) == 66 and all(abs(sum(w) - 1) < 1e-12 for w in RT.ratio_points())
+
+
+def test_campaign_summary_reads_bounds_and_profiles(tmp_path):
+    """tools/campaign_summary.py on a synthetic campaign: the balanced plane's bound per mass, its profiled curve from
+    a split variant, a missing plane listed."""
+    import campaign_summary as SUM
+    m = np.logspace(-24, -18, 4)
+    P = np.logspace(-60, -30, 31)
+    bal = 10.0 * np.clip(np.log10(P) + 55.0, 0.0, None)[None, :].repeat(4, axis=0)
+    var = 10.0 * np.clip(np.log10(P) + 36.0, 0.0, None)[None, :].repeat(2, axis=0)
+    from analysis import intervals
+    for name, mm, c, split in (("dp_emu_pot_bal_pos", m, bal, "balanced"), ("dp_emu_pot_x1m12_pos", m[:2], var, 1e-12)):
+        d = tmp_path / "set" / name / "data"
+        d.mkdir(parents=True)
+        s = _summary(mm, P, c)
+        rs = intervals.summarize_raster(mm, P, np.asarray(c), THR, 0.0, True)
+        s.update(columns=rs["columns"], raster="m_Zd_eV")
+        (d / "plane_m_Zd_eV_g_D_eps_trace.json").write_text(__import__("json").dumps(s))
+        (d / "manifest.json").write_text(__import__("json").dumps(
+            {"config": {"solver": {"dark_portal": {"coupling_split": split}}}}))
+    SUM.main(["--set", "set", "--root", str(tmp_path)])
+    out = __import__("json").loads((tmp_path / "set" / "summary" / "bounds.json").read_text())
+    mb, b = out["bounds"]["dp_emu_pot_bal_pos"]
+    assert abs(np.log10(b[3]) + 55 - 0.3841) < 1e-9
+    mp, bp = out["bounds"]["dp_emu_pot_profiled_pos"]
+    assert bp[0] > 1e-41 and abs(np.log10(bp[3]) + 55 - 0.3841) < 1e-9
+    assert "dp_emu_pot_bal_neg" in out["missing"]
+    assert (tmp_path / "set" / "summary" / "potential_bounds.png").exists()
