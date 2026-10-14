@@ -41,8 +41,15 @@ Commit and push on the laptop first; on Tycho, `git pull`. Then:
 sbatch slurm/test.sh                     # the test suite, a few minutes on astro3_devel
 sbatch slurm/validate.sh                 # the four-point record against the laptop's (runs/)
 sbatch slurm/analysis.sh analysis/configs/pion_2050_case_5_potential_emu.json
+sbatch slurm/analysis_list.sh CONFIG1 CONFIG2 ...          # several, one after the other
+SLOTS=4 sbatch slurm/analysis_pack.sh CONFIG1 CONFIG2 ...  # several, 4 at a time with 4 workers each
 squeue -u $USER
 ```
+
+`analysis_pack.sh` (2026-10-14) keeps a job's cores busy when global fits would idle most of them (a global fit
+runs one start per worker; one start wandering to strong couplings held 12-15 of 16 cores idle for 40% of a run):
+one configuration's global fit overlaps the others' planes. Its per-configuration logs are
+`logs/pack_<job>/<name>.out`.
 
 Logs are `logs/slurm_<job name>_<job>.out`. `slurm/common.sh` prints the host, job, core count
 and commit at the top of each, flagging a modified working tree. The analysis resumes from its
