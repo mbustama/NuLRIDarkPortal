@@ -188,3 +188,23 @@ def test_negative_charge_equals_flipped_texture():
     # and the sign matters: the same charge with the texture unflipped gives another flux
     c = _propagate(1e-19, pos, U_LRI_struct=S)
     assert np.max(np.abs(c[0] - a[0])) > 1e-3 * np.max(np.abs(a[0]))
+
+
+def test_electron_emission_table_matches_the_sun_and_combines():
+    """src/data/mw_neff_tables_electrons.npz (tools/mw_neff_tables.py --species electron, Tycho) is the electron
+    model's, equals the Sun's integral (dp_transit.galactic_effective_density, species 1) at the Sun's node, and
+    dp_matter combines the two species at emission points."""
+    import mw_sky_density as M
+    import dp_galactic as G
+    d = np.load(os.path.join(REPO, "src", "data", "mw_neff_tables_electrons.npz"))
+    assert str(d["model_digest"]) == M.model_digest(1) and float(d["n_e0_cm3"]) == 2.2059e-7
+    R_H = 1.0 / (67.4 * C.km_per_s / C.Mpc_to_eV_inv)
+    for m in (1e-33, 1e-28, 1e-24, 1e-18, 1e-13):
+        mine = G.effective_density(np.array([G.R_SUN_KPC]), np.array([0.0]), m, E0, R_H, species=1)[0]
+        assert abs(mine / T.galactic_effective_density(m, E0, R_H, species=1) - 1.0) < 1e-9
+    R, z = np.array([2.0, 8.33, 15.0]), np.array([0.0, 0.1, 1.0])
+    q = DM.MatterCharge(0.4, 1.3, 1.0, E0)
+    for m in (1e-30, 1e-22, 1e-9):
+        both = DM.galactic_emission_density(q, R, z, m, N0, R_H)
+        sep = (0.4 * G.effective_density(R, z, m, N0, R_H) + 1.3 * G.effective_density(R, z, m, E0, R_H, species=1))
+        assert np.max(np.abs(both / sep - 1.0)) < 1e-14
