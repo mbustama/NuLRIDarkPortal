@@ -111,3 +111,19 @@ def test_objective_adds_the_spectrum_and_extragalactic_excludes_the_galactic():
     from analysis import surfaces
     assert obj.chi2(v) == pytest.approx(surfaces.chi2(f[0], f[1], obj.data) + obj.spectrum_chi2(v)
                                         + obj.prior_chi2(v), rel=1e-12)
+
+
+def test_index_nodes_per_configuration():
+    """parameters.p_index.nodes: 7 for secret interactions, 3 for the dark portal (tools/make_galactic_configs.py)."""
+    si = config_mod.from_dict(_gal_raw(), "")
+    dp = config_mod.from_dict(_gal_raw("pion_2050_case_5_mev_emu_gal"), "")
+    assert len(si.p_nodes()) == 7 and len(dp.p_nodes()) == 3
+    assert dp.p_nodes() == pytest.approx([2.0, 2.5, 3.0])
+    raw = _gal_raw()
+    raw["parameters"]["g_phi"]["nodes"] = 3
+    with pytest.raises(ValueError):
+        config_mod.from_dict(raw, "")
+    raw = _gal_raw()
+    raw["parameters"]["p_index"]["nodes"] = 1
+    with pytest.raises(ValueError):
+        config_mod.from_dict(raw, "")

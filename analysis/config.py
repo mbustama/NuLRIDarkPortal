@@ -94,6 +94,7 @@ class AnalysisConfig:
     raw: dict = field(default_factory=dict)
     path: str = ""
     spectrum: Optional[str] = None
+    p_nodes_n: Optional[int] = None
 
     @property
     def free_names(self) -> List[str]:
@@ -109,15 +110,16 @@ class AnalysisConfig:
         return ParameterSet(list(self.parameters), {})
 
     def p_nodes(self) -> Optional[List[float]]:
-        """With p_index free: P_NODES_N nodes spanning its bounds, where the model runs the solver."""
+        """With p_index free: its nodes (parameters.p_index.nodes, default P_NODES_N) spanning its bounds, where the
+        model runs the solver."""
         if "p_index" not in self.free_names:
             return None
         lo, hi = self.parameter("p_index").bounds
-        return [float(v) for v in np.linspace(lo, hi, P_NODES_N)]
+        return [float(v) for v in np.linspace(lo, hi, self.p_nodes_n or P_NODES_N)]
 
     def model(self, cache_size: int = 512) -> FlavorModel:
-        # p_index interpolated between P_NODES_N solver runs: P_NODES_N times the cache for the same points
-        n = 1 if self.p_nodes() is None else P_NODES_N
+        # p_index interpolated between the nodes' solver runs: that many times the cache for the same points
+        n = 1 if self.p_nodes() is None else len(self.p_nodes())
         return FlavorModel(self.solver, self.free_names, cache_size=cache_size * n, p_nodes=self.p_nodes())
 
     def objective(self, model: Optional[FlavorModel] = None, data_centre: Optional[Tuple[float, float]] = None) -> Objective:
@@ -180,18 +182,23 @@ def from_dict(raw: Mapping, path: str = "") -> AnalysisConfig:
     if spectrum is not None and spectrum not in spectra.SPECTRA:
         raise ValueError(f"data.spectrum must be one of {sorted(spectra.SPECTRA)}, got {spectrum!r}")
     params = []
+    p_nodes_n = None
     for name, spec in d["parameters"].items():
         spec = dict(spec)
-        bad = set(spec) - {"start", "bounds", "space", "scale"}
+        bad = set(spec) - {"start", "bounds", "space", "scale"} - ({"nodes"} if name == "p_index" else set())
         if bad:
             raise ValueError(f"Parameter {name}: unknown keys {sorted(bad)}")
+        if "nodes" in spec:
+            p_nodes_n = int(spec.pop("nodes"))
+            if p_nodes_n < 2:
+                raise ValueError(f"p_index: nodes must be >= 2, got {p_nodes_n}")
         params.append(Parameter(name, float(spec["start"]), tuple(float(b) for b in spec["bounds"]),
                                 spec.get("space", "linear"), spec.get("scale")))
     cfg = AnalysisConfig(
         name=str(d["name"]), surface=surface, solver=d.get("solver", {}), parameters=params,
         priors=[prior_from_spec(p) for p in d.get("priors", [])],
         fit=FitSettings.from_dict(d.get("fit")), asimov=dict(d.get("asimov", {})),
-        raw=dict(raw), path=path, spectrum=spectrum)
+        raw=dict(raw), path=path, spectrum=spectrum, p_nodes_n=p_nodes_n)
     if spectrum is not None and not (cfg.solver.get("galactic") or {}).get("enabled"):
         raise ValueError("data.spectrum compares the extragalactic flux in physical units, which the model provides "
                          "with the Galactic component (galactic.enabled and sky.extragalactic_norm)")

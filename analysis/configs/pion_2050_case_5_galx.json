@@ -123,7 +123,8 @@
     2.0,
     3.0
    ],
-   "space": "linear"
+   "space": "linear",
+   "nodes": 3
   },
   "f_e_S": {
    "start": 0.333333,

@@ -116,7 +116,8 @@
     2.0,
     3.0
    ],
-   "space": "linear"
+   "space": "linear",
+   "nodes": 3
   }
  },
  "priors": [

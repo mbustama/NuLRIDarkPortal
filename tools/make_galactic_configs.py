@@ -16,8 +16,10 @@ For every configuration in analysis/configs with planes, writes next to it
 both with galactic.enabled (CRINGE, emission points in 3-D), sky.nside 8 (N_side 4 and 8 agree to 1e-3 for the
 all-sky flux), data.spectrum 'ic26_astrophysical', and free: the extragalactic normalization norm_astro (flat in
 log10 over [1e-2, 1e3], no prior; 1 = without new physics IceCube 2026's flux at 14.7 TeV, the unit set by
-sky.extragalactic_norm), the spectral index p_index (flat over [2, 3]; analysis.model interpolates between 7 solver
-runs), and norm_gal (Gaussian 0.91 +- 0.18, IceCube 2026's fit of the same template). Output in
+sky.extragalactic_norm), the spectral index p_index (flat over [2, 3]; analysis.model interpolates between solver
+runs at its nodes: 7 for secret interactions, whose cascade makes the flux's dependence on p least smooth (fractions
+to 2e-4), 3 for the dark portal, whose flux is nearly a power law in p (fractions to 5e-6 with MeV absorption, 2e-8
+for the potential; 2026-10-14)), and norm_gal (Gaussian 0.91 +- 0.18, IceCube 2026's fit of the same template). Output in
 output/analysis/<name>_gal and <name>_galx. The originals stay as they are.
 
   python tools/make_galactic_configs.py
@@ -61,7 +63,9 @@ def variant(cfg, name, free_compositions):
     solver.setdefault("sky", {}).update(nside=8, extragalactic_norm=norm, extragalactic_norm_E_GeV=E_ref)
     solver.setdefault("source", {}).update(PION)
     for k, v in COMMON.items():
-        new["parameters"][k] = v
+        new["parameters"][k] = dict(v)
+    si = bool((solver.get("secret_interactions") or {}).get("enabled", False))
+    new["parameters"]["p_index"]["nodes"] = 7 if si else 3
     if free_compositions:
         for k, v in COMPOSITIONS.items():
             new["parameters"][k] = v
