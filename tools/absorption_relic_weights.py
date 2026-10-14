@@ -74,7 +74,8 @@ def main(argv=None):
     for ax, (title, C) in zip(axes, cases):
         R0 = rates(E, C, U, m_nu, T0, M, False)
         R1 = rates(E, C, U, m_nu, T0, M, True)
-        tot0, tot1 = np.trapz(R0, E, axis=0), np.trapz(R1, E, axis=0)
+        trapz = getattr(np, "trapezoid", None) or np.trapz  # np.trapz is gone from NumPy 2.x
+        tot0, tot1 = trapz(R0, E, axis=0), trapz(R1, E, axis=0)
         sG_alpha = (np.abs(C) ** 2).sum(axis=1)
         w_res = np.abs(C @ np.conj(U)) ** 2                    # (alpha, i): each relic state's own weight
         summary[title] = {"kernel_over_resolved_integrated": [float(x) for x in tot0 / np.where(tot1 > 0, tot1, np.nan)],

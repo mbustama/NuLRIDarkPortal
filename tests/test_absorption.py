@@ -9,6 +9,9 @@ import os
 import sys
 
 import numpy as np
+
+# np.trapz is gone from NumPy 2.x (CI runs the latest); the laptop and Tycho pin 1.26, which lacks np.trapezoid
+_trapz = getattr(np, "trapezoid", None) or np.trapz
 import pytest
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -32,7 +35,7 @@ def _integrated_rate(M, sum_G, m_nu, r, n=60001):
     Er = (M * M - m_nu[r] ** 2) / (2.0 * m_nu[r])
     E = np.geomspace(0.6 * Er, 1.6 * Er, n)
     g = TH.relic_state_grid_cached(E, np.array([0.0]), sum_G, M, m_nu, T0, np.ones(3), moller=True)[0][:, r]
-    return np.trapz(g, E)
+    return _trapz(g, E)
 
 
 def test_z_burst_normalization():
