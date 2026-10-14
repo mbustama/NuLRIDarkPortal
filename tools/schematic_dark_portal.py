@@ -1,6 +1,9 @@
 """
 schematic_dark_portal.py -- the schematic of the dark-portal calculation for the paper (two columns wide).
 
+v7 (2026-10-14): v6's system with the richer illustrations of v1-v5 back (Mauricio: "cleaner, but also poorer"):
+the two distant galaxies with a host halo, the expanding comoving grid with relic neutrinos and neutrons, the Milky Way
+as stars along its arms, the glowing Sun, the Earth's coastlines and halo, coloured detection glyphs.
 v6 (2026-10-14): redesigned as one visual system, after the brief Mauricio approved. Flat vector icons of equal
 weight -- an active galaxy, the cosmic web, a face-on spiral, the solar disc, the cut-away Earth (land outlines from
 tools/data/naturalearth, as in the GeoneutrinoDecay schematic) -- on a six-column grid, each centred on the axis of the
@@ -21,7 +24,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.patheffects as pe  # noqa: E402
 import matplotlib.pyplot as plt  # noqa: E402
-from matplotlib.patches import Circle, Ellipse, Polygon, RegularPolygon, Wedge  # noqa: E402
+from matplotlib.patches import Circle, Ellipse, FancyArrowPatch, Polygon, Wedge  # noqa: E402
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 LAND = os.path.join(REPO, "tools", "data", "naturalearth", "land_110m_decimated.json")
@@ -80,94 +83,134 @@ def twisted(ax, x0, x1, wavelength=6.0, z=6):
                     path_effects=[pe.withStroke(linewidth=2.6, foreground="white")] if f else None)
 
 
+def glow(ax, xy, r, color, n=14, alpha=0.3, z=1, squash=1.0):
+    """A radial gradient: concentric discs (ellipses, if squashed) of decreasing opacity."""
+    for i in range(n, 0, -1):
+        ax.add_patch(Ellipse(xy, 2 * r * i / n, 2 * r * squash * i / n, color=color, alpha=alpha / n * 1.6, lw=0,
+                             zorder=z))
+
+
 # ---------------------------------------------------------------- the stages
 def sources(ax):
-    """An active galaxy: an inclined disc, its core, two jets; the flux leaves it as one state."""
-    cx, cy = centre(0) - 1.2, Y0
-    for sgn in (1.0, -1.0):                                         # jets and lobes
-        ax.plot([cx, cx + 0.9 * sgn], [cy, cy + 5.2 * sgn], color=MID, lw=0.7, zorder=3, solid_capstyle="round")
-        ax.add_patch(Ellipse((cx + 1.05 * sgn, cy + 6.0 * sgn), 1.5, 1.0, angle=10, fc=LIGHT, ec="none", zorder=3))
-    ax.add_patch(Ellipse((cx, cy), 7.2, 2.3, angle=-8, fc=PALE, ec=MID, lw=0.5, zorder=4))
-    ax.add_patch(Ellipse((cx, cy), 2.4, 1.1, angle=-8, fc="#f4e3a9", ec="none", zorder=5))
-    ax.add_patch(Circle((cx, cy), 0.35, fc="#f7f1dc", ec="none", zorder=5))
-    ax.plot([cx + 0.4, EDGES[1] + 1.0], [Y0, Y0], color="#8a8a8a", lw=1.8, solid_capstyle="butt", zorder=6)
+    """Two distant galaxies, one in its host halo (a radial glow), their fluxes converging into the beam."""
+    xb = EDGES[1] - 0.6                                             # where the beam starts
+    for gx, gy, ang, s, halo in ((5.6, Y0 + 5.4, 22.0, 1.0, False), (6.2, Y0 - 5.0, -15.0, 1.1, True)):
+        if halo:
+            glow(ax, (gx, gy), 3.5, "#6f6f6f", alpha=0.36, z=1)
+        glow(ax, (gx, gy), 1.5 * s, "#fde68a", n=8, alpha=0.55, z=2)
+        ax.add_patch(Ellipse((gx, gy), 3.6 * s, 1.2 * s, angle=ang, fc="#dcdcdc", ec="#636363", lw=0.5, zorder=3))
+        ax.add_patch(Ellipse((gx, gy), 1.2 * s, 0.62 * s, angle=ang, fc="#fff3b0", ec="none", zorder=4))
+        up = gy > Y0
+        ax.add_patch(FancyArrowPatch((gx + 1.1, gy + (-0.7 if up else 0.7)), (xb, Y0 + (0.45 if up else -0.45)),
+                                     arrowstyle="-|>", mutation_scale=4, lw=0.7, color="#7f7f7f", zorder=3,
+                                     connectionstyle="arc3,rad=-0.12" if up else "arc3,rad=0.12"))
+    ax.plot([xb, EDGES[1] + 1.0], [Y0, Y0], color="#7f7f7f", lw=1.8, solid_capstyle="round", zorder=6)
 
 
 def cosmology(ax):
-    """The cosmic web, faint; the strands fan out into the propagation eigenstates; resonant absorption on relic
+    """The expanding Universe: a comoving grid whose spacing grows towards today, relic neutrinos (purple) and neutrons
+    (grey) thinning out on the way; the strands fan out into the propagation eigenstates; resonant absorption on relic
     neutrinos at several points (each energy resonates at its own redshift), each Z_D decaying to a nu nubar pair."""
     x0, x1 = EDGES[1], EDGES[2]
-    rng = np.random.default_rng(7)
-    n = 70
-    pts = np.column_stack([rng.uniform(x0 + 0.6, x1 - 0.6, n), rng.uniform(Y0 - 8.0, Y0 + 8.0, n)])
-    d = np.hypot(*(pts[:, None, :] - pts[None, :, :]).transpose(2, 0, 1))
-    for i in range(n):                                              # each node to its nearest neighbours
-        for j in np.argsort(d[i])[1:3]:
-            ax.plot(pts[[i, j], 0], pts[[i, j], 1], color="#e6e6e6", lw=0.45, zorder=1)
-    ax.scatter(pts[:, 0], pts[:, 1], s=2.0, color="#d0d0d0", lw=0, zorder=1)
-    xs = x0 + 1.0                                                   # the split into eigenstates
-    for k, c in enumerate(STRANDS):
-        ax.plot([xs, xs + 1.8], [Y0, Y0 + (k - 1) * SEP], color=c, lw=LW_STRAND, zorder=6, solid_capstyle="butt")
-    parallel(ax, xs + 1.8, x1)
     w_ = x1 - x0
+    xa, xb, h0 = x0 + 0.4, x1 - 0.4, 8.4
+    for k in range(10):                                             # the comoving grid
+        f = (k / 9) ** 0.75
+        x = xa + f * (xb - xa)
+        hh = h0 * (0.82 + 0.18 * f)
+        ax.plot([x, x], [Y0 - hh, Y0 + hh], color="#dedede", lw=0.4, zorder=1)
+    for j in range(9):
+        t = j / 8 - 0.5
+        ax.plot([xa, xb], [Y0 + 2 * t * h0 * 0.82, Y0 + 2 * t * h0], color="#dedede", lw=0.4, zorder=1)
+    fV, fE = (x0 + 0.268 * w_, Y0 + 6.6), (x0 + 0.732 * w_, Y0 - 6.6)
+
+    def clear(x, y):                                                # off the strands and the formulas
+        return ((np.abs(y - Y0) > 1.55) & ~((np.abs(x - fV[0]) < 6.2) & (np.abs(y - fV[1]) < 1.15))
+                & ~((np.abs(x - fE[0]) < 5.6) & (np.abs(y - fE[1]) < 1.15)))
+    rng = np.random.default_rng(3)
+    u = rng.random(260) ** 1.3                                      # relic neutrinos, thinning towards today
+    xs, ys = xa + u * (xb - xa), Y0 + (rng.random(260) - 0.5) * 2 * h0 * (0.8 + 0.18 * u)
+    keep = clear(xs, ys)
+    ax.scatter(xs[keep], ys[keep], s=1.3, color="#9e9ac8", lw=0, zorder=2)
+    v = rng.random(50) ** 1.3                                       # and neutrons
+    xn, yn = xa + v * (xb - xa), Y0 + (rng.random(50) - 0.5) * 2 * h0 * (0.8 + 0.18 * v)
+    keep = clear(xn, yn)
+    ax.scatter(xn[keep], yn[keep], s=2.2, color="#a3a3a3", lw=0, marker="s", zorder=2)
+    xs0 = x0 + 1.0                                                  # the split into eigenstates
+    for k, c in enumerate(STRANDS):
+        ax.plot([xs0, xs0 + 1.8], [Y0, Y0 + (k - 1) * SEP], color=c, lw=LW_STRAND, zorder=6, solid_capstyle="butt")
+    parallel(ax, xs0 + 1.8, x1)
+    purple = "#6a51a3"
     for f_, k, up in ((0.357, 2, True), (0.589, 0, False), (0.821, 2, True)):
-        vx = x0 + f_ * w_
-        vy = Y0 + (k - 1) * SEP
+        vx, vy = x0 + f_ * w_, Y0 + (k - 1) * SEP
         sg = 1.0 if up else -1.0
         tip = np.array([vx + 1.0, vy + sg * 2.3])                    # the Z_D, then its nu and nubar
         t = np.linspace(0.0, 1.0, 60)
         dv = tip - np.array([vx, vy])
         nrm = np.array([-dv[1], dv[0]]) / np.hypot(*dv)
-        w = np.array([vx, vy])[None, :] + t[:, None] * dv[None, :] + 0.17 * np.sin(2 * np.pi * 3 * t)[:, None] * nrm
-        ax.plot(w[:, 0], w[:, 1], color="#555555", lw=0.6, zorder=7)
-        for ang in (35.0, 5.0):
+        wv = np.array([vx, vy])[None, :] + t[:, None] * dv[None, :] + 0.17 * np.sin(2 * np.pi * 3 * t)[:, None] * nrm
+        ax.plot(wv[:, 0], wv[:, 1], color=purple, lw=0.65, zorder=7)
+        for ang in (38.0, 4.0):
             a = np.radians(ang)
-            ax.plot([tip[0], tip[0] + 1.5 * np.cos(a)], [tip[1], tip[1] + sg * 1.5 * np.sin(a)], color="#555555",
-                    lw=0.6, zorder=7, solid_capstyle="round")
-        ax.scatter([vx], [vy], s=11, color="white", edgecolors="#333333", lw=0.6, zorder=8)
+            ax.add_patch(FancyArrowPatch(tuple(tip), (tip[0] + 1.6 * np.cos(a), tip[1] + sg * 1.6 * np.sin(a)),
+                                         arrowstyle="-|>", mutation_scale=3.2, lw=0.55, color=purple, zorder=7))
+        ax.scatter([vx], [vy], s=30, marker=(8, 1, 0), color=purple, lw=0, zorder=8)
     text(ax, x0 + 0.339 * w_, Y0 + 3.3, r"$Z_D$", ha="right")
-    text(ax, x0 + 0.268 * w_, Y0 + 6.6, r"$V\propto g_D\,\epsilon'\,u\;n_{\rm eff}$", size=SIZE_FORMULA)
-    text(ax, x0 + 0.732 * w_, Y0 - 6.6, r"$E_{\rm res}\approx m_{Z_D}^2/2m_\nu$", size=SIZE_FORMULA)
+    text(ax, fV[0], fV[1], r"$V\propto g_D\,\epsilon'\,u\;n_{\rm eff}$", size=SIZE_FORMULA)
+    text(ax, fE[0], fE[1], r"$E_{\rm res}\approx m_{Z_D}^2/2m_\nu$", size=SIZE_FORMULA)
 
 
 def milky_way(ax):
-    """A face-on barred spiral, flat: a pale disc, two tapered arms, a bulge; the Sun on an arm, on the strands' axis;
-    the Galactic flux, born in the disc, joins there as a fourth strand."""
-    cx, cy, Rd, q, b = centre(2) - 0.6, Y0 + 2.5, 6.4, 0.6, 0.27
-    sx, sy = cx + 1.6, Y0                                            # the Sun
-    r0 = 0.16 * Rd
+    """A barred spiral seen nearly face-on, as stars scattered about its arms (two major, two minor, logarithmic, from
+    the bar's ends) over the disc's glow, with a glowing bulge; the Sun on a major arm, on the strands' axis; Galactic
+    neutrinos, born in the disc, join there."""
+    cx, cy, Rd, q, b = centre(2) - 0.4, Y0 + 2.7, 6.2, 0.64, 0.25
+    sx, sy = cx + 0.9, Y0                                            # the Sun
+    r0 = 0.17 * Rd
     rs, a_s = np.hypot(sx - cx, (sy - cy) / q), np.arctan2((sy - cy) / q, sx - cx)
-    phi0 = a_s - np.log(rs / r0) / b                                 # an arm through the Sun
-    ax.add_patch(Ellipse((cx, cy), 2.08 * Rd, 2.08 * Rd * q, fc="#eef2f8", ec="none", zorder=2))
-    th = np.linspace(0.0, np.log(Rd / r0) / b, 200)
-    r = r0 * np.exp(b * th)
-    width = 0.55 * (1.0 - 0.65 * th / th[-1]) + 0.12
-    for arm in range(2):
-        a = th + phi0 + np.pi * arm
-        X, Y = r * np.cos(a), r * np.sin(a)
-        dX, dY = np.gradient(X), np.gradient(Y)
-        L = np.hypot(dX, dY)
-        nx, ny = -dY / L, dX / L
-        up = np.column_stack([cx + X + 0.5 * width * nx, cy + q * (Y + 0.5 * width * ny)])
-        dn = np.column_stack([cx + X - 0.5 * width * nx, cy + q * (Y - 0.5 * width * ny)])
-        ax.add_patch(Polygon(np.vstack([up, dn[::-1]]), closed=True, fc="#b8c8e0", ec="none", zorder=3))
+    phi0 = a_s - np.log(rs / r0) / b                                 # a major arm through the Sun
+    th_max = np.log(Rd / r0) / b
+    glow(ax, (cx, cy), 1.06 * Rd, "#2b6cb0", n=18, alpha=0.26, z=1, squash=q)
+    rng = np.random.default_rng(11)
+    for arm in range(4):
+        major = arm % 2 == 0
+        n = 900 if major else 450
+        t = th_max * rng.random(n) ** 0.85
+        r = r0 * np.exp(b * t) * (1.0 + (0.05 + 0.05 * t / th_max) * rng.standard_normal(n))
+        a = t + phi0 + 0.5 * np.pi * arm + 0.05 * rng.standard_normal(n)
+        rgba = np.zeros((n, 4))
+        rgba[:, :3] = matplotlib.colors.to_rgb("#1f5aa6" if major else "#4a7fc1")
+        rgba[:, 3] = (0.55 if major else 0.32) * (1.0 - 0.55 * t / th_max)
+        ax.scatter(cx + r * np.cos(a), cy + q * r * np.sin(a), s=rng.uniform(0.15, 1.0, n), c=rgba, lw=0, zorder=2,
+                   rasterized=True)
+    t = th_max * (0.15 + 0.8 * rng.random(60))                       # bright young stars on the major arms
+    a = t + phi0 + np.pi * (rng.random(60) < 0.5) + 0.04 * rng.standard_normal(60)
+    r = r0 * np.exp(b * t)
+    ax.scatter(cx + r * np.cos(a), cy + q * r * np.sin(a), s=1.5, color="white", edgecolors="#9ecae1", lw=0.2, zorder=2,
+               rasterized=True)
     bar = np.degrees(np.arctan2(q * np.sin(phi0), np.cos(phi0)))
-    ax.add_patch(Ellipse((cx, cy), 2.4 * r0 * np.hypot(np.cos(phi0), q * np.sin(phi0)), 0.75, angle=bar,
-                         fc="#f1dfa6", ec="none", zorder=4))
-    ax.add_patch(Ellipse((cx, cy), 1.5, 1.0, fc="#f1dfa6", ec="none", zorder=4))
+    glow(ax, (cx, cy), 0.3 * Rd, "#fdb813", n=12, alpha=0.95, z=3, squash=q)
+    ax.add_patch(Ellipse((cx, cy), 2 * r0 * np.hypot(np.cos(phi0), q * np.sin(phi0)), 0.38 * r0, angle=bar,
+                         fc="#fde68a", ec="none", alpha=0.95, zorder=3))
+    ax.add_patch(Ellipse((cx, cy), 0.7, 0.5, fc="#fffbea", ec="none", zorder=3))
     parallel(ax, EDGES[2], EDGES[3])
-    gx, gy = cx - 1.9, cy + 1.3                                      # a Galactic emission point
-    t = np.linspace(0.0, 1.0, 60)
-    ctrl = np.array([sx - 0.6, gy + 0.2])
-    bez = ((1 - t) ** 2)[:, None] * np.array([gx, gy]) + (2 * (1 - t) * t)[:, None] * ctrl + (t ** 2)[:, None] * np.array([sx, sy])
-    ax.plot(bez[:, 0], bez[:, 1], color=GOLD, lw=LW_STRAND, zorder=7, solid_capstyle="round")
-    ax.scatter([gx], [gy], s=9, color=GOLD, lw=0, zorder=8)
-    ax.scatter([sx], [sy], s=16, color="#f6d36b", edgecolors="#b8902a", lw=0.5, zorder=9)
+    for frac, arm in ((0.38, 2), (0.66, 2), (0.9, 0)):              # Galactic neutrinos, born in the disc
+        tt = frac * th_max
+        aa, rr = tt + phi0 + 0.5 * np.pi * arm, r0 * np.exp(b * tt)
+        gx, gy = cx + rr * np.cos(aa), cy + q * rr * np.sin(aa)
+        if np.hypot(gx - sx, gy - sy) < 1.8 or gy < Y0 + 1.6:
+            continue
+        ax.plot([gx, sx], [gy, sy], color=GOLD, lw=0.75, zorder=7, solid_capstyle="round")
+        ax.scatter([gx], [gy], s=16, color=GOLD, edgecolors="#8c6d00", lw=0.3, marker="*", zorder=8)
+    ax.scatter([sx], [sy], s=18, color="#fdb813", edgecolors="#d95f02", lw=0.5, zorder=9)
 
 
 def sun(ax):
-    """The solar disc, flat, above the strands, which twist: the evolution through its potential is coherent."""
-    ax.add_patch(Circle((centre(3) - 0.8, Y0 + 5.4), 2.3, fc="#f6d36b", ec="#c99a2e", lw=0.5, zorder=4))
+    """The Sun, glowing -- its potential falls off with distance -- above the strands, which twist: the evolution
+    through its potential is coherent."""
+    sx, sy = centre(3) - 0.8, Y0 + 5.3
+    glow(ax, (sx, sy), 3.9, "#fd8d3c", n=16, alpha=0.5, z=2)
+    ax.add_patch(Circle((sx, sy), 1.5, fc="#fdb813", ec="#d95f02", lw=0.6, zorder=4))
     twisted(ax, EDGES[3], EDGES[4] + 2.6)
 
 
@@ -195,45 +238,46 @@ def globe_rings(lon0_deg):
 
 
 def earth(ax):
-    """The Earth, flat, a quarter cut away (mantle, outer and inner core), turned so that IceCube, at the South Pole on
-    the right, faces the neutrinos' entry on the left; the strands converge on it through the Earth."""
+    """The Earth with a quarter cut away (mantle, outer and inner core), turned so that IceCube, at the South Pole on
+    the right, faces the neutrinos' entry on the left; its potential reaches beyond it (the halo); the strands
+    converge on IceCube through the Earth."""
     cx, cy, R = centre(4) + 0.3, Y0, 5.0
-    surface = Wedge((cx, cy), R, 180.0, 450.0, fc="#dde8f2", ec="none", zorder=8)
+    glow(ax, (cx, cy), 1.32 * R, "#238b45", n=10, alpha=0.18, z=2)
+    surface = Wedge((cx, cy), R, 180.0, 450.0, fc="#cfe3f5", ec="none", zorder=8)
     ax.add_patch(surface)
     for ring in globe_rings(-40.0):                                  # turned: the South Pole to the right
-        land = Polygon(np.column_stack([cx - R * ring[:, 1], cy + R * ring[:, 0]]), closed=True, fc="#b5c8a0",
-                       ec="none", zorder=9)
+        land = Polygon(np.column_stack([cx - R * ring[:, 1], cy + R * ring[:, 0]]), closed=True, fc="#8fb98a",
+                       ec="#4f7a55", lw=0.2, zorder=9)
         ax.add_patch(land)
         land.set_clip_path(surface)
-    for r_out, r_in, col in ((1.0, 0.546, "#efe1c2"), (0.546, 0.192, "#ddd3c0"), (0.192, 0.0, "#cbbfa9")):
+    for r_out, r_in, col in ((1.0, 0.546, "#f6e8c3"), (0.546, 0.192, "#d4d4d4"), (0.192, 0.0, "#ececec")):
         ax.add_patch(Wedge((cx, cy), r_out * R, 90.0, 180.0, width=(r_out - r_in) * R, fc=col, ec="white", lw=0.5,
                            zorder=9))
-    ax.add_patch(Circle((cx, cy), R, fill=False, ec=MID, lw=0.6, zorder=10))
+    ax.add_patch(Circle((cx, cy), R, fill=False, ec="#262626", lw=0.6, zorder=10))
     px, py = cx + R, cy                                              # IceCube
     for k, c in enumerate(STRANDS):
         y_in = Y0 + (k - 1) * SEP
         x_in = cx - np.sqrt(R * R - (y_in - cy) ** 2)
         ax.plot([x_in, px], [y_in, py], color=c, lw=0.9, zorder=11, solid_capstyle="butt")
-    ax.add_patch(RegularPolygon((px, py), numVertices=6, radius=0.62, orientation=np.pi / 6, fc="#3d3d3d", ec="white",
-                                lw=0.5, zorder=12))
+    ax.scatter([px], [py], s=46, marker="*", color="#2b6cb0", edgecolors="#08306b", lw=0.4, zorder=12)
 
 
 def detection(ax):
-    """The three event morphologies, flat."""
+    """The three event morphologies."""
     gx, lx = EDGES[5] + 4.0, EDGES[5] + 7.0
     y = Y0 + 5.0                                                     # cascade
-    ax.add_patch(Circle((gx, y), 1.05, fc="#ececec", ec="#555555", lw=0.5, zorder=4))
-    ax.add_patch(Circle((gx, y), 0.45, fc="#bdbdbd", ec="none", zorder=5))
+    glow(ax, (gx, y), 1.5, "#fdae6b", n=8, alpha=0.5, z=3)
+    ax.add_patch(Circle((gx, y), 0.95, fc="#fdd0a2", ec="#d94801", lw=0.5, zorder=4))
     text(ax, lx, y, "Cascade", ha="left")
     y = Y0                                                           # track
     xs = np.linspace(gx - 2.0, gx + 2.0, 6)
-    ax.plot([xs[0], xs[-1]], [y - 0.7, y + 0.7], color="#555555", lw=0.6, zorder=4)
-    ax.scatter(xs, np.linspace(y - 0.7, y + 0.7, 6), s=5, color="#bdbdbd", edgecolors="#555555", lw=0.4, zorder=5)
+    ax.plot([xs[0], xs[-1]], [y - 0.7, y + 0.7], color="#08519c", lw=0.9, zorder=4)
+    ax.scatter(xs, np.linspace(y - 0.7, y + 0.7, 6), s=4, color="#08519c", lw=0, zorder=5)
     text(ax, lx, y, "Track", ha="left")
     y = Y0 - 5.0                                                     # double cascade
-    for dx in (-1.25, 1.25):
-        ax.add_patch(Circle((gx + dx, y), 0.6, fc="#ececec", ec="#555555", lw=0.5, zorder=5))
-    ax.plot([gx - 0.65, gx + 0.65], [y, y], color="#555555", lw=0.5, ls=(0, (1, 1.2)), zorder=4)
+    for dx in (-1.3, 1.3):
+        ax.add_patch(Circle((gx + dx, y), 0.62, fc="#fdd0a2", ec="#d94801", lw=0.5, zorder=5))
+    ax.plot([gx - 0.68, gx + 0.68], [y, y], color="#d94801", lw=0.5, ls=(0, (1, 1.1)), zorder=4)
     text(ax, lx, y, "Double cascade", ha="left")
 
 
@@ -270,7 +314,7 @@ def main():
     earth(ax)
     detection(ax)
     out = os.path.join(REPO, "output", "figures", "schematic_dark_portal")
-    fig.savefig(out + ".pdf")
+    fig.savefig(out + ".pdf", dpi=600)                     # dpi: the rasterized stars of the Milky Way
     fig.savefig(out + ".png", dpi=300)
     print(f"wrote {out}.pdf, .png")
 
