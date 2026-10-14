@@ -778,6 +778,95 @@ def propagate_sky(E_bins: np.ndarray, params: Dict) -> Dict:
     return out
 
 
+def propagate_sky_basis(E_bins: np.ndarray, params: Dict, sources=((1.0, 0.0, 0.0), (0.0, 1.0, 0.0)),
+                        galactic_compositions=((1.0, 0.0, 0.0), (0.0, 1.0, 0.0))) -> Dict:
+    """propagate_sky for several source compositions at once (the analysis' event likelihoods,
+    docs/dev/EVENT_LIKELIHOOD_PLAN.md): the extragalactic bands for each composition in `sources` and, with
+    galactic.enabled, the Galactic bands for each composition in `galactic_compositions`, sharing one setup
+    (thermal-rate grid) and, for the dark portal's emission in 3-D, one set of band responses. The fluxes are
+    linear in the compositions, so the default pairs (pure nu_e, pure nu_mu sources) give every (x, 1 - x, 0).
+
+    Returns a dict: E_eV (N_E,); dec_band_edges (rad, increasing); band_omega (sr); bands_nu, bands_nubar
+    (n_sources, N_b, N_E, 3) in declination order, per unit solid angle, for the configured nu/nubar injection
+    (injection_weights), in GeV^-1 cm^-2 s^-1 sr^-1 when sky.extragalactic_norm is set (meta extragalactic_scale)
+    and solver units otherwise; with galactic.enabled, galactic_bands_nu, galactic_bands_nubar (n_comp, N_b, N_E,
+    3) in GeV^-1 cm^-2 s^-1 sr^-1 at galactic.norm_gal (pixel means per band) and galactic_band_share (N_b,), each
+    band's share of the pixels (the sky's pixel mean, galactic_allsky, weights the bands by it); meta."""
+    import dp_sky
+    sky_p = params.get('sky') or dict(output='bands', nside=16, dec_band_edges=None, earth_nodes_per_band=2)
+    gal = params.get('galactic') or dict(enabled=False)
+    if not params.get('si') and params.get('earth_sky', 'up') != 'full':
+        raise ValueError("propagate_sky_basis needs grid.earth_sky = 'full' (bands cover the whole sky).")
+    grid = dp_sky.SkyGrid(sky_p['nside'], sky_p['dec_band_edges'])
+    if gal.get('enabled', False) and np.any(np.bincount(grid.band, minlength=grid.n_bands) == 0):
+        raise ValueError(f"The Galactic component needs a pixel centre in every declination band: N_side "
+                         f"{grid.nside} leaves {int(np.sum(np.bincount(grid.band, minlength=grid.n_bands) == 0))} "
+                         f"of {grid.n_bands} bands empty (use a finer N_side or wider bands).")
+    setup = _flux_setup(E_bins, params)
+    w = injection_weights(params)
+    b_nu, b_nb = [], []
+    for r in sources:
+        _, _, B_nu, B_nb = _flux_from_setup(E_bins, params, setup, w, np.ascontiguousarray(np.asarray(r, dtype=np.float64)),
+                                            band_costh=grid.costh_edges)
+        # the Earth's bands run in cos(zenith) = -sin(dec), increasing: reversed declination order
+        b_nu.append(B_nu[::-1])
+        b_nb.append(B_nb[::-1])
+    out = dict(E_eV=np.asarray(E_bins, dtype=np.float64), dec_band_edges=grid.band_edges, band_omega=grid.band_omega,
+               bands_nu=np.ascontiguousarray(np.stack(b_nu)), bands_nubar=np.ascontiguousarray(np.stack(b_nb)),
+               meta=dict(frame="equatorial J2000 (FK5)", detector="South Pole: cos(zenith) = -sin(dec)",
+                         sources=[list(map(float, r)) for r in sources],
+                         units="per unit solid angle, solver units (Phi_0 E^-p)", galactic="none"))
+    if sky_p.get('extragalactic_norm') is not None:
+        E_ref = sky_p.get('extragalactic_norm_E_GeV', 1e5)
+        K = extragalactic_scale(params, sky_p['extragalactic_norm'], E_ref)
+        out['bands_nu'] = out['bands_nu'] * K
+        out['bands_nubar'] = out['bands_nubar'] * K
+        out['meta']['units'] = ("GeV^-1 cm^-2 s^-1 sr^-1 per flavor and kind; without new physics the per-flavor "
+                                f"nu + nubar intensity at {E_ref:.4g} GeV would be {sky_p['extragalactic_norm']:.4g}")
+        out['meta']['extragalactic_scale'] = K
+    if gal.get('enabled', False):
+        import dp_galactic
+        em = dp_galactic.emitted(gal['template'], np.asarray(E_bins, dtype=np.float64) / 1e9, grid.nside,
+                                 gal['norm_gal'])
+        g_nu, g_nb = [], []
+        if setup.get('si', False):
+            # unattenuated, averaged oscillations: the same transfer in every band (_galactic_transfer)
+            P = dp_galactic.averaged_transfer(setup['U_pmns_base'])
+            em_b = dp_galactic.band_means(em, grid.band, grid.n_bands)
+            for c in galactic_compositions:
+                T = em_b[:, :, None] * (P @ np.asarray(c, dtype=np.float64))[None, None, :]
+                g_nu.append(T)
+                g_nb.append(T.copy())
+        elif gal['emission'] == 'local':
+            em_b = dp_galactic.band_means(em, grid.band, grid.n_bands)
+            for c in galactic_compositions:
+                T_nu, T_nb = _galactic_transfer(E_bins, params, setup, grid.costh_edges, grid.nside,
+                                                f_S=np.asarray(c, dtype=np.float64))
+                g_nu.append(em_b[:, :, None] * T_nu[::-1])
+                g_nb.append(em_b[:, :, None] * T_nb[::-1])
+        else:
+            R_nu, R_nb = _galactic_responses(E_bins, params, setup, grid.costh_edges)
+            R_nu, R_nb = np.ascontiguousarray(R_nu[::-1]), np.ascontiguousarray(R_nb[::-1])
+            for c in galactic_compositions:
+                F_nu, F_nb = _galactic_emission_populations(E_bins, params, setup, grid.nside,
+                                                            f_S=np.asarray(c, dtype=np.float64))
+                g_nu.append(np.einsum('bek,bekf->bef', dp_galactic.band_means(em[:, :, None] * F_nu, grid.band,
+                                                                              grid.n_bands), R_nu))
+                g_nb.append(np.einsum('bek,bekf->bef', dp_galactic.band_means(em[:, :, None] * F_nb, grid.band,
+                                                                              grid.n_bands), R_nb))
+        out['galactic_bands_nu'] = np.ascontiguousarray(np.stack(g_nu))
+        out['galactic_bands_nubar'] = np.ascontiguousarray(np.stack(g_nb))
+        # each band's share of the pixels: the sky's pixel mean (galactic_allsky) is the bands weighted by it
+        out['galactic_band_share'] = np.bincount(grid.band, minlength=grid.n_bands) / grid.npix
+        out['meta']['galactic'] = dict(template=gal['template'], norm_gal=gal['norm_gal'],
+                                       compositions=[list(map(float, c)) for c in galactic_compositions],
+                                       emission='unattenuated, averaged oscillations' if params.get('si')
+                                       else gal['emission'], nu_to_nubar="1:1",
+                                       units="GeV^-1 cm^-2 s^-1 sr^-1, per flavor, per kind (nu or nubar)",
+                                       band_means="pixel means (pixels assigned to bands by their centres)")
+    return out
+
+
 def extragalactic_scale(params: Dict, per_flavor: float, E_ref_GeV: float = 1e5) -> float:
     """The factor taking the solver's extragalactic flux to GeV^-1 cm^-2 s^-1 sr^-1 such that, without new
     physics, its per-flavor nu + nubar intensity at E_ref_GeV is per_flavor: the free-streaming flux
