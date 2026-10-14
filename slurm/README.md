@@ -61,6 +61,8 @@ campaign and delete it afterwards (~0.4 GB per plane with 7 index nodes):
 NULRI_FLUX_CACHE=/lustre/astro/mbustama/flux_cache/<campaign> SLOTS=4 sbatch slurm/analysis_pack.sh CONFIG1 ...
 ```
 
+**A job far below its cores** (2026-10-14): look inside it with `srun --jobid=<job> --overlap -n1 -c1 ps -o pid,time,stat,args -u $USER` and `cat /proc/<pid>/wchan`. Processes mostly in state D/I waiting in `cl_sync_io_wait` are waiting on the node's Lustre client, not computing: node812 did this twice (a quarter of the speed of node810/811 for the same code). Resubmit elsewhere with `--exclude=<node> --dependency=afterany:<old job>`, so the new job starts only once the old one is gone, and the analysis resumes from its checkpoints.
+
 Logs are `logs/slurm_<job name>_<job>.out`. `slurm/common.sh` prints the host, job, core count
 and commit at the top of each, flagging a modified working tree. The analysis resumes from its
 checkpoints when a job is resubmitted; its `manifest.json` records the host, commit and timing of
