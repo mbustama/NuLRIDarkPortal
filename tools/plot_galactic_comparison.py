@@ -1,11 +1,15 @@
 """
-plot_galactic_comparison.py -- what the Galactic component does to the limits (Mauricio's task 2, 2026-10-14): every
-plane of output/analysis/<name> against its rerun with the Galactic component, output/analysis/<name>_gal
-(tools/make_galactic_configs.py: CRINGE x norm_gal, sources (x, 1 - x, 0), the extragalactic flux anchored to
-IceCube 2026 with norm_astro; the three nuisances profiled at every point). Per plane, the 95% upper limit per
-mass column (the upper end of the lowest allowed interval at Delta chi^2 = 3.84, as the other summaries) with and
-without, their ratio, and the best limit. Writes output/analysis/galactic_comparison.json and
-output/figures/galactic_comparison.png.
+plot_galactic_comparison.py -- what the Galactic component does to the limits (Mauricio's task 2; redesigned
+2026-10-14: tools/make_galactic_configs.py). Two comparisons per plane, of the 95% upper limit per mass column (the
+upper end of the lowest allowed interval at Delta chi^2 = 3.84, as the other summaries):
+
+  _gal / original   the nominal analysis with the Galactic component (CRINGE x norm_gal, compositions at pion
+                    decay) and IceCube 2026's spectrum as data, the extragalactic normalization and index floating,
+                    against the original flavor-only fit (no Galactic component, spectrum fixed);
+  _galx / _gal      both source compositions free, (x, 1 - x, 0) each, against pion decay.
+
+Writes output/analysis/galactic_comparison.json and output/figures/galactic_comparison.png. Incomplete planes are
+skipped (reported).
 
   python tools/plot_galactic_comparison.py
 """
@@ -43,58 +47,77 @@ def family(name):
     return "other"
 
 
-def main():
+def compare(a_dir, b_dir, label):
+    """Rows {plane key: ...} for the planes of b_dir against the same planes in a_dir (b over a)."""
     rows = {}
-    for gal_dir in sorted(glob.glob(os.path.join(REPO, "output", "analysis", "*_gal"))):
-        name = os.path.basename(gal_dir)[:-4]
-        base_dir = os.path.join(REPO, "output", "analysis", name)
-        for gpath in sorted(glob.glob(os.path.join(gal_dir, "data", "plane_*.json"))):
-            bpath = os.path.join(base_dir, "data", os.path.basename(gpath))
-            if not os.path.exists(bpath):
-                continue
-            g, b = limit_line(gpath), limit_line(bpath)
-            if g is None or b is None:
-                print(f"skipped (plane not complete): {gpath if g is None else bpath}")
-                continue
-            (xg, lg, names), (xb, lb, _) = g, b
-            if not np.array_equal(xg, xb):
-                continue
-            ok = np.isfinite(lg) & np.isfinite(lb)
-            r = lg[ok] / lb[ok]
-            short = name.replace("pion_2050_case_5_", "").replace("pion_2050_case_5", "(base)")
-            rows[f"{short}:{os.path.basename(gpath)[6:-5]}"] = dict(
-                family=family(short), axes=names, x=xg.tolist(), lim=lb.tolist(), lim_gal=lg.tolist(),
-                median_ratio=float(np.median(r)) if r.size else None, min_ratio=float(r.min()) if r.size else None,
-                max_ratio=float(r.max()) if r.size else None, best=float(np.nanmin(lb)) if np.isfinite(lb).any() else None,
-                best_gal=float(np.nanmin(lg)) if np.isfinite(lg).any() else None,
-                columns_lost=int(np.sum(np.isfinite(lb) & ~np.isfinite(lg))),
-                columns_gained=int(np.sum(~np.isfinite(lb) & np.isfinite(lg))))
-    out = {k: {kk: vv for kk, vv in v.items() if kk not in ("x", "lim", "lim_gal")} for k, v in rows.items()}
-    json.dump(out, open(os.path.join(REPO, "output", "analysis", "galactic_comparison.json"), "w"), indent=1)
+    for bpath in sorted(glob.glob(os.path.join(b_dir, "data", "plane_*.json"))):
+        apath = os.path.join(a_dir, "data", os.path.basename(bpath))
+        if not os.path.exists(apath):
+            continue
+        a, b = limit_line(apath), limit_line(bpath)
+        if a is None or b is None:
+            print(f"skipped (plane not complete): {bpath if b is None else apath}")
+            continue
+        (xa, la, names), (xb, lb, _) = a, b
+        if not np.array_equal(xa, xb):
+            continue
+        ok = np.isfinite(la) & np.isfinite(lb)
+        r = lb[ok] / la[ok]
+        short = os.path.basename(a_dir).replace("pion_2050_case_5_", "").replace("pion_2050_case_5", "(base)")
+        short = short.replace("_galx", "").replace("_gal", "")
+        rows[f"{label}|{short}:{os.path.basename(bpath)[6:-5]}"] = dict(
+            comparison=label, family=family(short), axes=names, x=xa.tolist(), lim_a=la.tolist(), lim_b=lb.tolist(),
+            median_ratio=float(np.median(r)) if r.size else None, min_ratio=float(r.min()) if r.size else None,
+            max_ratio=float(r.max()) if r.size else None,
+            best_a=float(np.nanmin(la)) if np.isfinite(la).any() else None,
+            best_b=float(np.nanmin(lb)) if np.isfinite(lb).any() else None,
+            columns_lost=int(np.sum(np.isfinite(la) & ~np.isfinite(lb))),
+            columns_gained=int(np.sum(~np.isfinite(la) & np.isfinite(lb))))
+    return rows
+
+
+def main():
+    base = os.path.join(REPO, "output", "analysis")
+    rows = {}
+    for gal_dir in sorted(glob.glob(os.path.join(base, "*_gal"))):
+        name = gal_dir[:-4]
+        rows.update(compare(name, gal_dir, "_gal / original"))
+        if os.path.isdir(name + "_galx"):
+            rows.update(compare(gal_dir, name + "_galx", "_galx / _gal"))
+    out = {k: {kk: vv for kk, vv in v.items() if kk not in ("x", "lim_a", "lim_b")} for k, v in rows.items()}
+    with open(os.path.join(base, "galactic_comparison.json"), "w") as f:
+        json.dump(out, f, indent=1)
     for k, v in out.items():
-        print(f"{k:45s} median gal/no-gal {v['median_ratio']}, range [{v['min_ratio']}, {v['max_ratio']}], "
-              f"best {v['best']} -> {v['best_gal']}, columns lost {v['columns_lost']}, gained {v['columns_gained']}")
+        print(f"{k:60s} median {v['median_ratio']}, range [{v['min_ratio']}, {v['max_ratio']}], best {v['best_a']} -> "
+              f"{v['best_b']}, columns lost {v['columns_lost']}, gained {v['columns_gained']}")
+    if not rows:
+        print("no complete pairs of planes yet")
+        return
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    comps = ["_gal / original", "_galx / _gal"]
     fams = [lab for _, lab in FAMILIES if any(v["family"] == lab for v in rows.values())]
-    fig, axes = plt.subplots(2, (len(fams) + 1) // 2, figsize=(4.2 * ((len(fams) + 1) // 2), 7.6), squeeze=False)
-    for ax, lab in zip(axes.ravel(), fams):
-        for k, v in rows.items():
-            if v["family"] != lab:
-                continue
-            x, lb, lg = np.array(v["x"]), np.array(v["lim"]), np.array(v["lim_gal"])
-            ax.plot(x, lg / lb, lw=1.3, label=k.split(":")[0])
-        ax.axhline(1, color="k", lw=0.6)
-        ax.set_xscale("log")
-        ax.set_title(lab, fontsize=9)
-        ax.set_xlabel(rows[next(k for k, v in rows.items() if v["family"] == lab)]["axes"][0])
-        ax.set_ylabel("95% limit: with / without Galactic")
-        ax.legend(fontsize=6)
-    for ax in axes.ravel()[len(fams):]:
-        ax.axis("off")
-    fig.suptitle("The Galactic component in the flavor fits: ratio of the 95% upper limits per mass column "
-                 "(>1: weaker with it)", fontsize=10)
+    fig, axes = plt.subplots(len(comps), len(fams), figsize=(3.6 * len(fams), 3.4 * len(comps)), squeeze=False)
+    for i, comp in enumerate(comps):
+        for ax, lab in zip(axes[i], fams):
+            sel = {k: v for k, v in rows.items() if v["family"] == lab and v["comparison"] == comp}
+            for k, v in sel.items():
+                x, la, lb = np.array(v["x"]), np.array(v["lim_a"]), np.array(v["lim_b"])
+                ax.plot(x, lb / la, lw=1.2, label=k.split("|")[1].split(":")[0])
+                lost = np.isfinite(la) & ~np.isfinite(lb)
+                if lost.any():
+                    ax.plot(x[lost], np.full(lost.sum(), 1e3), "v", ms=3, color=ax.lines[-1].get_color())
+            ax.axhline(1, color="k", lw=0.6)
+            ax.set_xscale("log"); ax.set_yscale("log"); ax.set_ylim(1e-2, 2e3)
+            ax.set_title(f"{lab}: {comp}", fontsize=8)
+            if sel:
+                ax.set_xlabel(next(iter(sel.values()))["axes"][0], fontsize=8)
+                ax.legend(fontsize=5.5)
+            ax.set_ylabel("ratio of 95% limits", fontsize=8)
+    fig.suptitle("Task 2: the 95% upper limits per mass column, ratios (>1: weaker). Top: with the Galactic component and "
+                 "IceCube 2026's spectrum as data, against the original fits; bottom: compositions free against pion "
+                 "decay. Triangles at 1e3: the limit disappears.", fontsize=9)
     fig.tight_layout()
     fig.savefig(os.path.join(REPO, "output", "figures", "galactic_comparison.png"), dpi=110)
     print("wrote output/analysis/galactic_comparison.json, output/figures/galactic_comparison.png")

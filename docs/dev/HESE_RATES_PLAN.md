@@ -62,3 +62,19 @@ move pi/K production only (conventional).
   nuisances from per-event derivatives exported once (Recommended), or none for now.
 - **First deliverable**: rates and figures (as for tracks), then the likelihood (Recommended); or straight to the
   likelihood.
+
+## 5. Implementation status (2026-10-14)
+
+- **Step 1** done: tools/hese_reduce.py (Tycho, 7 s) -> external/hese_7yr/reduced/hese_mc.npz (43.7 MB, not in the
+  repository): 736 814 of 821 764 MC events pass the release's cuts (33 of them muons), and 60 of the 102 events
+  (41 cascades, 17 tracks, 2 double cascades: the paper's sample above 60 TeV); the release's binning (21 energy bins
+  of 0.111 dex from 60 TeV, 10 zenith bins uniform in cos, 20 length bins). IceCubeRates/starting_events/hese.py
+  reproduces the release's best-fit astrophysical expectation exactly: 50.16 events (39.51 / 8.43 / 2.21), as
+  step 8 of the directions plan. The release's own atmospheric model at nominal: conventional 8.0, prompt 1.6,
+  muons 0.8 (tracks).
+- **Step 3**: tools/hese_detector_systematics.py (the release's code in its environment) exports, per event and
+  flux component, log10 of the exact weight factors on a grid of each systematic (7-9 values over +-2 sigma);
+  the module interpolates them (cubic through the four nearest values). A single slope at the nominal value, tried
+  first, missed the weights at 1 sigma by 30-50% (head-on) and by factors for some events (DOM efficiency).
+- tests/test_hese_rates.py (5): binning, weighting, the atmospheric templates with the self-veto, the flux lookup,
+  the detector grid's interpolation.
