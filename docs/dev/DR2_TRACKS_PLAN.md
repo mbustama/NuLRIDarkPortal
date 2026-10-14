@@ -95,3 +95,12 @@ readme: do not combine its events with other IceCube releases (matters for later
   tracks across dec = -5 deg and conserves the all-sky total exactly.
 - **Step 5(b)-(c), 6**: tools/dr2_validation.py (output/tracks/dr2_validation.json, output/figures/dr2_validation.png,
   dr2_tracks.png).
+- **Results (2026-10-14, 3da6963)**: output/figures/dr2_validation.png, dr2_tracks.png, output/tracks/dr2_validation.json.
+  Data / nominal expectation (reco dec > -5 deg): 1.057 (IC40), 1.155 (IC59), 1.067 (IC79), 1.123 (IC86); the
+  declination ratio flat. IC79 and IC86 agree above 3 TeV; IC40 has twice the expected events above 3 TeV within
+  10 deg of the horizon only (muons); IC59 1.2-1.8x above 3 TeV at every declination (its responses and events
+  disagree). The atmospheric nuisances alone cannot absorb the rest at 10^6 events (fit on IC79 + IC86: pulls up to
+  13 sigma): a track likelihood needs detector nuisances (normalization and energy scale per configuration) or an
+  energy threshold; IC40 and IC59 left out until then. Physics: 3835 extragalactic + 527 Galactic northern tracks
+  (2008-2022) for standard physics, the extragalactic nu_mu normalized to the 9.5-yr fit (x0.938, exact in every
+  bin); the dark-portal point -6% at every energy; the SI point -43% at 200 TeV reconstructed, +5-10% below 10 TeV.

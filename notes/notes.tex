@@ -1328,6 +1328,154 @@ with the Galactic component. Bottom: ratios to A.}
 \label{fig:hese_check}
 \end{figure}
 
+\section{Track rates with IceTracks-DR2}
+\label{sec:dr2}
+
+Expected through-going muon tracks for any flux the solver computes (\file{IceCubeRates/}; plan in
+\file{docs/dev/DR2\_TRACKS\_PLAN.md}). The response is IceCube's IceTracks-DR2 release (v3.1, 2008--2022,
+doi:10.7910/DVN/MMIIZA), in four detector configurations: IC40, IC59, IC79 and IC86 (eleven seasons), 4963 days
+of good runs in all. For each it gives the muon-neutrino effective area $A(E_\nu, \delta)$, in 0.2-dex bins of
+true energy and 50 bins of true declination (uniform in $\sin\delta$), with absorption in the Earth included,
+and a five-dimensional smearing table: for each bin of true energy (0.5 dex) and declination (30--52 bins), the
+fraction of simulated events in each cell of reconstructed muon energy, point-spread angle $\psi$ (between the
+true neutrino direction and the reconstructed muon direction) and estimated angular error. We sum over the
+angular error and move the cells, which the release chooses per bin, onto common grids: 0.1~dex in reconstructed
+energy and 0.25~dex in $\psi$ up to $180^\circ$, in proportion to their overlaps (\file{tools/dr2\_reduce.py}).
+Every filled slice still sums to 1, to $4\times10^{-13}$.
+
+\textit{The fold.}---For configuration $c$, with livetime $T_c$, the expected number of tracks in a bin of
+reconstructed energy $E_r$ and reconstructed declination $m$ is
+\begin{equation}
+N_c(E_r, m) = T_c \sum_{i,k} A_c(i,k) \int_{E_i}\!dE \int_{\delta_k}\!d\Omega\; \Phi_{\nu_\mu+\bar\nu_\mu}(E,\delta)
+\sum_q P_c(E_r, \psi_q \,|\, i, k)\, G(k, q, m) \;,
+\end{equation}
+with $i, k$ the effective area's bins (the smearing's bins hold their centres) and $G$ the geometry: the
+probability that a track from true bin $k$, deflected by $\psi$ in bin $q$ at an azimuth uniform around the true
+direction, is reconstructed in bin $m$. On the sphere, $\sin\delta_r = \sin\delta\cos\psi + \cos\delta\sin\psi\cos\phi$;
+for an edge $\delta_e$ the probability $F = P(\delta_r < \delta_e) = 1 - \arccos(c)/\pi$, with
+$c = (\sin\delta_e - \sin\delta\cos\psi)/(\cos\delta\sin\psi)$ clipped to $[-1, 1]$, is exact in the azimuth. As a
+function of the true declination, $F$ is flat (0 or 1) or smooth between four breakpoints, $\delta_e \mp \psi$ and
+$\pm(180^\circ - \psi) - \delta_e$, where the circle of radius $\psi$ reaches the edge directly or over a pole, with
+square-root ends there; we split each true bin at them and integrate each piece by Gauss--Legendre with nodes
+clustered at its ends, and integrate $\log\psi$ within each bin with nodes at most $0.5^\circ$ apart. Against Monte
+Carlo (tracks uniform in $\sin\delta$ within a bin, $\psi$ log-uniform, azimuth uniform) the kernel agrees within
+the statistics everywhere: the worst of 1584 comparisons is $2.8\sigma$. A first version, plain Gauss--Legendre in
+$\sin\delta$, was wrong by 6--9\% wherever an edge cut a true bin, and then by 1.5\% for $\psi$ near $180^\circ$ at
+the poles; the Monte Carlo test caught both. The point-spread angle moves 0.1--0.3\% of an isotropic flux's tracks
+across $\delta = -5^\circ$, and conserves the total.
+
+\textit{The atmospheric background.}---As in NuFlavorSingleSource (Mauricio, 2026-10-14): MCEq with SIBYLL-2.3d and
+the H3a cosmic rays gives the nominal flux, conventional plus prompt, and its derivatives with respect to the
+twelve hadron-production parameters of Barr et al.\ that matter above 30~GeV (pions in regions G, H, I and kaons
+in W, Y, Z, each charge separately; priors 0.30, 0.15, 0.122 and 0.40, 0.30, 0.122) and to a tilt of the cosmic-ray
+spectral index (prior 0.05); the prompt normalization varies with prior 0.5. The flux is linear in all of them,
+$\Phi = \Phi_0\,(1 + \sum_p \theta_p\, \partial_p \ln\Phi) + \theta_{\rm pr}\Phi_{\rm pr}$, so each enters a fit as one
+folded template. The regions, priors, yield modification and cosmic-ray tilt are NuFlavorSingleSource's code,
+copied unchanged (\file{tools/atmospheric\_background.py}); for IceCube we use the South Pole's atmosphere
+(NRLMSISE-00, January and July averaged) instead of the US standard one, and 20 production zenith angles dense near
+the horizon instead of 8. A two-angle test reproduces NuFlavorSingleSource's relative derivatives to $10^{-3}$;
+only the prompt fraction differs (0.185 against 0.197 at 100~TeV, vertical), from the atmosphere. Up-going
+directions take the flux produced at the mirror zenith on the far side. daemonflux (MCEq calibrated to muon data)
+is kept as a cross-check of the conventional flux.
+
+\textit{Against the data.}---With the nominal atmospheric flux and IceCube's 9.5-year fit of the astrophysical
+flux ($\nu_\mu+\bar\nu_\mu$: $1.44\times10^{-18}$ GeV$^{-1}$~cm$^{-2}$~s$^{-1}$~sr$^{-1}$ at 100~TeV, $\gamma = 2.37$),
+the tracks reconstructed above $\delta = -5^\circ$ number 1.057, 1.155, 1.067 and 1.123 times our expectation in IC40,
+IC59, IC79 and IC86 (Fig.~\ref{fig:dr2_validation}): the units are right, and the declination distribution is flat
+in the ratio. Split by declination and energy, IC79 and IC86 agree above 3~TeV (IC86 is 15\% high below, the
+overall normalization). The early configurations do not: IC40 has twice the expected events above 3~TeV, but only
+within $10^\circ$ of the horizon (atmospheric muons reconstructed as up-going, absent from our model), and IC59 has
+1.2--1.8 times the expected events above 3~TeV at every declination, even above $+40^\circ$, where muons cannot
+reach: its published responses and its events disagree at high energy. A fit of the atmospheric nuisances (and of a
+normalization per configuration and the astrophysical flux) to IC79 and IC86 cannot absorb the rest: with $10^6$
+events every bin is measured to better than 1\%, and the fit pulls Barr parameters by up to $13\sigma$ to mimic what
+are detector effects, for which DR2 publishes no systematics. A track likelihood will therefore need detector
+nuisances (a normalization and an energy scale per configuration) or an energy threshold above which the
+astrophysical flux matters and the data and our expectation agree; IC40 and IC59 are left out until then.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{../output/figures/dr2_validation.png}
+\caption{\textbf{IceTracks-DR2 against our expectation} (\file{tools/dr2\_validation.py}): tracks reconstructed above
+$\delta = -5^\circ$ in reconstructed muon energy for IC86, IC79 and IC40 + IC59, and in declination; the expectation
+is the DR2 responses folded with our atmospheric flux (MCEq SIBYLL-2.3d $\times$ H3a at the South Pole; band: the
+Barr, cosmic-ray and prompt priors) and IceCube's 9.5-year astrophysical fit, at nominal values; dashed:
+daemonflux's conventional flux instead.}
+\label{fig:dr2_validation}
+\end{figure}
+
+\textit{New physics in the tracks.}---The solver's flux per declination band (the effective area's 50 bands, the
+Galactic component from $N_{\rm side} = 64$ data), with the extragalactic $\nu_\mu+\bar\nu_\mu$ normalized to the
+9.5-year fit without new physics (pion sources put 35.5\% of the flux in $\nu_\mu$ at the Earth: the flavor-averaged
+normalization times 0.938; the solver's standard tracks then equal the fit's power law in every bin, to $5\times10^{-15}$),
+gives 3835 extragalactic and 527 Galactic tracks above $\delta = -5^\circ$ in 2008--2022, 340 and 23 of them above
+10~TeV reconstructed (Fig.~\ref{fig:dr2_tracks}). The dark-portal point of Fig.~\ref{fig:galactic_emission} removes
+6\% of the extragalactic tracks at every energy (its flavor composition), the secret-interaction point ($\nu_\tau$,
+5~MeV, $g = 0.05$) 43\% at 200~TeV reconstructed (absorption near the resonance) while adding 5--10\% below 10~TeV
+(the regenerated neutrinos). The Galactic share of the tracks is 12\% in all, 6\% above 10~TeV.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{../output/figures/dr2_tracks.png}
+\caption{\textbf{Astrophysical tracks with new physics} (IceCube 2008--2022, all configurations, reconstructed
+$\delta > -5^\circ$): extragalactic (solid) and Galactic (dotted) for standard physics, a dark-portal point and a
+secret-interaction point; their ratio to standard; per declination above 10~TeV.}
+\label{fig:dr2_tracks}
+\end{figure}
+
+\section{Starting events with HESE}
+\label{sec:hese}
+
+Expected HESE events (Mauricio's task 1; plan in \file{docs/dev/HESE\_RATES\_PLAN.md}) from IceCube's 7.5-year release:
+its simulated events weighted per event by any flux, exactly (Section~\ref{sec:directions}'s consumer check), in the
+release's binning (cascades and tracks in deposited energy and zenith, double cascades in deposited energy and
+length), with the release's cuts (\file{tools/hese\_reduce.py}: 736\,814 simulated events; the 60 events above
+60~TeV: 41 cascades, 17 tracks, 2 double cascades). The release's best-fit astrophysical flux gives 50.16 events
+(39.51, 8.43, 2.21), as before.
+
+\textit{Backgrounds.}---The atmospheric neutrinos are our MCEq flux (Section~\ref{sec:dr2}) per event, the
+conventional part times the release's conventional self-veto correction and the prompt part times its prompt one
+(Mauricio, 2026-10-14). The conventional part agrees with the release's own model (Honda-based, its veto) to 5\% in
+every morphology: 7.91 events against 8.01. The prompt part, from SIBYLL-2.3d, is 3.04 events against the
+release's 1.63 (BERSS): the known difference of the two charm models, within its 50\% prior. The atmospheric muons
+are the release's own simulation, 0.79 events (tracks).
+
+\textit{Detector systematics.}---The release corrects each event's weight for the DOM efficiency (prior
+$0.99\pm0.1$), the head-on efficiency ($0\pm0.5$) and the ice anisotropy ($1\pm0.2$), with splines per flux
+component. We export the exact weights from the release's own code, run in its own environment, on a grid of each
+systematic's values per event (\file{tools/hese\_detector\_systematics.py}) and interpolate between them. At
+$+1\sigma$ the DOM efficiency moves the expectation by 7.3 cascades, 1.6 tracks and 0.4 double cascades; the other
+two by 0.1 events or less.
+
+\textit{Expectation against the data.}---With the release's astrophysical fit and our backgrounds, we expect
+$45.8\pm7.6$ cascades, $13.7\pm2.1$ tracks and $2.4\pm0.4$ double cascades (detector and atmospheric $1\sigma$,
+correlated across bins; Fig.~\ref{fig:hese_rates}), against 41, 17 and 2.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{../output/figures/hese_rates.png}
+\caption{\textbf{HESE events against our expectation} (\file{tools/hese\_rates.py}): per morphology in deposited
+energy, and in zenith for cascades and tracks; the astrophysical flux is the release's fit, the atmospheric
+neutrinos our MCEq flux with the release's self-veto (dotted: the release's own conventional model), the muons the
+release's; band: the atmospheric and detector $1\sigma$.}
+\label{fig:hese_rates}
+\end{figure}
+
+\textit{New physics in HESE.}---With the extragalactic flux normalized to the release's fit and pion sources, standard
+physics gives 38.1 cascades, 8.75 tracks and 2.23 double cascades, and the Galactic component 2.25, 0.46 and 0.11
+(Fig.~\ref{fig:hese_cases}). The dark-portal point moves 4\% of the events from tracks to cascades. The
+secret-interaction point removes 35\% of the cascades and half of the tracks and double cascades: HESE's energies,
+60~TeV--10~PeV deposited, sit at the resonance, where the northern tracks (mostly below 100~TeV) lose 14\% above
+10~TeV.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{../output/figures/hese_cases.png}
+\caption{\textbf{HESE events with new physics}: extragalactic (solid) and Galactic (dotted) per morphology for
+standard physics, a dark-portal point and a secret-interaction point.}
+\label{fig:hese_cases}
+\end{figure}
+
 \section{Planned work}
 \label{sec:plan}
 
@@ -1343,9 +1491,8 @@ release (2008--2022, doi:10.7910/DVN/MMIIZA), which provides per-season muon-neu
 areas and smearing tables. For each bin of true energy and declination, a smearing table gives
 the fraction of events in each bin of reconstructed muon energy, angular distance from the true
 direction (point-spread function) and estimated angular error. Its 41 declination bins replace the 3 of the 2018
-release, which matters near the horizon. We fold the flux with the PLEnuM framework
-(github.com/PLEnuM-group/Plenum), which also places detectors at other sites; our adapter
-converts the DR2 tables into PLEnuM's grids.
+release, which matters near the horizon. Done with our own fold (Section~\ref{sec:dr2}); the
+cross-check against PLEnuM's fold of the 2018 release was dropped (Mauricio, 2026-10-14).
 
 \textit{Starting events.}---Cascades, starting tracks and double cascades, from IceCube's HESE
 7.5-year release (github.com/icecube/HESE-7-year-data-release). It is the only public
@@ -1353,7 +1500,7 @@ simulation of individual starting events that resolves all three morphologies. E
 event carries its flavor (neutrino or antineutrino), its interaction (charged current, neutral
 current or Glashow resonance), its reconstructed deposited energy and its morphology. It also
 carries a weight per unit flux, together with the atmospheric fluxes and self-veto probabilities
-at its energy and direction. We reweight each simulated event by our flux. For IceCube-Gen2 we
+at its energy and direction. We reweight each simulated event by our flux. Done (Section~\ref{sec:hese}). For IceCube-Gen2 we
 scale these weights by the ratio of the Gen2 and IceCube effective areas published for the
 Gen2 design (doi:10.7910/DVN/XANWAT), per morphology, flavor, energy and zenith angle. Those
 tables carry no energy resolution, so the IceCube response supplies it.
@@ -2066,6 +2213,20 @@ universal $8.8\to8.0\times10^{-6}$), with single columns near the window's allow
 by large factors either way; the dark portal's potential planes and its exclusion plane are unchanged
 in the median (single columns up to a factor 2), its MeV planes $3$--$23\%$ stronger.
 \file{output/analysis/} (Tycho jobs 66307194--99, commit \texttt{124fd03}).
+
+\subsection{The Galactic gas at $N_{\rm side} = 64$ (2026-10-14)}
+
+The first track rates (Section~\ref{sec:dr2}) showed no Galactic flux for the dark portal and standard physics,
+while the secret-interaction case, whose Galactic flux needs no emission points, had it. The gas columns of the
+emission model (Söding et al.) come natively at $N_{\rm side} = 64$ in Galactic coordinates; the reduction
+averaged the native pixels whose centres fall in each equatorial pixel, which at the same resolution, rotated,
+leaves 12\% of the pixels with none: $0/0$. The check that every line of sight carries emission tested
+${\rm total} \le 0$, which NaN passes, and the emission populations then dropped every density node such a
+pixel touched, leaving 17 of 49\,152 pixels with Galactic flux. Fixed: as fine as the native maps, the reduction
+interpolates the native columns at each pixel's centre (bilinear on the sphere); coarser (the committed
+$N_{\rm side} = 16$, unchanged bit for bit), it averages as before. Both checks now reject non-finite values
+(\file{tests/test\_galactic.py}). The flavor fits, at $N_{\rm side} = 8$ from the $N_{\rm side} = 16$ data, were
+never affected.
 
 \subsection{The mixing-parameter priors (found 2026-10-12)}
 \label{app:priors}
