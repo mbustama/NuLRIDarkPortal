@@ -165,8 +165,12 @@ class AnalysisConfig:
         keeping the best fits."""
         from dp_config import merge_config_with_defaults
         import dp_core
-        solver = merge_config_with_defaults(copy.deepcopy(dict(self.solver)))
+        from .model import split_analysis_keys
+        sc, own = split_analysis_keys(self.solver)          # the analysis' own keys (potential sign, coupling split)
+        solver = merge_config_with_defaults(sc)
         solver = {k: v for k, v in solver.items() if k not in ("execution", "output")}
+        if own:
+            solver["analysis_dark_portal"] = own
         d = dict(data=self.surface, centre=None if data_centre is None else [float(c) for c in data_centre],
                  spectrum=self.spectrum, p_nodes=self.p_nodes(), events=self.events, flavor_band=self.flavor_band,
                  solver=solver, code=dp_core._source_digest(),

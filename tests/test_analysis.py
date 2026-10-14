@@ -409,6 +409,7 @@ def test_configs_validate():
     for path in config_files():
         cfg = config_mod.load(path)
         assert cfg.free_names
+        cfg.identity()                      # merges the solver settings: the analysis' own keys must be set aside
     raw = _tiny_raw()
     with pytest.raises(ValueError):
         config_mod.from_dict({**raw, "unknown_key": 1})

@@ -99,6 +99,20 @@ _SECTIONS = ("cosmology", "standard_mixing", "matter_charge", "dark_portal", "se
              "galactic")
 
 
+ANALYSIS_ONLY_DARK_PORTAL = ("potential_sign", "coupling_split")
+
+
+def split_analysis_keys(solver_config: Mapping) -> Tuple[dict, dict]:
+    """(solver configuration without this package's own dark_portal keys, those keys): potential_sign and
+    coupling_split are read here, never by the solver, whose configuration check would refuse them."""
+    sc = copy.deepcopy(dict(solver_config))
+    dpc = dict(sc.get("dark_portal", {}))
+    own = {k: dpc.pop(k) for k in ANALYSIS_ONLY_DARK_PORTAL if k in dpc}
+    if "dark_portal" in sc:
+        sc["dark_portal"] = dpc
+    return sc, own
+
+
 def parse_coupling_split(v):
     """dark_portal.coupling_split: 'fixed', 'balanced', or the neutrinos' side x of a potential product,
     0 < x <= 1 (a number or a numeric string)."""
@@ -172,14 +186,11 @@ class FlavorModel:
     def __init__(self, solver_config: Mapping, free_names: Sequence[str] = (), cache_size: int = 512,
                  p_nodes: Optional[Sequence[float]] = None, sky: bool = False,
                  flavor_band_eV: Optional[Sequence[float]] = None):
-        sc = copy.deepcopy(dict(solver_config))
-        dpc = dict(sc.get("dark_portal", {}))
-        self.potential_sign = float(dpc.pop("potential_sign", 1.0))
+        sc, own = split_analysis_keys(solver_config)
+        self.potential_sign = float(own.get("potential_sign", 1.0))
         if self.potential_sign not in (1.0, -1.0):
             raise ValueError("dark_portal.potential_sign must be +1 or -1")
-        self.coupling_split = parse_coupling_split(dpc.pop("coupling_split", "fixed"))
-        if dpc:
-            sc["dark_portal"] = dpc
+        self.coupling_split = parse_coupling_split(own.get("coupling_split", "fixed"))
         base = merge_config_with_defaults(sc)
         base["execution"].update(n_cores=1, verbose=0, use_gpu=False)
         self.base = base
