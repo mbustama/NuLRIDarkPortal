@@ -138,13 +138,13 @@
   }
  ],
  "fit": {
-  "n_random": 3,
+  "n_random": 0,
   "seed": 20261012,
   "max_evals": 400,
   "fd_step": 0.001,
   "ftol": 1e-09,
   "xtol": 0.001,
-  "polish": true
+  "polish": false
  },
  "profiles": {},
  "planes": [

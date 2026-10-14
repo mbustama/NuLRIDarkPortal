@@ -66,6 +66,10 @@ def variant(cfg, name, free_compositions):
         new["parameters"][k] = dict(v)
     si = bool((solver.get("secret_interactions") or {}).get("enabled", False))
     new["parameters"]["p_index"]["nodes"] = 7 if si else 3
+    # one global-fit start, no polish (2026-10-14): the planes profile every grid point and Delta chi^2 is read from
+    # the lowest chi^2 anywhere, while extra starts that wander to strong couplings held 12-15 of 16 cores idle for
+    # 40% of the run (fit settings are not part of the checkpoints' identity: finished starts are kept)
+    new["fit"] = dict(new.get("fit", {}), n_random=0, polish=False)
     if free_compositions:
         for k, v in COMPOSITIONS.items():
             new["parameters"][k] = v
