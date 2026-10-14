@@ -26,6 +26,13 @@ products, so exclusion planes scan those directly (decided 2026-10-13). For a te
   g_D_eps_u2  = g_D epsilon' |U|^2 sets g_D = g_D_eps_u2 / (epsilon' |U|^2) (the coherent
                                    potential, which is proportional to it).
 
+The spectral index (Mauricio, 2026-10-14: the flux normalization and shape float): with p_index free the
+model runs the solver at fixed nodes of p (p_nodes, from the parameter's bounds; P_NODES_N of them) per point of
+the other propagation parameters and interpolates the fluxes between them (cubic spline in log flux), so a fit
+that moves p costs no new solver runs. With 7 nodes over [2, 3] the energy-averaged fractions are interpolated to
+2e-4 at worst (strong secret interactions; 4e-8 without new physics) and the flux to 0.7%. The Galactic flux does
+not depend on p.
+
 Source composition: components that are not floated keep their configured values, except
 one that takes the remainder so that they sum to 1 -- f_tau_S when f_e_S and f_mu_S both
 float (the theory notes' parametrization), f_mu_S otherwise (f_e_S floated with f_tau_S
@@ -52,6 +59,7 @@ GALACTIC_KEYS = ("norm_gal", "f_e_S_gal")
 ANALYSIS_DEFAULTS = {"norm_astro": 1.0}
 LINEAR_KEYS = SOURCE_KEYS + ("nubar_to_nu_ratio", "Phi_0") + GALACTIC_KEYS + tuple(ANALYSIS_DEFAULTS)
 ALIASES = {"s12sq": "th12_deg", "s13sq": "th13_deg", "s23sq": "th23_deg"}
+P_NODES_N = 7             # solver runs per propagation point when p_index floats (fractions to ~2e-4 under strong SI)
 _SECTIONS = ("cosmology", "standard_mixing", "dark_portal", "secret_interactions", "source", "grid", "galactic")
 
 
@@ -100,7 +108,8 @@ class FlavorModel:
       cache_size: number of propagation points kept.
     """
 
-    def __init__(self, solver_config: Mapping, free_names: Sequence[str] = (), cache_size: int = 512):
+    def __init__(self, solver_config: Mapping, free_names: Sequence[str] = (), cache_size: int = 512,
+                 p_nodes: Optional[Sequence[float]] = None):
         base = merge_config_with_defaults(copy.deepcopy(dict(solver_config)))
         base["execution"].update(n_cores=1, verbose=0, use_gpu=False)
         self.base = base
@@ -122,6 +131,11 @@ class FlavorModel:
             raise ValueError("galactic.enabled needs sky.extragalactic_norm (and sky.extragalactic_norm_E_GeV): the "
                              "extragalactic flux's normalization against the Galactic one, e.g. "
                              "dp_galactic.icecube_2026_anchor()")
+        self.p_nodes = None
+        if p_nodes is not None:
+            self.p_nodes = np.array(sorted(float(p) for p in p_nodes))
+            if len(self.p_nodes) < 2 or np.any(np.diff(self.p_nodes) <= 0):
+                raise ValueError(f"p_nodes must hold at least two distinct values, got {p_nodes}")
         self._cache: "OrderedDict[tuple, tuple]" = OrderedDict()
         self._cache_size = int(cache_size)
         self.n_solver_calls = 0
@@ -165,6 +179,28 @@ class FlavorModel:
         return float(v)
 
     def fluxes(self, values: Mapping) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray], Optional[dict]]:
+        """As _fluxes_exact; with p_nodes, interpolated in p_index between the solver runs at the nodes (cubic
+        spline in log flux, and in log K for the extragalactic scale)."""
+        if self.p_nodes is None:
+            return self._fluxes_exact(values)
+        from scipy.interpolate import CubicSpline
+        p = float(values.get("p_index", self.base["source"]["p_index"]))
+        if not self.p_nodes[0] - 1e-12 <= p <= self.p_nodes[-1] + 1e-12:
+            raise ValueError(f"p_index = {p} lies outside the interpolation nodes {self.p_nodes.tolist()}")
+        runs = [self._fluxes_exact(dict(values, p_index=float(pk))) for pk in self.p_nodes]
+
+        def interp(arrs):
+            L = np.log(np.maximum(np.stack(arrs), 1e-300))
+            return np.exp(CubicSpline(self.p_nodes, L, axis=0)(p))
+        F_a = interp([r[1] for r in runs])
+        F_b = None if runs[0][2] is None else interp([r[2] for r in runs])
+        gal = None
+        if runs[0][3] is not None:
+            K = float(np.exp(CubicSpline(self.p_nodes, np.log([r[3]["K"] for r in runs]))(p)))
+            gal = dict(G=runs[0][3]["G"], K=K)
+        return runs[0][0], F_a, F_b, gal
+
+    def _fluxes_exact(self, values: Mapping) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray], Optional[dict]]:
         """For the propagation parameters in `values`: (E_bins, F, None, gal) with F the flux at the
         detector for the configured sources, or, when the nubar/nu ratio floats,
         (E_bins, F_from_nu, F_from_nb, gal), the responses to unit neutrino and antineutrino
@@ -207,6 +243,25 @@ class FlavorModel:
         """(E_bins, flux at the detector) with the source composition and the
         neutrino/antineutrino ratio applied, as run_solver weights them; with the Galactic component, the
         extragalactic flux in physical units times norm_astro plus the Galactic one (norm_gal, x = f_e_S_gal)."""
+        E, F, gal = self._extragalactic(values)
+        if gal is None:
+            return E, F
+        return E, F + self._galactic(values, gal)
+
+    def extragalactic(self, values: Mapping) -> Tuple[np.ndarray, np.ndarray]:
+        """(E_bins in eV, the extragalactic flux at the detector, (N_E, 3) per flavor nu + nubar): in physical units
+        (GeV^-1 cm^-2 s^-1 sr^-1, times norm_astro) with the Galactic component, solver units without."""
+        E, F, gal = self._extragalactic(values)
+        return E, F
+
+    def _galactic(self, values: Mapping, gal: dict) -> np.ndarray:
+        x = float(values.get("f_e_S_gal", self.default("f_e_S_gal")))
+        if not 0.0 <= x <= 1.0:
+            raise ValueError(f"f_e_S_gal must lie in [0, 1], got {x}")
+        scale = float(values.get("norm_gal", self.default("norm_gal"))) / self.default("norm_gal")
+        return scale * (x * gal["G"][0] + (1.0 - x) * gal["G"][1])
+
+    def _extragalactic(self, values: Mapping):
         E, F_a, F_b, gal = self.fluxes(values)
         if self.basis is not None:
             comp = self.composition(values)
@@ -221,13 +276,8 @@ class FlavorModel:
             w_nu, w_nb = dps.injection_weights(src)
             F = w_nu * F_a + w_nb * F_b
         if gal is None:
-            return E, F
-        x = float(values.get("f_e_S_gal", self.default("f_e_S_gal")))
-        if not 0.0 <= x <= 1.0:
-            raise ValueError(f"f_e_S_gal must lie in [0, 1], got {x}")
-        scale = float(values.get("norm_gal", self.default("norm_gal"))) / self.default("norm_gal")
-        F_gal = scale * (x * gal["G"][0] + (1.0 - x) * gal["G"][1])
-        return E, float(values.get("norm_astro", 1.0)) * gal["K"] * F + F_gal
+            return E, F, None
+        return E, float(values.get("norm_astro", 1.0)) * gal["K"] * F, gal
 
     def galactic_share(self, values: Mapping) -> float:
         """The Galactic share of the energy-integrated flux (what the energy-averaged fractions weight)."""

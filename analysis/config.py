@@ -7,7 +7,9 @@ and which fits and scans to run. Example: analysis/configs/pion_2050_case_5.json
 
   {
     "name": "...",                       label of the analysis (output file stems)
-    "data": {"surface": "pion_2050_case_5"},
+    "data": {"surface": "pion_2050_case_5"[, "spectrum": "ic26_astrophysical"]},
+                                         the flavor surface, and optionally a measured spectrum
+                                         (spectra.py; needs the extragalactic flux in physical units)
     "solver": {section: {key: value}},   partial solver configuration (DEFAULT_CONFIG layout);
                                          anything not given takes the solver's default
     "parameters": {name: {"start", "bounds", "space": "linear"|"log10", "scale"}},
@@ -37,9 +39,9 @@ from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 
-from . import REPO_DIR, surfaces
+from . import REPO_DIR, spectra, surfaces
 from .fitting import FitSettings
-from .model import FlavorModel
+from .model import P_NODES_N, FlavorModel
 from .objective import Objective
 from .parameters import Parameter, ParameterSet, prior_from_spec
 
@@ -91,6 +93,7 @@ class AnalysisConfig:
     output_dir: str = ""
     raw: dict = field(default_factory=dict)
     path: str = ""
+    spectrum: Optional[str] = None
 
     @property
     def free_names(self) -> List[str]:
@@ -105,13 +108,23 @@ class AnalysisConfig:
     def parameter_set(self) -> ParameterSet:
         return ParameterSet(list(self.parameters), {})
 
+    def p_nodes(self) -> Optional[List[float]]:
+        """With p_index free: P_NODES_N nodes spanning its bounds, where the model runs the solver."""
+        if "p_index" not in self.free_names:
+            return None
+        lo, hi = self.parameter("p_index").bounds
+        return [float(v) for v in np.linspace(lo, hi, P_NODES_N)]
+
     def model(self, cache_size: int = 512) -> FlavorModel:
-        return FlavorModel(self.solver, self.free_names, cache_size=cache_size)
+        # p_index interpolated between P_NODES_N solver runs: P_NODES_N times the cache for the same points
+        n = 1 if self.p_nodes() is None else P_NODES_N
+        return FlavorModel(self.solver, self.free_names, cache_size=cache_size * n, p_nodes=self.p_nodes())
 
     def objective(self, model: Optional[FlavorModel] = None, data_centre: Optional[Tuple[float, float]] = None) -> Objective:
         """The chi^2 of this analysis; data_centre re-centres the data surface (Asimov data,
         pseudo-experiments)."""
-        return Objective(model or self.model(), self.surface, self.priors, data_centre=data_centre)
+        return Objective(model or self.model(), self.surface, self.priors, data_centre=data_centre,
+                         spectrum=self.spectrum)
 
     def digest(self) -> str:
         return hashlib.sha256(json.dumps(self.raw, sort_keys=True).encode()).hexdigest()[:16]
@@ -129,6 +142,7 @@ class AnalysisConfig:
         solver = merge_config_with_defaults(copy.deepcopy(dict(self.solver)))
         solver = {k: v for k, v in solver.items() if k not in ("execution", "output")}
         d = dict(data=self.surface, centre=None if data_centre is None else [float(c) for c in data_centre],
+                 spectrum=self.spectrum, p_nodes=self.p_nodes(),
                  solver=solver, code=dp_core._source_digest(),
                  parameters=[[p.name, p.space, list(p.bounds)] for p in self.parameters],
                  priors=[[type(p).__name__, sorted(dataclasses.asdict(p).items())] for p in self.priors], extra=extra)
@@ -159,6 +173,12 @@ def from_dict(raw: Mapping, path: str = "") -> AnalysisConfig:
             raise ValueError(f"Configuration needs '{key}'")
     surface = d["data"].get("surface")
     surfaces.surface(surface)                                  # unknown names fail here
+    bad = set(d["data"]) - {"surface", "spectrum"}
+    if bad:
+        raise ValueError(f"data: unknown keys {sorted(bad)}; known: surface, spectrum")
+    spectrum = d["data"].get("spectrum")
+    if spectrum is not None and spectrum not in spectra.SPECTRA:
+        raise ValueError(f"data.spectrum must be one of {sorted(spectra.SPECTRA)}, got {spectrum!r}")
     params = []
     for name, spec in d["parameters"].items():
         spec = dict(spec)
@@ -171,7 +191,10 @@ def from_dict(raw: Mapping, path: str = "") -> AnalysisConfig:
         name=str(d["name"]), surface=surface, solver=d.get("solver", {}), parameters=params,
         priors=[prior_from_spec(p) for p in d.get("priors", [])],
         fit=FitSettings.from_dict(d.get("fit")), asimov=dict(d.get("asimov", {})),
-        raw=dict(raw), path=path)
+        raw=dict(raw), path=path, spectrum=spectrum)
+    if spectrum is not None and not (cfg.solver.get("galactic") or {}).get("enabled"):
+        raise ValueError("data.spectrum compares the extragalactic flux in physical units, which the model provides "
+                         "with the Galactic component (galactic.enabled and sky.extragalactic_norm)")
     thr = copy.deepcopy(DEFAULT_THRESHOLDS)
     for k, v in d.get("thresholds", {}).items():
         if k not in thr:

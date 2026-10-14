@@ -2,7 +2,8 @@
  "_comment": "Exclusion plane of secret neutrino interactions, nu_tau couplings (g_ab = g delta_atau delta_btau), scalar mediator of mass m_phi_eV: the flavor-triangle analysis of the dark-portal planes (projected 2050 measurement, pion sources) with the propagation of dp_si. Couplings from 1e-6, so that every mass column reaches the no-effect region (at 1e-4 the resonant absorption near 1 MeV already gives Delta chi^2 = 5). Read per mediator mass at Delta chi^2 = 3.84 (decided 2026-10-13 for the dark portal's planes).",
  "name": "pion_2050_case_5_si_tau_gal",
  "data": {
-  "surface": "pion_2050_case_5"
+  "surface": "pion_2050_case_5",
+  "spectrum": "ic26_astrophysical"
  },
  "solver": {
   "_comment": "Physics of the dark-portal planes (pion_2050_case_5: the projection's mixing, m_lightest = 0.01 eV, 1/3:2/3:0 sources with E^-2.5 up to z = 4), with secret interactions in place of the dark portal (dp_si: scalar mediator, Majorana neutrinos, the full cross sections of arXiv:2107.13568 with the coherent double-scalar coupling, relics at rest). Grid: 400 energy bins, one redshift step per bin (energy-averaged fractions within 1e-5 of 1600 bins and four steps per bin at nu_tau, 5 MeV, g = 0.1; tools/si_validation.py convergence), the grid extended tenfold above 30 PeV.",
@@ -34,8 +35,8 @@
    "Phi_0": 1.0,
    "z_max": 4.0,
    "rho_evol": 0.0,
-   "f_e_S": 0.3333,
-   "f_mu_S": 0.6667,
+   "f_e_S": 0.3333333333333333,
+   "f_mu_S": 0.6666666666666666,
    "f_tau_S": 0.0,
    "is_antineutrino": "sum",
    "nubar_to_nu_ratio": 1.0
@@ -58,7 +59,8 @@
   "galactic": {
    "enabled": true,
    "template": "cringe",
-   "emission": "3d"
+   "emission": "3d",
+   "f_e_S_gal": 0.3333333333333333
   },
   "sky": {
    "nside": 8,
@@ -91,18 +93,18 @@
    ],
    "space": "linear"
   },
-  "f_e_S_gal": {
-   "start": 0.333333,
-   "bounds": [
-    0.0,
-    1.0
-   ],
-   "space": "linear"
-  },
   "norm_astro": {
    "start": 1.0,
    "bounds": [
-    0.1,
+    0.01,
+    1000.0
+   ],
+   "space": "log10"
+  },
+  "p_index": {
+   "start": 2.5,
+   "bounds": [
+    2.0,
     3.0
    ],
    "space": "linear"
@@ -114,12 +116,6 @@
    "type": "gaussian",
    "centre": 0.91,
    "width": 0.18
-  },
-  {
-   "name": "norm_astro",
-   "type": "gaussian",
-   "centre": 1.0,
-   "width": 0.26
   }
  ],
  "fit": {
@@ -153,5 +149,5 @@
   "g_phi": 1e-07
  },
  "output_dir": "output/analysis/pion_2050_case_5_si_tau_gal",
- "_comment_galactic": "With the Galactic component (tools/make_galactic_configs.py, 2026-10-14): CRINGE x norm_gal (Gaussian 0.91 +- 0.18, IceCube 2026), sources (x, 1 - x, 0) with x = f_e_S_gal flat in [0, 1], dark-portal emission points in 3-D; the extragalactic flux in physical units anchored to IceCube's 2026 astrophysical flux at 10-21.5 TeV (E^2 Phi = 3.623e-8 per flavor at 14.7 TeV) times norm_astro (Gaussian 1 +- 0.26, the bin's errors). The nuisances are linear: no extra solver calls."
+ "_comment_galactic": "With the Galactic component (tools/make_galactic_configs.py; Mauricio, 2026-10-14): CRINGE x norm_gal (Gaussian 0.91 +- 0.18, IceCube 2026), dark-portal emission points in 3-D; the data are the flavor surface and IceCube 2026's astrophysical spectrum (10 TeV - 1 PeV) against the extragalactic flux at the Earth; the extragalactic normalization (norm_astro, no prior) and spectral index (p_index) float. Source compositions fixed at pion decay (1/3, 2/3, 0), Galactic and extragalactic (nominal)."
 }
