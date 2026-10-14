@@ -145,3 +145,62 @@ class DR2Tracks:
             total = reco if total is None else total + reco
         return dict(reco_edges=self.reco_edges, reco_dec_edges=rde, counts=total, per_config=out,
                     true_counts=true_counts)
+
+
+def energy_weights(E_eval, w_eval, E_nodes):
+    """W (n_eval_rows, n_nodes) such that sum_g w_eval[i, g] Phi(E_eval[i, g]) = W[i] @ Phi_nodes for a flux known at
+    the nodes (flux_adapters.node_interpolation). E_eval, w_eval: (n_rows, n_points)."""
+    from IceCubeRates.flux_adapters import node_interpolation
+    j, c_lo, c_hi = node_interpolation(E_eval, E_nodes)
+    w = np.asarray(w_eval, dtype=np.float64)
+    W = np.zeros((j.shape[0], len(E_nodes)))
+    rows = np.broadcast_to(np.arange(j.shape[0])[:, None], j.shape)
+    np.add.at(W, (rows, j), w * c_lo)
+    np.add.at(W, (rows, j + 1), w * c_hi)
+    return W
+
+
+def band_overlaps(bin_edges, band_edges):
+    """ov (n_bins, n_bands): the fraction of each bin (uniform in sin dec; rad edges) inside each band."""
+    a, b = np.sin(bin_edges[:-1]), np.sin(bin_edges[1:])
+    s = np.sin(np.asarray(band_edges, dtype=np.float64))
+    w = np.clip(np.minimum(s[None, 1:], b[:, None]) - np.maximum(s[None, :-1], a[:, None]), 0.0, None)
+    return w / w.sum(axis=1, keepdims=True)
+
+
+class LinearFold:
+    """DR2Tracks.expected for one configuration as a fixed linear map (the event likelihoods,
+    docs/dev/EVENT_LIKELIHOOD_PLAN.md): from the nu_mu + nubar_mu flux on a grid -- declination bands (rad edges) x
+    energy nodes (GeV), per unit solid angle -- to expected events in the reconstructed bins kept by `select` (a
+    boolean (n_dec_reco, n_reco) mask; default all). Within an effective-area declination bin the flux is the bands'
+    average weighted by overlap in sin(dec) (as flux_adapters.from_sky); between energy nodes, energy_weights."""
+
+    def __init__(self, tracks, config, E_nodes_GeV, band_edges, reco_dec_edges=None, select=None, psf=True):
+        le, de, A = tracks.aeff(config)
+        rde = de if reco_dec_edges is None else np.asarray(reco_dec_edges, dtype=np.float64)
+        sle = tracks.data[f"{config}_smear_log10E_edges"]
+        sde = np.radians(tracks.data[f"{config}_smear_dec_edges_deg"])
+        lo, hi = le[:-1], le[1:]
+        x = 0.5 * (lo + hi)[:, None] + 0.5 * (hi - lo)[:, None] * _GL_X[None, :]
+        E = 10.0 ** x
+        dE_w = 0.5 * (hi - lo)[:, None] * _GL_W[None, :] * np.log(10.0) * E
+        self.W_E = energy_weights(E, dE_w, E_nodes_GeV)                       # (n_E, n_nodes)
+        self.ov = band_overlaps(de, band_edges)                               # (n_dec, n_bands)
+        omega = 2.0 * np.pi * (np.sin(de[1:]) - np.sin(de[:-1]))
+        self.TAO = tracks.livetime(config) * A * omega[None, :]               # (n_E, n_dec)
+        si = np.clip(np.searchsorted(sle, 0.5 * (lo + hi)) - 1, 0, len(sle) - 2)
+        sk = np.clip(np.searchsorted(sde, 0.5 * (de[:-1] + de[1:])) - 1, 0, len(sde) - 2)
+        S = tracks.data[f"{config}_smear"][si][:, sk].astype(np.float64)     # (n_E, n_dec, n_reco, n_psf)
+        G = psf_kernel(de, tracks.psf_edges, rde) if psf else overlap_kernel(de, S.shape[-1], rde)
+        K = np.einsum("ikrq,kqm->ikmr", S, G)                                 # (n_E, n_dec, n_dec_reco, n_reco)
+        self.shape = K.shape[2:]
+        self.select = np.ones(self.shape, dtype=bool) if select is None else np.asarray(select, dtype=bool)
+        if self.select.shape != self.shape:
+            raise ValueError(f"select must have shape {self.shape}, got {self.select.shape}")
+        self.K = np.ascontiguousarray(K[:, :, self.select].reshape(K.shape[0] * K.shape[1], -1))
+        self.reco_dec_edges, self.reco_edges = rde, tracks.reco_edges
+
+    def __call__(self, F):
+        """Expected events in the selected bins (flat, row-major over (dec_reco, reco)) for F (n_bands, n_nodes)."""
+        n_true = self.TAO * (self.W_E @ (self.ov @ np.asarray(F, dtype=np.float64)).T)
+        return n_true.ravel() @ self.K

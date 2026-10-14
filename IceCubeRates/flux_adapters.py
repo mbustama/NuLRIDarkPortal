@@ -26,6 +26,21 @@ def power_law(per_flavor, gamma, pivot_GeV=1e5):
     return flux
 
 
+FLAT = 2.5      # fluxes on a grid of energy nodes: E^-FLAT times a linear function of log E between nodes
+
+
+def node_interpolation(E, E_nodes, flat=FLAT):
+    """(j, c_lo, c_hi) with Phi(E) = c_lo Phi[j] + c_hi Phi[j + 1] for a flux known at E_nodes (GeV, increasing):
+    between nodes Phi E^flat is linear in log E (exact for E^-flat; linear in the node values, so the event folds
+    become fixed linear maps), zero outside the nodes. E: any shape."""
+    lE, lN = np.log(np.asarray(E, dtype=np.float64)), np.log(np.asarray(E_nodes, dtype=np.float64))
+    j = np.clip(np.searchsorted(lN, lE) - 1, 0, len(lN) - 2)
+    t = (lE - lN[j]) / (lN[j + 1] - lN[j])
+    inside = (lE >= lN[0] - 1e-12) & (lE <= lN[-1] + 1e-12)
+    scale = np.where(inside, np.exp(-flat * lE), 0.0)
+    return j, scale * (1.0 - t) * np.exp(flat * lN[j]), scale * t * np.exp(flat * lN[j + 1])
+
+
 def _band_average(fn_cos, E, dlo, dhi):
     """Average over each declination bin, uniformly in sin(dec), of fn_cos(E, cos_zenith) with cos_zenith = -sin(dec)."""
     out = np.empty((len(dlo), len(E)))

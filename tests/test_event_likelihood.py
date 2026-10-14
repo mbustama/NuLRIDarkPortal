@@ -55,3 +55,141 @@ def test_sky_basis_recombines_into_propagate_sky(case):
     both = basis["galactic_bands_nu"] + basis["galactic_bands_nubar"]
     G = dps.galactic_allsky(E, params)
     assert np.allclose(np.tensordot(basis["galactic_band_share"], both, axes=(0, 1)), G, rtol=1e-12, atol=0)
+
+
+# Steps 2-3: the folds as fixed linear maps, and the HESE detector systematics per bin (synthetic Monte Carlo)
+sys.path.insert(0, REPO)
+sys.path.insert(0, os.path.join(REPO, "tools"))
+from IceCubeRates import flux_adapters as FA  # noqa: E402
+from IceCubeRates.northern_muons.dr2 import DR2Tracks, LinearFold  # noqa: E402
+from IceCubeRates.starting_events import hese  # noqa: E402
+import hese_reduce  # noqa: E402
+
+E_NODES = np.logspace(4.0, 7.6, 300)                    # GeV
+BANDS = np.arcsin(np.linspace(-1.0, 1.0, 21))
+
+
+def _fake_mc(path, n=4000, seed=3):
+    rng = np.random.default_rng(seed)
+    types = rng.choice([12, -12, 14, -14, 16, -16, 13], n)
+    E = 10 ** rng.uniform(4.5, 7.0, n)
+    eb, zb, lb = hese_reduce.release_bins()
+    d = dict(mc_type=types.astype(np.int16), mc_E_GeV=E, mc_cos_zenith=rng.uniform(-1, 1, n),
+             mc_interaction=rng.integers(1, 4, n).astype(np.int8), mc_weight=rng.uniform(1e5, 1e6, n),
+             mc_E_dep_GeV=E * rng.uniform(0.5, 1.0, n), mc_zenith_reco=rng.uniform(0, np.pi, n),
+             mc_morphology=rng.integers(0, 3, n).astype(np.int8), mc_length_m=10 ** rng.uniform(1, 3, n),
+             mc_pion_flux=rng.uniform(1e-20, 1e-18, n), mc_kaon_flux=rng.uniform(1e-20, 1e-18, n),
+             mc_prompt_flux=rng.uniform(1e-21, 1e-19, n), mc_conv_veto=rng.uniform(0.1, 1, n),
+             mc_prompt_veto=rng.uniform(0.1, 1, n), mc_muon_weight=np.where(types == 13, 1e-9, 0.0),
+             data_E_dep_GeV=np.array([1e5, 2e5, 3e6, 7e4]), data_zenith_reco=np.array([0.3, 2.0, 1.0, 1.5]),
+             data_morphology=np.array([0, 1, 2, 0], dtype=np.int8), data_length_m=np.array([0.0, 0.0, 50.0, 0.0]),
+             livetime_s=2.0e8, energy_bins_GeV=eb, zenith_bins_rad=zb, length_bins_m=lb)
+    np.savez(path, **d)
+    grids = {"dom_eff": np.array([0.8, 0.85, 0.9, 0.95, 0.99, 1.04, 1.09, 1.14, 1.19]),
+             "head_on": np.array([-1.0, -0.5, -0.25, 0.0, 0.25, 0.5, 1.0])}
+    det = dict(E_dep_GeV=d["mc_E_dep_GeV"], names=np.array(list(grids)), nominal=np.array([0.99, 0.0]),
+               sigma=np.array([0.1, 0.5]))
+    for name, g in grids.items():
+        det["grid_" + name] = g
+        x = g - (0.99 if name == "dom_eff" else 0.0)
+        for comp in ("Astro", "Conv", "Prompt"):
+            a, b = rng.normal(0, 0.5, n), rng.normal(0, 0.3, n)        # smooth, event by event
+            det[f"log10w_{name}_{comp}"] = (a[None, :] * x[:, None] + b[None, :] * x[:, None] ** 2).astype(np.float32)
+    np.savez(str(path) + ".det.npz", **det)
+    return d
+
+
+def _windowed(per_type, gamma):
+    def flux(flavor, anti, E, dec):
+        E = np.asarray(E)
+        return per_type * (E / 1e5) ** (-gamma) * ((E >= E_NODES[0]) & (E <= E_NODES[-1]))
+    return flux
+
+
+def test_node_interpolation():
+    """Exact for E^-2.5, linear in the node values, zero outside the nodes."""
+    E = np.array([2e4, 3.3e5, 1e7, 1e3, 1e8])
+    j, lo, hi = FA.node_interpolation(E, E_NODES)
+    F = (E_NODES / 1e5) ** -2.5
+    assert np.allclose((lo * F[j] + hi * F[j + 1])[:3], (E[:3] / 1e5) ** -2.5, rtol=1e-13, atol=0)
+    assert np.all(lo[3:] == 0) and np.all(hi[3:] == 0)
+
+
+def test_hese_linear_response(tmp_path):
+    """The sparse maps equal the per-event weighting: exact for E^-2.5 on the nodes; the columns' order (kind, flavor,
+    band, node) checked by lighting one (kind, flavor, band) at a time."""
+    d = _fake_mc(tmp_path / "mc.npz")
+    ev = hese.HESEEvents(str(tmp_path / "mc.npz"))
+    lin = hese.LinearResponse(ev, E_NODES, BANDS)
+    F = 1e-18 * (E_NODES / 1e5) ** -2.5
+    Fb = np.broadcast_to(F[None, :, None], (20, len(E_NODES), 3)).copy()
+    ref = ev.flat_histogram(ev.expected(_windowed(1e-18, 2.5)))
+    np.testing.assert_allclose(lin(Fb, Fb), ref, rtol=1e-12, atol=1e-14 * ref.max())
+    for anti, flavor, band in ((False, 1, 3), (True, 0, 17), (True, 2, 10)):
+        Fn, Fa = np.zeros_like(Fb), np.zeros_like(Fb)
+        (Fa if anti else Fn)[band, :, flavor] = F
+        sel = (ev.anti == anti) & (ev.flavor == flavor) & (np.clip(np.searchsorted(BANDS, ev.dec) - 1, 0, 19) == band)
+        per = np.where(sel, ev.expected(_windowed(1e-18, 2.5)), 0.0)
+        ref1 = ev.flat_histogram(per)
+        assert ref1.sum() > 0
+        np.testing.assert_allclose(lin(Fn, Fa), ref1, rtol=1e-12, atol=1e-14 * ref1.max())
+    assert d["mc_type"].size == len(ev.E)
+
+
+def test_hese_detector_per_bin(tmp_path):
+    """BinDetector: exact on the grid (one systematic moved), as the per-event weights; its gradient by finite
+    differences; with the 'Astro' weights the linear maps per grid value equal the per-event histograms."""
+    _fake_mc(tmp_path / "mc.npz")
+    ev = hese.HESEEvents(str(tmp_path / "mc.npz"))
+    ev.load_detector(str(tmp_path / "mc.npz") + ".det.npz")
+    per = ev.expected(_windowed(1e-18, 2.5))
+    H0 = ev.flat_histogram(per)
+    H_nodes = {s: np.stack([ev.flat_histogram(per * 10.0 ** ev.det[f"log10w_{s}_Astro"][k].astype(np.float64))
+                            for k in range(len(g))]) for s, g in ev.det_grid.items()}
+    bd = hese.BinDetector(ev.det_grid, H0, H_nodes)
+    for s, g in ev.det_grid.items():
+        for x in g[[0, 3, -1]]:
+            exact = ev.flat_histogram(per * ev.detector_factor("Astro", {s: x}))
+            np.testing.assert_allclose(bd({s: x}), exact, rtol=1e-10, atol=1e-14 * exact.max())
+    vals = {"dom_eff": 1.02, "head_on": 0.3}
+    H, dH = bd(vals, grad=True)
+    for s in vals:
+        h = 1e-6
+        up, dn = dict(vals), dict(vals)
+        up[s] += h
+        dn[s] -= h
+        np.testing.assert_allclose(dH[s], (bd(up) - bd(dn)) / (2 * h), rtol=1e-5, atol=1e-9 * np.abs(dH[s]).max())
+    lin = hese.LinearResponse(ev, E_NODES, BANDS)
+    F = 1e-18 * (E_NODES / 1e5) ** -2.5
+    Fb = np.broadcast_to(F[None, :, None], (20, len(E_NODES), 3)).copy()
+    at = lin.at_nodes(Fb, Fb)
+    for s in ev.det_grid:
+        np.testing.assert_allclose(at[s], H_nodes[s], rtol=1e-11, atol=1e-14 * H_nodes[s].max())
+
+
+def test_lagrange4_cubics():
+    g = np.array([0.6, 0.8, 0.9, 1.0, 1.1, 1.2, 1.4])
+    f = lambda x: 2.0 - 3.0 * x + 0.5 * x ** 2 + 1.7 * x ** 3  # noqa: E731
+    df = lambda x: -3.0 + x + 5.1 * x ** 2  # noqa: E731
+    for x in (0.6, 0.73, 1.0, 1.27, 1.4):
+        i, c, dc = hese.lagrange4(g, x)
+        assert abs(c @ f(g[i:i + 4]) - f(x)) < 1e-12 and abs(dc @ f(g[i:i + 4]) - df(x)) < 1e-10
+
+
+def test_dr2_linear_fold_exact():
+    """LinearFold equals DR2Tracks.expected for E^-2.5 on the nodes (whatever the bands), on a selection of bins."""
+    tr = DR2Tracks()
+    nodes = np.logspace(2.0, 8.7, 400)
+    F = 2e-18 * (nodes / 1e5) ** -2.5
+
+    def pl(E, dlo, dhi):
+        E = np.asarray(E, dtype=np.float64)
+        return FA.power_law(2e-18, 2.5)(E, dlo, dhi) * ((E >= nodes[0]) & (E <= nodes[-1]))[None, :]
+    de = tr.dec_edges("IC79")
+    sel = np.zeros((len(de) - 1, len(tr.reco_edges) - 1), dtype=bool)
+    sel[np.degrees(de[:-1]) >= -5.0, :] = True
+    sel[:, tr.reco_edges[:-1] < 3.5 - 1e-9] = False
+    fold = LinearFold(tr, "IC79", nodes, BANDS, select=sel)
+    ref = tr.expected(pl, configs=["IC79"])["per_config"]["IC79"][sel]
+    np.testing.assert_allclose(fold(np.broadcast_to(F[None, :], (20, len(nodes)))), ref, rtol=1e-11,
+                               atol=1e-14 * ref.max())

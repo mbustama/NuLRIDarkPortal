@@ -86,6 +86,16 @@ class HESEEvents:
         ok = self._data_index >= 0
         return self._split(np.bincount(self._data_index[ok], minlength=self._size).astype(np.float64))
 
+    def flat_histogram(self, per_event):
+        """histogram, flattened and concatenated over the morphologies (the bins of LinearResponse)."""
+        ok = self._index >= 0
+        return np.bincount(self._index[ok], weights=np.asarray(per_event, dtype=np.float64)[ok], minlength=self._size)
+
+    def flat_data(self):
+        """The observed events in the bins of flat_histogram."""
+        ok = self._data_index >= 0
+        return np.bincount(self._data_index[ok], minlength=self._size).astype(np.float64)
+
     def _split(self, flat):
         out, a = {}, 0
         for name in MORPHOLOGIES:
@@ -189,6 +199,108 @@ class HESEEvents:
         base = self.T * self.w
         return dict(conv=base * (self.d["mc_pion_flux"] + kpi_ratio * self.d["mc_kaon_flux"]) * self.d["mc_conv_veto"],
                     prompt=base * self.d["mc_prompt_flux"] * self.d["mc_prompt_veto"])
+
+
+class LinearResponse:
+    """HESEEvents.expected and histogram for fluxes on a grid, as fixed sparse linear maps (the event likelihoods,
+    docs/dev/EVENT_LIKELIHOOD_PLAN.md): from the flux per declination band (rad edges, increasing), energy node (GeV),
+    flavor and kind -- F_nu, F_nb (n_bands, n_nodes, 3), GeV^-1 cm^-2 s^-1 sr^-1 -- to the expected events in the
+    release's bins (the three morphologies' histograms flattened and concatenated, HESEEvents.flat_histogram's
+    order). One map
+    without detector weights and, with the detector systematics loaded, one per grid value of each systematic with the
+    release's 'Astro' weights there. An event takes its band's flux (the Monte Carlo has no azimuth); between energy
+    nodes, flux_adapters.node_interpolation."""
+
+    def __init__(self, ev, E_nodes_GeV, band_edges):
+        import scipy.sparse as sp
+        from IceCubeRates.flux_adapters import node_interpolation
+        band_edges = np.asarray(band_edges, dtype=np.float64)
+        nb, nE = len(band_edges) - 1, len(E_nodes_GeV)
+        idx = np.nonzero(ev.is_nu & (ev._index >= 0))[0]
+        b = np.clip(np.searchsorted(band_edges, ev.dec[idx]) - 1, 0, nb - 1)
+        j, c_lo, c_hi = node_interpolation(ev.E[idx], E_nodes_GeV)
+        col = ((ev.anti[idx].astype(np.int64) * 3 + ev.flavor[idx]) * nb + b) * nE + j
+        rows, cols = np.concatenate([ev._index[idx]] * 2), np.concatenate([col, col + 1])
+        shape = (ev._size, 6 * nb * nE)
+        base = ev.T * ev.w[idx]
+
+        def build(factor):
+            f = base * factor
+            return sp.csr_matrix((np.concatenate([f * c_lo, f * c_hi]), (rows, cols)), shape=shape)
+        self.R = build(1.0)
+        self.R_nodes = {}
+        for name, g in getattr(ev, "det_grid", {}).items():
+            L = ev.det[f"log10w_{name}_Astro"]
+            self.R_nodes[name] = [build(10.0 ** L[k][idx].astype(np.float64)) for k in range(len(g))]
+        self.n_bands, self.n_nodes = nb, nE
+
+    @staticmethod
+    def flat_flux(F_nu, F_nb):
+        """The flux vector of the maps' columns: (kind, flavor, band, node), row-major."""
+        return np.stack([np.moveaxis(np.asarray(F_nu, dtype=np.float64), -1, 0),
+                         np.moveaxis(np.asarray(F_nb, dtype=np.float64), -1, 0)]).ravel()
+
+    def __call__(self, F_nu, F_nb):
+        """Expected events per bin (flat) without detector weights."""
+        return self.R @ self.flat_flux(F_nu, F_nb)
+
+    def at_nodes(self, F_nu, F_nb):
+        """{systematic: (n_grid, n_bins)}: the expected events with the 'Astro' weights at each grid value."""
+        phi = self.flat_flux(F_nu, F_nb)
+        return {name: np.stack([R @ phi for R in Rs]) for name, Rs in self.R_nodes.items()}
+
+
+def lagrange4(grid, x):
+    """(i, c, dc): x's cubic through the four nearest grid values -- as detector_factor interpolates -- as weights c on
+    grid[i:i + 4] and their derivatives dc in x."""
+    g = np.asarray(grid, dtype=np.float64)
+    i = int(np.clip(np.searchsorted(g, x) - 2, 0, len(g) - 4))
+    nodes = g[i:i + 4]
+    c, dc = np.empty(4), np.empty(4)
+    for a in range(4):
+        others = [b for b in range(4) if b != a]
+        den = np.prod([nodes[a] - nodes[b] for b in others])
+        c[a] = np.prod([x - nodes[b] for b in others]) / den
+        dc[a] = sum(np.prod([x - nodes[b] for b in others if b != m]) for m in others) / den
+    return i, c, dc
+
+
+class BinDetector:
+    """The release's detector systematics per bin (the event likelihoods): from the expected events per bin without
+    detector weights (H0) and with each systematic at each of its grid values, the others nominal (H_nodes {name:
+    (n_grid, n_bins)}), the events at any values: H0 x prod_s exp(the cubic through the four nearest grid values, in
+    log, of H_s / H0). Exact on the grid when one systematic moves; the per-event weights interpolate log10 w by the
+    same cubic and multiply across systematics, which per bin is exact only to second order in the spread of the
+    weights within a bin (validated, tools/event_likelihood_checks.py)."""
+
+    def __init__(self, grids, H0, H_nodes):
+        self.grids = {s: np.asarray(g, dtype=np.float64) for s, g in grids.items()}
+        self.H0 = np.asarray(H0, dtype=np.float64)
+        pos = self.H0 > 0
+        self.logr = {s: np.where(pos[None, :], np.log(np.maximum(np.asarray(H, dtype=np.float64), 1e-300)
+                                                    / np.where(pos, self.H0, 1.0)[None, :]), 0.0)
+                     for s, H in H_nodes.items()}
+
+    def __call__(self, values, grad=False):
+        """Expected events per bin at values {systematic: value} (absent: no weight, as detector_factor); with grad,
+        also {systematic: d events / d value}."""
+        expo = np.zeros_like(self.H0)
+        dexpo = {}
+        for s, L in self.logr.items():
+            if s not in values:
+                continue
+            x = float(values[s])
+            g = self.grids[s]
+            if not g[0] - 1e-12 <= x <= g[-1] + 1e-12:
+                raise ValueError(f"{s} = {x} lies outside the exported grid {g[0]}-{g[-1]}")
+            i, c, dc = lagrange4(g, x)
+            expo += c @ L[i:i + 4]
+            if grad:
+                dexpo[s] = dc @ L[i:i + 4]
+        H = self.H0 * np.exp(expo)
+        if not grad:
+            return H
+        return H, {s: H * d for s, d in dexpo.items()}
 
 
 def sky_flux(sky, extragalactic=True, galactic=True):

@@ -50,10 +50,12 @@ now. Expected counts per bin:
   NuFlavorSingleSource. HESE only: conv_norm (0.4), muon_norm (0.5), and the detector systematics dom_eff (0.99 +-
   0.1), head_on (0 +- 0.5), anisotropy (1 +- 0.2) -- the release's priors, bounded by the exported grids (2 sigma).
   DR2 only: n_IC79, n_IC86 (0.1).
-- Detector systematics per bin: the release's exact per-event weights at each grid node, summed per bin and template;
-  between nodes, a cubic through the four nearest nodes in log (as `detector_factor` does per event), multiplied
-  across the three systematics. Exact on the grid when one systematic moves; validated against the per-event product
-  away from the nodes (the user's rule: show an approximation only if it is nearly exact).
+- Detector systematics: the profile uses a per-bin model -- the release's exact per-event weights at each grid
+  node, summed per bin and template; between nodes, a cubic through the four nearest nodes in log (as
+  `detector_factor` does per event), multiplied across the three systematics (exact on the grid when one systematic
+  moves). It is not exact elsewhere (up to 6% in sparse bins, 0.004 Poisson sigma; -2 ln L off by up to 0.02 at
+  fixed nuisances), so the reported -2 ln L is evaluated with the exact per-event product at the profiled nuisances
+  (the user's rule: an approximation only where it is nearly exact). The model only steers the profile.
 - -2 ln L = 2 sum [mu - n + n ln(n / mu)] + the priors' chi^2; real n allowed (Asimov data).
 
 **Configurations.** `data.events = ["hese", "dr2"]` (either or both) with `data.spectrum` absent (rule 1, enforced);
@@ -93,3 +95,11 @@ reference flux.
   `galactic_allsky` (tests/test_event_likelihood.py).
 - Step 2 (counts) done: `tools/dr2_counts.py` on Tycho -> `IceCubeRates/data/dr2_counts.npz` (IC40 36 900, IC59
   107 011, IC79 101 956, IC86 1 397 488 events; northern sky above 3.16 TeV: IC79 2 277, IC86 30 008).
+- Step 2b and 3 done (`tools/event_likelihood_checks.py`, output/hese/event_likelihood_checks.json): the DR2 linear
+  fold (`northern_muons.dr2.LinearFold`) equals `DR2Tracks.expected` to 2e-15 for E^-2.5 and to 6e-8 for solver skies
+  (log-log against the flattened interpolation); 1.5-2.8 ms per configuration. The HESE sparse maps
+  (`starting_events.hese.LinearResponse`, 1.2M nonzeros each) equal the per-event weighting to 6e-15 for E^-2.5 and
+  2e-7 for a dark-portal sky. The per-bin detector model against the exact per-event product, all three systematics
+  within 2 sigma (40 draws): worst 6.2% (Astro), 5.1% (Conv), 2.5% (Prompt) in sparse bins, i.e. 0.004, 0.002 and
+  0.0009 Poisson sigma; one systematic between grid values: 0.5%, 5.1%, 1.9%. Against the 60 events at fixed
+  nuisances, -2 ln L differs by up to 0.019 (median 0.003): hence the exact evaluation above.
