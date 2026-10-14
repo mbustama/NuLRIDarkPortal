@@ -193,7 +193,9 @@ The flux at the detector is the average over the up-going hemisphere. Inside the
 │   ├── dr2_validation.py          # DR2 tracks: our expectation vs the events; standard, dark portal, SI (Tycho)
 │   ├── hese_reduce.py             # The HESE 7.5-yr release's MC and data reduced to arrays (Tycho; not committed)
 │   ├── hese_detector_systematics.py # The HESE release's detector weights on grids, its own code and env (Tycho)
-│   └── hese_rates.py              # HESE: our expectation vs the 60 events; standard, dark portal, SI
+│   ├── hese_rates.py              # HESE: our expectation vs the 60 events; standard, dark portal, SI
+│   ├── schematic_dark_portal.py   # The paper's schematic of the dark-portal calculation (output/figures)
+│   └── data/naturalearth/         # Land outlines for the schematic's globe (Natural Earth, via GeoneutrinoDecay)
 ├── IceCubeRates/                  # Event rates (Section 9.1): the DR2 track fold, flux adapters, reduced data
 ├── tests/
 │   ├── test_physics_regression.py # Regression suite (run before & after every change)
