@@ -155,9 +155,11 @@ def _propagate(m_Zd, charge, U_LRI_struct=None, bands=False):
     H0 = 67.4 * dps.km_per_s / dps.Mpc_to_eV_inv
     m_nu = np.array([0.01, np.sqrt(0.01**2 + 7.41e-5), np.sqrt(0.01**2 + 2.511e-3)])
     u = np.ascontiguousarray(np.array([0.5, 0.5, 0.0], dtype=np.complex128))
-    g_D = 1e-52      # the Sun's (1e-19 eV) or the Earth's (1e-13 eV) potential ~1e-17 eV, the vacuum term's size
-    return dps.propagate_spectrum(E, z, np.array([1 / 3, 2 / 3, 0.0]), H0, 0.315, 0.685, U, M_sq, u, m_Zd, g_D, 0.1,
-                                  m_nu, N0, 1.676389e-4, True, 1.5, False, 0.0, (0.5, 0.5), 2.5, 0.0, 1.0, np.ones(3),
+    # the Sun's (1e-19 eV) or the Earth's (1e-13 eV) potential ~1e-17 eV, the vacuum term's size: g_D eps' = 1e-53;
+    # a tiny eps' and no screening (this tests the potential's sources, not the relics' response)
+    g_D, eps = 1e-33, 1e-20
+    return dps.propagate_spectrum(E, z, np.array([1 / 3, 2 / 3, 0.0]), H0, 0.315, 0.685, U, M_sq, u, m_Zd, g_D, eps,
+                                  m_nu, N0, 1.676389e-4, False, 1.5, False, 0.0, (0.5, 0.5), 2.5, 0.0, 1.0, np.ones(3),
                                   2, 4, show_progress=False, verbose=0, n_cores=1, N_steps_earth=25,
                                   U_LRI_struct=U_LRI_struct, earth_step_scheme="avg", earth_zenith_average="phase",
                                   earth_sky="full", host_galaxy_scale=1.0, matter_charge=charge)

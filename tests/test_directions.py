@@ -179,7 +179,9 @@ def test_propagate_sky_dark_portal():
     antineutrinos; the whole sky agrees with propagate_weighted's (another chord set) to the rule's
     discretization; the declination order puts the Earth's strongest effect (straight up-going, dec ~ +90)
     in the last band; the pixel map assigns every pixel its band."""
-    E, params = dps.build_solver_params(_cfg())
+    # an Earth potential far above the vacuum term, no absorption (contact range: 1/m = 0.2 m; since 2026-10-14
+    # the defaults' eps' = 0.1 also couples the mediator to every neutrino and absorbs at 2 MeV)
+    E, params = dps.build_solver_params(_cfg(dark_portal={"m_Zd_eV": 1e-6, "g_D": 1e-26, "epsilon_prime": 1e-10}))
     params["show_progress"] = False
     out = dps.propagate_sky(E, params)
     nb = len(out["dec_band_edges"]) - 1
@@ -233,7 +235,7 @@ def _sun_window_cfg(m_zd=1e-20, kappa=1.0):
     for ranges much longer than 1 AU it is g_D eps |u|^2 K0 N_sun / (4 pi d), independent of m."""
     gu2 = kappa * 1.66e-54
     return _cfg(dark_portal={"u_e": 0.5, "u_mu": 0.5, "u_tau": 0.0, "m_Zd_eV": m_zd,
-                             "g_D": gu2 / (0.1 * 0.5), "epsilon_prime": 0.1},
+                             "g_D": gu2 / (1e-20 * 0.5), "epsilon_prime": 1e-20, "use_debye_screening": False},
                 grid={"n_sun_paths": 4})
 
 

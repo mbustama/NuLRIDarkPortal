@@ -1566,6 +1566,68 @@ MeV planes will change, by up to $\sqrt3$ in $g_D|U|^2$. This departs from the t
 \label{fig:relic_weights}
 \end{figure}
 
+\section{The physics audit of 2026-10-14}
+\label{sec:audit}
+
+Mauricio asked, before any further runs, for every part of the physics code to be checked
+(\file{docs/dev/PHYSICS_AUDIT.md} lists each item with its derivation or check). The propagation chain
+holds: the cosmological evolution and injection, the adiabatic Galaxy, the coherent Sun, the Earth's Yukawa
+profile and chords, the matter models, the flux assembly and the event folds. A new absolute check: with a
+potential far above the vacuum term everywhere and no absorption, the composition at the Earth is
+$\sum_a|W_{\alpha a}|^2\sum_f|W_{fa}|^2 f_f$ with $W$ the texture's eigenvectors (its null space split by
+the projected vacuum term), and the solver reproduces it to $10^{-11}$ for three textures, neutrinos and
+antineutrinos. The errors were all in the resonant absorption on the relic neutrinos, which followed the
+theory notes' Eqs.~(T7), (T11), (T12).
+
+\textit{The absorption, from the Lagrangian.}---With the mediator coupled to the neutrinos as
+$V_\mu\sum G_{\alpha\beta}\bar\nu_\alpha\gamma^\mu P_L\nu_\beta$ ($G = g_D uu^\dagger$ for the dark portal, in
+the coupling of Eq.~(T9)), an incident eigenstate $a$ (flavor amplitudes $W_{fa}$) meets the relic mass
+state $r$ with amplitude $(U^\dagger GW)_{ra}$, and the Breit--Wigner of a vector formed by
+$\nu_L+\bar\nu_R$ integrates to $2\pi|(U^\dagger GW)_{ra}|^2$ per target, the normalization of the
+$Z$-burst. The code gave every relic state the full flavor coupling (three times the targets), counted each
+neutrino pair with the width of a Dirac pair with vector couplings, $M/12\pi$, instead of the left-handed
+one, $M/24\pi$ (twice the rate per target), and projected eigenstates and secondaries on flavor without
+interference. A flavor-universal coupling, diagonal in the mass basis, must absorb mass state $j$ only on
+relic state $j$; the old form spread it over all three. Mauricio decided (2026-10-14) on the Lagrangian form
+throughout: each relic state by its own flavor content, coherently per eigenstate, the left-handed width,
+the decays' neutrinos in the eigenstates by $(W^\dagger GG^\dagger W)_{aa}$
+(\file{src/dp_absorption.py}). At $3$~MeV and $g_D|U|^2 = 2.5\times10^{-4}$ the deepest dip goes from
+$0.003$ to $0.021$ of the flux, and much of the old flavor shift disappears. I wrote the 2026-10-12
+normalization from Eq.~(T11) as it stands; its $Z$-burst check held only with the $Z$'s coupling divided by
+$\sqrt2$.
+
+\textit{The $Z$ mixing in the absorption.}---Eq.~(T12)'s term $c\,\epsp g/c_W$ is the cross term of
+$|c+\kappa|^2$ with $\kappa = \epsp g/c_W$, the coupling the $Z$--$Z_D$ mixing gives every neutrino, but it
+drops $\kappa^2$ and puts the cross term on every flavor pair. Mauricio decided to keep all three pieces:
+$G = g_Duu^\dagger + \kappa I$, with the $e^+e^-$ and $\mu^+\mu^-$ decays of the mixing in the width. Then
+$\epsp = 0.1$ alone absorbs every flavor near MeV masses, and the potential planes no longer depend on
+$P = \gd\epsp|U|^2$ alone: they will profile $\epsp$ (decided).
+
+\textit{Relics in motion.}---The kernel used the massless relic's flux factor $1-\cos\theta$; the Moller
+factor of a relic at speed $v$ is $1-v\cos\theta$, which changes the integrated absorption by $+1.7\%$,
+$+1.3\%$ and $+0.3\%$ for the three states at $m_{\rm lightest} = 0.01$~eV and $+9\%$ for a $10^{-3}$-eV
+lightest state.
+
+\textit{Screening (a departure from Eq.~T9).}---The relics' Debye mass, Eq.~(T23), is the relativistic one;
+today's relics are slow, which raises it to $|G'_{rr}|^2 m_rT\ln2/\pi^2$ per state ($G' = U^\dagger GU$),
+with the $Z$ mixing's piece $\approx2\times10^{-3}$~eV$\times\kappa$. Screening needs the relics to move:
+around the Earth, the Moon, the Sun and the Galaxy they drift in the potential's gradient (they cross the
+Galaxy in $\sim10^7$~yr), but the uniform cosmological potential pushes on none of them and could only be
+screened if the relic background acquired net dark charge everywhere at once, which charge conservation
+forbids (the uniform background of the ``jellium'' model is not screened either). We therefore screen the
+localized bodies only, and the cosmological potential keeps the bare mediator mass; Eq.~(T9) screens it too.
+At $\epsp = 0.1$ the screening mass is $\sim10^{-4}$~eV and cuts off every ultralight local potential; at
+$\mzd = 10^{-20}$~eV, $\epsp$ and $\gd|U|^2$ must both stay below $\sim5\times10^{-18}$ for those potentials
+to act, so the profile of $\epsp$ needs physical upper limits on both couplings.
+
+\textit{The MeV regime.}---There the cosmological potential is negligible and the dark-portal absorption
+is a vector secret interaction with coupling $G$. Mauricio decided to compute it with \file{src/dp_si.py},
+which has every collision with the relics ($s$-channel resonance, $t$ and $u$ exchange, pair production),
+mass state by mass state; its resonance is now averaged over the relics' momenta and it takes a visible
+width. The two codes' resonance agree to $0.1\%$ (median) at $3$~MeV; relics at rest would overstate the dip
+twofold. Both signs of the dark portal's potential will be scanned (decided): the sign of $\gd\epsp$ is fixed
+only by a model's Higgs sector.
+
 \section{Planned work}
 \label{sec:plan}
 

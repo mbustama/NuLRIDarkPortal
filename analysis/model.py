@@ -25,6 +25,12 @@ products, so exclusion planes scan those directly (decided 2026-10-13). For a te
                                    epsilon' = 0 everything depends on it alone);
   g_D_eps_u2  = g_D epsilon' |U|^2 sets g_D = g_D_eps_u2 / (epsilon' |U|^2) (the coherent
                                    potential, which is proportional to it).
+Since 2026-10-14 (docs/dev/SCOPE_WIDENING_PLAN.md) also, for free mixing ratios and the gauge models:
+  g_D_trace     = g_D Sum_alpha |U_alpha4|^2       sets g_D = g_D_trace / Sum |U|^2;
+  g_D_eps_trace = g_D epsilon' Sum_alpha |U_alpha4|^2 (the dark portal's potential, ratio-independent axis);
+  g_D_eps       = g_D epsilon'                      (L_mu - L_tau's potential: g' times its Z-Z' mixing).
+The potential's sign is free for the dark portal and L_mu - L_tau (decided 2026-10-14): the solver setting
+dark_portal.potential_sign = -1 (this package only; default +1) makes epsilon' negative (g_D stays positive).
 
 Solver runs can also be shared on disk by every process (NULRI_FLUX_CACHE=<directory>; 2026-10-14): the planes'
 repair passes re-evaluate every point on whichever worker is free, and with per-process caches most of them
@@ -68,7 +74,7 @@ from dp_config import DEFAULT_CONFIG, merge_config_with_defaults
 from flux_postprocessing import compute_energy_averaged_ratios, compute_dE_geometric
 
 SOURCE_KEYS = ("f_e_S", "f_mu_S", "f_tau_S")
-PRODUCTS = ("g_D_u2", "g_D_eps_u2")
+PRODUCTS = ("g_D_u2", "g_D_eps_u2", "g_D_trace", "g_D_eps_trace", "g_D_eps")
 # The Galactic component (galactic.enabled): its normalization and source composition (x, 1 - x, 0) are linear
 # too, and so is the extragalactic normalization against it, norm_astro -- a parameter of the analysis only (a
 # multiplier of sky.extragalactic_norm; default 1).
@@ -142,7 +148,14 @@ class FlavorModel:
     def __init__(self, solver_config: Mapping, free_names: Sequence[str] = (), cache_size: int = 512,
                  p_nodes: Optional[Sequence[float]] = None, sky: bool = False,
                  flavor_band_eV: Optional[Sequence[float]] = None):
-        base = merge_config_with_defaults(copy.deepcopy(dict(solver_config)))
+        sc = copy.deepcopy(dict(solver_config))
+        dpc = dict(sc.get("dark_portal", {}))
+        self.potential_sign = float(dpc.pop("potential_sign", 1.0))
+        if self.potential_sign not in (1.0, -1.0):
+            raise ValueError("dark_portal.potential_sign must be +1 or -1")
+        if dpc:
+            sc["dark_portal"] = dpc
+        base = merge_config_with_defaults(sc)
         base["execution"].update(n_cores=1, verbose=0, use_gpu=False)
         self.base = base
         self.sky = bool(sky)
@@ -203,12 +216,22 @@ class FlavorModel:
 
             def get(k):
                 return float(out.get(("dark_portal", k), dp[k]))
-            u2 = max(abs(get("u_e")), abs(get("u_mu")), abs(get("u_tau"))) ** 2
             name = products[0]
-            scale = u2 if name == "g_D_u2" else u2 * get("epsilon_prime")
-            if scale <= 0.0:
-                raise ValueError(f"{name} needs a nonzero mixing{'' if name == 'g_D_u2' else ' and epsilon_prime'}")
-            out[("dark_portal", "g_D")] = float(values[name]) / scale
+            if name in ("g_D_u2", "g_D_eps_u2"):
+                u2 = max(abs(get("u_e")), abs(get("u_mu")), abs(get("u_tau"))) ** 2
+            elif name in ("g_D_trace", "g_D_eps_trace"):
+                u2 = abs(get("u_e")) ** 2 + abs(get("u_mu")) ** 2 + abs(get("u_tau")) ** 2
+            else:
+                u2 = 1.0
+            scale = u2 * (get("epsilon_prime") if "eps" in name else 1.0)
+            if scale == 0.0:
+                raise ValueError(f"{name} needs a nonzero mixing{'' if 'eps' not in name else ' and epsilon_prime'}")
+            out[("dark_portal", "g_D")] = float(values[name]) / abs(scale)
+        if self.potential_sign < 0.0:
+            # the other sign of the potential: eps' < 0 (g_D stays positive); the direct gauge models ignore it
+            dp = self.base["dark_portal"]
+            out[("dark_portal", "epsilon_prime")] = -abs(float(out.get(("dark_portal", "epsilon_prime"),
+                                                                       dp["epsilon_prime"])))
         return out
 
     def default(self, name: str) -> float:

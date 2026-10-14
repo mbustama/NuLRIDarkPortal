@@ -174,7 +174,7 @@ def test_galactic_dark_portal_vacuum_limit_and_conservation():
 def test_galactic_dark_portal_linear_in_composition():
     """The transfer is linear in x (one evaluation at x = 0 and one at x = 1 give every x, Section 3.4), at a
     point where the Sun's potential reshapes the flavors (m_Zd = 1e-20 eV, kappa = 1)."""
-    dp = {"u_e": 0.5, "u_mu": 0.5, "u_tau": 0.0, "m_Zd_eV": 1e-20, "g_D": 1.66e-54 / 0.05, "epsilon_prime": 0.1}
+    dp = {"u_e": 0.5, "u_mu": 0.5, "u_tau": 0.0, "m_Zd_eV": 1e-20, "g_D": 1.66e-54 / 0.05 * 1e19, "epsilon_prime": 1e-20, "use_debye_screening": False}
     T = {}
     for x in (0.0, 1.0, 0.3):
         _, params, out = _run(_cfg(dark_portal=dp, galactic={"f_e_S_gal": x}))
@@ -325,7 +325,7 @@ def test_galactic_3d_long_range_is_local_and_outputs_consistent():
     emission to that share's effect; the outputs are consistent (flux conserved per kind, band and all-sky means
     of the pixel maps). The coupling puts the cosmic potential near the vacuum term in the band (the Sun's
     potential at the Earth is 2e-6 of Delta m^2_31 / 2E at 100 TeV)."""
-    dp = {"u_e": 0.5, "u_mu": 0.5, "u_tau": 0.0, "m_Zd_eV": 1e-36, "g_D": 2e-6 * 1.66e-54 / 0.05, "epsilon_prime": 0.1}
+    dp = {"u_e": 0.5, "u_mu": 0.5, "u_tau": 0.0, "m_Zd_eV": 1e-36, "g_D": 2e-6 * 1.66e-54 / 0.05 * 1e19, "epsilon_prime": 1e-20, "use_debye_screening": False}
     E, params, out3 = _run(_cfg3d(dark_portal=dp))
     _, _, outl = _run(_cfg3d(dark_portal=dp, galactic={"emission": "local"}))
     for kind in ("nu", "nubar"):
@@ -344,7 +344,7 @@ def test_galactic_3d_direction_dependence():
     the local density there, ~10-700 cm^-3 in the inner Galaxy against ~1 near the Sun, and the Sun's own at the
     Earth is comparable, ~3 cm^-3; kappa = 1 puts it at the vacuum term at 100 TeV): the Galactic flavors then
     differ between the Galactic Centre's direction and the anticentre's, which local emission cannot produce."""
-    dp = {"u_e": 0.5, "u_mu": 0.5, "u_tau": 0.0, "m_Zd_eV": 1e-24, "g_D": 1.66e-54 / 0.05, "epsilon_prime": 0.1}
+    dp = {"u_e": 0.5, "u_mu": 0.5, "u_tau": 0.0, "m_Zd_eV": 1e-24, "g_D": 1.66e-54 / 0.05 * 1e19, "epsilon_prime": 1e-20, "use_debye_screening": False}
     E, params, out3 = _run(_cfg3d(dark_portal=dp))
     _, _, outl = _run(_cfg3d(dark_portal=dp, galactic={"emission": "local"}))
 
@@ -368,8 +368,8 @@ def test_galactic_source_at_the_sun_is_the_host_galaxy_path():
     path adds on top of the Galaxy (3e-8 of the local density here; up to 1.2e-3 at 1e-31-1e-29 eV, where the
     Galaxy's halo meets the cosmic mean and the local potential takes the larger of the two)."""
     for m, kappa in ((1e-24, 1.0), (1e-27, 30.0)):
-        dp = {"u_e": 0.5, "u_mu": 0.5, "u_tau": 0.0, "m_Zd_eV": m, "g_D": kappa * 1.66e-54 / 0.05,
-              "epsilon_prime": 0.1}
+        dp = {"u_e": 0.5, "u_mu": 0.5, "u_tau": 0.0, "m_Zd_eV": m, "g_D": kappa * 1.66e-54 / 0.05 * 1e19,
+              "epsilon_prime": 1e-20, "use_debye_screening": False}
         _, _, host = _run(_cfg(dark_portal=dp, galactic={"enabled": False},
                                source={"z_max": 1e-4, "host_galaxy_scale": 1.0, "f_e_S": 0.3, "f_mu_S": 0.7,
                                        "f_tau_S": 0.0}))
@@ -391,7 +391,7 @@ def test_galactic_at_coarse_resolution():
     each along its own line of sight, and averaged with their intensities (a coarse pixel's centre can lie
     degrees off the plane its gas column contains; computed at the centre, the difference was 6e-3)."""
     edges = list(np.degrees(np.arcsin(np.linspace(-1, 1, 11))))
-    dp = {"u_e": 0.5, "u_mu": 0.5, "u_tau": 0.0, "m_Zd_eV": 1e-24, "g_D": 300 * 1.66e-54 / 0.05, "epsilon_prime": 0.1}
+    dp = {"u_e": 0.5, "u_mu": 0.5, "u_tau": 0.0, "m_Zd_eV": 1e-24, "g_D": 300 * 1.66e-54 / 0.05 * 1e19, "epsilon_prime": 1e-20, "use_debye_screening": False}
     outs = {}
     for ns in (4, 8):
         E, params, out = _run(_cfg3d(dark_portal=dp, sky={"nside": ns, "dec_band_edges_deg": edges}))
@@ -408,7 +408,7 @@ def test_extragalactic_physical_normalization():
     """sky.extragalactic_norm: without new physics the extragalactic per-flavor nu + nubar intensity is
     norm x (E / 100 TeV)^-p at every energy, to the redshift grid's first-order error (3.6e-3 at 400 steps, the
     same at every energy); None keeps the solver's units; the factor scales the flux with new physics too."""
-    base = {"dark_portal": {"u_e": 0.0, "u_mu": 0.0, "u_tau": 0.0, "g_D": 1e-30},
+    base = {"dark_portal": {"u_e": 0.0, "u_mu": 0.0, "u_tau": 0.0, "g_D": 1e-30, "epsilon_prime": 0.0},
             "grid": {"n_E_bins": 12, "n_z_bins": 400, "n_sun_paths": 2, "E_min_eV": 1e13, "E_max_eV": 1e16},
             "source": {"p_index": 2.87}, "execution": {"n_cores": 1, "verbose": 0}}
     E, params = dps.build_solver_params(dict(base, sky={"output": "bands", "extragalactic_norm": 2.12e-18}))
@@ -445,7 +445,7 @@ def test_analysis_galactic_component_exact():
     norm_gal, x_gal and norm_astro on the cached fluxes equals recomputing them from a config with those values;
     galactic_allsky equals propagate_sky's sky-averaged Galactic flux (nu + nubar)."""
     from analysis.model import FlavorModel
-    dp = {"u_e": 0.5, "u_mu": 0.5, "u_tau": 0.0, "m_Zd_eV": 1e-24, "g_D": 300 * 1.66e-54 / 0.05, "epsilon_prime": 0.1}
+    dp = {"u_e": 0.5, "u_mu": 0.5, "u_tau": 0.0, "m_Zd_eV": 1e-24, "g_D": 300 * 1.66e-54 / 0.05 * 1e19, "epsilon_prime": 1e-20, "use_debye_screening": False}
     m = FlavorModel(_model_cfg(dark_portal=dp), free_names=("norm_gal", "f_e_S_gal", "norm_astro"))
     eg = FlavorModel(_model_cfg(dark_portal=dp, galactic={"enabled": False}))
     assert np.allclose(m.fractions({"norm_gal": 0.0}), eg.fractions({}), rtol=0, atol=1e-14)

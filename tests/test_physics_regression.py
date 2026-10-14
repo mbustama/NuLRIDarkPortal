@@ -877,7 +877,8 @@ def test_cascade_step_limits():
 
 def test_neutrino_sources_produce_antineutrinos_only_through_absorption():
     """With neutrino sources alone, antineutrinos reach the detector only as secondaries of
-    absorptions: none without dark-portal interactions, some with them."""
+    absorptions: none without dark-portal interactions, some with them. (Since 2026-10-14 the Z mixing
+    alone couples the mediator to every neutrino, so 'without interactions' means u = 0 AND eps' = 0.)"""
     E_bins = np.logspace(13, 16, 30)
     z_bins = np.linspace(4.0, 0.0, 30)
     U_pmns = np.ascontiguousarray(dps.construct_PMNS(np.radians(33.41), np.radians(8.58),
@@ -886,11 +887,11 @@ def test_neutrino_sources_produce_antineutrinos_only_through_absorption():
     H0 = 67.4 * dps.km_per_s / dps.Mpc_to_eV_inv
     m_nu_bg = dps.get_mass_eigenvalues(0.01, 7.41e-5, 2.511e-3, "normal")
     out = []
-    for u in (0.0, 0.5):
+    for u, eps in ((0.0, 0.0), (0.5, 1e-4)):
         u_arr = np.ascontiguousarray(np.array([u, u, 0.0], dtype=np.complex128))
         out.append(dps.propagate_spectrum(
             E_bins, z_bins, np.array([1 / 3, 2 / 3, 0.0]), H0, 0.315, 0.685, U_pmns, M_sq,
-            u_arr, 2.0e6, 1e-4, 1e-4, m_nu_bg, 3.091e-8 * dps.cm_inv3_to_eV3, 1.676389e-4,
+            u_arr, 2.0e6, 1e-4, eps, m_nu_bg, 3.091e-8 * dps.cm_inv3_to_eV3, 1.676389e-4,
             True, 1.5, False, 0.0, (1.0, 0.0), 2.5, 0.0, 1.0, np.ones(3), 1, 2,
             show_progress=False, verbose=0, n_cores=1, N_steps_earth=5,
             earth_step_scheme="avg", earth_zenith_average="phase"))
@@ -916,7 +917,7 @@ def test_solver_never_returns_more_energy_than_injected(tmp_path):
         c["grid"]["n_z_bins"] = nz
         c["dark_portal"].update(dp)
         return dps.run_solver(c)
-    E, F0 = run(100, u_e=0.0, u_mu=0.0)
+    E, F0 = run(100, u_e=0.0, u_mu=0.0, epsilon_prime=0.0)     # no coupling at all (eps' also couples, 2026-10-14)
     dE = dps.compute_dE_geometric(E)
     e0 = np.sum(E * F0.sum(axis=1) * dE)
     from flux_postprocessing import compute_energy_averaged_ratios as ratios
@@ -2572,7 +2573,7 @@ def test_source_redshift_weighting_main_solver():
     from dp_cosmo import calc_R_source
     fl = {}
     for zmax in [1.0, 4.0]:
-        cfg = {"dark_portal": {"u_e": 0.0, "u_mu": 0.0, "u_tau": 0.0, "g_D": 1e-30},
+        cfg = {"dark_portal": {"u_e": 0.0, "u_mu": 0.0, "u_tau": 0.0, "g_D": 1e-30, "epsilon_prime": 0.0},
                "source": {"z_max": zmax, "p_index": 2.5},
                "grid": {"n_E_bins": 20, "n_z_bins": 400, "n_earth_chords": 2, "n_sun_paths": 2},
                "execution": {"n_cores": 1, "verbose": 0}}

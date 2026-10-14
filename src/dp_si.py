@@ -53,6 +53,8 @@ from functools import lru_cache
 import numpy as np
 
 from dp_core import njit, prange
+from dp_thermal import (relic_state_rates_analytic, _GL16_X as _TGL16_X, _GL16_W as _TGL16_W,
+                        _GL10_X as _TGL10_X, _GL10_W as _TGL10_W, _FD16 as _TFD16)
 
 _ZETA3 = 1.2020569031595942
 
@@ -1307,6 +1309,59 @@ def _step_integrals(E, zp1_lo, zp1_hi, zp1_mid, masses, n0, M2, MG, H0, Om, OL, 
                 J[j, r, 1] = a2_ * dth / b
 
 
+@njit(cache=True, parallel=True)
+def _thermal_resonance_terms(E, L_lo, L_hi, masses, T_nu0, eta_mass, M, MG, H0, Om, OL, J,
+                             tglx, tglw, tglx10, tglw10, tfd16):
+    """Replace J[j, r, 0] (s/BW) and J[j, r, 1] ((s - M^2)/BW) of _step_integrals by their averages over the relics'
+    thermal momenta (frozen Fermi-Dirac, Moller flux factor; dp_thermal.relic_state_rates_analytic, modes 0 and 1)
+    where the relics' motion matters: bins and relic states whose step lies within the thermally broadened
+    resonance's reach, |2 E m (1+z) - M^2| < 4 (2v + Gamma/M) M^2 (v the typical relic speed), and whose broadened
+    resonance is wider than two steps (narrower ones stay at rest, integrated exactly). The time integral over the
+    step is Gauss-Legendre (8 nodes) in L = ln(1+z): J = int dL n <(s or s - M^2)/BW v> / H = int dL raw / (2 pi H).
+    Added 2026-10-14 (docs/dev/PHYSICS_AUDIT.md, 1d): at rest, a lightest neutrino below ~1e-3 eV puts its
+    resonance above the band, where thermally it falls near M^2 / (6 T)."""
+    N = len(E)
+    M2 = M * M
+    sumG_eq = 12.0 * np.pi * MG / M2                  # the kernel's width coordinate: MG = M^2 sum_G / 12 pi
+    dL = L_hi - L_lo
+    zp1_mid = np.exp(0.5 * (L_lo + L_hi))
+    for j in prange(N):
+        flags = np.zeros(3, dtype=np.bool_)
+        need = False
+        for r in range(3):
+            m = masses[r]
+            if m <= 0.0 or eta_mass[r] <= 0.0:
+                continue
+            T_r = T_nu0 * zp1_mid * eta_mass[r] ** (1.0 / 3.0)
+            p_t = 3.15 * T_r
+            v = p_t / np.sqrt(m * m + p_t * p_t)
+            width = 2.0 * v + MG / M2
+            if width < 2.0 * dL:
+                continue
+            if abs(2.0 * E[j] * m * zp1_mid - M2) <= 4.0 * width * M2:
+                flags[r] = True
+                need = True
+        if not need:
+            continue
+        a0 = np.zeros(3)
+        a1 = np.zeros(3)
+        for k in range(len(_GL8_X)):
+            L = L_lo + dL * _GL8_X[k]
+            zp1 = np.exp(L)
+            H = H0 * np.sqrt(Om * zp1 ** 3 + OL)
+            st0 = relic_state_rates_analytic(E[j], zp1 - 1.0, sumG_eq, M, masses, T_nu0, eta_mass, tglx, tglw,
+                                             tglx10, tglw10, tfd16, True, 0)
+            st1 = relic_state_rates_analytic(E[j], zp1 - 1.0, sumG_eq, M, masses, T_nu0, eta_mass, tglx, tglw,
+                                             tglx10, tglw10, tfd16, True, 1)
+            for r in range(3):
+                a0[r] += _GL8_W[k] * st0[r] / (2.0 * np.pi * H)
+                a1[r] += _GL8_W[k] * st1[r] / (2.0 * np.pi * H)
+        for r in range(3):
+            if flags[r]:
+                J[j, r, 0] = a0[r] * dL
+                J[j, r, 1] = a1[r] * dL
+
+
 @njit(cache=True)
 def _si_sweep(F, E, dE, S0, J, Nq, Lq, Dq, jt, w, qe, Ctau, Creg, tabB, tabO, node, dt, reg, diag, exact_bin):
     """One redshift step of the transport (module notes above). F (N, 3) is updated in place.
@@ -1640,7 +1695,8 @@ def model_spec(g_mass, mediator="scalar", majorana=True, phiphi="coherent", chan
 def propagate_si(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta_mass, rho_src,
                  p_index, rho_evol, Phi_0, M, g_mass, majorana=True, channels="full",
                  phiphi="coherent", z_substeps=1, E_extension=10.0, n_u=4096,
-                 return_diagnostics=False, regeneration=True, mediator="scalar", dirac_sterile="track"):
+                 return_diagnostics=False, regeneration=True, mediator="scalar", dirac_sterile="track",
+                 Gamma_vis=0.0, thermal=False):
     """Cosmological transport of the astrophysical neutrinos under secret interactions.
 
     Arguments: E_bins -- the (geometric) energy grid of the result, eV; z_max, H0 (eV),
@@ -1656,7 +1712,11 @@ def propagate_si(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta
     z_substeps -- redshift steps per energy bin (Delta ln(1+z) = dlnE / z_substeps); E_extension --
     the grid is extended above E_bins[-1] by this factor so that what is injected above it cascades
     into it; n_u -- nodes of the pair-production spectra; regeneration -- False drops the
-    secondaries (absorption alone, for validation).
+    secondaries (absorption alone, for validation); Gamma_vis -- a visible width (eV; e.g. e+e- of a mediator coupled
+    to electrons): it widens the resonance and the s-channel events into it are absorbed without secondaries (vector
+    only); thermal -- the s-channel terms averaged over the relics' thermal momenta where that matters
+    (_thermal_resonance_terms; the dark portal's MeV regime, 2026-10-14); False keeps the relics at rest, as both
+    papers and the secret-interaction planes.
 
     Returns the (N_E, 3) mass-state fluxes at z = 0 of the visible neutrinos (both helicities), on
     E_bins; with return_diagnostics also a dict of the number and energy bookkeeping (of the first
@@ -1688,9 +1748,26 @@ def propagate_si(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta
         out = free_streaming_flux(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, rho_src, p_index, rho_evol, Phi_0)
         return (out, dict(no_coupling=True)) if return_diagnostics else out
     M2 = M * M
-    Gam = mediator_width(M, g_mass, mediator, majorana)
+    Gam = mediator_width(M, g_mass, mediator, majorana) + float(Gamma_vis)
     MG = M * Gam
     spec = model_spec(g_mass, mediator, majorana, phiphi, channels, dirac_sterile)
+    if Gamma_vis > 0.0:
+        if spec["prof"] != 1:
+            raise ValueError("secret interactions: a visible width is implemented for the vector only")
+        # the s channel's events into visible pairs: absorbed, no secondaries. In the tensors' units the final-state
+        # sum Tr(G G^dag) stands for Gamma_nu = M Tr / 24 pi, so the visible width adds 24 pi Gamma_vis / M,
+        # spread over the three secondary slots of the absorption tensor only (Creg keeps the neutrino channels)
+        X = 24.0 * np.pi * float(Gamma_vis) / M
+        kap = 1.0 if majorana else 0.5
+        Ctau = spec["Ctau"].copy()
+        Gm = np.asarray(g_mass, dtype=np.complex128)
+        for a in range(3):
+            for r in range(3):
+                add = kap * abs(Gm[r, a]) ** 2 * X / (4.0 * np.pi) / 3.0
+                for q in (0, 1):
+                    Ctau[q, a, r, :] += add
+        spec = dict(spec, Ctau=np.ascontiguousarray(Ctau))
+    eta_arr = np.asarray(eta_mass, dtype=np.float64)
     prof = spec["prof"]
     P = len(spec["jt"])
     delta_mode = str(channels).strip().lower() == "delta"
@@ -1718,6 +1795,9 @@ def propagate_si(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta
         S0 = np.ascontiguousarray(np.outer(Ep * (T_inj / dt), P_src))
         _step_integrals(E, np.exp(L_lo), np.exp(L_hi), np.exp(0.5 * (L_lo + L_hi)), masses, n0, M2, MG,
                         H0, Omega_m, Omega_L, delta_mode, prof, hbin, J, Nq, Lq, Dq)
+        if thermal and not delta_mode:
+            _thermal_resonance_terms(E, L_lo, L_hi, masses, T_nu0, eta_arr, M, MG, H0, Omega_m, Omega_L, J,
+                                     _TGL16_X, _TGL16_W, _TGL10_X, _TGL10_W, _TFD16)
         if m == K - 1 and not top_full:
             tB, tO = top
             node[:] = jj[:, None]

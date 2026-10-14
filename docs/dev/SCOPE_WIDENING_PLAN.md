@@ -132,8 +132,8 @@ couplings |C_alpha alpha|^2 (the theory notes' g_D^2 |u_alpha|^4).
 | Step | Status |
 |---|---|
 | 1. Matter charge | DONE 2026-10-14: dp_matter; electron inputs for every body (the Galaxy's emission-point table on Tycho); tests/test_matter_charge.py (16); the four validation points bit for bit against the previous code, fresh compiles on both sides (cached-vs-fresh numba builds differ by 7e-15 on their own); figure output/figures/matter_charge_sources.png |
-| 2. Texture family and couplings | in progress |
-| 3. Absorption for general couplings | DECIDED 2026-10-14 (Mauricio): each relic mass state weighted by its own flavor content, abs((C U*)_alpha i)^2, for all eight models -- the theory notes' form counts every state at the full flavor coupling (x2.2-4.2 too much absorption; output/figures/absorption_relic_weights.png, tools/absorption_relic_weights.py) |
+| 2. Texture family and couplings | DONE 2026-10-14: src/dp_models.py, the `model` config section (matter charge, texture, Lagrangian coupling, potential product, visible width); both signs of the potential (negative eps', and the analysis' `dark_portal.potential_sign`); tests/test_models.py: every gauge model against the potential-dominated closed form to 1e-8, nu and nubar (L_e - L_mu and L_e - L_tau keep the sources' flavors) |
+| 3. Absorption for general couplings | DONE 2026-10-14 with the physics audit (docs/dev/PHYSICS_AUDIT.md): each relic mass state by its own flavor content, coherent amplitudes per eigenstate, the left-handed width, the Z mixing's three pieces, visible widths, the Moller factor, the slow relics' Debye mass (localized bodies only), the MeV regime through dp_si (every collision); tests/test_absorption.py |
 | 4. Event term speed | -- |
 | 5. Configurations and maps | -- |
 | 6. Campaign | -- |

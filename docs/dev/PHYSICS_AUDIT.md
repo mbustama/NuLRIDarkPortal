@@ -122,3 +122,24 @@ Its vector transport with G = g_D u u^dag is exactly the dark portal without pot
 | 8a | HESE: IceCube's MC (all flavors, CC/NC/GR), our flux per flavor and kind | OK (2e-14 against IceCube's code) |
 | 8b | DR2 tracks: the release's nu_mu + nubar_mu effective areas only; nu_tau -> tau -> mu (17% BR, softer muons, ~3-4% of the rate for equal fluxes) absent | APPROX (flavor-dependent, small) |
 | 8c | Poisson likelihoods, nuisances, priors; standard fits reproduce IceCube (gamma 2.85 vs 2.87) | OK |
+
+## Decisions (Mauricio, 2026-10-14) and fixes
+
+| Item | Decision | Fix (code) | Checks |
+|---|---|---|---|
+| 1a | each relic mass state by its own flavor content | `dp_absorption`, `dp_cosmo._build_sigma_coupling_tables` | Z-burst normalization; universal coupling absorbs mass state j only on relic j |
+| 1b | the left-handed width M/24pi with the Lagrangian coupling (T9's) | `dp_absorption.AbsorptionSetup` (sum_G = Tr(G G^dag)/2 + 12 pi Gamma_vis / M) | old form 6x the new per target, diagonal coupling |
+| 1c | coherent amplitudes per eigenstate (the correct form of 1a) | weights (U^dag G W)_ra, (W^dag G G^dag W)_aa tabulated on the sigma nodes; `_cosmo_coherent_rates` | sum rules; eigenstates orthogonal to u untouched in the potential-dominated limit |
+| 1f, 1i | all three pieces: G = g_D u u^dag + eps' g/c_W I; e+e- and mu+mu- in the width | `dark_portal_coupling`, `z_mixing_visible_width` | width formula (the Z's 83 MeV); Gamma_nu/Gamma fractions |
+| 1e | the Moller flux factor 1 - v cos(theta) | `relic_state_rates_analytic(..., moller=True)` | against 50-digit / dense quadrature |
+| 1j | Debye mass of slow relics, mass-basis couplings, the Z-mixing piece | `dp_absorption.debye_mass_sq` | relativistic T^2/6 and non-relativistic m T ln2/pi^2 limits |
+| screening | only localized bodies (Earth, Moon, Sun, Galaxy, host galaxy); the uniform cosmological potential unscreened (no gradient, no force on the relics; no reservoir of dark charge) | cosmological coefficient with the bare mass; `transit_to_earth(m_bare=...)` and the emission points add the unscreened cosmic mean | test_screening_spares_the_uniform_cosmic_potential |
+| 1d | the MeV regime through dp_si (every collision) | `_use_si_cosmology` ('auto': cosmological potential < 1e-4 of Delta m^2_21 at every E, z), `dp_si.propagate_si(thermal=True, Gamma_vis=...)`, `_thermal_resonance_terms` | two codes' resonance agree to 0.1% (median) at 3 MeV; relics at rest overstate the dip 2x |
+| 3e | (technical) | inverted ordering: the vacuum term's m_3^2 - m_1^2 = -(|Delta m^2_32| - Delta m^2_21), as the masses read the splitting | -- |
+| 3f | both signs of the potential (dark portal, L_mu - L_tau) | the sign of g_D eps' folded into the cosmological table | test_negative_potential_sign_is_the_flipped_texture |
+
+Consequences: with eps' = 0.1 the Z mixing alone couples the mediator to every neutrino with 0.074, absorbing at MeV masses
+and giving a screening mass ~1e-4 eV that cuts off every ultralight local potential -- "u = 0" is no longer "no new
+physics" unless eps' = 0 too (tests updated). The potential planes therefore profile eps' (decided), which needs
+physical upper limits on eps' and g_D |U|^2 (fifth-force tests, neutrino self-interactions): to settle at the profile
+setup. absorption_model 'theory_notes' keeps the old form for comparisons.

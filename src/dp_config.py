@@ -107,6 +107,13 @@ def _build_default_config() -> Dict:
             "detector_depth_km": 1.5,
             "V_SM_struct": None
         },
+        "model": {
+            # The benchmark model (dp_models, decided 2026-10-14): 'dark_portal' (default), or one of
+            # the gauge models 'L_e-L_mu', 'L_e-L_tau', 'L_mu-L_tau', 'B-3L_e', 'B-3L_mu', 'B-3L_tau',
+            # 'B-3/2(L_mu+L_tau)', which set the matter charge, the texture, the neutrino coupling and
+            # the visible width; dark_portal.g_D is their gauge coupling g'.
+            "name": "dark_portal"
+        },
         "matter_charge": {
             # The potential's source, q_n n_n + q_p n_p + q_e n_e (dp_matter; docs/dev/
             # SCOPE_WIDENING_PLAN.md, 2026-10-14). In neutral matter n_p = n_e, so q_p and q_e enter
@@ -124,6 +131,18 @@ def _build_default_config() -> Dict:
             "g_D": 1.e-4,
             "epsilon_prime": 1e-1,
             "use_debye_screening": True,
+            # The resonant absorption on the relic neutrinos (dp_absorption; docs/dev/PHYSICS_AUDIT.md,
+            # decided with Mauricio 2026-10-14): 'lagrangian' -- from the mediator's coupling to the
+            # neutrinos, each relic mass state by its own flavor content, coherently per eigenstate,
+            # the left-handed width plus e+e-/mu+mu-, the Z mixing's coupling eps' g/c_W, the relics'
+            # Moller flux factor and non-relativistic Debye mass; 'theory_notes' -- the form used
+            # until then (T7, T11, T12), ~6x too much absorption, for comparisons.
+            "absorption_model": "lagrangian",
+            # The cosmological phase (2026-10-14): 'auto' -- dp_si's vector transport (every collision
+            # with the relics, thermally averaged resonance, visible width) where the cosmological
+            # potential is negligible (the MeV regime), the dark-portal phase elsewhere; 'si', 'dark_portal'
+            # force one.
+            "cosmo_transport": "auto",
             "U_LRI_struct": None
         },
         "secret_interactions": {

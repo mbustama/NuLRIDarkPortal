@@ -304,13 +304,14 @@ def test_horizon_factor_limits():
 # Sources in a host galaxy (source.host_galaxy_scale, 2026-10-13)
 # =============================================================================
 
-def _fractions(scale, m, P, eps=0.1, grid=(60, 40)):
+def _fractions(scale, m, P, eps=1e-20, grid=(60, 40)):
     import io
     import dark_portal_solver as dps
     from flux_postprocessing import compute_energy_averaged_ratios
     u = 0.0316227766
     g = P / (eps * u * u) if eps > 0 else P / (u * u)
-    cfg = {"dark_portal": dict(m_Zd_eV=m, g_D=g, epsilon_prime=eps, u_e=u, u_mu=u, u_tau=0.0),
+    cfg = {"dark_portal": dict(m_Zd_eV=m, g_D=g, epsilon_prime=eps, u_e=u, u_mu=u, u_tau=0.0,
+                               use_debye_screening=False),
            "source": {"host_galaxy_scale": scale},
            "execution": {"n_cores": 1, "verbose": 0}, "grid": dict(n_E_bins=grid[0], n_z_bins=grid[1])}
     old = sys.stdout

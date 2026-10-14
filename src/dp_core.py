@@ -278,7 +278,8 @@ def calc_debye_mass_sq(g_D: float, u_arr: np.ndarray, T_nu: float, eta_bg: np.nd
 
 
 def get_mass_eigenvalues(m_lightest: float, dm21_sq: float, dm31_sq: float, ordering: str) -> np.ndarray:
-    """Calculates the three absolute mass eigenvalues based on the lightest mass and ordering hierarchy."""
+    """Calculates the three absolute mass eigenvalues based on the lightest mass and ordering hierarchy.
+    dm31_sq is |Delta m^2_3l| (NuFIT): Delta m^2_31 for normal ordering, |Delta m^2_32| for inverted."""
     masses = np.zeros(3, dtype=np.float64)
     if ordering.lower().strip() == "inverted":
         masses[2] = m_lightest

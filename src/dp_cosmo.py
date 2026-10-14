@@ -141,6 +141,90 @@ def _build_sigma_projection_table(Q: np.ndarray, Mp: np.ndarray, s: np.ndarray, 
                 table[k, a, b] = U[a, b].real**2 + U[a, b].imag**2
     return table
 
+@njit(cache=True, parallel=True)
+def _build_sigma_coupling_tables(Q: np.ndarray, Mp: np.ndarray, s: np.ndarray, floor: float,
+                                 sigma_nodes: np.ndarray, A: np.ndarray, B: np.ndarray):
+    """The tables of the coherent absorption (dp_absorption; docs/dev/PHYSICS_AUDIT.md, 1a-1c) on the sigma nodes:
+    with W the eigenvectors of M_rot + sigma S (flavor basis, ascending eigenvalues; dp_transit.frame_at),
+      P[k, f, a]    = |W_fa|^2                       the flavor content of eigenstate a (injection),
+      Qabs[k, r, a] = |(A W)_ra|^2 / 2,  A = U^dag G  the weight of eigenstate a on relic mass state r,
+      Qreg[k, a]    = Re (W^dag B W)_aa / 2, B = G G^dag  the weight of the decays' neutrinos in eigenstate a,
+    in the absorption kernel's units (Gamma_in = w M / 12 pi). Like P, they depend on (E, z) only through sigma."""
+    n = len(sigma_nodes)
+    P = np.zeros((n, 3, 3), dtype=np.float64)
+    Qabs = np.zeros((n, 3, 3), dtype=np.float64)
+    Qreg = np.zeros((n, 3), dtype=np.float64)
+    for k in prange(n):
+        vals = np.empty(3)
+        W = np.empty((3, 3), dtype=np.complex128)
+        frame_at(Q, Mp, s, floor, sigma_nodes[k], vals, W)
+        for f in range(3):
+            for a in range(3):
+                P[k, f, a] = W[f, a].real**2 + W[f, a].imag**2
+        for r in range(3):
+            for a in range(3):
+                acc = 0.0 + 0.0j
+                for f in range(3):
+                    acc += A[r, f] * W[f, a]
+                Qabs[k, r, a] = 0.5 * (acc.real**2 + acc.imag**2)
+        for a in range(3):
+            acc = 0.0 + 0.0j
+            for f in range(3):
+                for g in range(3):
+                    acc += np.conj(W[f, a]) * B[f, g] * W[g, a]
+            Qreg[k, a] = 0.5 * acc.real
+    return P, Qabs, Qreg
+
+
+@njit(fastmath=True, error_model="numpy", cache=True, parallel=True)
+def _cosmo_coherent_rates(E_bins: np.ndarray, P_table: np.ndarray, Qabs_table: np.ndarray,
+                          Qreg_table: np.ndarray, log_s0: float, inv_dlogs: float, c_z: float,
+                          Gamma_state: np.ndarray, inv_sum_G: float, P_out: np.ndarray, G_out: np.ndarray,
+                          brp_out: np.ndarray):
+    """One z-step's rates per eigenstate from the coupling tables (interpolated linearly in log|sigma|, as
+    _cosmo_projections): G_out[i, a] = sum_r Gamma_state[i, r] Qabs[r, a] (Gamma_state: each relic state's rate per
+    unit weight, dp_thermal.relic_state_grid_cached), brp_out[i, a] = Qreg[a] / sum_G (the fraction of the decays
+    giving a neutrino in eigenstate a; their sum is Gamma_nu / Gamma), P_out the flavor contents."""
+    N_E = len(E_bins)
+    N_sig = P_table.shape[0]
+    for i in prange(N_E):
+        sig = np.abs(E_bins[i] * c_z)
+        if sig <= 0.0:
+            f = 0.0
+        else:
+            f = (np.log(sig) - log_s0) * inv_dlogs
+        k0 = int(f)
+        if k0 < 0:
+            k0 = 0
+        elif k0 > N_sig - 2:
+            k0 = N_sig - 2
+        w = f - k0
+        if w < 0.0:
+            w = 0.0
+        elif w > 1.0:
+            w = 1.0
+        for a in range(3):
+            for b in range(3):
+                P_out[i, a, b] = (1.0 - w) * P_table[k0, a, b] + w * P_table[k0 + 1, a, b]
+            g = 0.0
+            for r in range(3):
+                g += Gamma_state[i, r] * ((1.0 - w) * Qabs_table[k0, r, a] + w * Qabs_table[k0 + 1, r, a])
+            G_out[i, a] = g
+            brp_out[i, a] = ((1.0 - w) * Qreg_table[k0, a] + w * Qreg_table[k0 + 1, a]) * inv_sum_G
+
+
+@njit(fastmath=True, error_model="numpy", cache=True)
+def _cosmo_flavor_rates(P: np.ndarray, Gamma_flavor: np.ndarray, BR: np.ndarray, G_out: np.ndarray,
+                        brp_out: np.ndarray):
+    """The theory notes' form (absorption_model 'theory_notes'): flavor rates and branching projected on the
+    eigenstates without interference, G[i, a] = sum_f P[i, f, a] Gamma_f, brp[i, a] = sum_f P[i, f, a] BR_f."""
+    for i in range(P.shape[0]):
+        for a in range(3):
+            G_out[i, a] = (P[i, 0, a] * Gamma_flavor[i, 0] + P[i, 1, a] * Gamma_flavor[i, 1]
+                           + P[i, 2, a] * Gamma_flavor[i, 2])
+            brp_out[i, a] = P[i, 0, a] * BR[0] + P[i, 1, a] * BR[1] + P[i, 2, a] * BR[2]
+
+
 @njit(fastmath=True, error_model="numpy", cache=True)
 def _absorption_factors(G: float, dt: float):
     """For dF/dt = -G F + S over a step dt with constant G and S: returns
@@ -190,19 +274,20 @@ def _cosmo_projections(E_bins: np.ndarray, P_table: np.ndarray, log_s0: float, i
 
 
 @njit(fastmath=True, error_model="numpy", cache=True)
-def step_cosmological_pair(z: float, dt: float, R_z: float, E_bins: np.ndarray,
-                           F_nu: np.ndarray, F_nb: np.ndarray, w_nu: float, w_nb: float,
-                           rho_src: np.ndarray,
-                           P_table_nu: np.ndarray, log_s0_nu: float, inv_dlogs_nu: float, c_z_nu: float,
-                           P_table_nb: np.ndarray, log_s0_nb: float, inv_dlogs_nb: float, c_z_nb: float,
-                           p_index: float, Phi_0: float, BR: np.ndarray,
-                           W3: np.ndarray, pref3: np.ndarray, self_same: np.ndarray,
-                           W1: np.ndarray, W2: np.ndarray, c1: np.ndarray, c2: np.ndarray,
-                           self_cross: np.ndarray, P_nu: np.ndarray, P_nb: np.ndarray,
-                           Gamma_flavor: np.ndarray, R_nu: np.ndarray, R_nb: np.ndarray,
-                           c_inj_nu: float, c_inj_nb: float, P_inj_nu: np.ndarray,
-                           P_inj_nb: np.ndarray):
-    """One cosmological z-step for neutrinos and antineutrinos together: absorption on the
+def step_cosmological_rates(z: float, dt: float, R_z: float, E_bins: np.ndarray,
+                            F_nu: np.ndarray, F_nb: np.ndarray, w_nu: float, w_nb: float,
+                            rho_src: np.ndarray, Pi_nu: np.ndarray, Pi_nb: np.ndarray,
+                            G_nu: np.ndarray, G_nb: np.ndarray, brp_nu: np.ndarray, brp_nb: np.ndarray,
+                            p_index: float, Phi_0: float,
+                            W3: np.ndarray, pref3: np.ndarray, self_same: np.ndarray,
+                            W1: np.ndarray, W2: np.ndarray, c1: np.ndarray, c2: np.ndarray,
+                            self_cross: np.ndarray, R_nu: np.ndarray, R_nb: np.ndarray):
+    """step_cosmological_pair with this step's rates given per eigenstate: Pi_* (N_E, 3, 3) the flavor contents
+    of the eigenstates at the sources (injection), G_* (N_E, 3) the absorption rates (eV), brp_* (N_E, 3) the
+    fraction of each absorption's decays that gives a neutrino of that kind in each eigenstate (_cosmo_coherent_rates
+    or _cosmo_flavor_rates). The rest as below.
+
+    One cosmological z-step for neutrinos and antineutrinos together: absorption on the
     relic neutrinos, regeneration of the absorbed flux at lower energies (the cascade), and
     injection, per mass state.
 
@@ -242,16 +327,6 @@ def step_cosmological_pair(z: float, dt: float, R_z: float, E_bins: np.ndarray,
     integrals the step balances number exactly for any G dt: every absorption adds one
     particle, less the secondaries that fall below the grid."""
     N_E = len(E_bins)
-    _cosmo_projections(E_bins, P_table_nu, log_s0_nu, inv_dlogs_nu, c_z_nu, P_nu)
-    _cosmo_projections(E_bins, P_table_nb, log_s0_nb, inv_dlogs_nb, c_z_nb, P_nb)
-    Pi_nu = P_nu
-    Pi_nb = P_nb
-    if c_inj_nu != c_z_nu:
-        _cosmo_projections(E_bins, P_table_nu, log_s0_nu, inv_dlogs_nu, c_inj_nu, P_inj_nu)
-        Pi_nu = P_inj_nu
-    if c_inj_nb != c_z_nb:
-        _cosmo_projections(E_bins, P_table_nb, log_s0_nb, inv_dlogs_nb, c_inj_nb, P_inj_nb)
-        Pi_nb = P_inj_nb
     # running sums over parents j > i of R_j W_j for each species (W3 doubles as the
     # same-species kernel and the cross kernel's third term)
     s3_nu = 0.0
@@ -293,9 +368,8 @@ def step_cosmological_pair(z: float, dt: float, R_z: float, E_bins: np.ndarray,
         C_b = 0.0
         for a in range(3):
             # neutrinos
-            G = (P_nu[i, 0, a] * Gamma_flavor[i, 0] + P_nu[i, 1, a] * Gamma_flavor[i, 1]
-                 + P_nu[i, 2, a] * Gamma_flavor[i, 2])
-            brp = P_nu[i, 0, a] * BR[0] + P_nu[i, 1, a] * BR[1] + P_nu[i, 2, a] * BR[2]
+            G = G_nu[i, a]
+            brp = brp_nu[i, a]
             inj = (Pi_nu[i, 0, a] * rho_src[0] + Pi_nu[i, 1, a] * rho_src[1]
                    + Pi_nu[i, 2, a] * rho_src[2]) * inj_spectrum * w_nu
             e, a1, g = _absorption_factors(G, dt)
@@ -311,9 +385,8 @@ def step_cosmological_pair(z: float, dt: float, R_z: float, E_bins: np.ndarray,
             q_n[a] = q
             c_n[a] = c
             # antineutrinos
-            G = (P_nb[i, 0, a] * Gamma_flavor[i, 0] + P_nb[i, 1, a] * Gamma_flavor[i, 1]
-                 + P_nb[i, 2, a] * Gamma_flavor[i, 2])
-            brp = P_nb[i, 0, a] * BR[0] + P_nb[i, 1, a] * BR[1] + P_nb[i, 2, a] * BR[2]
+            G = G_nb[i, a]
+            brp = brp_nb[i, a]
             inj = (Pi_nb[i, 0, a] * rho_src[0] + Pi_nb[i, 1, a] * rho_src[1]
                    + Pi_nb[i, 2, a] * rho_src[2]) * inj_spectrum * w_nb
             e, a1, g = _absorption_factors(G, dt)
@@ -345,6 +418,44 @@ def step_cosmological_pair(z: float, dt: float, R_z: float, E_bins: np.ndarray,
         s1_nb += Rb * W1[i]
         s2_nu += Rn * W2[i]
         s2_nb += Rb * W2[i]
+
+
+@njit(fastmath=True, error_model="numpy", cache=True)
+def step_cosmological_pair(z: float, dt: float, R_z: float, E_bins: np.ndarray,
+                           F_nu: np.ndarray, F_nb: np.ndarray, w_nu: float, w_nb: float,
+                           rho_src: np.ndarray,
+                           P_table_nu: np.ndarray, log_s0_nu: float, inv_dlogs_nu: float, c_z_nu: float,
+                           P_table_nb: np.ndarray, log_s0_nb: float, inv_dlogs_nb: float, c_z_nb: float,
+                           p_index: float, Phi_0: float, BR: np.ndarray,
+                           W3: np.ndarray, pref3: np.ndarray, self_same: np.ndarray,
+                           W1: np.ndarray, W2: np.ndarray, c1: np.ndarray, c2: np.ndarray,
+                           self_cross: np.ndarray, P_nu: np.ndarray, P_nb: np.ndarray,
+                           Gamma_flavor: np.ndarray, R_nu: np.ndarray, R_nb: np.ndarray,
+                           c_inj_nu: float, c_inj_nb: float, P_inj_nu: np.ndarray,
+                           P_inj_nb: np.ndarray):
+    """One cosmological z-step in the theory notes' absorption form (flavor rates Gamma_flavor (N_E, 3) and flavor
+    branching BR projected on the eigenstates without interference; absorption_model 'theory_notes'): the
+    projections, then step_cosmological_rates."""
+    N_E = len(E_bins)
+    _cosmo_projections(E_bins, P_table_nu, log_s0_nu, inv_dlogs_nu, c_z_nu, P_nu)
+    _cosmo_projections(E_bins, P_table_nb, log_s0_nb, inv_dlogs_nb, c_z_nb, P_nb)
+    Pi_nu = P_nu
+    Pi_nb = P_nb
+    if c_inj_nu != c_z_nu:
+        _cosmo_projections(E_bins, P_table_nu, log_s0_nu, inv_dlogs_nu, c_inj_nu, P_inj_nu)
+        Pi_nu = P_inj_nu
+    if c_inj_nb != c_z_nb:
+        _cosmo_projections(E_bins, P_table_nb, log_s0_nb, inv_dlogs_nb, c_inj_nb, P_inj_nb)
+        Pi_nb = P_inj_nb
+    G_nu = np.empty((N_E, 3))
+    G_nb = np.empty((N_E, 3))
+    b_nu = np.empty((N_E, 3))
+    b_nb = np.empty((N_E, 3))
+    _cosmo_flavor_rates(P_nu, Gamma_flavor, BR, G_nu, b_nu)
+    _cosmo_flavor_rates(P_nb, Gamma_flavor, BR, G_nb, b_nb)
+    step_cosmological_rates(z, dt, R_z, E_bins, F_nu, F_nb, w_nu, w_nb, rho_src, Pi_nu, Pi_nb, G_nu, G_nb,
+                            b_nu, b_nb, p_index, Phi_0, W3, pref3, self_same, W1, W2, c1, c2, self_cross,
+                            R_nu, R_nb)
 
 
 def cascade_kernel_weights(E_bins: np.ndarray):

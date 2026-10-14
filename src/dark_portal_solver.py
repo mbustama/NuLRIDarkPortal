@@ -44,14 +44,16 @@ from dp_thermal import (  # noqa: F401
     thermal_averaged_rates_flavor, _seg_moment_atan, _seg_moment_log,
     thermal_averaged_rates_flavor_analytic, precompute_all_thermal_rates_analytic,
     precompute_all_thermal_rates, _interp_thermal_grid_z, build_thermal_grid, absorption_normalization,
-    thermal_grid_cached, _tc_cache, _tc_try_fit, compute_gamma_grid_inputs,
+    thermal_grid_cached, _tc_cache, _tc_try_fit, compute_gamma_grid_inputs, relic_state_grid_cached,
     _GL16_X, _GL16_W, _GL10_X, _GL10_W, _FD16,
 )
 from dp_transit import texture_scales  # noqa: F401
 import dp_matter
+import dp_absorption
 from dp_cosmo import (  # noqa: F401
     calc_H_Hubble, calc_R_source, calc_V_LRI_cosmo, get_adiabatic_mixing_cosmo, yukawa_horizon_inv_m2,
     _build_sigma_projection_table, step_cosmological_pair, cascade_kernel_weights, cross_kernel_weights,
+    _build_sigma_coupling_tables, _cosmo_coherent_rates, _cosmo_projections, step_cosmological_rates,
 )
 from dp_spatial import (  # noqa: F401
     calc_MW_neutron_density, calc_earth_density, get_baseline_earth,
@@ -116,7 +118,9 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                        earth_sky: str = "up",
                        host_galaxy_scale: float = 0.0,
                        earth_band_costh=None, earth_nodes_per_band: int = 2, sun_path_cos=None,
-                       arrival_flavor=None, arrival_basis: str = "flavor", matter_charge=None):
+                       arrival_flavor=None, arrival_basis: str = "flavor", matter_charge=None,
+                       absorption_model: str = "lagrangian", G_coupling=None, Gamma_vis=None,
+                       si_cosmology: bool = False, si_settings=None, potential_product=None):
     """
     Executes the complete spectrum integration, driving the underlying JIT kernels.
     Neutrinos and antineutrinos are evolved together through the cosmological phase (an
@@ -171,6 +175,21 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         detector per unit flux emitted, per energy. arrival_basis = 'eigen': arrival_flavor holds instead
         the populations of the local eigenstates (ascending eigenvalues) -- the Sun and the Earth's response
         to each of them, for emission points elsewhere in the Galaxy (step 6, _galactic_transfer).
+      absorption_model: 'lagrangian' (the default since 2026-10-14; dp_absorption, docs/dev/PHYSICS_AUDIT.md
+        1a-1c, 1e, 1f, 1i, 1j): the resonant absorption from the mediator's coupling to the neutrinos G (default
+        the dark portal's g_D u u^dag + eps' g/c_W I), each eigenstate weighted on each relic mass state by
+        |(U^dag G W)_ra|^2, the width M Tr(G G^dag)/24 pi plus Gamma_vis (default the Z mixing's e+e- and mu+mu-),
+        the decays' neutrinos in the eigenstates by (W^dag G G^dag W)_aa, the relics' Moller flux factor and their
+        non-relativistic Debye mass; or 'theory_notes', the form used until then (T7, T11, T12). G_coupling,
+        Gamma_vis override the dark portal's coupling and visible width (other models).
+      si_cosmology: the cosmological phase from dp_si's vector transport instead (decided 2026-10-14 for the MeV
+        regime, where the cosmological potential is negligible: _use_si_cosmology) -- every collision with the
+        relics (the s-channel resonance averaged over their thermal momenta, t and u exchange, pair production),
+        mass state by mass state, with the coupling's mass-basis form and the visible width; the arriving mass
+        states then cross the Galaxy, the Sun and the Earth as usual. si_settings: dp_si's z_substeps and
+        E_extension (default 1 and 10).
+      potential_product: the coupling product of the potential, K n / m^2 times it (the theory notes' Eq. 9 has
+        g_D eps', the default); dp_models gives the eight benchmarks' (g^2 / K for the direct gauge models).
       matter_charge: None (the potential's source is the neutrons, as the theory notes' Eq. T9 has it) or a
         dp_matter.MatterCharge (docs/dev/SCOPE_WIDENING_PLAN.md): every density -- the cosmic mean, the host
         galaxy, the Galaxy, the Sun, the Moon, the Earth -- is then that charge's, and its sign multiplies the
@@ -225,10 +244,29 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
     N_E = len(E_bins)
     dz = z_bins[0] - z_bins[1]
 
+    pp = g_D * eps_prime if potential_product is None else float(potential_product)
+    if absorption_model not in ("lagrangian", "theory_notes"):
+        raise ValueError(f"absorption_model must be 'lagrangian' or 'theory_notes', got {absorption_model!r}")
+    lagrangian = absorption_model == "lagrangian"
     sum_G, sum_G_alpha, eta_mass = compute_gamma_grid_inputs(U_pmns, u_arr, g_D, eps_prime, eta_bg)
     BR = np.zeros(3, dtype=np.float64)
     if sum_G > 0:
         BR = sum_G_alpha / sum_G
+    ab = None
+    if lagrangian:
+        G_c = dp_absorption.dark_portal_coupling(g_D, u_arr, eps_prime) if G_coupling is None else G_coupling
+        G_vis = dp_absorption.z_mixing_visible_width(m_Zd, eps_prime) if Gamma_vis is None else float(Gamma_vis)
+        ab = (dp_absorption.AbsorptionSetup(G_c, U_pmns, m_Zd, G_vis, anti=False),
+              dp_absorption.AbsorptionSetup(G_c, U_pmns, m_Zd, G_vis, anti=True))
+        sum_G = ab[0].sum_G
+
+    def debye_sq(T_nu):
+        """The mediator's Debye mass squared at relic temperature T_nu (0 without screening)."""
+        if not use_debye_screening:
+            return 0.0
+        if lagrangian:
+            return dp_absorption.debye_mass_sq(ab[0].G_mass_diag2, m_nu_bg_arr, T_nu, eta_mass)
+        return calc_debye_mass_sq(g_D, u_arr, T_nu, eta_bg)
 
     # Pre-compute the thermal interaction rates for the entire grid before sequential stepping
     # (the same for both kinds); reuse the caller's grid when given one. Sources inside the Galaxy
@@ -240,8 +278,12 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
     else:
         if verbose == 2:
             safe_print(f"Pre-computing thermal interaction rate grids...")
-        Gamma_grid_all = build_thermal_grid(E_bins, z_bins, sum_G, sum_G_alpha, m_Zd, m_nu_bg_arr, T_nu0, eta_mass,
-                                            n_z_thermal=n_z_thermal, thermal_analytic=thermal_analytic)
+        if lagrangian:
+            Gamma_grid_all = relic_state_grid_cached(E_bins, z_bins, sum_G, m_Zd, m_nu_bg_arr, T_nu0, eta_mass,
+                                                     moller=True)
+        else:
+            Gamma_grid_all = build_thermal_grid(E_bins, z_bins, sum_G, sum_G_alpha, m_Zd, m_nu_bg_arr, T_nu0,
+                                                eta_mass, n_z_thermal=n_z_thermal, thermal_analytic=thermal_analytic)
 
     # DOMAIN CHECK: a non-finite rate grid would propagate NaN silently through the whole
     # z-loop and out of the final flux (historically: an all-NaN spectrum with no hint of
@@ -262,20 +304,23 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
     g_weak_ = 0.65
     for k in range(len(z_bins)):
         zk = z_bins[k]
-        m_D_sq_k = calc_debye_mass_sq(g_D, u_arr, T_nu0 * (1.0 + zk), eta_bg) if use_debye_screening else 0.0
+        # The uniform cosmological potential is not screened by the relics (no gradient, so no force on them,
+        # and no reservoir of dark charge; decided 2026-10-14, docs/dev/PHYSICS_AUDIT.md): the bare mass under
+        # the corrected absorption; the theory notes' Eq. 9 form screens it.
+        m_D_sq_k = 0.0 if lagrangian else debye_sq(T_nu0 * (1.0 + zk))
         inv_m2 = yukawa_horizon_inv_m2(m_Zd**2 + m_D_sq_k, 1.0 / calc_H_Hubble(zk, H0, Omega_m, Omega_L))
-        A_k = (g_D * eps_prime) * inv_m2 * (4.0 * c_W_ * m_Z_**2 / g_weak_) * (np.sqrt(2.0) / 2.0 * G_F * n_q0 * (1.0 + zk)**3)
+        A_k = pp * inv_m2 * (4.0 * c_W_ * m_Z_**2 / g_weak_) * (np.sqrt(2.0) / 2.0 * G_F * n_q0 * (1.0 + zk)**3)
         c_z_arr[k] = 2.0 * (1.0 + zk) * A_k
 
     # The coordinate at emission: the cosmic mean (c_inj = c_z, bit for bit) unless the sources
     # sit in a host galaxy, whose neutrons do not dilute with (1+z)^3 (a bound structure).
     c_inj_arr = c_z_arr.copy()
-    if host_galaxy_scale > 0.0 and g_D * eps_prime != 0.0:
+    if host_galaxy_scale > 0.0 and pp != 0.0:
         import dp_transit
         K_ = (4.0 * c_W_ * m_Z_**2 / g_weak_) * (np.sqrt(2.0) / 2.0 * G_F)
         for k in range(len(z_bins)):
             zk = z_bins[k]
-            m_D_sq_k = calc_debye_mass_sq(g_D, u_arr, T_nu0 * (1.0 + zk), eta_bg) if use_debye_screening else 0.0
+            m_D_sq_k = debye_sq(T_nu0 * (1.0 + zk))
             m_eff_sq = m_Zd**2 + m_D_sq_k
             R_H_k = 1.0 / calc_H_Hubble(zk, H0, Omega_m, Omega_L)
             if matter_charge is None:
@@ -283,7 +328,7 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
             else:
                 n_host = host_galaxy_scale * dp_matter.galactic_effective_density(
                     matter_charge, np.sqrt(m_eff_sq), 0.0, R_H_k, n_e0_eV3=0.0)
-            c_inj_arr[k] = c_z_arr[k] + 2.0 * (1.0 + zk) * (g_D * eps_prime) * K_ * n_host / m_eff_sq
+            c_inj_arr[k] = c_z_arr[k] + 2.0 * (1.0 + zk) * pp * K_ * n_host / m_eff_sq
     elif host_galaxy_scale < 0.0:
         raise ValueError(f"source.host_galaxy_scale must be >= 0, got {host_galaxy_scale}")
 
@@ -298,7 +343,9 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         # H(sigma) = M_rot + sigma * S_signed, tabulated over |sigma| with the sign folded into S (the
         # antineutrinos' and a negative matter charge's)
         S_signed = np.ascontiguousarray(-S_eff if anti else S_eff)
-        if q_sign < 0.0:
+        # a negative matter charge, or a negative coupling product g_D eps' (both signs of the dark portal's
+        # potential are physical, 2026-10-14): the table's sigma is |E c_z|, so the sign goes into S
+        if q_sign * np.sign(pp) < 0.0:
             S_signed = np.ascontiguousarray(-S_signed)
         abs_c = np.abs(np.concatenate([c_z, c_inj]))
         Q_t, s_t, Mp_t, floor_t, sig_lo_t, sig_hi_t = texture_scales(M_rot, S_signed)
@@ -310,8 +357,16 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
             sig_max = max(sig_hi_t, sig_min * 2.0)
         N_sigma = 4096
         sigma_nodes = np.geomspace(sig_min, sig_max, N_sigma)
-        P_table = _build_sigma_projection_table(Q_t, Mp_t, s_t, floor_t, sigma_nodes)
+        Qabs_t = Qreg_t = None
+        if lagrangian:
+            ab_s = ab[1] if anti else ab[0]
+            P_table, Qabs_t, Qreg_t = _build_sigma_coupling_tables(Q_t, Mp_t, s_t, floor_t, sigma_nodes,
+                                                                   ab_s.A, ab_s.B)
+        else:
+            P_table = _build_sigma_projection_table(Q_t, Mp_t, s_t, floor_t, sigma_nodes)
         species.append(dict(anti=anti, u=u_s, M_rot=M_rot, S_eff=S_eff, V_SM_eff=V_SM_eff, c_z=c_z,
+                            Qabs_table=Qabs_t, Qreg_table=Qreg_t, G_step=np.zeros((N_E, 3)),
+                            brp_step=np.zeros((N_E, 3)),
                             c_inj=c_inj, P_inj=np.zeros((N_E, 3, 3), dtype=np.float64),
                             P_table=P_table, log_s0=np.log(sigma_nodes[0]),
                             inv_dlogs=(N_sigma - 1) / np.log(sig_max / sig_min),
@@ -319,11 +374,13 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                             R=np.zeros(N_E, dtype=np.float64)))
     nu, nb = species
 
+    inv_sum_G = 1.0 / sum_G if sum_G > 0.0 else 0.0
+
     # The cascade kernels' exact bin integrals depend only on the (fixed) energy grid
     W3, pref3, self_same = cascade_kernel_weights(E_bins)
     W1, W2, c1, c2, self_cross = cross_kernel_weights(E_bins)
 
-    z_steps = range(1, len(z_bins)) if arrival_flavor is None else range(0)
+    z_steps = range(1, len(z_bins)) if (arrival_flavor is None and not si_cosmology) else range(0)
     iterator = tqdm(z_steps, desc="Cosmo Phase", leave=False) if (dp_core.HAS_TQDM and show_progress) else z_steps
     z_print_mod = max(1, len(z_bins) // 10)
     if verbose == 2:
@@ -334,16 +391,51 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         R_z = calc_R_source(z, rho_evol)
         if verbose == 2 and k % z_print_mod == 0:
             safe_print(f"Cosmological propagation: currently integrating at redshift z = {z:.4f}")
-        step_cosmological_pair(z, dt, R_z, E_bins, nu["F"], nb["F"], w_nu, w_nb, rho_src,
-                               nu["P_table"], nu["log_s0"], nu["inv_dlogs"], nu["c_z"][k],
-                               nb["P_table"], nb["log_s0"], nb["inv_dlogs"], nb["c_z"][k],
-                               p_index, Phi_0, BR, W3, pref3, self_same, W1, W2, c1, c2, self_cross,
-                               nu["P_all"], nb["P_all"], np.ascontiguousarray(Gamma_grid_all[k, :, :]),
-                               nu["R"], nb["R"], nu["c_inj"][k], nb["c_inj"][k], nu["P_inj"], nb["P_inj"])
+        if not lagrangian:
+            step_cosmological_pair(z, dt, R_z, E_bins, nu["F"], nb["F"], w_nu, w_nb, rho_src,
+                                   nu["P_table"], nu["log_s0"], nu["inv_dlogs"], nu["c_z"][k],
+                                   nb["P_table"], nb["log_s0"], nb["inv_dlogs"], nb["c_z"][k],
+                                   p_index, Phi_0, BR, W3, pref3, self_same, W1, W2, c1, c2, self_cross,
+                                   nu["P_all"], nb["P_all"], np.ascontiguousarray(Gamma_grid_all[k, :, :]),
+                                   nu["R"], nb["R"], nu["c_inj"][k], nb["c_inj"][k], nu["P_inj"], nb["P_inj"])
+            continue
+        G_state = np.ascontiguousarray(Gamma_grid_all[k, :, :])
+        Pis = []
+        for sp in species:
+            _cosmo_coherent_rates(E_bins, sp["P_table"], sp["Qabs_table"], sp["Qreg_table"], sp["log_s0"],
+                                  sp["inv_dlogs"], sp["c_z"][k], G_state, inv_sum_G, sp["P_all"], sp["G_step"],
+                                  sp["brp_step"])
+            Pi = sp["P_all"]
+            if sp["c_inj"][k] != sp["c_z"][k]:
+                _cosmo_projections(E_bins, sp["P_table"], sp["log_s0"], sp["inv_dlogs"], sp["c_inj"][k], sp["P_inj"])
+                Pi = sp["P_inj"]
+            Pis.append(Pi)
+        step_cosmological_rates(z, dt, R_z, E_bins, nu["F"], nb["F"], w_nu, w_nb, rho_src, Pis[0], Pis[1],
+                                nu["G_step"], nb["G_step"], nu["brp_step"], nb["brp_step"], p_index, Phi_0,
+                                W3, pref3, self_same, W1, W2, c1, c2, self_cross, nu["R"], nb["R"])
     if verbose == 2:
         safe_print(f"Cosmological baseline finished at z = {z_bins[-1]:.4f}.")
 
     arrival = "eigen"
+    if si_cosmology and arrival_flavor is None:
+        if not lagrangian:
+            raise ValueError("si_cosmology needs absorption_model = 'lagrangian'")
+        import dp_si
+        st = dict(z_substeps=1, E_extension=10.0)
+        st.update(si_settings or {})
+        g_mass = dp_si.mass_basis_couplings_model(ab[0].G, U_pmns, "vector", True)
+        w_tot = w_nu + w_nb
+        F_mass = dp_si.propagate_si(E_bins, float(z_bins[0]), H0, Omega_m, Omega_L, U_pmns, m_nu_bg_arr, T_nu0,
+                                    eta_mass, rho_src, p_index, rho_evol, Phi_0 * w_tot, m_Zd, g_mass,
+                                    majorana=True, channels="full", mediator="vector",
+                                    z_substeps=int(st["z_substeps"]), E_extension=float(st["E_extension"]),
+                                    Gamma_vis=ab[0].Gamma_vis, thermal=True)
+        # dp_si carries both kinds of each mass state together (exact for their sum, the interaction conserving CP
+        # to O(Gamma/M)); split in the injection's proportions; the arrival's eigenstates are the mass states
+        # (no potential) in ascending order of the vacuum term
+        order = np.argsort(np.real(np.diag(M_sq)))
+        for sp, w_s in zip(species, (w_nu, w_nb)):
+            sp["F"] = np.ascontiguousarray(F_mass[:, order] * (w_s / w_tot if w_tot > 0 else 0.0))
     if arrival_flavor is not None:
         f_arr = np.asarray(arrival_flavor, dtype=np.float64)
         if f_arr.shape != (3,) or np.any(f_arr < 0.0):
@@ -375,7 +467,9 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                                           earth_sky=earth_sky, earth_band_costh=earth_band_costh,
                                           earth_nodes_per_band=earth_nodes_per_band,
                                           sun_path_cos=sun_path_cos, arrival=arrival,
-                                          matter_charge=matter_charge)
+                                          matter_charge=matter_charge,
+                                          debye_sq_z0=(debye_sq(T_nu0) if lagrangian else None),
+                                          potential_product=pp)
         if earth_band_costh is not None:
             F_earth, F_bands = F_earth
             if not np.isfinite(F_bands).all():
@@ -442,6 +536,53 @@ def save_flux_to_file(E_array: np.ndarray, Flux_array: np.ndarray, filename: str
     safe_print(f"\nFlux data saved to: {os.path.abspath(filename)}")
 
 
+SI_COSMOLOGY_MIN_M_EV = 1e3
+
+
+def _use_si_cosmology(params: Dict, E_bins: np.ndarray) -> bool:
+    """Whether the cosmological phase goes through dp_si's vector transport (dark_portal.cosmo_transport: 'auto' --
+    when the cosmological potential, and the host galaxy's, stay below 1e-4 of the smallest vacuum splitting at every
+    energy and redshift, i.e. the MeV regime, decided 2026-10-14; 'si' forces it, 'dark_portal' never). The bound
+    used: sigma = 2 E (1+z) V <= 2 E_max (1+z_max)^4 |g_D eps'| K n_max / m^2, n_max the larger of the cosmic charge
+    density at z_max and a host galaxy's local one."""
+    mode = str(params.get('cosmo_transport', 'auto')).strip().lower()
+    if mode not in ('auto', 'si', 'dark_portal'):
+        raise ValueError(f"dark_portal.cosmo_transport must be 'auto', 'si' or 'dark_portal', got {mode!r}")
+    if mode == 'dark_portal' or params.get('absorption_model', 'lagrangian') != 'lagrangian':
+        return False
+    if mode == 'si':
+        return True
+    m = float(params['m_Zd_eV'])
+    if m < SI_COSMOLOGY_MIN_M_EV:
+        # dp_si's collision tables are built and validated for keV and heavier mediators (its planes); below,
+        # the resonance falls below the band and the dark-portal phase (resonance only) is used
+        return False
+    K = (4.0 * 0.88 * (91.18 * GeV) ** 2 / 0.65) * (np.sqrt(2.0) / 2.0 * G_F)
+    n_q0 = dp_matter.cosmic_density(params.get('matter_charge', None), params['n_n0_eV3'])
+    zp1 = 1.0 + float(params['z_max'])
+    n_max = n_q0 * zp1 ** 3
+    s_host = float(params.get('host_galaxy_scale', 0.0))
+    if s_host > 0.0:
+        from dp_spatial import calc_MW_neutron_density
+        n_max = max(n_max, s_host * calc_MW_neutron_density(0.0, 0.0, 0.0) * cm_inv3_to_eV3 * 10.0)
+    pp = params.get('potential_product', None)
+    coupling = abs(float(params['g_D']) * float(params['epsilon_prime']) if pp is None else float(pp))
+    sigma_max = 2.0 * float(E_bins[-1]) * zp1 * coupling * K * n_max / (m * m)
+    return sigma_max < 1e-4 * float(params['dm21_sq'])
+
+
+def _absorption_setup(params: Dict, U_pmns: np.ndarray, u_arr: np.ndarray, anti: bool = False):
+    """dp_absorption.AbsorptionSetup of a parameter point: the coupling (params['G_coupling'], else the dark
+    portal's) and the visible width (params['Gamma_vis'], else the Z mixing's)."""
+    G_c = params.get('G_coupling', None)
+    if G_c is None:
+        G_c = dp_absorption.dark_portal_coupling(params['g_D'], u_arr, params['epsilon_prime'])
+    G_vis = params.get('Gamma_vis', None)
+    if G_vis is None:
+        G_vis = dp_absorption.z_mixing_visible_width(params['m_Zd_eV'], params['epsilon_prime'])
+    return dp_absorption.AbsorptionSetup(G_c, U_pmns, params['m_Zd_eV'], G_vis, anti=anti)
+
+
 def _flux_setup(E_bins: np.ndarray, params: Dict) -> Dict:
     """Per-run quantities shared by every flux of one parameter point: the redshift grid,
     the source vector, the mass and mixing matrices and the thermal-rate grid (identical
@@ -454,7 +595,10 @@ def _flux_setup(E_bins: np.ndarray, params: Dict) -> Dict:
     rho_src = np.array([params['f_e_S'], params['f_mu_S'], params['f_tau_S']], dtype=np.float64)
     
     ordering = str(params.get('mass_ordering', 'normal')).strip().lower()
-    dm31_sq_signed = -params['dm31_sq'] if ordering == "inverted" else params['dm31_sq']
+    # Inverted ordering: the configured splitting is |Delta m^2_32| (NuFIT's Delta m^2_3l, l = 2), as the
+    # absolute masses read it (dp_core.get_mass_eigenvalues), so m_3^2 - m_1^2 = -(|Delta m^2_32| - Delta m^2_21);
+    # until 2026-10-14 this entry was -|Delta m^2_32| (docs/dev/PHYSICS_AUDIT.md, 3e). Normal: Delta m^2_31.
+    dm31_sq_signed = (-params['dm31_sq'] + params['dm21_sq']) if ordering == "inverted" else params['dm31_sq']
     
     # Enforce C-contiguous alignment for the initial matrix state
     M_sq = np.ascontiguousarray(np.diag([0.0, params['dm21_sq'], dm31_sq_signed]).astype(np.complex128))
@@ -488,12 +632,21 @@ def _flux_setup(E_bins: np.ndarray, params: Dict) -> Dict:
     # interpolate (grid.n_z_thermal; OFF by default -- see its docstring for the measured
     # error budget before enabling).
     sum_G, sum_G_alpha, eta_mass = compute_gamma_grid_inputs(U_pmns_base, u_arr_base, params['g_D'], params['epsilon_prime'], eta_bg)
-    Gamma_grid_all = thermal_grid_cached(E_bins, z_bins, sum_G, sum_G_alpha, params['m_Zd_eV'], params['m_nu_bg_arr'], params['T_nu0_eV'], eta_mass,
-                                         n_z_thermal=params.get('n_z_thermal', 0),
-                                         thermal_analytic=params.get('thermal_analytic', True))
+    si_cosmo = _use_si_cosmology(params, E_bins)
+    if si_cosmo:
+        Gamma_grid_all = np.zeros((len(z_bins), len(E_bins), 3))     # not used: dp_si's transport (MeV regime)
+    elif params.get('absorption_model', 'lagrangian') == 'lagrangian':
+        # each relic mass state's rate per unit weight (dp_absorption; propagate_spectrum's absorption_model)
+        ab = _absorption_setup(params, U_pmns_base, u_arr_base)
+        Gamma_grid_all = relic_state_grid_cached(E_bins, z_bins, ab.sum_G, params['m_Zd_eV'], params['m_nu_bg_arr'],
+                                                 params['T_nu0_eV'], eta_mass, moller=True)
+    else:
+        Gamma_grid_all = thermal_grid_cached(E_bins, z_bins, sum_G, sum_G_alpha, params['m_Zd_eV'], params['m_nu_bg_arr'], params['T_nu0_eV'], eta_mass,
+                                             n_z_thermal=params.get('n_z_thermal', 0),
+                                             thermal_analytic=params.get('thermal_analytic', True))
 
     return dict(z_bins=z_bins, rho_src=rho_src, M_sq=M_sq, u_arr_base=u_arr_base, eta_bg=eta_bg,
-                U_pmns_base=U_pmns_base, Gamma_grid_all=Gamma_grid_all)
+                U_pmns_base=U_pmns_base, Gamma_grid_all=Gamma_grid_all, si_cosmology=si_cosmo)
 
 
 def _flux_from_setup(E_bins: np.ndarray, params: Dict, setup: Dict, injection,
@@ -569,7 +722,13 @@ def _flux_from_setup(E_bins: np.ndarray, params: Dict, setup: Dict, injection,
         earth_nodes_per_band=params.get('sky', {}).get('earth_nodes_per_band', 2),
         sun_path_cos=params.get('sun_path_cos', None),
         arrival_flavor=arrival_flavor, arrival_basis=arrival_basis,
-        matter_charge=params.get('matter_charge', None)
+        matter_charge=params.get('matter_charge', None),
+        absorption_model=params.get('absorption_model', 'lagrangian'),
+        G_coupling=params.get('G_coupling', None), Gamma_vis=params.get('Gamma_vis', None),
+        si_cosmology=setup.get('si_cosmology', False),
+        si_settings=dict(z_substeps=params.get('si', {}).get('z_substeps', 1),
+                         E_extension=params.get('si', {}).get('E_extension', 10.0)),
+        potential_product=params.get('potential_product', None)
     )
 
 
@@ -640,8 +799,15 @@ def _galactic_emission_populations(E_bins: np.ndarray, params: Dict, setup: Dict
         u_s, M_rot, S_eff, _ = _species_matrices(setup['U_pmns_base'], setup['M_sq'], setup['u_arr_base'],
                                                  params.get('U_LRI_struct', None), params.get('V_SM_struct', None),
                                                  anti)
+        debye = None
+        if params.get('absorption_model', 'lagrangian') == 'lagrangian':
+            import dp_absorption as _dpa
+            ab = _absorption_setup(params, setup['U_pmns_base'], setup['u_arr_base'])
+            eta_m = (np.abs(setup['U_pmns_base']) ** 2).T @ np.asarray(setup['eta_bg'], dtype=np.float64)
+            debye = _dpa.debye_mass_sq(ab.G_mass_diag2, params['m_nu_bg_arr'], params['T_nu0_eV'], eta_m)
         Coef, m_eff = lri_coefficient(params['m_Zd_eV'], params['g_D'], params['epsilon_prime'], u_s,
-                                      params['T_nu0_eV'], params['use_debye_screening'], setup['eta_bg'], anti)
+                                      params['T_nu0_eV'], params['use_debye_screening'], setup['eta_bg'], anti,
+                                      debye_sq=debye, potential_product=params.get('potential_product', None))
         charge = params.get('matter_charge', None)
         if charge is not None:
             Coef = Coef * charge.sign
@@ -652,6 +818,12 @@ def _galactic_emission_populations(E_bins: np.ndarray, params: Dict, setup: Dict
         else:
             n_emit = dp_matter.galactic_emission_density(charge, R, z, m_eff, params['n_n0_eV3'],
                                                          1.0 / params['H0_eV'])
+        if debye is not None and m_eff > params['m_Zd_eV']:
+            # the uniform cosmic mean is not screened (as dp_spatial.transit_to_earth's m_bare)
+            R_H = 1.0 / params['H0_eV']
+            n_floor = dp_matter.cosmic_density(charge, params['n_n0_eV3'])
+            n_emit = n_emit + n_floor * m_eff * m_eff * (yukawa_horizon_inv_m2(params['m_Zd_eV'] ** 2, R_H)
+                                                         - yukawa_horizon_inv_m2(m_eff * m_eff, R_H))
         F = dp_galactic.emission_populations(E_bins, f_S, w_gas, q_gas, q_src, n_emit, 2.0 * abs(Coef), tab)
         if work != nside:
             F = dp_galactic.degrade_weighted(F, dp_galactic.intensity(gal['template'], E_GeV, work), work, nside)
@@ -1036,10 +1208,37 @@ def build_solver_params(config: Dict) -> Tuple[np.ndarray, Dict]:
         raise ValueError("Dark mediator gauge coupling g_D must be strictly positive.")
     if params['g_D'] >= np.sqrt(4 * np.pi):
         raise ValueError(f"Dark gauge coupling g_D ({params['g_D']:.2f}) exceeds the perturbativity bound (sqrt(4*pi)).")
-    if params['epsilon_prime'] < 0:
-        raise ValueError("Kinetic mixing epsilon_prime must be non-negative (0 switches off the coupling "
-                         "to matter: no coherent potential, absorption only).")
+    if not np.isfinite(params['epsilon_prime']):
+        raise ValueError("epsilon_prime must be finite (0 switches off the coupling to matter: no coherent potential; "
+                         "its sign, with g_D's, is the potential's: both are physical, decided 2026-10-14).")
     params['use_debye_screening'] = config['dark_portal']['use_debye_screening']
+    params['cosmo_transport'] = str(config['dark_portal']['cosmo_transport']).strip().lower()
+    params['absorption_model'] = str(config['dark_portal']['absorption_model']).strip().lower()
+    if params['absorption_model'] not in ('lagrangian', 'theory_notes'):
+        raise ValueError(f"dark_portal.absorption_model must be 'lagrangian' or 'theory_notes', got "
+                         f"{config['dark_portal']['absorption_model']!r}")
+    # The benchmark model (dp_models; docs/dev/SCOPE_WIDENING_PLAN.md): the dark portal by default; a gauge model
+    # sets the matter charge, the texture, the neutrino coupling, the potential's coupling product and the visible
+    # width from its charges, dark_portal.g_D playing its gauge coupling g' (and epsilon_prime the Z-Z' mixing of
+    # L_mu - L_tau).
+    params['model'] = str(config['model']['name']).strip()
+    if params['model'].lower() != 'dark_portal':
+        import dp_models
+        kind, charges, _, _ = dp_models.spec(params['model'])
+        mc = config['matter_charge']
+        if (float(mc['q_n']), float(mc['q_p']), float(mc['q_e'])) != (1.0, 0.0, 0.0):
+            raise ValueError(f"model {params['model']!r} sets the matter charge: leave matter_charge at its default")
+        if params['U_LRI_struct'] is not None:
+            raise ValueError(f"model {params['model']!r} sets the texture: leave dark_portal.U_LRI_struct unset")
+        if params['absorption_model'] != 'lagrangian':
+            raise ValueError("the gauge models need dark_portal.absorption_model = 'lagrangian'")
+        n_e0 = float(config['cosmology']['n_e0_cm3']) * cm_inv3_to_eV3
+        params['matter_charge'] = dp_matter.normalize(*charges, params['n_n0_eV3'], n_e0)
+        params['U_LRI_struct'] = dp_models.texture(params['model'])
+        g, eps = params['g_D'], params['epsilon_prime']
+        params['G_coupling'] = dp_models.neutrino_coupling(params['model'], g, eps)
+        params['Gamma_vis'] = dp_models.visible_width(params['model'], params['m_Zd_eV'], g, eps)
+        params['potential_product'] = dp_models.potential_product(params['model'], g, eps)
     
     params['p_index'] = float(config['source']['p_index'])
     if config['source']['p_index'] <= 0:

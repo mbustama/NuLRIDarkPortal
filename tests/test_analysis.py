@@ -123,7 +123,8 @@ def test_priors():
 # ---------------------------------------------------------------------------------------
 def test_free_source_composition_uses_the_linear_basis():
     """With the source composition free, the model combines pure-flavor runs; the result must
-    equal a direct run at that composition (the solver is linear in it)."""
+    equal a direct run at that composition (the solver is linear in it; at this MeV point the cosmological
+    phase is dp_si's transport since 2026-10-14, linear to ~1e-10 of rounding over its steps)."""
     raw = _tiny_raw()
     raw["parameters"] = {"f_e_S": {"start": 0.3, "bounds": [0.0, 1.0]},
                          "g_D": {"start": 1e-4, "bounds": [1e-10, 3.54], "space": "log10"}}
@@ -138,7 +139,7 @@ def test_free_source_composition_uses_the_linear_basis():
     direct["solver"]["source"].update(f_e_S=0.2, f_mu_S=0.8, f_tau_S=0.0)
     direct["parameters"] = {"g_D": raw["parameters"]["g_D"]}
     f_direct = config_mod.from_dict(direct).model().fractions({"g_D": 2e-4})
-    np.testing.assert_allclose(f_basis, f_direct, rtol=1e-12, atol=1e-14)
+    np.testing.assert_allclose(f_basis, f_direct, rtol=1e-10, atol=1e-14)
     n = model.n_solver_calls
     model.fractions({**v, "f_e_S": 0.4})                       # same propagation point
     assert model.n_solver_calls == n
@@ -147,7 +148,10 @@ def test_free_source_composition_uses_the_linear_basis():
 def test_coupling_products_are_what_the_data_see():
     """Exclusion planes scan the coupling products (decided 2026-10-13). With epsilon' = 0
     the fractions depend on g_D and the mixing only through g_D |U|^2; the coherent
-    potential depends on g_D epsilon' |U|^2 (up to the Debye mass, negligible here)."""
+    potential depends on g_D epsilon' |U|^2 (up to the Debye mass, negligible here). Since the
+    absorption follows the Lagrangian coupling (2026-10-14, docs/dev/PHYSICS_AUDIT.md), eps' also couples
+    the mediator to every neutrino (eps' g/c_W), so the potential's product is all the data see only where
+    that absorption is negligible: small eps' (the planes profile eps')."""
     raw = _tiny_raw()
     raw["profiles"], raw["planes"] = {}, []
     out = []
@@ -158,7 +162,7 @@ def test_coupling_products_are_what_the_data_see():
         out.append(config_mod.from_dict(r).model().fractions({"g_D_u2": 3e-5, "m_Zd_eV": 2e6}))
     np.testing.assert_allclose(out[0], out[1], rtol=0, atol=1e-12)
     out = []
-    for u, eps in ((0.0316, 1e-4), (0.1, 1e-2)):
+    for u, eps in ((0.0316, 1e-6), (0.1, 1e-8)):
         r = copy.deepcopy(raw)
         r["solver"]["dark_portal"].update(u_e=u, u_mu=u, u_tau=0.0, epsilon_prime=eps)
         r["parameters"] = {"g_D_eps_u2": {"start": 1e-30, "bounds": [1e-62, 1e-8], "space": "log10"}}

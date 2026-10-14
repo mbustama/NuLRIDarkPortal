@@ -1625,18 +1625,24 @@ def _run_spatial_tasks(worker_fn, tasks, desc, n_workers, show_progress, externa
     return results
 
 def lri_coefficient(m_Zd: float, g_D: float, eps_prime: float, u_arr: np.ndarray, T_nu0: float,
-                    use_debye_screening: bool, eta_bg: np.ndarray, is_antineutrino: bool):
+                    use_debye_screening: bool, eta_bg: np.ndarray, is_antineutrino: bool, debye_sq=None,
+                    potential_product=None):
     """(Coef, m_eff): the dark-portal potential per unit neutron density today, Coef = g_D eps' / m_eff^2 x
     4 c_W m_Z^2 / g x G_F / sqrt(2) (eV^-2; negative for antineutrinos), and the mediator's effective mass
     m_eff = sqrt(m_Zd^2 + m_D^2) with the relic neutrinos' Debye mass when screening is on. Shared by the
-    spatial handover and the Galactic emission points (dp_galactic)."""
-    m_D_sq = calc_debye_mass_sq(g_D, u_arr, T_nu0, eta_bg) if use_debye_screening else 0.0
+    spatial handover and the Galactic emission points (dp_galactic). debye_sq: the Debye mass squared to use
+    (dp_absorption.debye_mass_sq, the default since 2026-10-14), or None for the theory notes' Eq. T23."""
+    if debye_sq is not None:
+        m_D_sq = float(debye_sq) if use_debye_screening else 0.0
+    else:
+        m_D_sq = calc_debye_mass_sq(g_D, u_arr, T_nu0, eta_bg) if use_debye_screening else 0.0
     m_eff = np.sqrt(m_Zd**2 + m_D_sq)
 
     c_W = 0.88
     m_Z = 91.18 * GeV
     g_weak = 0.65
-    Coef = (g_D * eps_prime) / (m_Zd**2 + m_D_sq) * (4.0 * c_W * m_Z**2 / g_weak) * (np.sqrt(2.0)/2.0 * G_F)
+    pp = g_D * eps_prime if potential_product is None else float(potential_product)
+    Coef = pp / (m_Zd**2 + m_D_sq) * (4.0 * c_W * m_Z**2 / g_weak) * (np.sqrt(2.0)/2.0 * G_F)
     if is_antineutrino:
         Coef = -Coef
     return Coef, m_eff
@@ -1646,7 +1652,7 @@ def transit_to_earth(E_bins: np.ndarray, F_mass_arrival: np.ndarray, M_rot: np.n
                      U_LRI_struct: np.ndarray, Coef: float, m_eff: float, n_n0_eV3: float,
                      R_H_eV_inv: float, earth_yk, n_sun_paths: int = 8,
                      transit_dtheta: float = 0.002, sun_path_cos=None, arrival: str = "eigen",
-                     matter_charge=None):
+                     matter_charge=None, m_bare=None):
     """The transit from the cosmological arrival to the sphere r = r_split around the Earth
     (dp_transit's module notes): the adiabatic Galactic map at the Yukawa-smoothed local
     density, the coherent transit through the Sun's potential (n_sun_paths directions) and the
@@ -1665,7 +1671,11 @@ def transit_to_earth(E_bins: np.ndarray, F_mass_arrival: np.ndarray, M_rot: np.n
     (dp_transit.flavor_populations; the Galactic component, DIRECTIONS_PLAN step 5); matter_charge -- None
     (neutrons) or a dp_matter.MatterCharge: the Galaxy's, the Sun's and the Moon's densities are then that
     charge's (n_n0_eV3 stays the cosmic NEUTRON density, the neutron species' floor; the charge carries the
-    electrons'), and earth_yk must be the same charge's table.
+    electrons'), and earth_yk must be the same charge's table; m_bare -- None, or the mediator's bare mass when
+    m_eff includes the relics' screening: the Galaxy, the Sun and the Moon are screened (range 1/m_eff) but the
+    uniform cosmic mean beyond the Galaxy is not (decided 2026-10-14), so its unscreened potential replaces the
+    screened one in the Galactic integral's floor, n0 m_eff^2 [Y(m_bare) - Y(m_eff)] with Y the uniform medium's
+    Yukawa factor out to the Hubble radius (dp_cosmo.yukawa_horizon_inv_m2) -- zero without screening.
 
     Returns (rho (N_E, 3, 3) at r_split, n_amb_eV3 -- the ambient density the chords add:
     Galaxy, Sun and Moon at the Earth -- and a dict of diagnostics).
@@ -1679,11 +1689,17 @@ def transit_to_earth(E_bins: np.ndarray, F_mass_arrival: np.ndarray, M_rot: np.n
     if matter_charge is None:
         n_gal = dp_transit.galactic_effective_density(m_eff, n_n0_eV3, R_H_eV_inv) if m_eff > 0 else 0.0
         N_sun_q, N_moon_q = N_n_sun, N_n_moon
+        n_floor = n_n0_eV3
     else:
         import dp_matter
         n_gal = (dp_matter.galactic_effective_density(matter_charge, m_eff, n_n0_eV3, R_H_eV_inv)
                  if m_eff > 0 else 0.0)
         N_sun_q, N_moon_q, _ = dp_matter.point_sources(matter_charge)
+        n_floor = dp_matter.cosmic_density(matter_charge, n_n0_eV3)
+    if m_bare is not None and m_eff > m_bare and m_eff > 0:
+        from dp_cosmo import yukawa_horizon_inv_m2
+        n_gal = n_gal + n_floor * m_eff * m_eff * (yukawa_horizon_inv_m2(m_bare * m_bare, R_H_eV_inv)
+                                                   - yukawa_horizon_inv_m2(m_eff * m_eff, R_H_eV_inv))
     n_sun, n_moon = 0.0, 0.0
     if m_eff > 0:
         n_sun = N_sun_q * (m_eff**2) / (4.0 * np.pi * d_sun_eV_inv) * np.exp(-m_eff * d_sun_eV_inv)
@@ -1740,7 +1756,8 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
                             earth_zenith_average: str = "plain",
                             earth_sky: str = "up",
                             earth_band_costh=None, earth_nodes_per_band: int = 2,
-                            sun_path_cos=None, arrival: str = "eigen", matter_charge=None):
+                            sun_path_cos=None, arrival: str = "eigen", matter_charge=None, debye_sq_z0=None,
+                            potential_product=None):
     """
     The spatial handover: from the cosmological arrival to the detector, through the Galaxy,
     the Sun, the Earth's exterior and the Earth (transit_to_earth, then the chords). Earth
@@ -1856,7 +1873,8 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
         up = np.linspace(-1.0, 0.0, int(n_earth_chords))
         earth_costh = up if earth_sky == "up" else np.concatenate([up, -up[-2::-1]])
 
-    Coef, m_eff = lri_coefficient(m_Zd, g_D, eps_prime, u_arr, T_nu0, use_debye_screening, eta_bg, is_antineutrino)
+    Coef, m_eff = lri_coefficient(m_Zd, g_D, eps_prime, u_arr, T_nu0, use_debye_screening, eta_bg, is_antineutrino,
+                                  debye_sq=debye_sq_z0, potential_product=potential_product)
     # A general matter charge (dp_matter, docs/dev/SCOPE_WIDENING_PLAN.md): its sign rides on the coefficient,
     # its densities (Galaxy, Sun, Moon, the Earth's table) are its own. Neutrons: None, the historical path.
     cpg = None
@@ -1905,7 +1923,8 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
     rho_surf_avg, n_n_amb_eV3, tinfo = transit_to_earth(
         E_bins, F_mass_arrival, M_rot, U_LRI_struct, Coef, m_eff, n_n0_eV3, R_H_eV_inv, earth_yk,
         n_sun_paths=n_sun_paths, transit_dtheta=transit_dtheta, sun_path_cos=sun_path_cos,
-        arrival=arrival, matter_charge=matter_charge)
+        arrival=arrival, matter_charge=matter_charge,
+        m_bare=(m_Zd if debye_sq_z0 is not None else None))
     if verbose == 2:
         safe_print(f"Transit to the Earth: Galactic density {tinfo['n_gal_eV3']:.3e} eV^3, Sun "
                    f"{tinfo['n_sun_eV3']:.3e} eV^3 ({tinfo['n_active_sun']} bins coherent), Earth's "
