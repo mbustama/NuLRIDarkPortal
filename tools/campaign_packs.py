@@ -1,10 +1,16 @@
 """
 campaign_packs.py -- the plane campaign's job packs for slurm/campaign_array.sh (2026-10-14).
 
-Reads analysis/configs/campaign/<set>/campaign.json (tools/make_campaign_configs.py), estimates each plane's cost
-(points x core-seconds per point, by data set and plane kind -- calibrated on Tycho's pilot), and packs the planes,
-longest first, into packs of about --hours on --cores cores each. Writes one line per pack (its configuration paths)
-to --out.
+Reads analysis/configs/campaign/<set>/campaign.json (tools/make_campaign_configs.py), estimates each plane's cost and
+packs the planes into packs of about --hours on --cores cores. One set of solver runs serves several planes through
+the shared disk cache (NULRI_FLUX_CACHE; flux_basis 'pure_flavors'): the 2026-spectrum set's fixed-composition planes
+compute them for their fitted twins and for both of the 2050 projection's (the same physics), and the event set's
+fixed-composition planes for their twins. So the packs come in two waves, listed in that order: the producers (first)
+and the planes that reuse their runs (cost: their fits only).
+
+Costs in core-seconds per plane point (laptop, one core, 2026-10-14, after the speed-ups; Tycho to be calibrated):
+the solver's runs at all index nodes (potential 8, MeV 18; event sky runs 9 and 20) and the fits (spectrum sets ~2;
+event sets ~10 per fit, 1.5x with the fitted compositions' extra parameters).
 
   python tools/campaign_packs.py --sets now_ic26 now_events proj_2050 --hours 8 --out analysis/configs/campaign/packs.txt
 """
@@ -13,20 +19,20 @@ import json
 import os
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-# core-seconds per plane point (Tycho, 16 cores per job, 4 configurations at a time): calibrated by the pilot
-# (2026-10-14, job 66400185); events cost more (sky runs, the event likelihoods), MeV planes run 7 spectral-index nodes
-COST = {"now_ic26": 16.0, "proj_2050": 16.0, "now_events": 32.0}
-MEV_FACTOR = 2.0
-FX_FACTOR = 1.3
+SOLVER = {False: {"pot": 8.0, "mev": 18.0}, True: {"pot": 9.0, "mev": 20.0}}      # by sky mode (the event set)
+FIT = {False: 2.0, True: 10.0}
+FX_FIT = 1.5
+PRODUCER_SETS = {"now_ic26": "now_ic26", "proj_2050": "now_ic26", "now_events": "now_events"}
 
 
 def plane_cost(dataset, name, points):
-    c = COST[dataset] * points
-    if "_mev" in name:
-        c *= MEV_FACTOR
-    if name.endswith("_fx"):
-        c *= FX_FACTOR
-    return c
+    """(core-seconds, producer?) of one plane."""
+    sky = dataset == "now_events"
+    kind = "mev" if "_mev" in name else "pot"
+    fx = name.endswith("_fx")
+    producer = PRODUCER_SETS[dataset] == dataset and not fx
+    per_point = FIT[sky] * (FX_FIT if fx else 1.0) + (SOLVER[sky][kind] if producer else 0.0)
+    return per_point * points, producer
 
 
 def main(argv=None):
@@ -36,30 +42,37 @@ def main(argv=None):
     ap.add_argument("--cores", type=int, default=16)
     ap.add_argument("--out", required=True)
     a = ap.parse_args(argv)
-    items = []
+    waves = {True: [], False: []}
     for ds in a.sets:
         d = os.path.join("analysis", "configs", "campaign", ds)
         with open(os.path.join(REPO, d, "campaign.json")) as f:
             lst = json.load(f)["planes"]
-        items += [(plane_cost(ds, p["name"], p["points"]), os.path.join(d, p["name"] + ".json")) for p in lst]
-    items.sort(reverse=True)
+        for p in lst:
+            c, prod = plane_cost(ds, p["name"], p["points"])
+            waves[prod].append((c, os.path.join(d, p["name"] + ".json")))
     cap = a.hours * 3600.0 * a.cores
-    packs = []                                    # [cost, [paths]]
-    for c, path in items:
-        fit = [p for p in packs if p[0] + c <= cap]
-        if fit:
-            p = min(fit, key=lambda p: p[0])
-        else:
-            p = [0.0, []]
-            packs.append(p)
-        p[0] += c
-        p[1].append(path)
+    packs = []                                    # [cost, [paths]], producers' packs first
+    for prod in (True, False):
+        items = sorted(waves[prod], reverse=True)
+        mine = []
+        for c, path in items:
+            fit = [p for p in mine if p[0] + c <= cap]
+            if fit:
+                p = min(fit, key=lambda p: p[0])
+            else:
+                p = [0.0, []]
+                mine.append(p)
+            p[0] += c
+            p[1].append(path)
+        packs += mine
+        print(f"{'producers' if prod else 'reusers'}: {len(items)} planes in {len(mine)} packs, "
+              f"{sum(p[0] for p in mine) / 3600:.0f} core-hours")
     with open(os.path.join(REPO, a.out), "w") as f:
         for _, paths in packs:
             f.write(" ".join(paths) + "\n")
     tot = sum(p[0] for p in packs)
-    print(f"{len(items)} planes in {len(packs)} packs; {tot / 3600:.0f} core-hours; at 7 packs at a time "
-          f"~{tot / 3600 / (7 * a.cores):.0f} h wall; largest pack {max(p[0] for p in packs) / 3600 / a.cores:.1f} h")
+    print(f"{len(packs)} packs; {tot / 3600:.0f} core-hours; at 7 packs at a time ~{tot / 3600 / (7 * a.cores):.0f} h "
+          f"wall; largest pack {max(p[0] for p in packs) / 3600 / a.cores:.1f} h")
 
 
 if __name__ == "__main__":
