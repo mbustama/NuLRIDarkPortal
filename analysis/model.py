@@ -79,7 +79,8 @@ ALIASES = {"s12sq": "th12_deg", "s13sq": "th13_deg", "s23sq": "th23_deg"}
 DISK_CACHE_ENV = "NULRI_FLUX_CACHE"
 DISK_CACHE_VERSION = 1
 P_NODES_N = 7             # solver runs per propagation point when p_index floats (fractions to ~2e-4 under strong SI)
-_SECTIONS = ("cosmology", "standard_mixing", "dark_portal", "secret_interactions", "source", "grid", "galactic")
+_SECTIONS = ("cosmology", "standard_mixing", "matter_charge", "dark_portal", "secret_interactions", "source", "grid",
+             "galactic")
 
 
 def _section_of(key: str) -> str:

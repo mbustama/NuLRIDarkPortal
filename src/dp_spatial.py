@@ -101,6 +101,57 @@ def calc_MW_neutron_density(r_kpc: float, theta: float, phi: float) -> float:
               + n_e_gas * _MW_NEUTRONS_PER_ELECTRON_GAS)
     return n_n_MW
 
+
+# Electrons (= protons) per nucleon of the same components, for matter charges other than the neutron's
+# (docs/dev/SCOPE_WIDENING_PLAN.md; dp_matter): in neutral matter every nucleon that is not a neutron is a
+# proton, with its electron; the hot gas's profile is the electron density itself.
+_MW_ELECTRONS_PER_NUCLEON_STARS = 1.0 - _MW_NEUTRONS_PER_NUCLEON_STARS
+_MW_ELECTRONS_PER_NUCLEON_COLD_GAS = 1.0 - _MW_NEUTRONS_PER_NUCLEON_COLD_GAS
+SPECIES_NEUTRON = 0
+SPECIES_ELECTRON = 1
+
+
+@njit(fastmath=True, error_model="numpy", cache=True)
+def _MW_components(r_kpc: float, theta: float, phi: float):
+    """(rho_stars [Msun/pc^3], rho_cold_gas [Msun/pc^3], n_e of the hot gas [cm^-3]) at a position relative
+    to the Sun (kpc, rad, rad): calc_MW_neutron_density's components before their conversion to neutrons, with
+    the same expressions (a regression test holds the two equal; that function is left as it was so the
+    neutron path and its tables' digest stay unchanged)."""
+    R_0 = 8.33
+    sth = np.sin(theta)
+    R_gal_sq = (r_kpc * sth)**2 + R_0**2 - 2.0 * r_kpc * R_0 * sth * np.cos(phi)
+    R_gal = np.sqrt(max(R_gal_sq, 0.0))
+    z_gal = r_kpc * np.cos(theta)
+    r_gal = np.sqrt(R_gal**2 + z_gal**2)
+    rp = np.sqrt(R_gal**2 + (z_gal / 0.5)**2)
+    rho_bulge = (94.1 / (1.0 + rp / 0.075)**1.8) * np.exp(-(rp / 2.1)**2)
+    rho_thin = (753.0 / 600.0) * np.exp(-np.abs(z_gal) / 0.3 - np.abs(R_gal) / 3.0)
+    rho_thick = (182.0 / 1800.0) * np.exp(-np.abs(z_gal) / 0.9 - np.abs(R_gal) / 3.5)
+    n_e_gas = 0.46 * (1.0 + (r_gal / 0.35)**2)**(-1.065)    # Miller & Bregman 2013, cm^-3
+    rho_cold = (_gas_disc_density(R_gal, z_gal, _HI_DISC[0], _HI_DISC[1], _HI_DISC[2], _HI_DISC[3])
+                + _gas_disc_density(R_gal, z_gal, _H2_DISC[0], _H2_DISC[1], _H2_DISC[2], _H2_DISC[3]))
+    return rho_bulge + rho_thin + rho_thick, rho_cold, n_e_gas
+
+
+@njit("float64(float64, float64, float64)", fastmath=True, error_model="numpy", cache=True)
+def calc_MW_electron_density(r_kpc: float, theta: float, phi: float) -> float:
+    """The Milky Way's electron (= proton) number density (cm^-3) at a position relative to the Sun (kpc, rad,
+    rad): calc_MW_neutron_density's model, its stars and cold gas at their electrons per nucleon and the hot
+    gas at its own electron density."""
+    rho_stars, rho_cold, n_e_gas = _MW_components(r_kpc, theta, phi)
+    return (rho_stars * _NUCLEONS_PER_CM3_PER_MSUN_PC3 * _MW_ELECTRONS_PER_NUCLEON_STARS
+            + rho_cold * _NUCLEONS_PER_CM3_PER_MSUN_PC3 * _MW_ELECTRONS_PER_NUCLEON_COLD_GAS
+            + n_e_gas)
+
+
+@njit("float64(float64, float64, float64, int64)", fastmath=True, error_model="numpy", cache=True)
+def calc_MW_species_density(r_kpc: float, theta: float, phi: float, species: int) -> float:
+    """calc_MW_neutron_density (species SPECIES_NEUTRON) or calc_MW_electron_density (SPECIES_ELECTRON),
+    cm^-3, for the Galactic tables of either species (tools/mw_sky_density.py, tools/mw_neff_tables.py)."""
+    if species == SPECIES_ELECTRON:
+        return calc_MW_electron_density(r_kpc, theta, phi)
+    return calc_MW_neutron_density(r_kpc, theta, phi)
+
 @njit("float64(float64)", fastmath=True, error_model="numpy", cache=True)
 def calc_earth_density(r_km: float) -> float:
     """Returns the Earth's density at a distance r_km from the center using PREM layers."""
@@ -161,6 +212,42 @@ def earth_neutrons_per_gram(r_km: float) -> float:
         return 8.0 / 18.015 * _AVOGADRO
 
 
+@njit("float64(float64)", fastmath=True, error_model="numpy", cache=True)
+def earth_electrons_per_gram(r_km: float) -> float:
+    """Electrons (= protons) per gram of PREM matter at geocentric radius r_km: Y_e nucleons per gram in the
+    core, mantle and crust, 10/18.015 per molecular mass for the water of the top layer -- the complement of
+    earth_neutrons_per_gram, for matter charges other than the neutron's (dp_matter)."""
+    if r_km <= _EARTH_R_CORE_KM:
+        return _EARTH_YE_CORE * _AVOGADRO
+    elif r_km <= _EARTH_R_OCEAN_FLOOR_KM:
+        return _EARTH_YE_MANTLE * _AVOGADRO
+    else:
+        return 10.0 / 18.015 * _AVOGADRO
+
+
+# A radius inside each of the regions of constant composition (core; mantle and crust; the top layer's
+# water): three numbers give the charge per gram of any matter charge (earth_charge_per_gram).
+_EARTH_REGION_SAMPLE_KM = (1000.0, 5000.0, 6370.0)
+
+
+def earth_charge_per_gram(q_n: float = 1.0, q_pe: float = 0.0) -> np.ndarray:
+    """(core, mantle and crust, top layer) charge per gram of the matter charge q_n n_n + q_pe n_e (neutral
+    matter: n_p = n_e). The neutron charge (1, 0) gives earth_neutrons_per_gram's values bit for bit."""
+    return np.array([q_n * earth_neutrons_per_gram(r) + q_pe * earth_electrons_per_gram(r)
+                     for r in _EARTH_REGION_SAMPLE_KM])
+
+
+@njit(fastmath=True, error_model="numpy", cache=True)
+def _earth_region_value(r_km: float, v: np.ndarray) -> float:
+    """v[0] in the core, v[1] in the mantle and crust, v[2] in the top layer (earth_neutrons_per_gram's
+    regions)."""
+    if r_km <= _EARTH_R_CORE_KM:
+        return v[0]
+    elif r_km <= _EARTH_R_OCEAN_FLOOR_KM:
+        return v[1]
+    return v[2]
+
+
 @njit("float64(float64, float64)", fastmath=True, error_model="numpy", cache=True)
 def get_baseline_earth(d_km: float, costh: float) -> float:
     """Path length (km) inside the Earth from the surface to a detector at depth d_km, for a
@@ -211,6 +298,19 @@ def spatial_total_density_earth(l_km: float, baseline_km: float, costh: float,
     n_n_earth_cm3 = rho_earth_g * earth_neutrons_per_gram(r_center_km)
 
     return n_n_amb_eV3 + n_n_earth_cm3 * cm_inv3_to_eV3
+
+
+@njit(fastmath=True, error_model="numpy", cache=True)
+def spatial_total_density_earth_q(l_km: float, baseline_km: float, costh: float,
+                                  detector_depth_km: float, n_n_amb_eV3: float, cpg: np.ndarray) -> float:
+    """spatial_total_density_earth for a general matter charge: the PREM density times its region's charge per
+    gram (cpg, earth_charge_per_gram), plus the ambient charge density n_n_amb_eV3 (eV^3). A separate function,
+    so the neutron path keeps its compiled form (and its last bits)."""
+    f1 = baseline_km - l_km
+    f2 = 6371.0 - detector_depth_km
+    r_center_km = chord_radius(f1, f2, costh)
+    n_q_earth_cm3 = calc_earth_density(r_center_km) * _earth_region_value(r_center_km, cpg)
+    return n_n_amb_eV3 + n_q_earth_cm3 * cm_inv3_to_eV3
 
 
 # =============================================================================
@@ -352,13 +452,15 @@ def yukawa_profile_table(edges_km, fcoef, m_km, mode=None):
     return (np.array([float(mode), m, R, P_R]), edges, F, abg, nodes)
 
 
-def _prem_f_coeffs() -> np.ndarray:
+def _prem_f_coeffs(cpg=None) -> np.ndarray:
     """f(r) = r n(r) coefficients (cm^-3 km) of the PREM neutron profile, shell by shell:
     the rho(x) polynomials of _PREM_RHO_COEFFS times earth_neutrons_per_gram, which is
-    constant on every shell (its regions end on PREM boundaries)."""
+    constant on every shell (its regions end on PREM boundaries). cpg: None, or the charge per
+    gram of each region (earth_charge_per_gram) for a general matter charge's profile."""
     F = np.zeros((len(_PREM_EDGES_KM) - 1, 5))
     for s in range(len(F)):
-        npg = earth_neutrons_per_gram(0.5 * (_PREM_EDGES_KM[s] + _PREM_EDGES_KM[s + 1]))
+        mid = 0.5 * (_PREM_EDGES_KM[s] + _PREM_EDGES_KM[s + 1])
+        npg = earth_neutrons_per_gram(mid) if cpg is None else _earth_region_value(mid, cpg)
         c = _PREM_RHO_COEFFS[s]
         F[s, 1:] = npg * np.array([c[0], c[1] / 6371.0, c[2] / 6371.0**2, c[3] / 6371.0**3])
     return F
@@ -367,15 +469,31 @@ def _prem_f_coeffs() -> np.ndarray:
 _PREM_F_COEFFS = _prem_f_coeffs()
 
 
-def earth_yukawa_table(m_eff_eV, mode=None):
+def earth_yukawa_table(m_eff_eV, mode=None, cpg=None):
     """The Earth's Yukawa table (PREM neutrons, see the section notes above).
 
     Arguments: m_eff_eV -- the mediator's effective mass sqrt(m_Zd^2 + m_D^2) (eV), or None
     for the contact table (the pre-2026-10-12 local density); mode -- None, or a forced
-    _YUKAWA_HEAVY / _YUKAWA_DIRECT (tests). Returns the table tuple.
+    _YUKAWA_HEAVY / _YUKAWA_DIRECT (tests); cpg -- None (neutrons), or the charge per gram of
+    each region (earth_charge_per_gram) for a general matter charge: the table is then that
+    charge's, and its par array carries a flag and cpg after the four Yukawa numbers
+    (par[4] = 1, par[5:8] = cpg; _yk_charged), which the charged chord functions read.
+    Returns the table tuple.
     """
     m_km = None if m_eff_eV is None else float(m_eff_eV) * _KM_IN_EV_INV
-    return yukawa_profile_table(_PREM_EDGES_KM, _PREM_F_COEFFS, m_km, mode)
+    if cpg is None:
+        return yukawa_profile_table(_PREM_EDGES_KM, _PREM_F_COEFFS, m_km, mode)
+    cpg = np.ascontiguousarray(cpg, dtype=np.float64)
+    if cpg.shape != (3,):
+        raise ValueError(f"cpg must hold the charge per gram of the core, the mantle and the top layer, got {cpg!r}")
+    par, edges, F, abg, nodes = yukawa_profile_table(_PREM_EDGES_KM, _prem_f_coeffs(cpg), m_km, mode)
+    return (np.concatenate([par, [1.0], cpg]), edges, F, abg, nodes)
+
+
+def yk_charged(yk) -> bool:
+    """Whether an Earth table carries a general matter charge (earth_yukawa_table's cpg)."""
+    par = yk[0]
+    return len(par) > 4 and par[4] != 0.0
 
 
 @njit(fastmath=True, error_model="numpy", cache=True)
@@ -804,6 +922,71 @@ def _avg_earth_density_seq(baseline_km: float, costh: float, N_steps: int,
     return nbar
 
 
+@njit(fastmath=True, error_model="numpy", cache=True)
+def _avg_earth_density_seq_q(baseline_km: float, costh: float, N_steps: int,
+                             detector_depth_km: float, n_n_amb_eV3: float,
+                             cross_ls: np.ndarray, glx: np.ndarray, glw: np.ndarray,
+                             yk) -> np.ndarray:
+    """_avg_earth_density_seq for a table with a general matter charge (earth_yukawa_table's cpg, read from
+    yk[0][5:8]): the same integration, its contact part from spatial_total_density_earth_q. A twin rather than a
+    branch, so the neutron path keeps its compiled form; a regression test holds the two equal for the neutron
+    charge."""
+    cpg = yk[0][5:8]
+    dr = baseline_km / N_steps
+    nbar = np.empty(N_steps, dtype=np.float64)
+    n_cross = len(cross_ls)
+    n_gl = len(glx)
+    mode = int(yk[0][0])
+    if mode != _YUKAWA_CONTACT:
+        feat_l, feat_w = _earth_chord_features(baseline_km, costh, detector_depth_km, cross_ls, yk)
+    else:
+        feat_l = np.empty(0)
+        feat_w = np.empty(0)
+    w_min = _YUKAWA_LAYER_REL_TOL * dr
+    for s in range(N_steps):
+        a = s * dr
+        b = a + dr
+        total = 0.0
+        extra = 0.0
+        seg_a = a
+        for k in range(n_cross + 1):
+            seg_b = b
+            if k < n_cross:
+                c = cross_ls[k]
+                if c <= a:
+                    continue
+                if c < b:
+                    seg_b = c
+                else:
+                    seg_b = b
+            if seg_b <= seg_a:
+                continue
+            if mode != _YUKAWA_DIRECT:
+                mid = 0.5 * (seg_a + seg_b)
+                half = 0.5 * (seg_b - seg_a)
+                acc = 0.0
+                for q in range(n_gl):
+                    l = mid + half * glx[q]
+                    acc += glw[q] * spatial_total_density_earth_q(l, baseline_km, costh,
+                                                                 detector_depth_km, n_n_amb_eV3, cpg)
+                total += acc * half
+            if mode != _YUKAWA_CONTACT:
+                extra += _yk_graded_integral(seg_a, seg_b, feat_l, feat_w, w_min, baseline_km,
+                                             costh, detector_depth_km, yk, glx, glw)
+            seg_a = seg_b
+            if seg_a >= b:
+                break
+        if mode == _YUKAWA_DIRECT:
+            total = n_n_amb_eV3 * dr
+        nbar[s] = (total + extra * cm_inv3_to_eV3) / dr
+    return nbar
+
+
+def chord_density_seq(yk):
+    """The chord integrator for a table: _avg_earth_density_seq, or its charged twin (yk_charged)."""
+    return _avg_earth_density_seq_q if yk_charged(yk) else _avg_earth_density_seq
+
+
 # =============================================================================
 # ZENITH AVERAGE OF THE EARTH CHORDS
 # =============================================================================
@@ -886,6 +1069,26 @@ def _earth_columns(costh_arr: np.ndarray, detector_depth_km: float, n_n_amb_eV3:
         out[i] = _avg_earth_density_seq(B, c, 1, detector_depth_km, n_n_amb_eV3, cross,
                                         _GL10_X, _GL10_W, yk)[0] * B
     return out
+
+
+@njit(fastmath=True, error_model="numpy", cache=True)
+def _earth_columns_q(costh_arr: np.ndarray, detector_depth_km: float, n_n_amb_eV3: float,
+                     yk) -> np.ndarray:
+    """_earth_columns for a table with a general matter charge (_avg_earth_density_seq_q)."""
+    out = np.empty(len(costh_arr))
+    for i in range(len(costh_arr)):
+        c = costh_arr[i]
+        B = get_baseline_earth(detector_depth_km, c)
+        cross = _earth_layer_crossings_nb(B, c, detector_depth_km)
+        out[i] = _avg_earth_density_seq_q(B, c, 1, detector_depth_km, n_n_amb_eV3, cross,
+                                          _GL10_X, _GL10_W, yk)[0] * B
+    return out
+
+
+def earth_columns(costh_arr, detector_depth_km, n_n_amb_eV3, yk):
+    """_earth_columns, or its charged twin for a table with a general matter charge."""
+    fn = _earth_columns_q if yk_charged(yk) else _earth_columns
+    return fn(costh_arr, detector_depth_km, n_n_amb_eV3, yk)
 
 
 def _earth_zenith_fine_grid(nodes: np.ndarray, detector_depth_km: float, n_points: int):
@@ -1037,12 +1240,14 @@ def _zenith_phase_grid(earth_costh: np.ndarray, detector_depth_km: float, n_n_am
     """The fine costh grid of the 'phase' zenith rule and the density column on it (cached):
     the contact column above _ZENITH_YUKAWA_MIN_M_EV, the Yukawa column (with the Earth's exterior
     when active) below. Returns (c_fine, node_index, col)."""
+    charge = tuple(float(x) for x in earth_yk[0][5:8]) if yk_charged(earth_yk) else ()
     if m_eff_eV > _ZENITH_YUKAWA_MIN_M_EV:
-        key = (float(detector_depth_km), tuple(np.round(earth_costh, 15)), float(n_n_amb_eV3))
+        key = (float(detector_depth_km), tuple(np.round(earth_costh, 15)), float(n_n_amb_eV3)) + charge
         hit = _zenith_column_cache.get(key)
         if hit is None:
             c_fine, node_index = _earth_zenith_fine_grid(earth_costh, detector_depth_km, _ZENITH_FINE_POINTS)
-            col = _earth_columns(c_fine, detector_depth_km, n_n_amb_eV3, earth_yukawa_table(None))
+            contact = earth_yukawa_table(None, cpg=np.array(charge) if charge else None)
+            col = earth_columns(c_fine, detector_depth_km, n_n_amb_eV3, contact)
             if len(_zenith_column_cache) > 64:
                 _zenith_column_cache.clear()
             _zenith_column_cache[key] = hit = (c_fine, node_index, col)
@@ -1051,11 +1256,11 @@ def _zenith_phase_grid(earth_costh: np.ndarray, detector_depth_km: float, n_n_am
         # the Yukawa columns depend on m_eff only through earth_yk = earth_yukawa_table(m_eff):
         # cached per m_eff, so the antineutrino pass reuses the neutrino pass's columns
         key = ("yukawa", float(m_eff_eV), float(detector_depth_km), tuple(np.round(earth_costh, 15)),
-               float(n_n_amb_eV3))
+               float(n_n_amb_eV3)) + charge
         hit = _zenith_column_cache.get(key)
         if hit is None:
             c_fine, node_index = _earth_zenith_fine_grid(earth_costh, detector_depth_km, _ZENITH_FINE_POINTS_YUKAWA)
-            col = _earth_columns(c_fine, detector_depth_km, n_n_amb_eV3, earth_yk)
+            col = earth_columns(c_fine, detector_depth_km, n_n_amb_eV3, earth_yk)
             if earth_exterior_active(m_eff_eV):
                 col = col + _earth_exterior_columns(c_fine, detector_depth_km, n_n_amb_eV3, earth_yk,
                                                     _GL10_X, _GL10_W)
@@ -1311,8 +1516,8 @@ def _earth_chord_worker(args) -> np.ndarray:
         apply_earth_exterior(E_bins, rho_earth, M_rot, Coef, U_LRI_struct, n_n_amb_eV3, ext)
     if earth_scheme == "avg":
         cross_ls = _earth_layer_crossings(baseline_km, costh, detector_depth_km)
-        nbar = _avg_earth_density_seq(baseline_km, costh, N_steps_earth, detector_depth_km,
-                                      n_n_amb_eV3, cross_ls, _GL10_X, _GL10_W, earth_yk)
+        nbar = chord_density_seq(earth_yk)(baseline_km, costh, N_steps_earth, detector_depth_km,
+                                           n_n_amb_eV3, cross_ls, _GL10_X, _GL10_W, earth_yk)
         for step in range(N_steps_earth):
             V_LRI = np.ascontiguousarray((Coef * nbar[step]) * U_LRI_struct + V_SM)
             _evolve_rho_all_bins(E_bins, rho_earth, M_rot, V_LRI, dr_earth_eV_inv,
@@ -1440,7 +1645,8 @@ def lri_coefficient(m_Zd: float, g_D: float, eps_prime: float, u_arr: np.ndarray
 def transit_to_earth(E_bins: np.ndarray, F_mass_arrival: np.ndarray, M_rot: np.ndarray,
                      U_LRI_struct: np.ndarray, Coef: float, m_eff: float, n_n0_eV3: float,
                      R_H_eV_inv: float, earth_yk, n_sun_paths: int = 8,
-                     transit_dtheta: float = 0.002, sun_path_cos=None, arrival: str = "eigen"):
+                     transit_dtheta: float = 0.002, sun_path_cos=None, arrival: str = "eigen",
+                     matter_charge=None):
     """The transit from the cosmological arrival to the sphere r = r_split around the Earth
     (dp_transit's module notes): the adiabatic Galactic map at the Yukawa-smoothed local
     density, the coherent transit through the Sun's potential (n_sun_paths directions) and the
@@ -1456,7 +1662,10 @@ def transit_to_earth(E_bins: np.ndarray, F_mass_arrival: np.ndarray, M_rot: np.n
     arrival -- 'eigen' (F_mass_arrival as above) or 'flavor': F_mass_arrival holds instead the flavor
     fractions of neutrinos emitted inside the Galaxy at the local Galactic potential (n_gal, without the
     Moon's, which only the Earth-Moon system feels), which reach the Sun decohered in the local eigenstates
-    (dp_transit.flavor_populations; the Galactic component, DIRECTIONS_PLAN step 5).
+    (dp_transit.flavor_populations; the Galactic component, DIRECTIONS_PLAN step 5); matter_charge -- None
+    (neutrons) or a dp_matter.MatterCharge: the Galaxy's, the Sun's and the Moon's densities are then that
+    charge's (n_n0_eV3 stays the cosmic NEUTRON density, the neutron species' floor; the charge carries the
+    electrons'), and earth_yk must be the same charge's table.
 
     Returns (rho (N_E, 3, 3) at r_split, n_amb_eV3 -- the ambient density the chords add:
     Galaxy, Sun and Moon at the Earth -- and a dict of diagnostics).
@@ -1467,11 +1676,18 @@ def transit_to_earth(E_bins: np.ndarray, F_mass_arrival: np.ndarray, M_rot: np.n
         S_signed = np.ascontiguousarray(np.asarray(U_LRI_struct, dtype=np.complex128))
     tab = dp_transit.frame_table(M_rot, S_signed, transit_dtheta)
     coef_abs = abs(float(Coef))
-    n_gal = dp_transit.galactic_effective_density(m_eff, n_n0_eV3, R_H_eV_inv) if m_eff > 0 else 0.0
+    if matter_charge is None:
+        n_gal = dp_transit.galactic_effective_density(m_eff, n_n0_eV3, R_H_eV_inv) if m_eff > 0 else 0.0
+        N_sun_q, N_moon_q = N_n_sun, N_n_moon
+    else:
+        import dp_matter
+        n_gal = (dp_matter.galactic_effective_density(matter_charge, m_eff, n_n0_eV3, R_H_eV_inv)
+                 if m_eff > 0 else 0.0)
+        N_sun_q, N_moon_q, _ = dp_matter.point_sources(matter_charge)
     n_sun, n_moon = 0.0, 0.0
     if m_eff > 0:
-        n_sun = N_n_sun * (m_eff**2) / (4.0 * np.pi * d_sun_eV_inv) * np.exp(-m_eff * d_sun_eV_inv)
-        n_moon = N_n_moon * (m_eff**2) / (4.0 * np.pi * d_moon_eV_inv) * np.exp(-m_eff * d_moon_eV_inv)
+        n_sun = N_sun_q * (m_eff**2) / (4.0 * np.pi * d_sun_eV_inv) * np.exp(-m_eff * d_sun_eV_inv)
+        n_moon = N_moon_q * (m_eff**2) / (4.0 * np.pi * d_moon_eV_inv) * np.exp(-m_eff * d_moon_eV_inv)
     n_bg = n_gal + n_moon
     N_E = len(E_bins)
     E_c = np.ascontiguousarray(E_bins, dtype=np.float64)
@@ -1524,7 +1740,7 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
                             earth_zenith_average: str = "plain",
                             earth_sky: str = "up",
                             earth_band_costh=None, earth_nodes_per_band: int = 2,
-                            sun_path_cos=None, arrival: str = "eigen"):
+                            sun_path_cos=None, arrival: str = "eigen", matter_charge=None):
     """
     The spatial handover: from the cosmological arrival to the detector, through the Galaxy,
     the Sun, the Earth's exterior and the Earth (transit_to_earth, then the chords). Earth
@@ -1641,10 +1857,21 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
         earth_costh = up if earth_sky == "up" else np.concatenate([up, -up[-2::-1]])
 
     Coef, m_eff = lri_coefficient(m_Zd, g_D, eps_prime, u_arr, T_nu0, use_debye_screening, eta_bg, is_antineutrino)
+    # A general matter charge (dp_matter, docs/dev/SCOPE_WIDENING_PLAN.md): its sign rides on the coefficient,
+    # its densities (Galaxy, Sun, Moon, the Earth's table) are its own. Neutrons: None, the historical path.
+    cpg = None
+    if matter_charge is not None:
+        import dp_matter
+        Coef = Coef * matter_charge.sign
+        cpg = dp_matter.earth_cpg(matter_charge)
+        if earth_step_scheme != "avg":
+            raise ValueError("A matter charge other than the neutron's needs earth_step_scheme = 'avg'")
+        if use_gpu:
+            raise ValueError("The GPU path supports the neutron charge only")
 
     # The Earth's own neutrons enter through their spherical Yukawa integral over the mediator
     # range 1/m_eff (see earth_yukawa_table); at MeV masses this is the contact density.
-    earth_yk = earth_yukawa_table(m_eff)
+    earth_yk = earth_yukawa_table(m_eff, cpg=cpg)
 
     if U_LRI_struct is None:
         # Default texture: outer product of the sterile mixing vector. u_arr arrives
@@ -1678,7 +1905,7 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
     rho_surf_avg, n_n_amb_eV3, tinfo = transit_to_earth(
         E_bins, F_mass_arrival, M_rot, U_LRI_struct, Coef, m_eff, n_n0_eV3, R_H_eV_inv, earth_yk,
         n_sun_paths=n_sun_paths, transit_dtheta=transit_dtheta, sun_path_cos=sun_path_cos,
-        arrival=arrival)
+        arrival=arrival, matter_charge=matter_charge)
     if verbose == 2:
         safe_print(f"Transit to the Earth: Galactic density {tinfo['n_gal_eV3']:.3e} eV^3, Sun "
                    f"{tinfo['n_sun_eV3']:.3e} eV^3 ({tinfo['n_active_sun']} bins coherent), Earth's "
@@ -1692,7 +1919,8 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
     # PREM-core density (the worst case along any chord).
     if verbose >= 1:
         s_lri = float(np.max(np.abs(np.linalg.eigvalsh(U_LRI_struct))))
-        n_core_eV3 = earth_neutron_density_cm3(0.0, earth_yk) * cm_inv3_to_eV3
+        n_core_cm3 = yukawa_profile_density(0.0, earth_yk) if cpg is not None else earth_neutron_density_cm3(0.0, earth_yk)
+        n_core_eV3 = n_core_cm3 * cm_inv3_to_eV3
         dr_core_eV_inv = (get_baseline_earth(detector_depth_km, -1.0) / N_steps_earth) * 1e3 * m_to_eV_inv
         if 2.2e-16 * abs(Coef) * n_core_eV3 * s_lri * dr_core_eV_inv > 0.1:
             safe_print(

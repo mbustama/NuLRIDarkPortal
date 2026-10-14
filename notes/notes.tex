@@ -1476,6 +1476,96 @@ standard physics, a dark-portal point and a secret-interaction point.}
 \label{fig:hese_cases}
 \end{figure}
 
+\section{Matter charges and textures: the scope of the dark-portal paper}
+\label{sec:scope}
+
+\textit{Decisions (Mauricio, 2026-10-14).}---The dark-portal paper widens the model in two ways and
+claims, in its abstract, the most comprehensive calculation of these effects in high-energy
+astrophysical neutrinos, with several kinds of current data. Working title: ``New forces on
+high-energy cosmic neutrinos, from the Hubble scale to the Earth''. First, a general matter charge:
+the potential is sourced by $q_n n_n + q_p n_p + q_e n_e$, not by neutrons alone. Second, a family of
+neutrino textures. Eight benchmark models, each with the matter charge and the texture its gauge
+structure fixes (Table~\ref{tab:benchmarks}). The dark portal's mixing ratios are free, with full planes
+for named textures (pure $e$, $\mu$, $\tau$; $e\mu$, $e\tau$, $\mu\tau$; democratic) and maps of the
+bound over the ratio triangle at a few masses. The plan is \file{docs/dev/SCOPE_WIDENING_PLAN.md}.
+
+\begin{table}[h]
+\centering
+\caption{\textbf{The eight benchmark models.} Matter charges in neutral matter ($n_p = n_e$);
+neutrino charges $(e,\mu,\tau)$. The first three gauge models are those of
+Agarwalla, Bustamante, Das \& Narang (JHEP 08 (2023) 113).}
+\label{tab:benchmarks}
+\footnotesize
+\begin{tabular}{lll}
+\toprule
+Model & Matter charge & Neutrino texture \\
+\midrule
+Dark portal & neutrons ($Z$--$Z_D$ mixing) & $uu^\dagger$, ratios free \\
+$L_e-L_\mu$, $L_e-L_\tau$ & electrons & $(1,-1,0)$, $(1,0,-1)$ \\
+$L_\mu-L_\tau$ & neutrons ($Z$--$Z'$ mixing) & $(0,1,-1)$ \\
+$B-3L_e$ & $n - 2e$ & $(-3,0,0)$ \\
+$B-3L_\mu$, $B-3L_\tau$ & nucleons & $(0,-3,0)$, $(0,0,-3)$ \\
+$B-\frac{3}{2}(L_\mu+L_\tau)$ & nucleons & $(0,-\frac{3}{2},-\frac{3}{2})$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textit{Conventions.}---The theory notes' $\epsp$ (T9, T12) is half the dark-$Z$ mixing $\epsilon_Z$ of
+Davoudiasl, Lee \& Marciano, whose neutron coupling is $\epsilon_Z g/(4c_W)$; the notes' neutron coupling
+$\epsp g/(2c_W)$ and neutrino coupling $\epsp g/c_W$ (T12) follow one normalization, so the model is
+self-consistent. For $L_\mu-L_\tau$, whose $Z'$ reaches the neutrons by the same mixing, the 2023 paper's
+$\xi$ is $2\epsp$.
+
+\textit{The matter charge (step 1, done).}---In neutral matter $n_p = n_e$, so only $q_n$ and
+$q_p + q_e$ enter. Every density the solver uses is linear in its source, so each is computed for
+neutrons and for electrons and combined (\file{src/dp_matter.py}): the cosmic mean
+($n_{e,0} = n_b(1 - Y_p/2) = 2.2059\times10^{-7}$~cm$^{-3}$), the Galaxy at the Sun and at its emission
+points (electrons per nucleon $0.80$ in stars, $0.858$ in cold gas; the hot halo's profile is already
+the electron density), the Sun, the Moon and the Earth's Yukawa profile ($Y_e$ by layer, water on top).
+The electrons per body are $1.0046\times10^{57}$ (Sun), $1.7480\times10^{51}$ (Earth, PREM integrated)
+and $2.1895\times10^{49}$ (Moon). The solver carries the potential's sign in its coefficient, so a
+charge negative in every body ($B-3L_e$) has its sign moved there, and one that changes sign between
+bodies is refused. Fig.~\ref{fig:matter_sources} shows what changes: the distant sources are rich in
+hydrogen, with four to seven electrons per neutron, while the Earth and the Moon have about one. An
+electron-sourced force therefore weighs the potential at IceCube $7.1$ times the neutrons' at cosmic
+ranges, $4.2$ at Galactic ones and $4.4$ where the Sun dominates (from an AU to a kiloparsec), but $0.95$ at
+the Earth's. Checks (\file{tests/test_matter_charge.py}, 16 tests): linearity of every density to
+$10^{-12}$; the electron counts against the bodies' masses; the general path with the neutron charge
+equal to the historical one to $10^{-12}$; a negative charge equal to a flipped texture. The four
+validation points are bit for bit those of the previous code, compiled fresh on both sides (a cached
+and a fresh build of the same code already differ by $7\times10^{-15}$).
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.85\textwidth]{../output/figures/matter_charge_sources.png}
+\caption{\textbf{Where the potential at IceCube comes from.} Top: the Yukawa-smoothed neutron density
+at the detector per body versus the mediator mass (shading: the dominant body). Bottom: each benchmark
+charge's total relative to the neutrons'. \file{tools/plot_matter_sources.py}.}
+\label{fig:matter_sources}
+\end{figure}
+
+\textit{The absorption counted every relic state in full (found 2026-10-14).}---The resonant absorption
+(T7, T11, T12; \file{src/dp_thermal.py}) gives an incident $\nu_\alpha$ the same coupling
+$(\Sigma G)_\alpha$ with each of the three relic mass states. A relic state offers only its own flavor
+components: the $s$-channel amplitude of $\nu_\alpha + \bar\nu_i$ is $(CU^*)_{\alpha i}$, with $C$ the
+coupling matrix in the flavor basis, and summed over the three states this gives $(CC^\dagger)_{\alpha\alpha}
+= (\Sigma G)_\alpha$, one species' worth of targets where the kernel counts three. The width is the same in both. With
+the kernel itself, a flavor-diagonal coupling absorbs $\nu_e$ as strongly on the heaviest state as on
+the lightest, although $|U_{e3}|^2 = 0.02$; integrated over energy, the absorption is $2.9$ times too
+strong for the dark portal's $e\mu$ texture and $2.2$ ($\nu_e$) and $4.2$ ($\nu_\mu$) for $L_e - L_\mu$
+(Fig.~\ref{fig:relic_weights}). Mauricio decided (2026-10-14) to weigh each state by its own flavor
+content, $|(CU^*)_{\alpha i}|^2$, for all eight models, and the Debye mass likewise; the dark portal's
+MeV planes will change, by up to $\sqrt3$ in $g_D|U|^2$. This departs from the theory notes.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.85\textwidth]{../output/figures/absorption_relic_weights.png}
+\caption{\textbf{How the absorption weighs the relic mass states} at $M = 3$~MeV: as computed until
+2026-10-14 (dashed, every state at the full coupling) and by each state's flavor content (bars).
+\file{tools/absorption_relic_weights.py}.}
+\label{fig:relic_weights}
+\end{figure}
+
 \section{Planned work}
 \label{sec:plan}
 

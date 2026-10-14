@@ -48,6 +48,7 @@ from dp_thermal import (  # noqa: F401
     _GL16_X, _GL16_W, _GL10_X, _GL10_W, _FD16,
 )
 from dp_transit import texture_scales  # noqa: F401
+import dp_matter
 from dp_cosmo import (  # noqa: F401
     calc_H_Hubble, calc_R_source, calc_V_LRI_cosmo, get_adiabatic_mixing_cosmo, yukawa_horizon_inv_m2,
     _build_sigma_projection_table, step_cosmological_pair, cascade_kernel_weights, cross_kernel_weights,
@@ -115,7 +116,7 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                        earth_sky: str = "up",
                        host_galaxy_scale: float = 0.0,
                        earth_band_costh=None, earth_nodes_per_band: int = 2, sun_path_cos=None,
-                       arrival_flavor=None, arrival_basis: str = "flavor"):
+                       arrival_flavor=None, arrival_basis: str = "flavor", matter_charge=None):
     """
     Executes the complete spectrum integration, driving the underlying JIT kernels.
     Neutrinos and antineutrinos are evolved together through the cosmological phase (an
@@ -170,6 +171,10 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         detector per unit flux emitted, per energy. arrival_basis = 'eigen': arrival_flavor holds instead
         the populations of the local eigenstates (ascending eigenvalues) -- the Sun and the Earth's response
         to each of them, for emission points elsewhere in the Galaxy (step 6, _galactic_transfer).
+      matter_charge: None (the potential's source is the neutrons, as the theory notes' Eq. T9 has it) or a
+        dp_matter.MatterCharge (docs/dev/SCOPE_WIDENING_PLAN.md): every density -- the cosmic mean, the host
+        galaxy, the Galaxy, the Sun, the Moon, the Earth -- is then that charge's, and its sign multiplies the
+        potential. n_n0 stays the cosmic NEUTRON density (the charge carries the electrons').
 
     Returns: (F_nu, F_nb), the (N_E, 3) flavor fluxes of neutrinos and of antineutrinos
     at the detector; a detector without charge separation sees their sum.
@@ -250,6 +255,8 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
     # The LRI coefficient along the redshift grid (neutrino sign): c_z = 2 (1+z) A_LRI(z), the
     # sigma-table coordinate per unit energy (see _build_sigma_projection_table).
     c_z_arr = np.empty(len(z_bins), dtype=np.float64)
+    n_q0 = dp_matter.cosmic_density(matter_charge, n_n0)          # n_n0 itself for the neutron charge
+    q_sign = 1.0 if matter_charge is None else float(matter_charge.sign)
     c_W_ = 0.88
     m_Z_ = 91.18 * GeV
     g_weak_ = 0.65
@@ -257,7 +264,7 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         zk = z_bins[k]
         m_D_sq_k = calc_debye_mass_sq(g_D, u_arr, T_nu0 * (1.0 + zk), eta_bg) if use_debye_screening else 0.0
         inv_m2 = yukawa_horizon_inv_m2(m_Zd**2 + m_D_sq_k, 1.0 / calc_H_Hubble(zk, H0, Omega_m, Omega_L))
-        A_k = (g_D * eps_prime) * inv_m2 * (4.0 * c_W_ * m_Z_**2 / g_weak_) * (np.sqrt(2.0) / 2.0 * G_F * n_n0 * (1.0 + zk)**3)
+        A_k = (g_D * eps_prime) * inv_m2 * (4.0 * c_W_ * m_Z_**2 / g_weak_) * (np.sqrt(2.0) / 2.0 * G_F * n_q0 * (1.0 + zk)**3)
         c_z_arr[k] = 2.0 * (1.0 + zk) * A_k
 
     # The coordinate at emission: the cosmic mean (c_inj = c_z, bit for bit) unless the sources
@@ -270,8 +277,12 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
             zk = z_bins[k]
             m_D_sq_k = calc_debye_mass_sq(g_D, u_arr, T_nu0 * (1.0 + zk), eta_bg) if use_debye_screening else 0.0
             m_eff_sq = m_Zd**2 + m_D_sq_k
-            n_host = host_galaxy_scale * dp_transit.galactic_effective_density(
-                np.sqrt(m_eff_sq), 0.0, 1.0 / calc_H_Hubble(zk, H0, Omega_m, Omega_L))
+            R_H_k = 1.0 / calc_H_Hubble(zk, H0, Omega_m, Omega_L)
+            if matter_charge is None:
+                n_host = host_galaxy_scale * dp_transit.galactic_effective_density(np.sqrt(m_eff_sq), 0.0, R_H_k)
+            else:
+                n_host = host_galaxy_scale * dp_matter.galactic_effective_density(
+                    matter_charge, np.sqrt(m_eff_sq), 0.0, R_H_k, n_e0_eV3=0.0)
             c_inj_arr[k] = c_z_arr[k] + 2.0 * (1.0 + zk) * (g_D * eps_prime) * K_ * n_host / m_eff_sq
     elif host_galaxy_scale < 0.0:
         raise ValueError(f"source.host_galaxy_scale must be >= 0, got {host_galaxy_scale}")
@@ -284,8 +295,11 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         u_s, M_rot, S_eff, V_SM_eff = _species_matrices(U_pmns, M_sq, u_arr, U_LRI_struct, V_SM_struct, anti)
         c_z = -c_z_arr if anti else c_z_arr
         c_inj = -c_inj_arr if anti else c_inj_arr
-        # H(sigma) = M_rot + sigma * S_signed, tabulated over |sigma| with the sign folded into S
+        # H(sigma) = M_rot + sigma * S_signed, tabulated over |sigma| with the sign folded into S (the
+        # antineutrinos' and a negative matter charge's)
         S_signed = np.ascontiguousarray(-S_eff if anti else S_eff)
+        if q_sign < 0.0:
+            S_signed = np.ascontiguousarray(-S_signed)
         abs_c = np.abs(np.concatenate([c_z, c_inj]))
         Q_t, s_t, Mp_t, floor_t, sig_lo_t, sig_hi_t = texture_scales(M_rot, S_signed)
         sig_min = max(E_bins[0] * abs_c.min(), 1e-30 * max(np.max(np.abs(M_rot)), 1e-300))
@@ -360,7 +374,8 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                                           earth_zenith_average=earth_zenith_average,
                                           earth_sky=earth_sky, earth_band_costh=earth_band_costh,
                                           earth_nodes_per_band=earth_nodes_per_band,
-                                          sun_path_cos=sun_path_cos, arrival=arrival)
+                                          sun_path_cos=sun_path_cos, arrival=arrival,
+                                          matter_charge=matter_charge)
         if earth_band_costh is not None:
             F_earth, F_bands = F_earth
             if not np.isfinite(F_bands).all():
@@ -553,7 +568,8 @@ def _flux_from_setup(E_bins: np.ndarray, params: Dict, setup: Dict, injection,
         earth_band_costh=band_costh,
         earth_nodes_per_band=params.get('sky', {}).get('earth_nodes_per_band', 2),
         sun_path_cos=params.get('sun_path_cos', None),
-        arrival_flavor=arrival_flavor, arrival_basis=arrival_basis
+        arrival_flavor=arrival_flavor, arrival_basis=arrival_basis,
+        matter_charge=params.get('matter_charge', None)
     )
 
 
@@ -626,9 +642,16 @@ def _galactic_emission_populations(E_bins: np.ndarray, params: Dict, setup: Dict
                                                  anti)
         Coef, m_eff = lri_coefficient(params['m_Zd_eV'], params['g_D'], params['epsilon_prime'], u_s,
                                       params['T_nu0_eV'], params['use_debye_screening'], setup['eta_bg'], anti)
+        charge = params.get('matter_charge', None)
+        if charge is not None:
+            Coef = Coef * charge.sign
         S_signed = np.ascontiguousarray(np.sign(Coef) * S_eff if Coef != 0.0 else S_eff)
         tab = dp_transit.frame_table(M_rot, S_signed, params['transit_dtheta'])
-        n_emit = dp_galactic.effective_density(R, z, m_eff, params['n_n0_eV3'], 1.0 / params['H0_eV'])
+        if charge is None:
+            n_emit = dp_galactic.effective_density(R, z, m_eff, params['n_n0_eV3'], 1.0 / params['H0_eV'])
+        else:
+            n_emit = dp_matter.galactic_emission_density(charge, R, z, m_eff, params['n_n0_eV3'],
+                                                         1.0 / params['H0_eV'])
         F = dp_galactic.emission_populations(E_bins, f_S, w_gas, q_gas, q_src, n_emit, 2.0 * abs(Coef), tab)
         if work != nside:
             F = dp_galactic.degrade_weighted(F, dp_galactic.intensity(gal['template'], E_GeV, work), work, nside)
@@ -951,6 +974,8 @@ def build_solver_params(config: Dict) -> Tuple[np.ndarray, Dict]:
     params['Omega_L'] = float(config['cosmology']['Omega_L'])
     params['T_nu0_eV'] = float(config['cosmology']['T_nu0_eV'])
     params['n_n0_eV3'] = float(config['cosmology']['n_n0_cm3'] * cm_inv3_to_eV3)
+    # The potential's matter charge (dp_matter): None for the neutrons' (the default), the historical path
+    params['matter_charge'] = dp_matter.from_config(config, params['n_n0_eV3'])
     params['mass_ordering'] = config['cosmology']['mass_ordering']
     mo = str(config['cosmology']['mass_ordering']).strip().lower()
     if mo not in ['normal', 'inverted']:

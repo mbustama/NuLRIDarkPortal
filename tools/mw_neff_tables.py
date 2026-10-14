@@ -22,7 +22,10 @@ density, n_local_cm3), integrated on the solver's distance nodes (200 per decade
 (galactic_effective_density without the cosmic tail beyond 2e4 kpc, which is the same everywhere in the Galaxy
 and added at run time), for the default cosmic neutron density n_n0 (stored; dp_galactic checks it).
 
-  python tools/mw_neff_tables.py [--out src/data/mw_neff_tables.npz]        (Tycho, ~10 min on 32 cores)
+  python tools/mw_neff_tables.py [--species neutron|electron] [--out ...]    (Tycho, ~15 min on 32 cores)
+
+--species electron makes the electron (= proton) table, src/data/mw_neff_tables_electrons.npz, with the cosmic
+electron density as its floor (stored as n_e0_cm3), for matter charges other than the neutron's (dp_matter).
 
 Checks: at the Sun's node the sphere average equals mw_sky_density's own quadrature to rounding (a direct
 comparison at the same distances, printed), and n_eff there equals galactic_effective_density (test T7).
@@ -39,7 +42,12 @@ sys.path.insert(0, os.path.join(REPO, "src"))
 sys.path.insert(0, os.path.join(REPO, "tools"))
 
 from dp_core import njit, prange  # noqa: E402
-from dp_spatial import calc_MW_neutron_density  # noqa: E402
+from dp_spatial import calc_MW_species_density  # noqa: E402
+
+SPECIES = {"neutron": 0, "electron": 1}
+OUT = {0: "mw_neff_tables.npz", 1: "mw_neff_tables_electrons.npz"}
+SKY = {0: "mw_sky_density.npz", 1: "mw_sky_density_electrons.npz"}
+FLOOR = {0: "n_n0_cm3", 1: "n_e0_cm3"}
 
 R_SUN = 8.33                     # kpc, as in calc_MW_neutron_density
 GL16_X, GL16_W = np.polynomial.legendre.leggauss(16)
@@ -52,15 +60,15 @@ Z_NODES = np.array([0.0, 0.005, 0.01, 0.02, 0.03, 0.045, 0.06, 0.08, 0.1, 0.13, 
 
 
 @njit(cache=True)
-def density_galactocentric(X, Y, Z):
-    """calc_MW_neutron_density at galactocentric (X, Y, Z) kpc (the Sun at (R_SUN, 0, 0)): its own
+def density_galactocentric(X, Y, Z, species):
+    """calc_MW_species_density at galactocentric (X, Y, Z) kpc (the Sun at (R_SUN, 0, 0)): its own
     Sun-centred coordinates, r, theta from the north Galactic pole, phi from the Galactic Centre's direction."""
     u = R_SUN - X                  # toward the Galactic Centre
     rho = np.sqrt(u * u + Y * Y)
     r = np.sqrt(rho * rho + Z * Z)
     if r == 0.0:
-        return calc_MW_neutron_density(0.0, 0.5 * np.pi, 0.0)
-    return calc_MW_neutron_density(r, np.arctan2(rho, Z), np.arctan2(Y, u))
+        return calc_MW_species_density(0.0, 0.5 * np.pi, 0.0, species)
+    return calc_MW_species_density(r, np.arctan2(rho, Z), np.arctan2(Y, u), species)
 
 
 @njit(cache=True)
@@ -92,7 +100,7 @@ def _panels_mu(z0, r, out):
 
 
 @njit(cache=True)
-def sphere_average(R0, z0, r, glx, glw, phi_b):
+def sphere_average(R0, z0, r, glx, glw, phi_b, species):
     """nbar at distance r (kpc) from the point (R0, 0, z0), in cm^-3."""
     mu_b = np.empty(260)
     nmu = _panels_mu(z0, r, mu_b)
@@ -112,7 +120,8 @@ def sphere_average(R0, z0, r, glx, glw, phi_b):
                 for b in range(len(glx)):
                     ph = p_mid + p_half * glx[b]
                     # phi = 0 toward the Galactic Centre's side: X decreases
-                    s += glw[b] * density_galactocentric(R0 - r * st * np.cos(ph), r * st * np.sin(ph), Z)
+                    s += glw[b] * density_galactocentric(R0 - r * st * np.cos(ph), r * st * np.sin(ph), Z,
+                                                         species)
                 acc += s * p_half
             total += glw[a] * acc * m_half
     return total / (2.0 * np.pi)
@@ -138,36 +147,40 @@ def neff_head_body(m, r, nbar, n_loc, n_n0):
 
 
 @njit(cache=True, parallel=True)
-def _table(R_nodes, z_nodes, r_nodes, glx, glw, phi_b, m_eV, r_eV, cm3_to_eV3, n_n0_eV3, neff, n_loc, order):
+def _table(R_nodes, z_nodes, r_nodes, glx, glw, phi_b, m_eV, r_eV, cm3_to_eV3, n_n0_eV3, neff, n_loc, order,
+           species):
     """prange splits the points into contiguous blocks, one per thread: they are visited in the shuffled
     `order` so that the slow ones (near the Galactic Centre) do not pile up in one block."""
     nR, nz = len(R_nodes), len(z_nodes)
     for kk in prange(nR * nz):
         k = order[kk]
         i, j = k // nz, k % nz
-        n_loc[i, j] = density_galactocentric(R_nodes[i], 0.0, z_nodes[j])
+        n_loc[i, j] = density_galactocentric(R_nodes[i], 0.0, z_nodes[j], species)
         nbar = np.empty(len(r_nodes))
         for q in range(len(r_nodes)):
-            nbar[q] = sphere_average(R_nodes[i], z_nodes[j], r_nodes[q], glx, glw, phi_b) * cm3_to_eV3
+            nbar[q] = sphere_average(R_nodes[i], z_nodes[j], r_nodes[q], glx, glw, phi_b, species) * cm3_to_eV3
         for a in range(len(m_eV)):
             neff[i, j, a] = neff_head_body(m_eV[a], r_eV, nbar, n_loc[i, j] * cm3_to_eV3, n_n0_eV3)
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--out", default=os.path.join(REPO, "src", "data", "mw_neff_tables.npz"))
+    ap.add_argument("--species", choices=sorted(SPECIES), default="neutron")
+    ap.add_argument("--out", default=None, help="default: src/data/mw_neff_tables[_electrons].npz")
     ap.add_argument("--quick", action="store_true", help="a few nodes only (a check of the code)")
     a = ap.parse_args(argv)
+    species = SPECIES[a.species]
+    out = a.out or os.path.join(REPO, "src", "data", OUT[species])
     import mw_sky_density
     from dp_core import m_to_eV_inv, cm_inv3_to_eV3
     from dp_config import DEFAULT_CONFIG
-    d = np.load(os.path.join(REPO, "src", "data", "mw_sky_density.npz"))
-    digest = mw_sky_density.model_digest()
+    d = np.load(os.path.join(REPO, "src", "data", SKY[species]))
+    digest = mw_sky_density.model_digest(species)
     if str(d["model_digest"]) != digest:
-        raise RuntimeError("src/data/mw_sky_density.npz was made from another density model")
+        raise RuntimeError(f"src/data/{SKY[species]} was made from another density model")
     r = d["r_kpc"]                                    # the solver's own distance nodes at the Sun
     r_eV = r * 3.08567758e19 * m_to_eV_inv
-    n_n0_cm3 = float(DEFAULT_CONFIG["cosmology"]["n_n0_cm3"])
+    n_n0_cm3 = float(DEFAULT_CONFIG["cosmology"][FLOOR[species]])        # this species' cosmic floor
     Rn, zn = (np.array([0.0, R_SUN, 15.0]), np.array([0.0, 0.3])) if a.quick else (R_NODES, Z_NODES)
     phi_b = np.ascontiguousarray(mw_sky_density._breaks(1e-3, np.pi, 1.0))
     neff = np.empty((len(Rn), len(zn), len(LOG10_M)))
@@ -175,20 +188,22 @@ def main(argv=None):
     t0 = time.perf_counter()
     order = np.random.default_rng(0).permutation(len(Rn) * len(zn))
     _table(Rn, zn, r, GL16_X, GL16_W, phi_b, 10.0 ** LOG10_M, r_eV, cm_inv3_to_eV3, n_n0_cm3 * cm_inv3_to_eV3,
-           neff, n_loc, order)
+           neff, n_loc, order, species)
     dt = time.perf_counter() - t0
     # direct check of the sphere average at the Sun against mw_sky_density's own quadrature
     i_sun = int(np.argmin(np.abs(Rn - R_SUN)))
     rs = np.geomspace(1e-3, 300.0, 13)
-    dev = max(abs(sphere_average(R_SUN, 0.0, x, GL16_X, GL16_W, phi_b) / mw_sky_density.sky_average(x) - 1) for x in rs)
+    dev = max(abs(sphere_average(R_SUN, 0.0, x, GL16_X, GL16_W, phi_b, species)
+                  / mw_sky_density.sky_average(x, species) - 1) for x in rs)
     note = (f"sphere average at the Sun vs mw_sky_density.sky_average at {len(rs)} distances: max |ratio - 1| "
             f"{dev:.1e}")
-    np.savez_compressed(a.out, R_kpc=Rn, z_kpc=zn, log10_m_eV=LOG10_M, neff_cm3=neff / cm_inv3_to_eV3,
-                        n_local_cm3=n_loc, n_n0_cm3=n_n0_cm3, r_max_kpc=float(r[-1]), model_digest=np.array(digest),
+    np.savez_compressed(out, R_kpc=Rn, z_kpc=zn, log10_m_eV=LOG10_M, neff_cm3=neff / cm_inv3_to_eV3,
+                        n_local_cm3=n_loc, r_max_kpc=float(r[-1]), model_digest=np.array(digest),
+                        species=np.array(a.species), **{FLOOR[species]: n_n0_cm3},
                         r_sun_kpc=R_SUN, check=np.array(note),
                         commit=np.array(os.popen(f"git -C {REPO} rev-parse --short HEAD").read().strip()),
                         host=np.array(os.uname().nodename), seconds=dt)
-    print(f"wrote {a.out}: {len(Rn)} x {len(zn)} points, {len(r)} distances, {len(LOG10_M)} masses in {dt:.0f} s; "
+    print(f"wrote {out}: {len(Rn)} x {len(zn)} points, {len(r)} distances, {len(LOG10_M)} masses in {dt:.0f} s; "
           f"{note}; n_local(Sun) = {n_loc[i_sun, 0]:.6g} cm^-3")
 
 

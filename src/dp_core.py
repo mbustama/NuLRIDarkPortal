@@ -232,6 +232,13 @@ R_core_eV_inv = 3480e3 * m_to_eV_inv
 N_n_sun = 1.929e56
 N_n_earth = 1.849e51
 N_n_moon = 2.232e49
+# Electrons (= protons) per body, for matter charges other than the neutron's (dp_matter,
+# docs/dev/SCOPE_WIDENING_PLAN.md): each body's nucleons less its neutrons above -- the Sun's
+# 1.98847e33 g and the Moon's 7.342e25 g at 1/m_u nucleons per gram (1.1975e57, 4.4215e49), and
+# the Earth's PREM integrated with dp_spatial.earth_electrons_per_gram (Y_e by layer, water on top).
+N_e_sun = 1.0046e57
+N_e_earth = 1.7480e51
+N_e_moon = 2.1895e49
 
 
 @njit(cache=True)

@@ -31,7 +31,7 @@ import numpy as np
 
 import dp_sky
 from dp_core import njit
-from dp_spatial import calc_MW_neutron_density
+from dp_spatial import calc_MW_neutron_density, calc_MW_electron_density
 
 _DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 _DATA_DIRS = [_DATA]
@@ -304,7 +304,24 @@ def _density_RZ(R, z, out):
             out.flat[i] = calc_MW_neutron_density(r, np.arctan2(np.abs(u), z.flat[i]), 0.0 if u >= 0.0 else np.pi)
 
 
-def effective_density(R, z, m_eff_eV, n_n0_eV3, R_H_eV_inv):
+@njit(cache=True)
+def _density_RZ_e(R, z, out):
+    """_density_RZ for electrons (calc_MW_electron_density), cm^-3."""
+    for i in range(R.size):
+        u = R_SUN_KPC - R.flat[i]
+        r = np.sqrt(u * u + z.flat[i] * z.flat[i])
+        if r == 0.0:
+            out.flat[i] = calc_MW_electron_density(0.0, 0.5 * np.pi, 0.0)
+        else:
+            out.flat[i] = calc_MW_electron_density(r, np.arctan2(np.abs(u), z.flat[i]), 0.0 if u >= 0.0 else np.pi)
+
+
+# The emission points' tables per species (dp_spatial.SPECIES_*; tools/mw_neff_tables.py [--species electron]),
+# with the name of the cosmic floor each was made for.
+NEFF_TABLE_FILES = {0: ("mw_neff_tables.npz", "n_n0_cm3"), 1: ("mw_neff_tables_electrons.npz", "n_e0_cm3")}
+
+
+def effective_density(R, z, m_eff_eV, n_n0_eV3, R_H_eV_inv, species=0):
     """The Yukawa-smoothed neutron density n_eff (eV^3) at galactocentric (R, |z|) kpc for the mediator mass
     m_eff: the local density for m_eff >= 1e-12 eV (contact); below, the tabulated integral (log-linear in
     m between the table's masses, and in z and R between its nodes) plus the cosmic tail beyond the table's
@@ -312,24 +329,29 @@ def effective_density(R, z, m_eff_eV, n_n0_eV3, R_H_eV_inv):
     not uniform: the Galaxy's share is m^2 times its neutrons' 'Coulomb' potential at x, ~6 times deeper at
     the Galactic Centre than at the Sun, and it exceeds the cosmic floor down to ~4e-31 eV. Below the table's
     lowest mass (1e-34 eV, ranges beyond the Hubble radius) both scale as m^2 and the pattern is frozen: the
-    lowest mass's n_eff(x) / n_eff(Sun) times the Sun's exact value."""
+    lowest mass's n_eff(x) / n_eff(Sun) times the Sun's exact value. species: 0 (neutrons) or 1 (electrons,
+    with n_n0_eV3 then the cosmic ELECTRON density; NEFF_TABLE_FILES) -- dp_matter combines them."""
     from dp_core import cm_inv3_to_eV3
     import dp_transit
     R = np.asarray(R, dtype=np.float64)
     z = np.abs(np.asarray(z, dtype=np.float64))
+    if species not in NEFF_TABLE_FILES:
+        raise ValueError(f"species must be 0 (neutrons) or 1 (electrons), got {species!r}")
+    density_RZ = _density_RZ if species == 0 else _density_RZ_e
     if m_eff_eV >= CONTACT_MIN_M_EV:
         out = np.empty(R.shape)
-        _density_RZ(np.ascontiguousarray(R), np.ascontiguousarray(z), out)
+        density_RZ(np.ascontiguousarray(R), np.ascontiguousarray(z), out)
         return out * cm_inv3_to_eV3
-    t = _data_file("mw_neff_tables.npz")
+    fname, floor_key = NEFF_TABLE_FILES[species]
+    t = _data_file(fname)
     lm = t["log10_m_eV"]
     if np.log10(m_eff_eV) < lm[0]:
         m0 = 10.0 ** lm[0]
-        pattern = (effective_density(R, z, m0, n_n0_eV3, R_H_eV_inv)
-                   / effective_density(np.array([R_SUN_KPC]), np.array([0.0]), m0, n_n0_eV3, R_H_eV_inv)[0])
-        return pattern * dp_transit.galactic_effective_density(m_eff_eV, n_n0_eV3, R_H_eV_inv)
-    if abs(float(t["n_n0_cm3"]) * cm_inv3_to_eV3 / n_n0_eV3 - 1) > 1e-9:
-        raise ValueError("mw_neff_tables.npz was made for another cosmic neutron density; rerun tools/mw_neff_tables.py")
+        pattern = (effective_density(R, z, m0, n_n0_eV3, R_H_eV_inv, species)
+                   / effective_density(np.array([R_SUN_KPC]), np.array([0.0]), m0, n_n0_eV3, R_H_eV_inv, species)[0])
+        return pattern * dp_transit.galactic_effective_density(m_eff_eV, n_n0_eV3, R_H_eV_inv, species)
+    if abs(float(t[floor_key]) * cm_inv3_to_eV3 / n_n0_eV3 - 1) > 1e-9:
+        raise ValueError(f"{fname} was made for another cosmic density; rerun tools/mw_neff_tables.py")
     a = min(int(np.searchsorted(lm, np.log10(m_eff_eV)) - 1), len(lm) - 2)
     a = max(a, 0)
     w = (np.log10(m_eff_eV) - lm[a]) / (lm[a + 1] - lm[a])
@@ -349,7 +371,7 @@ def effective_density(R, z, m_eff_eV, n_n0_eV3, R_H_eV_inv):
          + (1 - tR) * tz * logn[iR, iz + 1] + tR * tz * logn[iR + 1, iz + 1])
     if beta > 0.0:
         loc = np.empty(R.shape)
-        _density_RZ(np.ascontiguousarray(R), np.ascontiguousarray(z), loc)
+        density_RZ(np.ascontiguousarray(R), np.ascontiguousarray(z), loc)
         v = v + beta * np.log(loc)
     from dp_core import m_to_eV_inv
     x1 = m_eff_eV * float(t["r_max_kpc"]) * 3.08567758e19 * m_to_eV_inv

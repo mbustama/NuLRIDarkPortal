@@ -85,6 +85,10 @@ def _build_default_config() -> Dict:
             # strong (it is sourced by neutrons only: Z-like couplings of protons and electrons
             # cancel in neutral matter).
             "n_n0_cm3": 3.091e-8,
+            # Cosmological ELECTRON (= proton) density today, for matter charges other than the
+            # neutron's (matter_charge): the same baryons, 1 - Y_p/2 per baryon, n_b (1 - Y_p/2) =
+            # 2.515e-7 x 0.8771 = 2.2059e-7 cm^-3 (2026-10-14, docs/dev/SCOPE_WIDENING_PLAN.md).
+            "n_e0_cm3": 2.2059e-7,
             "m_lightest_eV": 0.01,
             "mass_ordering": "normal",
             "eta_e": 1.0,
@@ -102,6 +106,15 @@ def _build_default_config() -> Dict:
             "n_e_earth_cm3": 1.5e24,
             "detector_depth_km": 1.5,
             "V_SM_struct": None
+        },
+        "matter_charge": {
+            # The potential's source, q_n n_n + q_p n_p + q_e n_e (dp_matter; docs/dev/
+            # SCOPE_WIDENING_PLAN.md, 2026-10-14). In neutral matter n_p = n_e, so q_p and q_e enter
+            # as their sum. The default, neutrons alone, is the dark portal's Z-Z_D mass mixing
+            # (theory notes, Eq. T9) -- and B - L's -- and runs the historical path bit for bit.
+            "q_n": 1.0,
+            "q_p": 0.0,
+            "q_e": 0.0
         },
         "dark_portal": {
             "u_e": 0.5,

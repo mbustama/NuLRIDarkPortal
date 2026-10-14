@@ -687,23 +687,26 @@ def march_path(E, kappa, n_bg, C, m, D, ca, t_max, rho_in, sig_nodes, nu_nodes, 
 # only as 1/m, not 1/m^2, because the model's exponential discs have a cusp at z = 0, where the
 # Sun sits: nbar(r) = n_loc (1 - 1.2 r/kpc) near the Sun.
 _MW_CONTACT_MIN_M_EV = 1e-12
-_MW_TABLE = None
+_MW_TABLES = {}
+# The sky-averaged density per species (dp_spatial.SPECIES_*): neutrons, and electrons for matter charges other
+# than the neutron's (dp_matter; tools/mw_sky_density.py --species electron).
+MW_SKY_DENSITY_FILES = {0: "mw_sky_density.npz", 1: "mw_sky_density_electrons.npz"}
 
 
-def _mw_table():
-    """(r in eV^-1, nbar in eV^3) from src/data/mw_sky_density.npz (tools/mw_sky_density.py)."""
-    global _MW_TABLE
-    if _MW_TABLE is None:
+def _mw_table(species: int = 0):
+    """(r in eV^-1, nbar in eV^3) of one species from src/data (MW_SKY_DENSITY_FILES; tools/mw_sky_density.py)."""
+    t = _MW_TABLES.get(species)
+    if t is None:
         import os
         from dp_core import m_to_eV_inv, cm_inv3_to_eV3
-        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "mw_sky_density.npz")
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", MW_SKY_DENSITY_FILES[species])
         d = np.load(path)
         r = d["r_kpc"] * 3.08567758e19 * m_to_eV_inv
-        _MW_TABLE = (np.ascontiguousarray(r), np.ascontiguousarray(d["nbar_cm3"] * cm_inv3_to_eV3))
-    return _MW_TABLE
+        _MW_TABLES[species] = t = (np.ascontiguousarray(r), np.ascontiguousarray(d["nbar_cm3"] * cm_inv3_to_eV3))
+    return t
 
 
-def galactic_effective_density(m_eV: float, n_n0_eV3: float, R_H_eV_inv: float) -> float:
+def galactic_effective_density(m_eV: float, n_n0_eV3: float, R_H_eV_inv: float, species: int = 0) -> float:
     """The Yukawa-smoothed neutron density (eV^3) at the Sun from the Galaxy and the cosmic
     mean beyond it,
         n_eff = int_0^inf m^2 r exp(-m r) max(nbar(r), n_n0) dr,
@@ -711,13 +714,20 @@ def galactic_effective_density(m_eV: float, n_n0_eV3: float, R_H_eV_inv: float) 
     1/r of the kernel), the cosmic mean taken out to the Hubble radius R_H. The potential is
     Coef n_eff with Coef ~ 1/m^2: n_eff is the local density for short ranges and m^2 times the
     enclosed neutrons over their distance for long ones. Above _MW_CONTACT_MIN_M_EV the local
-    density itself (dp_spatial.calc_MW_neutron_density at the Sun)."""
-    from dp_spatial import calc_MW_neutron_density
+    density itself (dp_spatial.calc_MW_neutron_density at the Sun). species: 0 (neutrons) or 1 (electrons,
+    dp_spatial.calc_MW_electron_density, with n_n0_eV3 then the cosmic ELECTRON density) -- the same integral
+    per species, which dp_matter combines for a general matter charge."""
+    from dp_spatial import calc_MW_neutron_density, calc_MW_electron_density
     from dp_core import cm_inv3_to_eV3
-    n_loc = calc_MW_neutron_density(0.0, 0.0, 0.0) * cm_inv3_to_eV3
+    if species == 0:
+        n_loc = calc_MW_neutron_density(0.0, 0.0, 0.0) * cm_inv3_to_eV3
+    elif species == 1:
+        n_loc = calc_MW_electron_density(0.0, 0.0, 0.0) * cm_inv3_to_eV3
+    else:
+        raise ValueError(f"species must be 0 (neutrons) or 1 (electrons), got {species!r}")
     if m_eV >= _MW_CONTACT_MIN_M_EV:
         return n_loc
-    r, nbar = _mw_table()
+    r, nbar = _mw_table(species)
     n = np.maximum(nbar, n_n0_eV3)
     x = m_eV * r
     f = x * x * np.exp(-x) * n                     # m^2 r^2 e^{-mr} n, per unit ln r
