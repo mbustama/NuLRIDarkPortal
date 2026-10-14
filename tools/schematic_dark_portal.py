@@ -4,6 +4,11 @@ schematic_dark_portal.py -- the schematic of the dark-portal calculation for the
 calculation's main ingredients). Layout agreed in text first: a ruler of the mediator mass on top (what sources the
 potential the neutrinos feel), the journey in six stages, the ingredients per stage below.
 
+v4 (2026-10-14): the mass ruler dropped -- it relates the range to the mass, not to where the neutrinos are -- and
+in its place, in each stage, the neutrino's Yukawa sphere: the matter within lambda = 1/m_ZD of it, which sources the
+potential it feels, sized to the stage (1 Gpc, 8 kpc to the Galactic Centre, 1 AU, the Earth's radius) and labelled
+with lambda and m_ZD -- the stages' distance markers; resonant absorption at several points of the cosmological path,
+each Z_D decaying to a nu nubar pair (the relic column elsewhere is ~1e-5 of the cosmological one); 'Distant sources'.
 v3 (2026-10-14): the ruler aligned with the stages (a piecewise scale, values at the dividers), absorption in the
 cosmological inset; no bottom legend; the Earth turned so that IceCube faces the neutrinos' entry; plainer labels.
 v2, after Mauricio's edits (2026-10-14): every phrase capitalized; no marks for what is new; the Earth as a globe
@@ -28,13 +33,13 @@ from matplotlib.patches import (Circle, Ellipse, FancyArrowPatch, FancyBboxPatch
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 LAND = os.path.join(REPO, "tools", "data", "naturalearth", "land_110m_decimated.json")
 W_IN = 7.0
-X1, Y_LO, Y1 = 100.0, 3.9, 100.0 * 2.9 / 7.0             # data units (equal aspect); v3: no legend below Y_LO
+X1, Y_LO, Y1 = 100.0, 3.9, 35.4                         # data units (equal aspect); v4: no ruler above the stages
 H_IN = W_IN * (Y1 - Y_LO) / X1
 C = dict(src="#525252", cosmo="#6a51a3", mw="#2b6cb0", sun="#d95f02", earth="#238b45", det="#525252",
          gal="#c9a227", relic="#9e9ac8", neutron="#969696", contact="#bdbdbd")
 STRANDS = ("#3b5b92", "#c44e52", "#55a868")                # the propagation eigenstates
 SEP = 0.8                                                  # their separation (v1: 0.45)
-STAGES = [("Sources", 0.5, 12.0, C["src"]), ("Cosmological propagation", 12.0, 36.0, C["cosmo"]),
+STAGES = [("Distant sources", 0.5, 12.0, C["src"]), ("Cosmological propagation", 12.0, 36.0, C["cosmo"]),
           ("Milky Way", 36.0, 57.0, C["mw"]), ("Sun", 57.0, 68.5, C["sun"]), ("Earth", 68.5, 83.5, C["earth"]),
           ("Detection", 83.5, 99.5, C["det"])]
 Y0 = 21.0                                                  # the neutrinos' path
@@ -50,6 +55,28 @@ def glow(ax, xy, r, color, n=12, alpha=0.25, z=1, squash=1.0):
     for i in range(n, 0, -1):
         ax.add_patch(Ellipse(xy, 2 * r * i / n, 2 * r * squash * i / n, color=color, alpha=alpha / n * 1.6, lw=0,
                              zorder=z))
+
+
+def yukawa(ax, xy, r, color, lam, mass, label_y, label_x=None, z=3, alpha=0.11, dot=True):
+    """The neutrino's Yukawa sphere: the matter within lambda of it, which sources the potential it feels (a
+    translucent disc, dashed edge, the neutrino at its centre), labelled with lambda and m_ZD = 1/lambda below."""
+    ax.add_patch(Circle(xy, r, fc=color, ec="none", alpha=alpha, zorder=z))
+    ax.add_patch(Circle(xy, r, fill=False, ec=color, lw=0.6, ls=(0, (3, 1.5)), alpha=0.9, zorder=z + 0.2))
+    if dot:
+        ax.scatter([xy[0]], [xy[1]], s=9, color="white", edgecolors="k", lw=0.5, zorder=9)
+    x = xy[0] if label_x is None else label_x
+    text(ax, x, label_y, lam, size=5.0, color=color, weight="bold", path_effects=HALO)
+    text(ax, x, label_y - 1.1, mass, size=4.8, color="#404040", path_effects=HALO)
+
+
+def wavy(ax, p0, p1, color, n=3, amp=0.16, lw=0.6, z=6):
+    """A mediator's propagator: a sine wave from p0 to p1."""
+    p0, p1 = np.asarray(p0, dtype=float), np.asarray(p1, dtype=float)
+    t = np.linspace(0.0, 1.0, 80)
+    d = p1 - p0
+    nrm = np.array([-d[1], d[0]]) / np.hypot(*d)
+    pts = p0[None, :] + t[:, None] * d[None, :] + amp * np.sin(2 * np.pi * n * t)[:, None] * nrm[None, :]
+    ax.plot(pts[:, 0], pts[:, 1], color=color, lw=lw, zorder=z)
 
 
 def strands(ax, x0, x1, y0=Y0, widths=(0.9, 0.9, 0.9), z=4):
@@ -129,29 +156,6 @@ def globe_rings(lon0_deg):
     return out
 
 
-def ruler(ax):
-    """Which matter sources the potential, by mediator mass: one segment above each stage whose matter dominates
-    (v3: aligned with the stages, so the scale is piecewise; values at the boundaries, which fall on the stages'
-    dividers). Cosmos below 1e-31 eV; the Earth's local density beyond 1e-12 eV (ranges under ~200 km); resonant
-    absorption (MeV) is the cosmological stage's inset."""
-    y, h = 36.3, 1.5
-    segs = [(12.0, 36.0, C["cosmo"], "Cosmos", "white"), (36.0, 57.0, C["mw"], "Galaxy", "white"),
-            (57.0, 68.5, C["sun"], "Sun", "white"), (68.5, 76.0, C["earth"], "Earth", "white"),
-            (76.0, 83.5, "#a1d99b", "Local density", "#1b5e20")]
-    for xa, xb, col, lab, ink in segs:
-        ax.add_patch(FancyBboxPatch((xa, y), xb - xa, h, boxstyle="square,pad=0", fc=col, ec="white", lw=0.8,
-                                    alpha=0.9, zorder=3))
-        text(ax, 0.5 * (xa + xb), y + h / 2, lab, size=5.0 if len(lab) < 8 else 4.5, color=ink, weight="bold")
-    for x, lg, lam in ((36.0, -31, "60 Mpc"), (57.0, -26, "0.6 kpc"), (68.5, -18, "1.3 AU"), (76.0, -12, "200 km")):
-        ax.plot([x] * 2, [y + h, y + h + 0.5], color="k", lw=0.4, zorder=3)
-        text(ax, x, y + h + 1.45, rf"$10^{{{lg}}}$", size=6.2)
-        ax.plot([x] * 2, [y - 0.5, y], color="k", lw=0.4, zorder=3)
-        text(ax, x, y - 1.35, lam, size=5.8)
-    text(ax, 0.6, y + h + 1.45, r"Mediator mass $m_{Z_D}$ [eV]", size=5.4, ha="left")
-    text(ax, 0.6, y - 1.35, r"Range $\lambda = 1/m_{Z_D}$", size=5.4, ha="left")
-    text(ax, 0.6, y + h / 2, "Matter potential from:", size=5.0, ha="left", color="#525252")
-
-
 def sources(ax):
     glow(ax, (5.4, 15.6), 3.6, C["src"], alpha=0.35)                       # the host galaxy's potential well
     for (cx, cy, ang, s) in ((4.6, 26.2, 25, 1.0), (5.4, 15.6, -15, 1.1)):
@@ -177,8 +181,9 @@ def cosmology(ax):
         t = j / 6
         ax.plot([xa, xb], [Y0 + (t - 0.5) * 12.0, Y0 + (t - 0.5) * 18.0], color="#d9d9d9", lw=0.4, zorder=1)
 
-    def clear(x, y):                                       # off the strands and the insets
-        return (np.abs(y - Y0) > 1.7) & ~((x > 14.3) & (x < 26.3) & (y > 26.2)) & ~((x > 22.6) & (y < 16.3))
+    def clear(x, y):                                       # off the strands, the insets and the labels
+        return ((np.abs(y - Y0) > 1.7) & ~((x > 14.3) & (x < 26.3) & (y > 26.2)) & ~((x > 22.6) & (y < 16.3))
+                & ~((x > 13.8) & (x < 23.4) & (y > 13.4) & (y < 16.4)) & ~((x > 25.6) & (y > 24.4) & (y < 27.6)))
     u = rng.random(140) ** 0.7                             # relic neutrinos, diluting with the expansion
     xs, ys = xa + u * (xb - xa), Y0 + (rng.random(140) - 0.5) * (12 + 6 * u)
     keep = clear(xs, ys)
@@ -187,17 +192,28 @@ def cosmology(ax):
     xn, yn = xa + v * (xb - xa), Y0 + (rng.random(35) - 0.5) * (12 + 6 * v)
     keep = clear(xn, yn)
     ax.scatter(xn[keep], yn[keep], s=1.6, color=C["neutron"], zorder=2, lw=0, marker="s")
-    # the path: one state at the source, propagation eigenstates after; an absorption vertex thins one strand
+    # the path: one state at the source, propagation eigenstates after
     ax.plot([12.0, 14.2], [Y0, Y0], color="#525252", lw=2.0, solid_capstyle="round", zorder=4)
-    for k, c in enumerate(STRANDS):
-        ax.plot([14.2, 15.8], [Y0, Y0 + (k - 1) * SEP], color=c, lw=0.9, zorder=4)
-    strands(ax, 15.8, 27.5)
-    strands(ax, 27.5, 36.0, widths=(0.9, 0.45, 0.9))
-    ax.scatter([27.5], [Y0], s=26, marker=(8, 1, 0), color=C["cosmo"], zorder=6, lw=0)
-    text(ax, 27.8, Y0 + 2.2, r"$\nu+\bar\nu_{\rm relic}\to Z_D$", size=4.9, color=C["cosmo"])
-    for dx, dy in ((1.6, -1.9), (2.6, -1.3), (1.2, -2.7)):  # the secondaries, at lower energy
-        ax.add_patch(FancyArrowPatch((27.7, Y0 - 0.3), (27.7 + dx, Y0 - 0.3 + dy), arrowstyle="-|>",
-                                     mutation_scale=3, lw=0.5, color=C["cosmo"], ls=(0, (2, 1)), zorder=5))
+    for kk, c in enumerate(STRANDS):
+        ax.plot([14.2, 15.8], [Y0, Y0 + (kk - 1) * SEP], color=c, lw=0.9, zorder=4)
+    strands(ax, 15.8, 36.0)
+    yukawa(ax, (18.6, Y0), 4.1, C["cosmo"], r"$\lambda\approx1$ Gpc", r"$m_{Z_D}\approx6\times10^{-33}$ eV", 15.6)
+    # resonant absorption on relic neutrinos, at several points: each energy resonates at its own redshift
+    for (vx, k, up) in ((24.8, 2, True), (29.0, 0, False), (33.2, 2, True)):
+        vy = Y0 + (k - 1) * SEP
+        sgn = 1.0 if up else -1.0
+        dx, dy = vx + 1.0, vy + sgn * 1.55
+        wavy(ax, (vx, vy), (dx, dy), C["cosmo"])
+        ax.scatter([vx], [vy], s=22, marker=(8, 1, 0), color=C["cosmo"], zorder=7, lw=0)
+        ax.scatter([dx], [dy], s=6, color=C["cosmo"], zorder=7, lw=0)
+        for ang in (25.0, -10.0):                          # the Z_D's nu and nubar, at lower energy
+            a = np.radians(ang) * sgn
+            ax.add_patch(FancyArrowPatch((dx, dy), (dx + 1.25 * np.cos(a), dy + sgn * 0.35 + 1.25 * np.sin(a)),
+                                         arrowstyle="-|>", mutation_scale=3, lw=0.5, color=C["cosmo"], zorder=6))
+    text(ax, 24.45, Y0 + 3.15, r"$Z_D$", size=4.8, color=C["cosmo"], ha="right")
+    ax.add_patch(FancyBboxPatch((26.0, 24.75), 9.6, 2.5, boxstyle="round,pad=0.2,rounding_size=0.5", fc="white",
+                                ec=C["cosmo"], lw=0.5, zorder=6))
+    text(ax, 30.8, 26.0, r"$\nu+\bar\nu_{\rm relic}\to Z_D\to\nu\,\bar\nu$", size=5.8, color=C["cosmo"], z=8)
     # inset (a): refraction
     ax.add_patch(FancyBboxPatch((14.6, 26.5), 11.4, 4.6, boxstyle="round,pad=0.25,rounding_size=0.6",
                                 fc="white", ec=C["cosmo"], lw=0.5, zorder=6))
@@ -265,28 +281,27 @@ def milky_way(ax):
         ax.plot([gx, sx], [gy, sy], color=C["gal"], lw=0.6, zorder=5, alpha=0.95)
         ax.scatter([gx], [gy], s=12, color=C["gal"], zorder=7, lw=0.3, edgecolors="#8c6d00", marker="*")
     strands(ax, 36.0, 57.0)
-    for rr, lab in ((1.15, "pc"), (2.3, "kpc"), (3.6, "10 kpc")):
-        ax.add_patch(Circle((sx, sy), rr, fill=False, ec="#08306b", lw=0.45, ls=(0, (2, 1.5)), zorder=5, alpha=0.85))
-        text(ax, sx, sy - rr - 0.42, lab, size=4.3, color="#08306b", path_effects=HALO)
+    yukawa(ax, (sx, sy), np.hypot(sx - cx, sy - cy), C["mw"], r"$\lambda\approx8$ kpc (to the Centre)",
+           r"$m_{Z_D}\approx8\times10^{-28}$ eV", 17.3, dot=False)   # the neutrino at the Sun
     ax.add_patch(Circle((sx, sy), 0.36, fc="#fdb813", ec="#d95f02", lw=0.4, zorder=8))
     text(ax, sx + 0.55, sy + 0.95, "Sun", size=4.4, color=C["sun"], ha="left", path_effects=HALO)
-    text(ax, 46.5, 15.2, r"Adiabatic: populations kept", size=4.8, color=C["mw"], weight="bold")
-    text(ax, 46.5, 13.2, r"Galactic $\nu$ born in 3-D", size=4.8, color="#8c6d00", weight="bold")
-    text(ax, 46.5, 12.1, r"Gas $\times$ cosmic rays; sources", size=4.6, color="#525252")
+    text(ax, 46.5, 14.4, r"Adiabatic: populations kept", size=4.8, color=C["mw"], weight="bold")
+    text(ax, 46.5, 12.6, r"Galactic $\nu$ born in 3-D", size=4.8, color="#8c6d00", weight="bold")
+    text(ax, 46.5, 11.5, r"Gas $\times$ cosmic rays; sources", size=4.6, color="#525252")
 
 
 def sun(ax):
     """The Sun as the calculation has it: a point source of its neutrons, whose potential falls as e^{-r/lambda}/r
     (the glow); no matter outside it. Paths reach the Earth at every angle to it."""
-    sx, sy = 61.6, Y0 + 5.0
-    glow(ax, (sx, sy), 4.3, "#fd8d3c", n=16, alpha=0.5)
-    ax.add_patch(Circle((sx, sy), 1.15, fc="#fdb813", ec="#d95f02", lw=0.6, zorder=5))
-    text(ax, sx, sy + 1.8, r"$V\propto e^{-r/\lambda}/r$", size=5.6, color=C["sun"], path_effects=HALO)
-    ex, ey = 69.6, Y0                                      # the Earth (its exterior's edge)
-    for y_start in (Y0 + 6.2, Y0 + 2.6, Y0 - 3.6):          # paths at different angles to the Sun, near and far
-        ax.plot([57.3, ex], [y_start, ey], color="#8c8c8c", lw=0.45, ls=(0, (3, 1.5)), zorder=3)
-    text(ax, 62.7, Y0 - 3.6, "Coherent", size=5.0, color=C["sun"], weight="bold")
-    text(ax, 62.7, Y0 - 4.7, r"Adiabatic $\leftrightarrow$ sudden", size=4.6, color="#525252")
+    sx, sy = 60.0, Y0 + 3.9
+    glow(ax, (sx, sy), 3.3, "#fd8d3c", n=16, alpha=0.5)
+    ax.add_patch(Circle((sx, sy), 1.0, fc="#fdb813", ec="#d95f02", lw=0.6, zorder=5))
+    text(ax, sx, sy + 2.6, r"$V\propto e^{-r/\lambda}/r$", size=5.6, color=C["sun"], path_effects=HALO)
+    nx = 62.9                                              # the neutrino, 1 AU from the Sun
+    yukawa(ax, (nx, Y0), np.hypot(nx - sx, Y0 - sy), C["sun"], r"$\lambda\approx1$ AU",
+           r"$m_{Z_D}\approx1\times10^{-18}$ eV", 15.2)
+    text(ax, nx, 12.4, "Coherent", size=5.0, color=C["sun"], weight="bold")
+    text(ax, nx, 11.3, r"Adiabatic $\leftrightarrow$ sudden", size=4.6, color="#525252")
 
 
 def earth(ax):
@@ -296,7 +311,8 @@ def earth(ax):
     IceCube from the right; the dashed circle is the exterior, whose potential matters for lambda beyond the Earth's
     radius."""
     cx, cy, R = 75.4, Y0, 5.2
-    ax.add_patch(Circle((cx, cy), 1.24 * R, fill=False, ec=C["earth"], lw=0.45, ls=(0, (2, 1.5)), zorder=2))
+    # the exterior (v4: a halo, so as not to read as a Yukawa sphere)
+    ax.add_patch(Wedge((cx, cy), 1.24 * R, 0.0, 360.0, width=0.24 * R, fc=C["earth"], ec="none", alpha=0.13, zorder=2))
     surface = Wedge((cx, cy), R, 180.0, 450.0, fc="#cfe3f5", ec="none", zorder=5)
     ax.add_patch(surface)
     for ring in globe_rings(-40.0):                        # turned: (x, y) -> (-y, x), the South Pole to the right
@@ -311,7 +327,7 @@ def earth(ax):
     curved_text(ax, "Mantle", (cx, cy), 0.80 * R, 135.0, 4.3, "0.3")
     curved_text(ax, "Core", (cx, cy), 0.40 * R, 135.0, 4.3, "0.3")
     px, py = cx + R, cy                                    # IceCube
-    for beta in (118.0, 145.0, 170.0):                     # up-going: chords through the mantle and the core
+    for beta in (118.0, 145.0, 180.0):                     # up-going: chords through the mantle and the core
         bx, by = cx + R * np.cos(np.radians(beta)), cy + R * np.sin(np.radians(beta))
         ax.plot([bx, px], [by, py], color="#3f3f3f", lw=0.55, zorder=8)
         ax.scatter([bx], [by], s=3, color="#3f3f3f", zorder=8, lw=0)
@@ -320,7 +336,14 @@ def earth(ax):
                                      mutation_scale=3, lw=0.45, color="#3f3f3f", zorder=8))
     ax.scatter([px], [py], s=34, marker="*", color="#2b6cb0", edgecolors="#08306b", lw=0.35, zorder=10)
     text(ax, cx, cy + 1.24 * R + 0.65, "Exterior", size=4.4, color=C["earth"])
-    text(ax, cx, cy - 1.24 * R - 1.3, r"IceCube: $\cos z=-\sin\delta$", size=4.8, color="#2b6cb0")
+    # the neutrino at the centre: its Yukawa sphere of radius R_Earth is the Earth
+    ax.plot([cx, cx], [cy, cy - R], color=C["earth"], lw=0.7, zorder=9)
+    ax.scatter([cx], [cy], s=9, color="white", edgecolors="k", lw=0.5, zorder=10)
+    text(ax, cx + 0.35, cy - 0.55 * R, r"$R_\oplus$", size=5.0, color=C["earth"], ha="left", weight="bold",
+         path_effects=HALO, z=11)
+    text(ax, cx, cy - 1.24 * R - 0.75, r"$\lambda\approx R_\oplus$", size=5.0, color=C["earth"], weight="bold")
+    text(ax, cx, cy - 1.24 * R - 1.85, r"$m_{Z_D}\approx3\times10^{-14}$ eV", size=4.8, color="#404040")
+    text(ax, cx, cy - 1.24 * R - 3.4, r"IceCube: $\cos z=-\sin\delta$", size=4.8, color="#2b6cb0")
 
 
 def detection(ax):
@@ -356,7 +379,7 @@ def detection(ax):
 
 def ingredients(ax):
     rows = {
-        "Sources": ["Extragalactic,", r"with $z$-evolution", "Optional host galaxy"],
+        "Distant sources": ["Extragalactic,", r"with $z$-evolution", "Optional host galaxy"],
         "Cosmological propagation": [r"Refraction $+$ absorption, one calculation",
                                      r"Thermal relic $\nu$, Debye screening; cascade"],
         "Milky Way": [r"$n_{\rm eff}$: Yukawa integral of", "the Galaxy's neutrons",
@@ -382,7 +405,8 @@ def main():
         if k:
             ax.plot([xa, xa], [9.2, 32.2], color="#d9d9d9", lw=0.5, zorder=0)
     ax.plot([0.5, 99.5], [9.0, 9.0], color="#d9d9d9", lw=0.5, zorder=0)
-    ruler(ax)
+    text(ax, 50.0, 34.55, r"Dashed circles: the matter within $\lambda=1/m_{Z_D}$ of the neutrino ($\circ$), which "
+                          r"sources the potential it feels", size=5.2, color="#404040", style="italic")
     sources(ax)
     cosmology(ax)
     milky_way(ax)
