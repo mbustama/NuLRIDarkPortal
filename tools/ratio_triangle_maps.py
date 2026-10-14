@@ -83,30 +83,38 @@ class _Point:
         return self.trace[key]
 
 
-def bound(dataset, mass, w):
-    """The 95% upper bound on the coupling (log10), the reference chi^2 and the evaluations."""
-    p = _Point(dataset, mass, w)
-    ref = p.chi2(p.lo)
-    x = p.lo
-    prev = x
-    while x < p.hi:                                   # decades from below: the first crossing
-        x = min(x + 1.0, p.hi)
-        if p.chi2(x) - ref >= THRESHOLD:
+def search(chi2, lo, hi):
+    """The first upward crossing of Delta chi^2 = THRESHOLD in log10 of the coupling over [lo, hi]: chi2(log10 c),
+    Delta from chi2(lo); a scan in decades, then a bisection to TOL_DECADES and a linear interpolation of Delta chi^2
+    between the last two points. Returns (log10 bound or None, reference chi^2)."""
+    ref = chi2(lo)
+    x = prev = lo
+    while x < hi:
+        x = min(x + 1.0, hi)
+        if chi2(x) - ref >= THRESHOLD:
             break
         prev = x
     else:
-        return dict(log10_bound=None, ref=ref, trace=p.trace, note="no crossing within the scanned range")
+        return None, ref
     a, b = prev, x
     while b - a > TOL_DECADES:
         c = 0.5 * (a + b)
-        if p.chi2(c) - ref >= THRESHOLD:
+        if chi2(c) - ref >= THRESHOLD:
             b = c
         else:
             a = c
-    # linear interpolation of Delta chi^2 between the last two in log10
-    fa, fb = p.chi2(a) - ref, p.chi2(b) - ref
-    lb = a + (THRESHOLD - fa) / (fb - fa) * (b - a) if fb > fa else b
-    return dict(log10_bound=float(lb), ref=ref, trace=p.trace)
+    fa, fb = chi2(a) - ref, chi2(b) - ref
+    return (float(a + (THRESHOLD - fa) / (fb - fa) * (b - a)) if fb > fa else float(b)), ref
+
+
+def bound(dataset, mass, w):
+    """The 95% upper bound on the coupling (log10), the reference chi^2 and the evaluations."""
+    p = _Point(dataset, mass, w)
+    lb, ref = search(p.chi2, p.lo, p.hi)
+    out = dict(log10_bound=lb, ref=ref, trace=p.trace)
+    if lb is None:
+        out["note"] = "no crossing within the scanned range"
+    return out
 
 
 def _task(args):

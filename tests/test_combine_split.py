@@ -51,3 +51,24 @@ def test_variant_grid_must_match():
     bal = np.zeros((4, 31))
     with pytest.raises(ValueError, match="grid"):
         CS.combine(_summary(m, P, bal), [(_summary(m[:2] * 1.5, P, np.zeros((2, 31))), 1e-40)])
+
+
+def test_triangle_map_search_finds_the_first_crossing():
+    """tools/ratio_triangle_maps.search: the first upward crossing of Delta chi^2 = 3.841 in log10 of the coupling,
+    to 0.02 decades and then interpolated: exact for a linear Delta chi^2, and the lower of two crossings."""
+    import ratio_triangle_maps as RT
+    calls = []
+
+    def lin(x):                                   # Delta chi^2 = 2 per decade above -55.3
+        calls.append(x)
+        return 10.0 + max(0.0, 2.0 * (x + 55.3))
+    b, ref = RT.search(lin, -62.0, -6.0)
+    assert ref == 10.0 and abs(b - (-55.3 + 3.841 / 2.0)) < 1e-9 and len(calls) < 30
+
+    def bump(x):                                  # an excluded band at [-50, -48], then allowed, then excluded above -30
+        return 4.0 if -50.0 <= x <= -48.0 else (10.0 if x >= -30.0 else 0.0)
+    b, _ = RT.search(bump, -62.0, -6.0)
+    assert -50.0 - 0.02 <= b <= -50.0
+    b, _ = RT.search(lambda x: 0.0, -62.0, -6.0)
+    assert b is None
+    assert len(RT.ratio_points()) == 66 and all(abs(sum(w) - 1) < 1e-12 for w in RT.ratio_points())
