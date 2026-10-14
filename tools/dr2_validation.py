@@ -227,7 +227,8 @@ def main():
                  prompt_E=e["prompt"].sum(0).tolist(), astro_E=e["astro"].sum(0).tolist(),
                  band_E=np.sqrt(sum((pri[p] * e[p].sum(0)) ** 2 for p in FA.ATM_PARAMS)).tolist(),
                  best_E=best.sum(0).tolist(), daemonflux_E=(e["daemonflux"] + e["prompt"]).sum(0).tolist(),
-                 observed_dec=o.sum(1).tolist(), nominal_dec=nominal.sum(1).tolist(), best_dec=best.sum(1).tolist())
+                 observed_dec=o.sum(1).tolist(), nominal_dec=nominal.sum(1).tolist(), best_dec=best.sum(1).tolist(),
+                 observed_2d=o.tolist(), nominal_2d=nominal.tolist())
         res["northern_tracks"][c] = d
         print(f"{c} ({tr.livetime(c) / 86400:.0f} d): reco dec > {DEC_CUT_DEG:g}: observed {d['observed']:.0f}, nominal "
               f"{d['nominal']:.0f} (atmospheric {d['atmospheric']:.0f}, of which prompt {d['prompt']:.1f}; astro {d['astro']:.1f}), "
