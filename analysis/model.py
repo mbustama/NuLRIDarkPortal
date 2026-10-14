@@ -31,6 +31,16 @@ Since 2026-10-14 (docs/dev/SCOPE_WIDENING_PLAN.md) also, for free mixing ratios 
   g_D_eps       = g_D epsilon'                      (L_mu - L_tau's potential: g' times its Z-Z' mixing).
 The potential's sign is free for the dark portal and L_mu - L_tau (decided 2026-10-14): the solver setting
 dark_portal.potential_sign = -1 (this package only; default +1) makes epsilon' negative (g_D stays positive).
+The split of a potential product (the eps products; decided 2026-10-14, docs/dev/SCOPE_WIDENING_PLAN.md decision 4):
+the relics' screening grows with each coupling separately, so the solver setting dark_portal.coupling_split (this
+package only) chooses how a product P sets them, with x = g_D |U|^2 the neutrinos' side in the product's own
+normalization (|U|^2 as above; 1 for g_D_eps):
+  'fixed' (default)  epsilon' from the configuration, g_D = P / (epsilon' |U|^2), as before;
+  'balanced'         x = epsilon' = sqrt(P): screening negligible wherever the data reach (the first curve of
+                     each potential plane);
+  a number x         the neutrinos' side fixed at x and epsilon' = P / x (needs P <= x <= 1, so epsilon' <= 1):
+                     the variants whose minimum over x is the bound profiled over all splits (the second curve;
+                     tools/combine_split_planes.py).
 
 Solver runs can also be shared on disk by every process (NULRI_FLUX_CACHE=<directory>; 2026-10-14): the planes'
 repair passes re-evaluate every point on whichever worker is free, and with per-process caches most of them
@@ -87,6 +97,20 @@ DISK_CACHE_VERSION = 1
 P_NODES_N = 7             # solver runs per propagation point when p_index floats (fractions to ~2e-4 under strong SI)
 _SECTIONS = ("cosmology", "standard_mixing", "matter_charge", "dark_portal", "secret_interactions", "source", "grid",
              "galactic")
+
+
+def parse_coupling_split(v):
+    """dark_portal.coupling_split: 'fixed', 'balanced', or the neutrinos' side x of a potential product,
+    0 < x <= 1 (a number or a numeric string)."""
+    if isinstance(v, str) and v.strip().lower() in ("fixed", "balanced"):
+        return v.strip().lower()
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        raise ValueError(f"dark_portal.coupling_split must be 'fixed', 'balanced' or a number in (0, 1], got {v!r}")
+    if not (0.0 < x <= 1.0):
+        raise ValueError(f"dark_portal.coupling_split must lie in (0, 1], got {x}")
+    return x
 
 
 def _section_of(key: str) -> str:
@@ -153,6 +177,7 @@ class FlavorModel:
         self.potential_sign = float(dpc.pop("potential_sign", 1.0))
         if self.potential_sign not in (1.0, -1.0):
             raise ValueError("dark_portal.potential_sign must be +1 or -1")
+        self.coupling_split = parse_coupling_split(dpc.pop("coupling_split", "fixed"))
         if dpc:
             sc["dark_portal"] = dpc
         base = merge_config_with_defaults(sc)
@@ -223,10 +248,20 @@ class FlavorModel:
                 u2 = abs(get("u_e")) ** 2 + abs(get("u_mu")) ** 2 + abs(get("u_tau")) ** 2
             else:
                 u2 = 1.0
-            scale = u2 * (get("epsilon_prime") if "eps" in name else 1.0)
-            if scale == 0.0:
-                raise ValueError(f"{name} needs a nonzero mixing{'' if 'eps' not in name else ' and epsilon_prime'}")
-            out[("dark_portal", "g_D")] = float(values[name]) / abs(scale)
+            if "eps" in name and self.coupling_split != "fixed":
+                P = float(values[name])
+                x = np.sqrt(P) if self.coupling_split == "balanced" else self.coupling_split
+                if u2 == 0.0 or P < 0.0 or (x > 0.0 and P > x):
+                    raise ValueError(f"{name} = {P:g} with coupling_split {self.coupling_split!r}: needs a nonzero "
+                                     "mixing, P >= 0, and P <= x (epsilon' <= 1)")
+                out[("dark_portal", "g_D")] = x / u2
+                out[("dark_portal", "epsilon_prime")] = P / x if x > 0.0 else 0.0
+            else:
+                scale = u2 * (get("epsilon_prime") if "eps" in name else 1.0)
+                if scale == 0.0:
+                    raise ValueError(f"{name} needs a nonzero mixing"
+                                     f"{'' if 'eps' not in name else ' and epsilon_prime'}")
+                out[("dark_portal", "g_D")] = float(values[name]) / abs(scale)
         if self.potential_sign < 0.0:
             # the other sign of the potential: eps' < 0 (g_D stays positive); the direct gauge models ignore it
             dp = self.base["dark_portal"]

@@ -172,6 +172,36 @@ def test_coupling_products_are_what_the_data_see():
         config_mod.from_dict(raw).model().fractions({"g_D_u2": 1e-5, "g_D": 1e-4, "m_Zd_eV": 2e6})
 
 
+def test_coupling_split_sets_both_couplings():
+    """dark_portal.coupling_split (decided 2026-10-14: two curves per potential plane): 'balanced' sets the neutrinos'
+    side x = g_D |U|^2 and epsilon' both to sqrt(P); a number fixes x and epsilon' = P / x; 'fixed' keeps the
+    configured epsilon'. The product is the same in every case, the sign rides on epsilon', and P > x (epsilon' > 1)
+    is refused."""
+    raw = _tiny_raw()
+    raw["profiles"], raw["planes"] = {}, []
+    raw["solver"]["dark_portal"].update(u_e=0.5, u_mu=0.5, u_tau=0.0, epsilon_prime=0.1)
+    raw["parameters"] = {"g_D_eps_u2": {"start": 1e-30, "bounds": [1e-62, 1e-8], "space": "log10"}}
+    P, u2 = 4e-30, 0.25
+    for split, sign, x, eps in (("balanced", 1, 2e-15, 2e-15), (1e-6, 1, 1e-6, 4e-24), ("fixed", 1, 0.1 * u2 * 4e-29 / 0.1, 0.1),
+                                ("balanced", -1, 2e-15, -2e-15), ("1e-6", -1, 1e-6, -4e-24)):
+        r = copy.deepcopy(raw)
+        r["solver"]["dark_portal"].update(coupling_split=split, potential_sign=sign)
+        ov = config_mod.from_dict(r).model()._overrides({"g_D_eps_u2": P})
+        g, e = ov[("dark_portal", "g_D")], ov.get(("dark_portal", "epsilon_prime"), 0.1)
+        assert abs(g * abs(e) * u2 / P - 1) < 1e-12, (split, g, e)
+        if split != "fixed":
+            assert abs(g * u2 / x - 1) < 1e-12 and abs(e / eps - 1) < 1e-12, (split, g, e)
+    r = copy.deepcopy(raw)
+    r["solver"]["dark_portal"].update(coupling_split=1e-31)
+    with pytest.raises(ValueError, match="epsilon' <= 1"):
+        config_mod.from_dict(r).model()._overrides({"g_D_eps_u2": P})
+    for bad in ("loose", 0.0, 2.0):
+        r = copy.deepcopy(raw)
+        r["solver"]["dark_portal"].update(coupling_split=bad)
+        with pytest.raises(ValueError, match="coupling_split"):
+            config_mod.from_dict(r).model()
+
+
 def test_objective_charges_mixing_beyond_unitarity_continuously():
     cfg = config_mod.from_dict(_tiny_raw())
     obj = cfg.objective()

@@ -39,6 +39,15 @@ projections.
    (independent of the split; computed at the balanced split g_D |U|^2 = eps' = sqrt(P)), with its condition stated on
    the plot, and the bound profiled over all splits (frequentist, as the planes: a point is excluded only if every
    split is), which at ultralight masses comes from the cosmological potential alone.
+   Implementation (technical, 2026-10-14): `dark_portal.coupling_split` in the analysis ('balanced', or the neutrinos'
+   side x with eps' = P/x <= 1); the profile's variants x = 1e-24, 1e-20, 1e-16, 1e-12, 1e-8, each on the masses where
+   its screening (m_D = 1.9e-5 eV x) differs from the balanced run's (m_Zd <~ 2e-4 x eV), combined by the smallest chi^2
+   (tools/combine_split_planes.py). The largest x is 1e-8: above ~1e-7 the high-energy neutrinos would scatter many
+   times on the relics through the light mediator (t channel, momentum transfer ~ the relics' 1e-4 eV), which the
+   potential solver does not model; the s channel's tail alone shifts the flavors by 0.04 at x = 0.5 (1e-20 eV).
+   Check (solver, m_Zd = 1e-20 eV, P = 1e-54, e-mu): the flavor shift is 0.0064 at the balanced split and at x =
+   1e-16, zero at x = 1e-12 and 1e-6 (the Sun and the Earth screened); the cosmological potential alone acts from
+   P ~ 1e-38.
 
 ## Physics
 
