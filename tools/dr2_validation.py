@@ -170,6 +170,9 @@ def main():
     ap.add_argument("--outdir", default=os.path.join(REPO, "output"), help="where tracks/ and figures/ go")
     ap.add_argument("--sky-cache", default=None, help="keep and reuse the solver's sky per case (npz) here")
     ap.add_argument("--sky-only", action="store_true", help="compute the solver's skies (with --sky-cache) and stop")
+    ap.add_argument("--fit-configs", nargs="*", default=None,
+                    help="the configurations the nuisance fit uses (default all; e.g. IC79 IC86: IC40 has horizon muons, "
+                         "IC59 a high-energy excess at every declination, 2026-10-14)")
     a = ap.parse_args()
     t0 = time.time()
     tr = DR2Tracks()
@@ -208,7 +211,9 @@ def main():
     obs, n_files = {}, {}
     for c in tr.configs:
         obs[c], n_files[c] = observed(a.dr2, c, edges, RECO_DEC_DEG)
-    fit = fit_nuisances(obs, T, tr.configs, pri, north)
+    fit_configs = list(a.fit_configs) if a.fit_configs else list(tr.configs)
+    fit = fit_nuisances(obs, T, fit_configs, pri, north)
+    res["nuisance_fit_configs"] = fit_configs
     res["nuisance_fit"] = {k: v for k, v in fit.items() if k != "mu"}
     res["northern_tracks"] = {}
     hi = edges[:-1] >= 4.0
@@ -216,7 +221,7 @@ def main():
         e = {k: T[k][c][north] for k in T}
         o = obs[c][north]
         nominal = e["nom"] + e["astro"]
-        best = fit["mu"][c][north]
+        best = fit["mu"][c][north] if c in fit["mu"] else np.full_like(nominal, np.nan)
         d = dict(observed=float(o.sum()), nominal=float(nominal.sum()), atmospheric=float(e["nom"].sum()),
                  prompt=float(e["prompt"].sum()), astro=float(e["astro"].sum()),
                  prior_band=float(np.sqrt(sum((pri[p] * e[p].sum()) ** 2 for p in FA.ATM_PARAMS))), seasons=n_files[c],
