@@ -4,6 +4,8 @@ schematic_dark_portal.py -- the schematic of the dark-portal calculation for the
 calculation's main ingredients). Layout agreed in text first: a ruler of the mediator mass on top (what sources the
 potential the neutrinos feel), the journey in six stages, the ingredients per stage below.
 
+v5b (2026-10-14, Mauricio: "too much text at the top"): no key strip; n_eff is drawn instead, a pictogram in the
+refraction box (the neutrons within lambda = 1/m_ZD of the neutrino); fewer labels in the drawing.
 v5 (2026-10-14): the range lambda = 1/m_ZD is fixed by the mediator and the same all along the way (Mauricio), so the
 stages carry no spheres: each has a dimension line for its distance (1 Gpc along the cosmological path, 8 kpc from the
 Sun to the Galactic Centre, 1 AU from the Sun to the Earth, the Earth's radius), and one key strip on top shows a
@@ -37,7 +39,7 @@ from matplotlib.patches import (Circle, Ellipse, FancyArrowPatch, FancyBboxPatch
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 LAND = os.path.join(REPO, "tools", "data", "naturalearth", "land_110m_decimated.json")
 W_IN = 7.0
-X1, Y_LO, Y1 = 100.0, 3.9, 38.4                         # data units (equal aspect); v5: the key strip on top
+X1, Y_LO, Y1 = 100.0, 3.9, 34.3                         # data units (equal aspect)
 H_IN = W_IN * (Y1 - Y_LO) / X1
 C = dict(src="#525252", cosmo="#6a51a3", mw="#2b6cb0", sun="#d95f02", earth="#238b45", det="#525252",
          gal="#c9a227", relic="#9e9ac8", neutron="#969696", contact="#bdbdbd")
@@ -75,29 +77,6 @@ def dimension(ax, p0, p1, label, color, side=1.0, off=0.75, z=9, size=5.2, box=F
     m = p0 + t * d + side * off * nrm
     kw = dict(bbox=dict(boxstyle="round,pad=0.15", fc="white", ec="none", alpha=0.9)) if box else dict(path_effects=HALO)
     text(ax, m[0], m[1], label, size=size, color=color, weight="bold", z=z + 1, **kw)
-
-
-def key(ax):
-    """The key strip: a neutrino carrying its sphere of radius lambda = 1/m_ZD -- the same all the way -- and which
-    matter that sphere encloses for each range of lambda."""
-    y0, y1 = 33.95, 37.95
-    ax.add_patch(FancyBboxPatch((0.7, y0), 98.6, y1 - y0, boxstyle="round,pad=0.0,rounding_size=0.6", fc="#fafafa",
-                                ec="#bdbdbd", lw=0.5, zorder=1))
-    yc, r = 0.5 * (y0 + y1), 1.45
-    for k, (xc, al) in enumerate(((3.0, 0.25), (6.6, 0.5), (10.2, 1.0))):     # the same sphere, carried along
-        ax.add_patch(Circle((xc, yc), r, fc="#9e9ac8", ec="none", alpha=0.10 * al, zorder=2))
-        ax.add_patch(Circle((xc, yc), r, fill=False, ec="#6a51a3", lw=0.6, ls=(0, (3, 1.5)), alpha=al, zorder=2))
-        ax.scatter([xc], [yc], s=7, color="white", edgecolors="k", lw=0.5, alpha=1.0 if k == 2 else 0.6, zorder=3)
-    ax.add_patch(FancyArrowPatch((2.0, yc - r - 0.15), (11.4, yc - r - 0.15), arrowstyle="-|>", mutation_scale=4,
-                                 lw=0.5, color="#525252", zorder=3))
-    ax.plot([10.2, 10.2 + r * np.cos(np.radians(35))], [yc, yc + r * np.sin(np.radians(35))], color="#6a51a3", lw=0.6,
-            zorder=3)
-    text(ax, 10.2 + 0.55, yc + 0.95, r"$\lambda$", size=5.4, color="#6a51a3", ha="left")
-    text(ax, 13.0, yc + 0.85, r"The neutrino feels the neutrons within $\lambda = 1/m_{Z_D}$ of it: one range, fixed by "
-                              r"the mediator's mass, all along the way.", size=5.6, ha="left", color="#252525")
-    text(ax, 13.0, yc - 0.85, r"That matter is the cosmic mean for $\lambda\gtrsim$ Gpc, the Galaxy for kpc$-$Mpc, "
-                              r"the Sun for $\sim$AU, the Earth for $\sim R_\oplus$, and the local density "
-                              r"for $\lambda\ll R_\oplus$.", size=5.6, ha="left", color="#252525")
 
 
 def wavy(ax, p0, p1, color, n=3, amp=0.16, lw=0.6, z=6):
@@ -242,15 +221,28 @@ def cosmology(ax):
             ax.add_patch(FancyArrowPatch((dx, dy), (dx + 1.25 * np.cos(a), dy + sgn * 0.35 + 1.25 * np.sin(a)),
                                          arrowstyle="-|>", mutation_scale=3, lw=0.5, color=C["cosmo"], zorder=6))
     text(ax, 24.45, Y0 + 3.15, r"$Z_D$", size=4.8, color=C["cosmo"], ha="right")
-    ax.add_patch(FancyBboxPatch((26.0, 24.75), 9.6, 2.5, boxstyle="round,pad=0.2,rounding_size=0.5", fc="white",
+    ax.add_patch(FancyBboxPatch((26.85, 24.75), 8.8, 2.5, boxstyle="round,pad=0.2,rounding_size=0.5", fc="white",
                                 ec=C["cosmo"], lw=0.5, zorder=6))
-    text(ax, 30.8, 26.0, r"$\nu+\bar\nu_{\rm relic}\to Z_D\to\nu\,\bar\nu$", size=5.8, color=C["cosmo"], z=8)
+    text(ax, 31.25, 26.0, r"$\nu+\bar\nu_{\rm relic}\to Z_D\to\nu\,\bar\nu$", size=5.5, color=C["cosmo"], z=8)
     # inset (a): refraction
     ax.add_patch(FancyBboxPatch((14.6, 26.5), 11.4, 4.6, boxstyle="round,pad=0.25,rounding_size=0.6",
                                 fc="white", ec=C["cosmo"], lw=0.5, zorder=6))
-    text(ax, 20.3, 30.1, "Refraction", size=5.0, color=C["cosmo"], weight="bold")
-    text(ax, 20.3, 28.75, r"$V\propto g_D\,\epsilon'\,u\;n_{\rm eff}$", size=5.2)
-    text(ax, 20.3, 27.4, r"$n_{\rm eff}$ smoothed over $\lambda$", size=4.6, color="#525252")
+    text(ax, 15.1, 30.25, "Refraction", size=5.0, color=C["cosmo"], weight="bold", ha="left")
+    text(ax, 15.1, 28.3, r"$V\propto g_D\,\epsilon'\,u\;n_{\rm eff}$", size=5.0, ha="left")
+    # n_eff, as a picture: the neutrons within lambda of the neutrino, the same sphere wherever it goes
+    px, py, pr = 24.15, 29.0, 1.6
+    ax.add_patch(Circle((px, py), pr, fc=C["relic"], ec="none", alpha=0.18, zorder=7))
+    ax.add_patch(Circle((px, py), pr, fill=False, ec=C["cosmo"], lw=0.6, ls=(0, (3, 1.5)), zorder=7))
+    for (qx, qy, inside) in ((-0.8, 0.6, 1), (0.55, 0.85, 1), (0.9, -0.5, 1), (-0.4, -0.85, 1), (-1.95, 1.1, 0),
+                             (1.85, -1.15, 0)):
+        ax.scatter([px + qx], [py + qy], s=2.4, marker="s", lw=0, zorder=8,
+                   color=C["cosmo"] if inside else C["neutron"])
+    a = np.radians(38.0)
+    ax.plot([px, px + pr * np.cos(a)], [py, py + pr * np.sin(a)], color=C["cosmo"], lw=0.5, zorder=8)
+    text(ax, px + 0.5 * pr * np.cos(a) - 0.05, py + 0.5 * pr * np.sin(a) + 0.42, r"$\lambda$", size=4.8,
+         color=C["cosmo"], z=9)
+    ax.scatter([px], [py], s=7, color="white", edgecolors="k", lw=0.45, zorder=9)
+    text(ax, px, py - pr - 0.42, r"$\lambda=1/m_{Z_D}$", size=4.6, color="#404040", z=9)
     # inset (b): resonant absorption and the cascade
     bx, by, bw, bh = 22.9, 10.2, 12.8, 5.8                 # v3: wider
     ax.add_patch(FancyBboxPatch((bx, by), bw, bh, boxstyle="round,pad=0.25,rounding_size=0.6", fc="white",
@@ -315,9 +307,8 @@ def milky_way(ax):
     dimension(ax, (sx, sy), (cx, cy), "8 kpc", "#08306b", side=1.0, off=1.6, box=True, t=0.8)  # Sun to Centre
     ax.add_patch(Circle((sx, sy), 0.36, fc="#fdb813", ec="#d95f02", lw=0.4, zorder=8))
     text(ax, sx + 0.5, sy - 1.45, "Sun", size=4.4, color=C["sun"], ha="left", path_effects=HALO)
-    text(ax, 46.5, 15.6, r"Adiabatic: populations kept", size=4.8, color=C["mw"], weight="bold")
-    text(ax, 46.5, 13.4, r"Galactic $\nu$ born in 3-D", size=4.8, color="#8c6d00", weight="bold")
-    text(ax, 46.5, 12.3, r"Gas $\times$ cosmic rays; sources", size=4.6, color="#525252")
+    text(ax, 46.5, Y0 - 3.6, "Adiabatic", size=5.0, color=C["mw"], weight="bold")   # level with the Sun's "Coherent"
+    text(ax, 52.6, 28.0, r"Galactic $\nu$", size=4.8, color="#8c6d00", weight="bold", path_effects=HALO)
 
 
 def sun(ax):
@@ -329,7 +320,6 @@ def sun(ax):
     text(ax, sx, sy + 2.6, r"$V\propto e^{-r/\lambda}/r$", size=5.6, color=C["sun"], path_effects=HALO)
     dimension(ax, (sx + 0.75, sy - 0.65), (67.6, Y0 + 1.25), "1 AU", C["sun"], side=1.0, off=0.85)  # to the Earth
     text(ax, 62.7, Y0 - 3.6, "Coherent", size=5.0, color=C["sun"], weight="bold")
-    text(ax, 62.7, Y0 - 4.7, r"Adiabatic $\leftrightarrow$ sudden", size=4.6, color="#525252")
 
 
 def earth(ax):
@@ -427,7 +417,6 @@ def main():
         if k:
             ax.plot([xa, xa], [9.2, 32.2], color="#d9d9d9", lw=0.5, zorder=0)
     ax.plot([0.5, 99.5], [9.0, 9.0], color="#d9d9d9", lw=0.5, zorder=0)
-    key(ax)
     sources(ax)
     cosmology(ax)
     milky_way(ax)
