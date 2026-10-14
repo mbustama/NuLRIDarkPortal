@@ -23,7 +23,7 @@ component; 7 secret interactions (dp_si); 8 event rates and likelihoods.
 | 1g | 56 relics per helicity and mass state as targets: Majorana relics (Dirac halves the rates) | NOTE |
 | 1h | Secondary spectra 3x^2 (same kind) and 3(1-x)^2 (other kind) | OK |
 | 1i | No visible decay channels (e+e- through the Z mixing, or gauge couplings to electrons) in the width | ERROR (new), decided with 1f |
-| 1j | Debye mass (T23): relativistic thermal mass, flavor-diagonal |u_alpha|^4; relics today are non-relativistic (m_D^2 larger by ~m/T) | APPROX; negligible at the couplings scanned so far; matters for the eps' profile's range |
+| 1j | Debye mass (T23): the relativistic thermal mass, flavor-diagonal |u_alpha|^4. Today's relics are slow, and the mediator couples to the left-handed current: a Majorana relic's charge is -h v (its vector current vanishes), so slow relics screen less, by ~3.3 T/m (a Dirac relic's charge is (1 + v)/2) | APPROX; fixed (see below) |
 | 1k | Step bookkeeping: exact exponential absorption per step, number-conserving bin integrals, injection weighting (1+z) per unit observed energy, SFR of Yuksel et al. (2008) | OK |
 | 1l | Kernel normalization: Gamma = int d^3p f sigma v / (2pi)^3, 56 cm^-3 per state; sigma_phys = sigma_raw Sum G / 6 pi^2 | OK |
 
@@ -132,14 +132,14 @@ Its vector transport with G = g_D u u^dag is exactly the dark portal without pot
 | 1c | coherent amplitudes per eigenstate (the correct form of 1a) | weights (U^dag G W)_ra, (W^dag G G^dag W)_aa tabulated on the sigma nodes; `_cosmo_coherent_rates` | sum rules; eigenstates orthogonal to u untouched in the potential-dominated limit |
 | 1f, 1i | all three pieces: G = g_D u u^dag + eps' g/c_W I; e+e- and mu+mu- in the width | `dark_portal_coupling`, `z_mixing_visible_width` | width formula (the Z's 83 MeV); Gamma_nu/Gamma fractions |
 | 1e | the Moller flux factor 1 - v cos(theta) | `relic_state_rates_analytic(..., moller=True)` | against 50-digit / dense quadrature |
-| 1j | Debye mass of slow relics, mass-basis couplings, the Z-mixing piece | `dp_absorption.debye_mass_sq` | relativistic T^2/6 and non-relativistic m T ln2/pi^2 limits |
+| 1j | the Debye mass of slow relics, mass-basis couplings, the Z-mixing piece | `dp_absorption.debye_mass_sq` (Majorana relics, as the absorption's targets; Dirac as an option): per state |G'_rr|^2 x 2 x (1/2 pi^2) int f(p/T) d[p E q^2]/dp dp with q = v (Majorana) or (1 + v)/2 (Dirac). The first version (f7f3523) gave every relic the full vector charge, overstating today's screening mass squared by 2-4 orders of magnitude; corrected the same day | relativistic T^2/6 (both); slow relics 9 zeta(3) T^3/(2 pi^2 m) (Majorana), m T ln2/(4 pi^2) (Dirac); direct quadrature at m = 3T |
 | screening | only localized bodies (Earth, Moon, Sun, Galaxy, host galaxy); the uniform cosmological potential unscreened (no gradient, no force on the relics; no reservoir of dark charge) | cosmological coefficient with the bare mass; `transit_to_earth(m_bare=...)` and the emission points add the unscreened cosmic mean | test_screening_spares_the_uniform_cosmic_potential |
 | 1d | the MeV regime through dp_si (every collision) | `_use_si_cosmology` ('auto': cosmological potential < 1e-4 of Delta m^2_21 at every E, z), `dp_si.propagate_si(thermal=True, Gamma_vis=...)`, `_thermal_resonance_terms` | two codes' resonance agree to 0.1% (median) at 3 MeV; relics at rest overstate the dip 2x |
 | 3e | (technical) | inverted ordering: the vacuum term's m_3^2 - m_1^2 = -(|Delta m^2_32| - Delta m^2_21), as the masses read the splitting | -- |
 | 3f | both signs of the potential (dark portal, L_mu - L_tau) | the sign of g_D eps' folded into the cosmological table | test_negative_potential_sign_is_the_flipped_texture |
 
 Consequences: with eps' = 0.1 the Z mixing alone couples the mediator to every neutrino with 0.074, absorbing at MeV masses
-and giving a screening mass ~1e-4 eV that cuts off every ultralight local potential -- "u = 0" is no longer "no new
+and giving a screening mass ~2e-6 eV (a range of ~12 cm) that cuts off every ultralight local potential -- "u = 0" is no longer "no new
 physics" unless eps' = 0 too (tests updated). The potential planes therefore profile eps' (decided), which needs
 physical upper limits on eps' and g_D |U|^2 (fifth-force tests, neutrino self-interactions): to settle at the profile
 setup. absorption_model 'theory_notes' keeps the old form for comparisons.

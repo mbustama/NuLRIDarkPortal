@@ -193,10 +193,32 @@ def test_moller_kernel_matches_dense_quadrature():
 
 
 def test_debye_mass_limits():
-    """Relativistic relics: |G'|^2 T^2 / 6 per state (the theory notes' T23); non-relativistic: |G'|^2 m T ln2/pi^2."""
-    assert abs(A.debye_mass_sq(np.array([1.0, 0, 0]), np.array([1e-12, 0, 0]), T0, np.ones(3)) / (T0 * T0 / 6) - 1) < 1e-12
-    nr = A.debye_mass_sq(np.array([1.0, 0, 0]), np.array([1.0, 0, 0]), T0, np.ones(3))
-    assert abs(nr / (T0 * np.log(2) / np.pi ** 2) - 1) < 1e-6
+    """Relativistic relics: |G'|^2 T^2 / 6 per state (the theory notes' T23), Majorana and Dirac. Slow relics: a
+    Majorana neutrino's charge under the left-handed current is -h v, so 9 zeta(3) |G'|^2 T^3 / (2 pi^2 m); a Dirac
+    one's is (1 + v)/2, so |G'|^2 m T ln2 / (4 pi^2). Against a direct quadrature of q(p)^2 (-df/dE) at m ~ T."""
+    from scipy.integrate import quad
+    from scipy.special import zeta
+    one, z3 = np.array([1.0, 0, 0]), np.ones(3)
+    for maj in (True, False):
+        rel = A.debye_mass_sq(one, np.array([1e-12, 0, 0]), T0, z3, majorana=maj)
+        assert abs(rel / (T0 * T0 / 6) - 1) < 1e-12
+    m = 1.0
+    nr = A.debye_mass_sq(one, np.array([m, 0, 0]), T0, z3)
+    assert abs(nr / (9 * zeta(3) * T0 ** 3 / (2 * np.pi ** 2 * m)) - 1) < 1e-6
+    nr = A.debye_mass_sq(one, np.array([m, 0, 0]), T0, z3, majorana=False)
+    assert abs(nr / (m * T0 * np.log(2) / (4 * np.pi ** 2) + T0 * T0 / 12) - 1) < 1e-6  # + the O(v) term
+    m = 3 * T0
+    for maj in (True, False):
+        def integrand(p):
+            E = np.sqrt(p * p + m * m)
+            v = p / E
+            q2 = v * v if maj else 0.25 * (1 + v) ** 2
+            ex = np.exp(-p / T0)
+            return p * p * q2 * (E / p) * ex / (1 + ex) ** 2 / T0  # -df/dE = (E/p) f (1 - f) / T
+        # the d^3p/(2 pi)^3 integral of q^2 (-df/dE), both helicities
+        direct = 2 * quad(integrand, 0, 60 * T0, epsabs=0, epsrel=1e-12, limit=200)[0] / (2 * np.pi ** 2)
+        got = A.debye_mass_sq(one, np.array([m, 0, 0]), T0, z3, majorana=maj)
+        assert abs(got / direct - 1) < 1e-9, (maj, got, direct)
 
 
 def test_lagrangian_absorption_end_to_end():

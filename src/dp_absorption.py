@@ -111,27 +111,42 @@ _GL32_W = np.ascontiguousarray(_GL32_W)
 
 
 @njit(cache=True)
-def debye_mass_sq(G_mass_diag2: np.ndarray, m_nu: np.ndarray, T_nu: float, eta_mass: np.ndarray) -> float:
-    """The mediator's Debye mass squared (eV^2) from the relic neutrinos, at any relic temperature T_nu: for each
-    mass state r, |G'_rr|^2 (G' = U^dag G U) times 2 (nu and nubar, or both helicities) times
-        (1 / 2 pi^2) int_0^inf f(p / T_r) (E + p^2 / E) dp,   E = sqrt(p^2 + m_r^2),   T_r = T_nu eta_r^(1/3),
-    the static long-wavelength polarization -g^2 int d^3p/(2 pi)^3 df/dE of a frozen Fermi-Dirac momentum
-    distribution. Relativistic: |G'|^2 T^2 / 6 per state (the theory notes' Eq. T23, in the flavor basis there);
-    non-relativistic, as today's relics are: |G'|^2 m T ln2 / pi^2, larger by ~m/T. Off-diagonal loops do not
-    contribute at zero momentum (the frozen occupations depend on p only). Gauss-Legendre, 32 points on each of
-    [0, 8T] and [8T, 50T]."""
+def debye_mass_sq(G_mass_diag2: np.ndarray, m_nu: np.ndarray, T_nu: float, eta_mass: np.ndarray,
+                  majorana: bool = True) -> float:
+    """The mediator's Debye mass squared (eV^2) from the relic neutrinos, at any relic temperature T_nu: the static
+    long-wavelength polarization sum_states int d^3p/(2 pi)^3 q(p)^2 (-df/dE) of a frozen Fermi-Dirac momentum
+    distribution, f(p / T_r), T_r = T_nu eta_r^(1/3), per mass state r with coupling G'_rr (G' = U^dag G U).
+
+    The mediator couples to the LEFT-HANDED current, so a relic's charge depends on its speed v = p/E:
+      Majorana (the default, as the absorption's targets): the vector current of a Majorana field vanishes and the
+        left-handed current is -(1/2) nubar gamma^mu gamma5 nu, whose charge on a state of helicity h is
+        q = -G'_rr h v -- a slow Majorana neutrino carries almost no charge. Both helicities:
+        |G'_rr|^2 2 (1 / 2 pi^2) int f (3p^2/E - p^4/E^3) dp.
+      Dirac (the populated helicities, nu with h = -1 and nubar with h = +1): q = +-G'_rr (1 + v)/2, the left-chiral
+        part of the state; |G'_rr|^2 2 (1 / 2 pi^2) int f (E + 4p + 4p^2/E - p^4/E^3)/4 dp.
+    (The integrands are d[p E q^2/G'^2]/dp, from integrating -df/dE by parts.) Relativistic relics: |G'|^2 T^2/6 per
+    state in both cases (the theory notes' Eq. T23, in the flavor basis there). Slow relics, as today's: Majorana
+    9 zeta(3) |G'|^2 T^3 / (2 pi^2 m), smaller than T^2/6 by 3.3 T/m; Dirac |G'|^2 m T ln2 / (4 pi^2). Off-diagonal
+    loops do not contribute at zero momentum (every state has the same occupation f(p/T)). Gauss-Legendre, 32
+    points on each of [0, 8T] and [8T, 50T]."""
     total = 0.0
     for r in range(3):
         if G_mass_diag2[r] == 0.0 or eta_mass[r] <= 0.0:
             continue
         T = T_nu * eta_mass[r] ** (1.0 / 3.0)
+        m2 = m_nu[r] * m_nu[r]
         acc = 0.0
         for lo, hi in ((0.0, 8.0 * T), (8.0 * T, 50.0 * T)):
             mid = 0.5 * (lo + hi)
             half = 0.5 * (hi - lo)
             for k in range(len(_GL32_X)):
                 p = mid + half * _GL32_X[k]
-                E = np.sqrt(p * p + m_nu[r] * m_nu[r])
-                acc += _GL32_W[k] * half * (E + p * p / E) / (np.exp(p / T) + 1.0)
+                p2 = p * p
+                E = np.sqrt(p2 + m2)
+                if majorana:
+                    w = 3.0 * p2 / E - p2 * p2 / (E * E * E)
+                else:
+                    w = 0.25 * (E + 4.0 * p + 4.0 * p2 / E - p2 * p2 / (E * E * E))
+                acc += _GL32_W[k] * half * w / (np.exp(p / T) + 1.0)
         total += G_mass_diag2[r] * 2.0 * acc / (2.0 * np.pi ** 2)
     return total
