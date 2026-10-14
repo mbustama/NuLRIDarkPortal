@@ -11,8 +11,8 @@ tools/atmospheric_background.py) and the solver's per-direction fluxes.
       GeV^-1 cm^-2 s^-1 sr^-1 at 100 TeV, gamma 2.37), against DR2's events;
   (c) astrophysical tracks for standard physics, a dark-portal point and a secret-interaction point (propagate_sky
       on the effective area's declination bins, E 1 TeV-100 PeV): the extragalactic flux normalized to that fit
-      (without new physics it equals the fit: checked) plus the Galactic component (CRINGE x 0.91, emission in 3-D,
-      N_side 64 data from --galactic-data).
+      (its nu_mu + nubar_mu without new physics equals the fit: checked) plus the Galactic component (CRINGE x
+      0.91, emission in 3-D, N_side 64 data from --galactic-data).
 
   python -I tools/dr2_validation.py --dr2 /lustre/astro/mbustama/external/icetracks_dr2 \\
       --galactic-data /lustre/astro/mbustama/external/galactic_nside64      (Tycho; --skip-solver for (a)-(b);
@@ -241,10 +241,24 @@ def main():
     if not a.skip_solver:
         pl_counts = tr.expected(windowed(pl, 1e3, 1e8), reco_dec_edges=rde)["counts"]
         res["cases"] = {}
+        k_mu = None
         for name, kw in CASES.items():
             t1 = time.time()
             sky = sky_flux(sky_config(galactic_data=a.galactic_data, dec_edges_deg=dec_deg, **kw), a.sky_cache)
-            eg = tr.expected(FA.from_sky(sky, galactic=False), reco_dec_edges=rde)["counts"]
+            if k_mu is None:
+                # the 9.5-yr fit measured nu_mu + nubar_mu; sky.extragalactic_norm sets the flavor average, and pion
+                # sources put more than a third into nu_mu at the Earth: rescale the extragalactic flux of every case
+                # so that without new physics (the first case, standard) its nu_mu + nubar_mu matches the fit
+                assert name == "standard"
+                mu100 = float(FA.from_sky(sky, galactic=False)(np.array([ASTRO_9P5["pivot_GeV"]]), np.array([-0.5 * np.pi]),
+                                                                np.array([0.5 * np.pi]))[0, 0])
+                k_mu = ASTRO_9P5["per_flavor"] / mu100
+                res["numu_normalization"] = dict(
+                    factor=k_mu, numu_share_at_earth=mu100 / (3.0 * ASTRO_9P5["per_flavor"]),
+                    note="extragalactic fluxes x factor: without new physics nu_mu + nubar_mu = 1.44e-18 at 100 TeV")
+                print(f"nu_mu normalization: x {k_mu:.5f} (nu_mu + nubar_mu at 100 TeV, standard: "
+                      f"{mu100 / (3.0 * ASTRO_9P5['per_flavor']):.4f} of three times the flavor average)", flush=True)
+            eg = k_mu * tr.expected(FA.from_sky(sky, galactic=False), reco_dec_edges=rde)["counts"]
             ga = tr.expected(FA.from_sky(sky, extragalactic=False), reco_dec_edges=rde)["counts"]
             rows[name] = (eg, ga)
             res["cases"][name] = dict(extragalactic=float(eg[north].sum()), galactic=float(ga[north].sum()),
