@@ -974,7 +974,7 @@ def propagate_sky(E_bins: np.ndarray, params: Dict) -> Dict:
 
 
 def propagate_sky_basis(E_bins: np.ndarray, params: Dict, sources=((1.0, 0.0, 0.0), (0.0, 1.0, 0.0)),
-                        galactic_compositions=((1.0, 0.0, 0.0), (0.0, 1.0, 0.0))) -> Dict:
+                        galactic_compositions=((1.0, 0.0, 0.0), (0.0, 1.0, 0.0)), galactic: bool = True) -> Dict:
     """propagate_sky for several source compositions at once (the analysis' event likelihoods,
     docs/dev/EVENT_LIKELIHOOD_PLAN.md): the extragalactic bands for each composition in `sources` and, with
     galactic.enabled, the Galactic bands for each composition in `galactic_compositions`, sharing one setup
@@ -986,7 +986,9 @@ def propagate_sky_basis(E_bins: np.ndarray, params: Dict, sources=((1.0, 0.0, 0.
     (injection_weights), in GeV^-1 cm^-2 s^-1 sr^-1 when sky.extragalactic_norm is set (meta extragalactic_scale)
     and solver units otherwise; with galactic.enabled, galactic_bands_nu, galactic_bands_nubar (n_comp, N_b, N_E,
     3) in GeV^-1 cm^-2 s^-1 sr^-1 at galactic.norm_gal (pixel means per band) and galactic_band_share (N_b,), each
-    band's share of the pixels (the sky's pixel mean, galactic_allsky, weights the bands by it); meta."""
+    band's share of the pixels (the sky's pixel mean, galactic_allsky, weights the bands by it); meta.
+    galactic=False skips the Galactic bands (a caller that has them: they do not depend on the extragalactic
+    source's spectral index, 2026-10-14)."""
     import dp_sky
     sky_p = params.get('sky') or dict(output='bands', nside=16, dec_band_edges=None, earth_nodes_per_band=2)
     gal = params.get('galactic') or dict(enabled=False)
@@ -1019,7 +1021,7 @@ def propagate_sky_basis(E_bins: np.ndarray, params: Dict, sources=((1.0, 0.0, 0.
         out['meta']['units'] = ("GeV^-1 cm^-2 s^-1 sr^-1 per flavor and kind; without new physics the per-flavor "
                                 f"nu + nubar intensity at {E_ref:.4g} GeV would be {sky_p['extragalactic_norm']:.4g}")
         out['meta']['extragalactic_scale'] = K
-    if gal.get('enabled', False):
+    if gal.get('enabled', False) and galactic:
         import dp_galactic
         em = dp_galactic.emitted(gal['template'], np.asarray(E_bins, dtype=np.float64) / 1e9, grid.nside,
                                  gal['norm_gal'])

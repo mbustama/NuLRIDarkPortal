@@ -227,6 +227,9 @@ class FlavorModel:
                 raise ValueError(f"p_nodes must hold at least two distinct values, got {p_nodes}")
         self._cache: "OrderedDict[tuple, tuple]" = OrderedDict()
         self._sky_cache: "OrderedDict[tuple, dict]" = OrderedDict()
+        # the Galactic component per propagation point WITHOUT the spectral index (2026-10-14): it does not depend on
+        # it (checked bit for bit), and recomputing it at every index node took half of a plane point's time
+        self._gal_cache: "OrderedDict[tuple, object]" = OrderedDict()
         self._cache_size = int(cache_size)
         self.n_solver_calls = 0
         self.n_cache_hits = 0
@@ -279,6 +282,23 @@ class FlavorModel:
             out[("dark_portal", "epsilon_prime")] = -abs(float(out.get(("dark_portal", "epsilon_prime"),
                                                                        dp["epsilon_prime"])))
         return out
+
+    @staticmethod
+    def _without_index(key: tuple) -> tuple:
+        return tuple(item for item in key if not (item[0] == "source" and item[1] == "p_index"))
+
+    def _gal_get(self, key: tuple):
+        g = self._gal_cache.get(self._without_index(key))
+        if g is not None:
+            self._gal_cache.move_to_end(self._without_index(key))
+        return g
+
+    def _gal_put(self, key: tuple, g) -> None:
+        k = self._without_index(key)
+        if k not in self._gal_cache:
+            self._gal_cache[k] = g
+            if len(self._gal_cache) > self._cache_size:
+                self._gal_cache.popitem(last=False)
 
     def default(self, name: str) -> float:
         """A parameter's value when a fit does not set it: the base solver config's, or the analysis' default."""
@@ -397,6 +417,8 @@ class FlavorModel:
             out = self._disk_read(disk)
             if out is not None:
                 self.n_disk_hits += 1
+                if out[3] is not None:
+                    self._gal_put(key, out[3]["G"])
                 self._cache[key] = out
                 if len(self._cache) > self._cache_size:
                     self._cache.popitem(last=False)
@@ -410,9 +432,12 @@ class FlavorModel:
             F_a, F_b = dps.propagate_weighted(E, params, sources=sources), None
         gal = None
         if self.galactic:
-            gal = dict(G=dps.galactic_allsky(E, params),
-                       K=dps.extragalactic_scale(params, params["sky"]["extragalactic_norm"],
-                                                 params["sky"]["extragalactic_norm_E_GeV"]))
+            G = self._gal_get(key)
+            if G is None:
+                G = dps.galactic_allsky(E, params)
+                self._gal_put(key, G)
+            gal = dict(G=G, K=dps.extragalactic_scale(params, params["sky"]["extragalactic_norm"],
+                                                      params["sky"]["extragalactic_norm_E_GeV"]))
         self.n_solver_calls += 1
         out = (E, F_a, F_b, gal)
         if disk is not None:
@@ -457,6 +482,8 @@ class FlavorModel:
         run = self._sky_read(disk) if disk is not None else None
         if run is not None:
             self.n_disk_hits += 1
+            if run["gal_nu"] is not None:
+                self._gal_put(key, dict(gal_nu=run["gal_nu"], gal_nb=run["gal_nb"], share=run["share"]))
         else:
             E, params = dps.build_solver_params(cfg)
             params["show_progress"] = False
@@ -466,7 +493,8 @@ class FlavorModel:
                                         params["sky"]["extragalactic_norm_E_GeV"])
             raw = dict(params)
             raw["sky"] = dict(params["sky"], extragalactic_norm=None)     # solver units; K kept apart
-            out = dps.propagate_sky_basis(E, raw, sources=sources)
+            g_hit = self._gal_get(key) if self.galactic else None
+            out = dps.propagate_sky_basis(E, raw, sources=sources, galactic=g_hit is None)
 
             def r32(a):
                 return np.asarray(a, dtype=np.float32).astype(np.float64)
@@ -476,6 +504,9 @@ class FlavorModel:
             if "galactic_bands_nu" in out:
                 run.update(gal_nu=r32(out["galactic_bands_nu"]), gal_nb=r32(out["galactic_bands_nubar"]),
                            share=np.asarray(out["galactic_band_share"], dtype=np.float64))
+                self._gal_put(key, dict(gal_nu=run["gal_nu"], gal_nb=run["gal_nb"], share=run["share"]))
+            elif g_hit is not None:
+                run.update(g_hit)                   # every run (and its disk file) carries the Galactic bands
             self.n_solver_calls += 1
             if disk is not None:
                 self._sky_write(disk, run)
