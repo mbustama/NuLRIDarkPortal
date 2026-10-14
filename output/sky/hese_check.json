@@ -1,0 +1,57 @@
+{
+ "release": "/lustre/astro/mbustama/external/hese_7yr/HESE-7-year-data-release/HESE-7-year-data-release",
+ "livetime_s": 227708167.68,
+ "n_events_after_cuts": 736814,
+ "n_events_total": 821764,
+ "best_fit": {
+  "astro_norm": 6.37,
+  "gamma": 2.87
+ },
+ "A_release_flux": {
+  "cascades": 39.51469373674876,
+  "tracks": 8.434575421817572,
+  "double cascades": 2.214336462437837
+ },
+ "B_propagate_sky_111": {
+  "counts": {
+   "cascades": 39.657092712851366,
+   "tracks": 8.46497107443047,
+   "double cascades": 2.222316259702585
+  },
+  "per_event_ratio_min": 1.0036036968184614,
+  "per_event_ratio_max": 1.0036036968185111,
+  "extragalactic_scale": 1.0096242962911028e-10
+ },
+ "C_pion_sources": {
+  "cascades": 38.06633946148177,
+  "tracks": 8.754687379151882,
+  "double cascades": 2.2303260859420737
+ },
+ "D_galactic_only": {
+  "cascades": 2.251134894973403,
+  "tracks": 0.46341625133401676,
+  "double cascades": 0.10689920212498429
+ },
+ "E_dark_portal_extragalactic": {
+  "cascades": 39.62901843529346,
+  "tracks": 8.468700926638855,
+  "double cascades": 2.225673742291683
+ },
+ "E_dark_portal_galactic": {
+  "cascades": 2.3507820349304955,
+  "tracks": 0.45915335058032536,
+  "double cascades": 0.10150528630058833
+ },
+ "toolkit": {
+  "events_match": true,
+  "n": 736814,
+  "bare_ratio_min": 0.9999999999999881,
+  "bare_ratio_max": 1.0000000000000178,
+  "sum_bare": 50.163605621004024,
+  "sum_with_detector_nominal": 50.16360562100402,
+  "sum_ours": 50.163605621004194,
+  "note": "release's code at the best fit (6.37, 2.87), atmospheric and muons off, detector parameters nominal (0.99, 0, 1)"
+ },
+ "commit": "e28f70f",
+ "seconds": 22.01086688041687
+}

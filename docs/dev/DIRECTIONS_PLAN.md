@@ -1,8 +1,8 @@
 # Plan: per-direction output and Galactic sources
 
 Status: **agreed 2026-10-13** (decisions D1-D6 answered by Mauricio: bands + N_side 16; CRINGE + pi0;
-full 3-D emission; Sun diagnostic first; all downloads on Tycho; x_gal floated). Steps 1-5 implemented
-(2026-10-13; outcomes of D4 and step 5 in Section 9). Written after four read-only surveys: the
+full 3-D emission; Sun diagnostic first; all downloads on Tycho; x_gal floated). **Steps 1-8 implemented**
+(2026-10-13/14; outcomes of D4 and steps 5-8 in Section 9). Written after four read-only surveys: the
 solver's direction handling (this repository), the literature on Galactic diffuse neutrinos, the
 literature on new physics with directions, and the sibling projects' directional data
 (`../NuAnisotropy`, `../NuFlavorSingleSource`, `../toise`, `../PLEnuM`). Every physics choice below
@@ -519,6 +519,15 @@ on its own.
   known tension with broken power laws), so the share depends on that choice. At m_Zd = 1e-24 eV, kappa = 300
   the f_e spread at 100 TeV over the pixels is 0.018 from the Galactic component (0.014 in the total), 1e-6
   from the Earth, <= 1.2e-3 from the Sun's yearly path.
+- **Step 8 (2026-10-14): the HESE consumer check** (tools/hese_check.py, tools/hese_toolkit_weights.py;
+  the release cloned to Tycho external/hese_7yr at 2d1ed03, approved by Mauricio with "both checks").
+  N = livetime x sum_i weightOverFluxOverLivetime_i x Phi_type(E_i, dec_i), cuts as the release's loader.
+  Our weighting = the release's code (env hese7np: NumPy 1.23 for its ragged arrays, photospline) event by
+  event to 2e-14: 50.16 astrophysical events (39.5 cascades, 8.4 tracks, 2.2 double cascades) at the best fit;
+  its detector corrections at nominal are exactly 1. Units test: propagate_sky with sources 1:1:1 and the
+  extragalactic flux normalized to the fit gives 1.0036 for every one of the 736781 neutrino events (the
+  redshift-grid offset). Pion sources: cascades -3.7%, tracks +3.8%; Galactic (CRINGE x 0.91, RA-averaged per
+  band: the MC has no azimuth) adds 2.8 events (5.6%), mostly cascades below 200 TeV.
 - **D4, the Sun per direction.** Keep the isotropic Sun average now and measure the anisotropy it would
   produce in its window (Recommended); or implement the yearly per-direction weighting now.
 - **D5, downloads on Tycho.** CRINGE (Zenodo 7859442), the 3-D gas (Zenodo 12578443) and IceCube's
