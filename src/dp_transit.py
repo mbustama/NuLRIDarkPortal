@@ -470,13 +470,12 @@ def _E1i(x):
 
 
 @njit(cache=True)
-def _transit_step(rho, K, nu_a, nu_b, sig_a, sig_b, h, J, twoE, Om, Uo, T):
-    """One step of the adiabatic-frame integrator (module notes), in place on the density
-    matrix rho expressed in the step's starting eigenbasis; on return it is expressed in the
-    final one. K: the eigenbasis' rotation over the step; nu_a, nu_b: eigenvalues at the ends
-    (eV^2); sig_a, sig_b: sigma at the ends; h: step length (eV^-1); J = int (sigma - sig_a)
-    dt over the step (eV); twoE = 2E (eV)."""
-    Phi = np.empty(3)
+def _step_unitary(K, nu_a, nu_b, sig_a, sig_b, h, J, twoE, Om, Uo, Phi):
+    """The adiabatic-frame integrator's step (module notes): the rotation Uo (from the eigenbasis' rotation K over
+    the step) and the dynamic phases Phi; the step maps a density matrix rho in the starting eigenbasis to
+    D Uo rho Uo^dag D^dag in the final one, D = diag(exp(-i Phi)). nu_a, nu_b: eigenvalues at the ends (eV^2);
+    sig_a, sig_b: sigma at the ends; h: step length (eV^-1); J = int (sigma - sig_a) dt over the step (eV);
+    twoE = 2E (eV)."""
     dsig = sig_b - sig_a
     for k in range(3):
         slope = 0.0
@@ -498,6 +497,17 @@ def _transit_step(rho, K, nu_a, nu_b, sig_a, sig_b, h, J, twoE, Om, Uo, T):
             Om[a, b] = v
             Om[b, a] = np.conjugate(v)
     propagator_3x3(Om, 1.0, Uo)
+
+
+@njit(cache=True)
+def _transit_step(rho, K, nu_a, nu_b, sig_a, sig_b, h, J, twoE, Om, Uo, T):
+    """One step of the adiabatic-frame integrator (module notes), in place on the density
+    matrix rho expressed in the step's starting eigenbasis; on return it is expressed in the
+    final one. K: the eigenbasis' rotation over the step; nu_a, nu_b: eigenvalues at the ends
+    (eV^2); sig_a, sig_b: sigma at the ends; h: step length (eV^-1); J = int (sigma - sig_a)
+    dt over the step (eV); twoE = 2E (eV)."""
+    Phi = np.empty(3)
+    _step_unitary(K, nu_a, nu_b, sig_a, sig_b, h, J, twoE, Om, Uo, Phi)
     # rho <- Uo rho Uo^dag, then the dynamic phases
     for a in range(3):
         for b in range(3):
@@ -518,6 +528,23 @@ def _transit_step(rho, K, nu_a, nu_b, sig_a, sig_b, h, J, twoE, Om, Uo, T):
             v = rho[a, b] * complex(np.cos(dph), -np.sin(dph))
             rho[a, b] = v
             rho[b, a] = np.conjugate(v)
+
+
+@njit(cache=True)
+def _transit_step_propagator(P, K, nu_a, nu_b, sig_a, sig_b, h, J, twoE, Om, Uo, T):
+    """The same step acting on a propagator: P <- D Uo P (_step_unitary), in place."""
+    Phi = np.empty(3)
+    _step_unitary(K, nu_a, nu_b, sig_a, sig_b, h, J, twoE, Om, Uo, Phi)
+    for a in range(3):
+        for b in range(3):
+            acc = 0.0 + 0.0j
+            for k in range(3):
+                acc += Uo[a, k] * P[k, b]
+            T[a, b] = acc
+    for a in range(3):
+        ph = complex(np.cos(Phi[a]), -np.sin(Phi[a]))
+        for b in range(3):
+            P[a, b] = ph * T[a, b]
 
 
 @njit(cache=True)
@@ -557,13 +584,11 @@ def _sandwich(W, rho, out, T, adjoint_first):
 
 
 @njit(cache=True)
-def march_path(E, kappa, n_bg, C, m, D, ca, t_max, rho_in, sig_nodes, nu_nodes, W_nodes,
-               K_nodes, Q, Mp, s, floor, glx, glw, rho_out):
-    """Evolves the flavor density matrix rho_in from t = t_max to t = 0 along one path
-    (section notes above) at energy E, with sigma(t) = kappa (n_bg + n(t)), kappa = 2E |Coef|
-    (eV^-1 per unit density, so that sigma is in eV^2). The table (sig_nodes, nu_nodes,
-    W_nodes, K_nodes) and (Q, Mp, s, floor) come from build_frame_table. Writes the flavor
-    density matrix at t = 0 into rho_out."""
+def _march(E, kappa, n_bg, C, m, D, ca, t_max, rho_in, mode, sig_nodes, nu_nodes, W_nodes,
+           K_nodes, Q, Mp, s, floor, glx, glw, rho_out):
+    """march_path's body: mode 0 evolves the density matrix rho_in into rho_out; mode 1 writes into rho_out the
+    path's propagator P (rho_out = P rho_in P^dag for any rho_in; rho_in unused). The same steps, in the same
+    order; the density matrix's per-step re-Hermitization (rounding) has no counterpart in P."""
     twoE = 2.0 * E
     rho = np.empty((3, 3), dtype=np.complex128)
     T = np.empty((3, 3), dtype=np.complex128)
@@ -585,7 +610,12 @@ def march_path(E, kappa, n_bg, C, m, D, ca, t_max, rho_in, sig_nodes, nu_nodes, 
     j0 = _first_node_above(sig_nodes, sig_c)
     if N > 0:
         align_columns(W_nodes[min(j0, N - 1)], Wc)
-    _sandwich(Wc, rho_in, rho, T, True)
+    if mode == 0:
+        _sandwich(Wc, rho_in, rho, T, True)
+    else:
+        for a in range(3):
+            for b in range(3):
+                rho[a, b] = np.conjugate(Wc[b, a])
     c_node = -1                 # index of the table node the current frame is, or -1
 
     n_seg = 1
@@ -647,7 +677,10 @@ def march_path(E, kappa, n_bg, C, m, D, ca, t_max, rho_in, sig_nodes, nu_nodes, 
                 log_unitary3(X, Kp)
             h = t_c - t_j
             J = kappa * _column_minus(t_j, t_c, n_c, C, m, D, ca, glx, glw)
-            _transit_step(rho, Kp, nu_c, nu_n, sig_c, sig_j, h, J, twoE, Om, Uo, T)
+            if mode == 0:
+                _transit_step(rho, Kp, nu_c, nu_n, sig_c, sig_j, h, J, twoE, Om, Uo, T)
+            else:
+                _transit_step_propagator(rho, Kp, nu_c, nu_n, sig_c, sig_j, h, J, twoE, Om, Uo, T)
             t_c = t_j
             n_c = _path_n(t_c, C, m, D, ca)
             sig_c = sig_j
@@ -666,7 +699,10 @@ def march_path(E, kappa, n_bg, C, m, D, ca, t_max, rho_in, sig_nodes, nu_nodes, 
         log_unitary3(X, Kp)
         h = t_c - t_end
         J = kappa * _column_minus(t_end, t_c, n_c, C, m, D, ca, glx, glw) if h > 0.0 else 0.0
-        _transit_step(rho, Kp, nu_c, nu_n, sig_c, sig_end, h, J, twoE, Om, Uo, T)
+        if mode == 0:
+            _transit_step(rho, Kp, nu_c, nu_n, sig_c, sig_end, h, J, twoE, Om, Uo, T)
+        else:
+            _transit_step_propagator(rho, Kp, nu_c, nu_n, sig_c, sig_end, h, J, twoE, Om, Uo, T)
         t_c = t_end
         n_c = n_end
         sig_c = sig_end
@@ -676,7 +712,37 @@ def march_path(E, kappa, n_bg, C, m, D, ca, t_max, rho_in, sig_nodes, nu_nodes, 
             for b in range(3):
                 Wc[a, b] = Wn[a, b]
         c_node = -1
-    _sandwich(Wc, rho, rho_out, T, False)
+    if mode == 0:
+        _sandwich(Wc, rho, rho_out, T, False)
+    else:
+        for a in range(3):
+            for b in range(3):
+                acc = 0.0 + 0.0j
+                for k in range(3):
+                    acc += Wc[a, k] * rho[k, b]
+                rho_out[a, b] = acc
+
+
+@njit(cache=True)
+def march_path(E, kappa, n_bg, C, m, D, ca, t_max, rho_in, sig_nodes, nu_nodes, W_nodes,
+               K_nodes, Q, Mp, s, floor, glx, glw, rho_out):
+    """Evolves the flavor density matrix rho_in from t = t_max to t = 0 along one path
+    (section notes above) at energy E, with sigma(t) = kappa (n_bg + n(t)), kappa = 2E |Coef|
+    (eV^-1 per unit density, so that sigma is in eV^2). The table (sig_nodes, nu_nodes,
+    W_nodes, K_nodes) and (Q, Mp, s, floor) come from build_frame_table. Writes the flavor
+    density matrix at t = 0 into rho_out."""
+    _march(E, kappa, n_bg, C, m, D, ca, t_max, rho_in, 0, sig_nodes, nu_nodes, W_nodes, K_nodes, Q, Mp, s, floor,
+           glx, glw, rho_out)
+
+
+@njit(cache=True)
+def march_path_propagator(E, kappa, n_bg, C, m, D, ca, t_max, sig_nodes, nu_nodes, W_nodes,
+                          K_nodes, Q, Mp, s, floor, glx, glw, P_out):
+    """march_path's propagator: P_out with rho(t = 0) = P_out rho(t_max) P_out^dag (2026-10-14: computed once per
+    path, energy and potential, and applied to every arriving state; nearfield_propagators)."""
+    dummy = np.zeros((3, 3), dtype=np.complex128)
+    _march(E, kappa, n_bg, C, m, D, ca, t_max, dummy, 1, sig_nodes, nu_nodes, W_nodes, K_nodes, Q, Mp, s, floor,
+           glx, glw, P_out)
 
 
 # =============================================================================
@@ -808,6 +874,51 @@ def nearfield_transit(E_bins, rho_in, active, coef2, n_bg, C, m, D, ca, w, t_max
                 rho_out[i, a, b] = acc[a, b]
 
 
+@njit(cache=True, parallel=True)
+def nearfield_propagators(E_bins, active, coef2, n_bg, C, m, D, ca, t_max, sig_nodes, nu_nodes, W_nodes, K_nodes,
+                          Q, Mp, s, floor, glx, glw, P_out):
+    """Every active energy bin's propagator along each path ca[p] (march_path_propagator): P_out (N_E, n_p, 3, 3)."""
+    for i in prange(len(E_bins)):
+        if not active[i]:
+            continue
+        tmp = np.empty((3, 3), dtype=np.complex128)
+        for p in range(len(ca)):
+            march_path_propagator(E_bins[i], E_bins[i] * coef2, n_bg, C, m, D, ca[p], t_max[p], sig_nodes, nu_nodes,
+                                  W_nodes, K_nodes, Q, Mp, s, floor, glx, glw, tmp)
+            for a in range(3):
+                for b in range(3):
+                    P_out[i, p, a, b] = tmp[a, b]
+
+
+@njit(cache=True, parallel=True)
+def apply_nearfield(rho_in, active, w, P, rho_out):
+    """rho_out = sum_p w[p] P[i, p] rho_in[i] P[i, p]^dag for the active bins, rho_in elsewhere."""
+    for i in prange(rho_in.shape[0]):
+        if not active[i]:
+            for a in range(3):
+                for b in range(3):
+                    rho_out[i, a, b] = rho_in[i, a, b]
+            continue
+        acc = np.zeros((3, 3), dtype=np.complex128)
+        T = np.empty((3, 3), dtype=np.complex128)
+        for p in range(P.shape[1]):
+            for a in range(3):
+                for b in range(3):
+                    x = 0.0 + 0.0j
+                    for k in range(3):
+                        x += P[i, p, a, k] * rho_in[i, k, b]
+                    T[a, b] = x
+            for a in range(3):
+                for b in range(3):
+                    x = 0.0 + 0.0j
+                    for k in range(3):
+                        x += T[a, k] * np.conjugate(P[i, p, b, k])
+                    acc[a, b] += w[p] * x
+        for a in range(3):
+            for b in range(3):
+                rho_out[i, a, b] = acc[a, b]
+
+
 @njit(cache=True)
 def _proxy_between(Q, Mp, s, floor, sig_a, sig_b):
     va = np.empty(3)
@@ -820,6 +931,12 @@ def _proxy_between(Q, Mp, s, floor, sig_a, sig_b):
 
 
 _TRANSIT_TABLES = {}
+# the near-field propagators per (table, energies, potential, paths): one solver point transits the same potential
+# for every arriving state -- each index node, source composition, Galactic eigen-basis run (2026-10-14: 48 marches
+# per plane point, 88% of its time, became 2 per point and kind)
+_NEARFIELD_CACHE = {}
+_NEARFIELD_CACHE_MAX = 64
+NEARFIELD_REUSE = True
 # Paths start where the source's density falls to this fraction of the larger of the
 # background and the density whose potential equals the smallest vacuum gap: the adiabatic
 # hand-over there is exact to that fraction.
@@ -841,6 +958,7 @@ def frame_table(M_rot, S_signed, dtheta):
         if len(_TRANSIT_TABLES) > 16:
             _TRANSIT_TABLES.clear()
         tab = _TRANSIT_TABLES[key] = build_frame_table(M_rot, S_signed, dtheta=dtheta)
+        tab["_key"] = key
     return tab
 
 
@@ -857,12 +975,26 @@ def source_transit(E_bins, rho_in, tab, coef_abs, n_bg, C, m, D, ca, w, force_ac
     if C <= 0.0 or coef_abs <= 0.0 or len(tab["sig"]) < 2:
         return rho_out, 0
     coef2 = 2.0 * coef_abs
+    key = None
+    if NEARFIELD_REUSE and tab.get("_key") is not None:
+        key = (tab["_key"], E_bins.tobytes(), float(coef2), float(n_bg), float(C), float(m), float(D),
+               np.ascontiguousarray(ca, dtype=np.float64).tobytes(), np.ascontiguousarray(w, dtype=np.float64).tobytes(),
+               bool(force_active))
+        hit = _NEARFIELD_CACHE.get(key)
+        if hit is not None:
+            active, P = hit
+            if active.any():
+                apply_nearfield(np.ascontiguousarray(rho_in, dtype=np.complex128), active,
+                                np.ascontiguousarray(w, dtype=np.float64), P, rho_out)
+            return rho_out, int(active.sum())
     Q, Mp, s, floor = tab["Q"], tab["Mp"], tab["s"], tab["floor"]
     active = np.zeros(len(E_bins), dtype=np.bool_)
     for i, E in enumerate(E_bins):
         active[i] = force_active or _proxy_between(Q, Mp, s, floor, E * coef2 * n_bg, E * coef2 * (n_bg + C)) \
             > _TRANSIT_ACTIVE_MIN_ROTATION
     if not active.any():
+        if key is not None:
+            _NEARFIELD_CACHE[key] = (active, None)
         return rho_out, 0
     # start: the source's density down to the fraction above of max(n_bg, n_gap(E_max))
     ev = np.sort(np.linalg.eigvalsh(tab["Mp"]))
@@ -878,9 +1010,19 @@ def source_transit(E_bins, rho_in, tab, coef_abs, n_bg, C, m, D, ca, w, force_ac
         r_far = _r_of_n(n_thr, C, m, D, D, r_hi)
     ca = np.ascontiguousarray(ca, dtype=np.float64)
     t_max = np.array([D * c + np.sqrt(max(r_far * r_far - D * D * (1.0 - c * c), 0.0)) for c in ca])
-    nearfield_transit(E_bins, np.ascontiguousarray(rho_in, dtype=np.complex128), active, coef2, n_bg,
-                      float(C), float(m), float(D), ca, np.ascontiguousarray(w, dtype=np.float64), t_max,
-                      tab["sig"], tab["nu"], tab["W"], tab["K"], Q, Mp, s, floor, _GLX8, _GLW8, rho_out)
+    w = np.ascontiguousarray(w, dtype=np.float64)
+    if not NEARFIELD_REUSE or key is None:
+        nearfield_transit(E_bins, np.ascontiguousarray(rho_in, dtype=np.complex128), active, coef2, n_bg,
+                          float(C), float(m), float(D), ca, w, t_max,
+                          tab["sig"], tab["nu"], tab["W"], tab["K"], Q, Mp, s, floor, _GLX8, _GLW8, rho_out)
+        return rho_out, int(active.sum())
+    P = np.zeros((len(E_bins), len(ca), 3, 3), dtype=np.complex128)
+    nearfield_propagators(E_bins, active, coef2, n_bg, float(C), float(m), float(D), ca, t_max, tab["sig"], tab["nu"],
+                          tab["W"], tab["K"], Q, Mp, s, floor, _GLX8, _GLW8, P)
+    if len(_NEARFIELD_CACHE) >= _NEARFIELD_CACHE_MAX:
+        _NEARFIELD_CACHE.pop(next(iter(_NEARFIELD_CACHE)))
+    _NEARFIELD_CACHE[key] = (active, P)
+    apply_nearfield(np.ascontiguousarray(rho_in, dtype=np.complex128), active, w, P, rho_out)
     return rho_out, int(active.sum())
 
 

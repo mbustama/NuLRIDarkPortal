@@ -1692,6 +1692,21 @@ def model_spec(g_mass, mediator="scalar", majorana=True, phiphi="coherent", chan
     raise ValueError(f"secret interactions: mediator must be 'scalar' or 'vector', got {mediator!r}")
 
 
+_STEP_TERMS = {}                        # one physics point's step terms (propagate_si)
+_STEP_TERMS_MAX_BYTES = 1.5e9
+
+
+def _step_key(E, L_edges, masses, n0, M2, MG, H0, Om, OL, delta_mode, prof, hbin, thermal, M, T_nu0, eta, jt):
+    """Everything the steps' collision terms depend on (_step_integrals, _thermal_resonance_terms)."""
+    import hashlib
+    h = hashlib.sha256()
+    for a in (E, L_edges, masses, n0, eta, jt):
+        h.update(np.ascontiguousarray(a).tobytes())
+    h.update(repr((float(M2), float(MG), float(H0), float(Om), float(OL), bool(delta_mode), int(prof), float(hbin),
+                   bool(thermal), float(M), float(T_nu0))).encode())
+    return h.hexdigest()
+
+
 def propagate_si(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta_mass, rho_src,
                  p_index, rho_evol, Phi_0, M, g_mass, majorana=True, channels="full",
                  phiphi="coherent", z_substeps=1, E_extension=10.0, n_u=4096,
@@ -1789,15 +1804,29 @@ def propagate_si(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta
     Ep = E ** (-p_index)
     hbin = float(np.exp(0.5 * dlnE))
     Cregs = [np.ascontiguousarray(C if regeneration else np.zeros_like(C)) for C, _ in runs]
+    # the steps' collision terms do not depend on the source (spectral index, evolution, composition): kept from one
+    # call to the next with the same physics (2026-10-14: an analysis runs every spectral-index node of a point in a
+    # row, and the terms were half of each run)
+    skey = _step_key(E, L_edges, masses, n0, M2, MG, H0, Omega_m, Omega_L, delta_mode, prof, hbin, thermal, M,
+                     T_nu0, eta_arr, spec["jt"])
+    steps = _STEP_TERMS.get(skey)
+    store = None
+    if steps is None and K * J.nbytes + 3 * K * Nq.nbytes <= _STEP_TERMS_MAX_BYTES:
+        store = []
     for m in range(K - 1, -1, -1):
         L_lo, L_hi = L_edges[m], L_edges[m + 1]
         dt, T_inj = _step_time_and_injection(L_lo, L_hi, H0, Omega_m, Omega_L, p_index, rho_evol, Phi_0)
         S0 = np.ascontiguousarray(np.outer(Ep * (T_inj / dt), P_src))
-        _step_integrals(E, np.exp(L_lo), np.exp(L_hi), np.exp(0.5 * (L_lo + L_hi)), masses, n0, M2, MG,
-                        H0, Omega_m, Omega_L, delta_mode, prof, hbin, J, Nq, Lq, Dq)
-        if thermal and not delta_mode:
-            _thermal_resonance_terms(E, L_lo, L_hi, masses, T_nu0, eta_arr, M, MG, H0, Omega_m, Omega_L, J,
-                                     _TGL16_X, _TGL16_W, _TGL10_X, _TGL10_W, _TFD16)
+        if steps is not None:
+            J, Nq, Lq, Dq = steps[K - 1 - m]
+        else:
+            _step_integrals(E, np.exp(L_lo), np.exp(L_hi), np.exp(0.5 * (L_lo + L_hi)), masses, n0, M2, MG,
+                            H0, Omega_m, Omega_L, delta_mode, prof, hbin, J, Nq, Lq, Dq)
+            if thermal and not delta_mode:
+                _thermal_resonance_terms(E, L_lo, L_hi, masses, T_nu0, eta_arr, M, MG, H0, Omega_m, Omega_L, J,
+                                         _TGL16_X, _TGL16_W, _TGL10_X, _TGL10_W, _TFD16)
+            if store is not None:
+                store.append((J.copy(), Nq.copy(), Lq.copy(), Dq.copy()))
         if m == K - 1 and not top_full:
             tB, tO = top
             node[:] = jj[:, None]
@@ -1810,6 +1839,9 @@ def propagate_si(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta
         for k in range(len(runs)):
             _si_sweep(Fs[k], E, dE, S0, J, Nq, Lq, Dq, spec["jt"], spec["w"], spec["qe"], spec["Ctau"], Cregs[k],
                       tB, tO, node, dt, reg, diags[k], prof == 1)
+    if store is not None:
+        _STEP_TERMS.clear()
+        _STEP_TERMS[skey] = store
     F = sum(wt * Fk for (_, wt), Fk in zip(runs, Fs))
     out = np.ascontiguousarray(F[:N_E])
     if not return_diagnostics:
