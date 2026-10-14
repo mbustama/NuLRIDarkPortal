@@ -155,5 +155,6 @@
  "asimov": {
   "g_D_eps_trace": 1e-62
  },
+ "flux_basis": "pure_flavors",
  "output_dir": "output/analysis/campaign/now_ic26/dp_e_pot_x1m20_pos"
 }

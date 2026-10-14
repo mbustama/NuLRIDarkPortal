@@ -171,5 +171,6 @@
  "asimov": {
   "g_D_eps_trace": 1e-62
  },
+ "flux_basis": "pure_flavors",
  "output_dir": "output/analysis/campaign/proj_2050/dp_emutau_pot_x1m20_pos_fx"
 }

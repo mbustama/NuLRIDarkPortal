@@ -153,5 +153,6 @@
  "asimov": {
   "g_D_trace": 1e-12
  },
+ "flux_basis": "pure_flavors",
  "output_dir": "output/analysis/campaign/proj_2050/dp_mutau_mev"
 }

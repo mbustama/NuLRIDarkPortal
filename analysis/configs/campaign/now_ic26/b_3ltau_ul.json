@@ -153,5 +153,6 @@
  "asimov": {
   "g_D": 1e-34
  },
+ "flux_basis": "pure_flavors",
  "output_dir": "output/analysis/campaign/now_ic26/b_3ltau_ul"
 }

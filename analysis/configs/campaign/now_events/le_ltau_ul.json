@@ -159,5 +159,6 @@
  "asimov": {
   "g_D": 1e-34
  },
+ "flux_basis": "pure_flavors",
  "output_dir": "output/analysis/campaign/now_events/le_ltau_ul"
 }

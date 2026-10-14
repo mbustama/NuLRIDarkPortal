@@ -220,6 +220,36 @@ def test_the_surface_may_be_left_out_only_with_events():
     assert without == pytest.approx(with_surface - surfaces.chi2(f[0], f[1], cfg.surface), abs=1e-12)
 
 
+def test_pure_flavor_basis_shares_the_fitted_composition_runs(tmp_path):
+    """flux_basis 'pure_flavors' (2026-10-14): a fixed composition computed from the pure-flavor runs equals the
+    direct run (the composition is linear) -- to rounding with the potential (1e-13), to 1e-9 through dp_si's every
+    collision at MeV masses, whose bins of strong absorption need many squarings of each step's matrix exponential
+    (its rounding, ~2e-10 in the fractions here, differs between source compositions, direct or combined alike) --
+    and its solver runs are the fitted-composition analysis's: the same disk-cache files."""
+    raw = _tiny_raw(profiles={}, planes=[])
+    shared = config_mod.from_dict({**raw, "flux_basis": "pure_flavors"}).model()
+    for v, tol in (({"m_Zd_eV": 1e-27, "g_D": 1e-46}, 1e-13), ({"m_Zd_eV": 1e-13, "g_D": 1e-38}, 1e-13),
+                   ({"m_Zd_eV": 2e6, "g_D": 1e-4}, 1e-9)):
+        direct = config_mod.from_dict(raw).model().fractions(v)
+        np.testing.assert_allclose(shared.fractions(v), direct, rtol=0, atol=tol)
+    v = {"m_Zd_eV": 2e6, "g_D": 1e-4}
+    fitted_raw = copy.deepcopy(raw)
+    fitted_raw["parameters"]["f_e_S"] = {"start": 0.3, "bounds": [0.0, 1.0], "space": "linear"}
+    fitted = config_mod.from_dict(fitted_raw).model()
+    assert shared.basis == fitted.basis
+    for m in (shared, fitted):
+        m.disk_cache = str(tmp_path)
+    def path(m):
+        cfg = copy.deepcopy(m.base)
+        for (section, k), val in m._overrides(v).items():
+            cfg[section][k] = val
+        cfg["source"].update(f_e_S=1.0, f_mu_S=0.0, f_tau_S=0.0)
+        return m._disk_path(cfg)
+    assert path(shared) == path(fitted)
+    with pytest.raises(ValueError, match="flux_basis"):
+        config_mod.from_dict({**raw, "flux_basis": "both"})
+
+
 def test_objective_charges_mixing_beyond_unitarity_continuously():
     cfg = config_mod.from_dict(_tiny_raw())
     obj = cfg.objective()

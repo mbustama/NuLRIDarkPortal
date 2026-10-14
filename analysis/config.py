@@ -26,6 +26,10 @@ and which fits and scans to run. Example: analysis/configs/pion_2050_case_5.json
     "thresholds": {"1d": {label: dchi2}, "2d": {label: dchi2}},
     "asimov": {name: value},             parameters of the Asimov data set (--asimov)
     "output_dir": "output/analysis/..."  relative to the repository
+    "flux_basis": "auto" | "pure_flavors"  the solver runs per pure-flavor source even with the composition
+                                         fixed (2026-10-14): a fixed-composition analysis then shares its
+                                         runs with a fitted-composition one (NULRI_FLUX_CACHE); the composition
+                                         is linear (to 1.6e-15)
   }
 
 Profile and plane ranges are in physical units; a parameter fitted in log10 space is scanned
@@ -52,7 +56,7 @@ from .objective import Objective
 from .parameters import Parameter, ParameterSet, prior_from_spec
 
 TOP_KEYS = {"name", "data", "solver", "parameters", "priors", "fit", "profiles", "planes",
-            "thresholds", "asimov", "output_dir"}
+            "thresholds", "asimov", "output_dir", "flux_basis"}
 DEFAULT_THRESHOLDS = {
     # Delta chi^2 for two-sided intervals of 1 and 2 parameters (Wilks): 68.27%, 90%, 95%
     "1d": {"68.27%": 1.0, "90%": 2.706, "95%": 3.841},
@@ -103,6 +107,7 @@ class AnalysisConfig:
     p_nodes_n: Optional[int] = None
     events: Optional[dict] = None
     flavor_band: Optional[Tuple[float, float]] = None
+    flux_basis: str = "auto"
 
     @property
     def free_names(self) -> List[str]:
@@ -129,7 +134,8 @@ class AnalysisConfig:
         # p_index interpolated between the nodes' solver runs: that many times the cache for the same points
         n = 1 if self.p_nodes() is None else len(self.p_nodes())
         return FlavorModel(self.solver, self.free_names, cache_size=cache_size * n, p_nodes=self.p_nodes(),
-                           sky=self.events is not None, flavor_band_eV=self.flavor_band)
+                           sky=self.events is not None, flavor_band_eV=self.flavor_band,
+                           pure_flavor_basis=self.flux_basis == "pure_flavors")
 
     def asimov_values(self) -> Dict[str, float]:
         """The values of the Asimov data set: the configuration's 'asimov' values, the free parameters' starts
@@ -173,6 +179,7 @@ class AnalysisConfig:
             solver["analysis_dark_portal"] = own
         d = dict(data=self.surface, centre=None if data_centre is None else [float(c) for c in data_centre],
                  spectrum=self.spectrum, p_nodes=self.p_nodes(), events=self.events, flavor_band=self.flavor_band,
+                 **({} if self.flux_basis == "auto" else dict(flux_basis=self.flux_basis)),
                  solver=solver, code=dp_core._source_digest(),
                  parameters=[[p.name, p.space, list(p.bounds)] for p in self.parameters],
                  priors=[[type(p).__name__, sorted(dataclasses.asdict(p).items())] for p in self.priors], extra=extra)
@@ -251,7 +258,10 @@ def from_dict(raw: Mapping, path: str = "") -> AnalysisConfig:
         name=str(d["name"]), surface=surface, solver=d.get("solver", {}), parameters=params,
         priors=[prior_from_spec(p) for p in d.get("priors", [])],
         fit=FitSettings.from_dict(d.get("fit")), asimov=dict(d.get("asimov", {})),
-        raw=dict(raw), path=path, spectrum=spectrum, p_nodes_n=p_nodes_n, events=events, flavor_band=flavor_band)
+        raw=dict(raw), path=path, spectrum=spectrum, p_nodes_n=p_nodes_n, events=events, flavor_band=flavor_band,
+        flux_basis=str(d.get("flux_basis", "auto")))
+    if cfg.flux_basis not in ("auto", "pure_flavors"):
+        raise ValueError(f"flux_basis must be 'auto' or 'pure_flavors', got {cfg.flux_basis!r}")
     if spectrum is not None and not (cfg.solver.get("galactic") or {}).get("enabled"):
         raise ValueError("data.spectrum compares the extragalactic flux in physical units, which the model provides "
                          "with the Galactic component (galactic.enabled and sky.extragalactic_norm)")

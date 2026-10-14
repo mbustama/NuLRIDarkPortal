@@ -171,5 +171,6 @@
  "asimov": {
   "g_D_eps": 1e-62
  },
+ "flux_basis": "pure_flavors",
  "output_dir": "output/analysis/campaign/proj_2050/lmu_ltau_pot_x1m12_pos_fx"
 }

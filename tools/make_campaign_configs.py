@@ -88,9 +88,12 @@ def _base(dataset):
 
 
 def _config(dataset, name, comment, solver, params, priors, plane, asimov):
+    # flux_basis 'pure_flavors' (2026-10-14): the fixed-composition planes run the same pure-flavor sources as their
+    # fitted twins, and the two spectrum data sets the same physics, so one set of solver runs serves four planes
+    # (NULRI_FLUX_CACHE); the composition is linear, to rounding (1e-9 through dp_si's MeV transport)
     return {"_comment": comment, "name": name, "data": copy.deepcopy(DATASETS[dataset]["data"]),
             "solver": solver, "parameters": params, "priors": copy.deepcopy(priors), "fit": dict(FIT),
-            "profiles": {}, "planes": [plane], "asimov": asimov,
+            "profiles": {}, "planes": [plane], "asimov": asimov, "flux_basis": "pure_flavors",
             "output_dir": f"output/analysis/campaign/{dataset}/{name}"}
 
 

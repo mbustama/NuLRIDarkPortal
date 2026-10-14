@@ -169,5 +169,6 @@
  "asimov": {
   "g_D": 1e-12
  },
+ "flux_basis": "pure_flavors",
  "output_dir": "output/analysis/campaign/proj_2050/b_32lmultau_mev_fx"
 }

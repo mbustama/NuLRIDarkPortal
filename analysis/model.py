@@ -185,7 +185,7 @@ class FlavorModel:
 
     def __init__(self, solver_config: Mapping, free_names: Sequence[str] = (), cache_size: int = 512,
                  p_nodes: Optional[Sequence[float]] = None, sky: bool = False,
-                 flavor_band_eV: Optional[Sequence[float]] = None):
+                 flavor_band_eV: Optional[Sequence[float]] = None, pure_flavor_basis: bool = False):
         sc, own = split_analysis_keys(solver_config)
         self.potential_sign = float(own.get("potential_sign", 1.0))
         if self.potential_sign not in (1.0, -1.0):
@@ -208,6 +208,10 @@ class FlavorModel:
                 raise ValueError("Float at most two of f_e_S, f_mu_S, f_tau_S: the third is the remainder")
             self.basis = [i for i, k in enumerate(SOURCE_KEYS)
                           if k in free_names or k == self.remainder or float(base["source"][k]) != 0.0]
+        elif pure_flavor_basis:
+            # the solver runs per pure-flavor source although the composition is fixed (flux_basis 'pure_flavors',
+            # 2026-10-14): the same runs as a fitted-composition analysis's, which then shares them on disk
+            self.basis = [i for i, k in enumerate(SOURCE_KEYS) if float(base["source"][k]) != 0.0]
         # The Galactic component: the extragalactic flux must be in physical units to be added to it
         self.galactic = bool(base["galactic"]["enabled"])
         if self.galactic and base["sky"]["extragalactic_norm"] is None:

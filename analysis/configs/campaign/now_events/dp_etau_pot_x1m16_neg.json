@@ -161,5 +161,6 @@
  "asimov": {
   "g_D_eps_trace": 1e-62
  },
+ "flux_basis": "pure_flavors",
  "output_dir": "output/analysis/campaign/now_events/dp_etau_pot_x1m16_neg"
 }

@@ -155,5 +155,6 @@
  "asimov": {
   "g_D_eps": 1e-62
  },
+ "flux_basis": "pure_flavors",
  "output_dir": "output/analysis/campaign/now_ic26/lmu_ltau_pot_x1m08_pos"
 }
