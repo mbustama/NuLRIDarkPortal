@@ -29,7 +29,10 @@ import numpy as np
 from .config import AnalysisConfig, from_dict
 from .fitting import FitSettings, fit
 
-REPAIR_TOL = 1e-6          # chi^2 improvement that counts as a repair
+# chi^2 improvement that counts as a repair (2026-10-14: 1e-6 counted the fits' own noise -- in the task-2 reruns 48%
+# of the points "improved" in the first pass, by 6e-5 (median), and each change re-queued its neighbours, so every
+# pass re-evaluated most of the plane; limits are read at Delta chi^2 of order 1)
+REPAIR_TOL = 1e-3
 SPIKE_TOL = 0.05           # chi^2 above the neighbours' midpoint that marks a point for refitting
 _W: dict = {}              # per-process state: the configuration and its objective
 
