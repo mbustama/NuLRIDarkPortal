@@ -39,6 +39,13 @@ that moves p costs no new solver runs. With 7 nodes over [2, 3] the energy-avera
 2e-4 at worst (strong secret interactions; 4e-8 without new physics) and the flux to 0.7%. The Galactic flux does
 not depend on p.
 
+Sky mode (the event likelihoods, docs/dev/EVENT_LIKELIHOOD_PLAN.md; 2026-10-14): one solver call per point
+(dark_portal_solver.propagate_sky_basis) gives the flux per declination band, flavor and kind for each pure-flavor
+source and Galactic source; band_fluxes combines them, and the flavor fractions use the same run's sky average (the
+bands weighted by solid angle, the Galactic ones by their pixel shares), averaged over flavor_band_eV when the grid
+extends beyond the flavor measurement's band. The band arrays are rounded to single precision, so a run read back from
+the disk cache (1 MB) is the run computed.
+
 Source composition: components that are not floated keep their configured values, except
 one that takes the remainder so that they sum to 1 -- f_tau_S when f_e_S and f_mu_S both
 float (the theory notes' parametrization), f_mu_S otherwise (f_e_S floated with f_tau_S
@@ -132,10 +139,13 @@ class FlavorModel:
     """
 
     def __init__(self, solver_config: Mapping, free_names: Sequence[str] = (), cache_size: int = 512,
-                 p_nodes: Optional[Sequence[float]] = None):
+                 p_nodes: Optional[Sequence[float]] = None, sky: bool = False,
+                 flavor_band_eV: Optional[Sequence[float]] = None):
         base = merge_config_with_defaults(copy.deepcopy(dict(solver_config)))
         base["execution"].update(n_cores=1, verbose=0, use_gpu=False)
         self.base = base
+        self.sky = bool(sky)
+        self.flavor_band = None if flavor_band_eV is None else (float(flavor_band_eV[0]), float(flavor_band_eV[1]))
         free_src = [k for k in SOURCE_KEYS if k in free_names]
         # Pure-flavor sources needed when the composition is free: the floated ones, the one
         # taking the remainder, and any fixed at a nonzero value
@@ -154,12 +164,19 @@ class FlavorModel:
             raise ValueError("galactic.enabled needs sky.extragalactic_norm (and sky.extragalactic_norm_E_GeV): the "
                              "extragalactic flux's normalization against the Galactic one, e.g. "
                              "dp_galactic.icecube_2026_anchor()")
+        if self.sky:
+            if self.ratio_free:
+                raise ValueError("sky mode (the event likelihoods) does not float nubar_to_nu_ratio")
+            if base["sky"]["extragalactic_norm"] is None:
+                raise ValueError("sky mode needs sky.extragalactic_norm: the events need the flux in physical units")
+            base["sky"]["output"] = "bands"
         self.p_nodes = None
         if p_nodes is not None:
             self.p_nodes = np.array(sorted(float(p) for p in p_nodes))
             if len(self.p_nodes) < 2 or np.any(np.diff(self.p_nodes) <= 0):
                 raise ValueError(f"p_nodes must hold at least two distinct values, got {p_nodes}")
         self._cache: "OrderedDict[tuple, tuple]" = OrderedDict()
+        self._sky_cache: "OrderedDict[tuple, dict]" = OrderedDict()
         self._cache_size = int(cache_size)
         self.n_solver_calls = 0
         self.n_cache_hits = 0
@@ -213,6 +230,8 @@ class FlavorModel:
         solver = {k: v for k, v in cfg.items() if k not in ("execution", "output")}
         ident = dict(solver=solver, basis=self.basis, ratio_free=self.ratio_free, galactic=self.galactic,
                      code=dp_core._source_digest(), version=DISK_CACHE_VERSION)
+        if self.sky:
+            ident["sky"] = "propagate_sky_basis, single-precision bands"
         h = hashlib.sha256(json.dumps(ident, sort_keys=True, default=_json_default).encode()).hexdigest()
         return os.path.join(self.disk_cache, h[:2], h + ".npz")
 
@@ -283,6 +302,20 @@ class FlavorModel:
             self._cache.move_to_end(key)
             self.n_cache_hits += 1
             return hit
+        if self.sky:
+            run = self._sky_exact(values)
+            w = run["omega"] / run["omega"].sum()
+            F_a = np.tensordot(w, run["bands_nu"] + run["bands_nb"], axes=(0, 1))       # (n_src, N_E, 3)
+            if self.basis is None:
+                F_a = F_a[0]
+            gal = None
+            if run["gal_nu"] is not None:
+                gal = dict(G=np.tensordot(run["share"], run["gal_nu"] + run["gal_nb"], axes=(0, 1)), K=run["K"])
+            out = (run["E"], F_a, None, gal)
+            self._cache[key] = out
+            if len(self._cache) > self._cache_size:
+                self._cache.popitem(last=False)
+            return out
         cfg = copy.deepcopy(self.base)
         for (section, k), v in ov.items():
             cfg[section][k] = v
@@ -318,6 +351,143 @@ class FlavorModel:
         if len(self._cache) > self._cache_size:
             self._cache.popitem(last=False)
         return out
+
+    # ------------------------------------------------------------------ sky mode
+    def grid(self) -> Tuple[np.ndarray, np.ndarray]:
+        """(E_bins in eV, declination band edges in rad) of the solver runs, without running it."""
+        import dp_sky
+        cfg = copy.deepcopy(self.base)
+        if self.basis is not None:
+            cfg["source"].update(f_e_S=1.0, f_mu_S=0.0, f_tau_S=0.0)
+        E, params = dps.build_solver_params(cfg)
+        edges = params["sky"]["dec_band_edges"]
+        return np.asarray(E, dtype=np.float64), (dp_sky.default_dec_band_edges() if edges is None
+                                                 else np.asarray(edges, dtype=np.float64))
+
+    def _sky_exact(self, values: Mapping) -> dict:
+        """One propagate_sky_basis run for the propagation parameters in `values`: dict E (eV), band_edges (rad),
+        omega (sr per band), bands_nu, bands_nb (n_src, N_b, N_E, 3) in solver units for the basis sources (or the
+        configured composition), K (the extragalactic scale), gal_nu, gal_nb (2, N_b, N_E, 3) for pure nu_e and
+        nu_mu Galactic sources at the base norm_gal and share (N_b,) the bands' pixel shares, or None; the band arrays
+        rounded to single precision (as the disk cache keeps them)."""
+        ov = self._overrides(values)
+        key = tuple(sorted((s, k, v if isinstance(v, str) else float(v)) for (s, k), v in ov.items()))
+        hit = self._sky_cache.get(key)
+        if hit is not None:
+            self._sky_cache.move_to_end(key)
+            return hit
+        cfg = copy.deepcopy(self.base)
+        for (section, k), v in ov.items():
+            cfg[section][k] = v
+        sources = None
+        if self.basis is not None:
+            cfg["source"].update(f_e_S=1.0, f_mu_S=0.0, f_tau_S=0.0)
+            sources = [np.eye(3)[i] for i in self.basis]
+        disk = self._disk_path(cfg)
+        run = self._sky_read(disk) if disk is not None else None
+        if run is not None:
+            self.n_disk_hits += 1
+        else:
+            E, params = dps.build_solver_params(cfg)
+            params["show_progress"] = False
+            if sources is None:
+                sources = [np.array([params["f_e_S"], params["f_mu_S"], params["f_tau_S"]], dtype=np.float64)]
+            K = dps.extragalactic_scale(params, params["sky"]["extragalactic_norm"],
+                                        params["sky"]["extragalactic_norm_E_GeV"])
+            raw = dict(params)
+            raw["sky"] = dict(params["sky"], extragalactic_norm=None)     # solver units; K kept apart
+            out = dps.propagate_sky_basis(E, raw, sources=sources)
+
+            def r32(a):
+                return np.asarray(a, dtype=np.float32).astype(np.float64)
+            run = dict(E=np.asarray(E, dtype=np.float64), band_edges=np.asarray(out["dec_band_edges"], dtype=np.float64),
+                       omega=np.asarray(out["band_omega"], dtype=np.float64), bands_nu=r32(out["bands_nu"]),
+                       bands_nb=r32(out["bands_nubar"]), K=float(K), gal_nu=None, gal_nb=None, share=None)
+            if "galactic_bands_nu" in out:
+                run.update(gal_nu=r32(out["galactic_bands_nu"]), gal_nb=r32(out["galactic_bands_nubar"]),
+                           share=np.asarray(out["galactic_band_share"], dtype=np.float64))
+            self.n_solver_calls += 1
+            if disk is not None:
+                self._sky_write(disk, run)
+        self._sky_cache[key] = run
+        if len(self._sky_cache) > self._cache_size:
+            self._sky_cache.popitem(last=False)
+        return run
+
+    @staticmethod
+    def _sky_read(path: str):
+        try:
+            with np.load(path, allow_pickle=False) as z:
+                run = dict(E=z["E"], band_edges=z["band_edges"], omega=z["omega"],
+                           bands_nu=z["bands_nu"].astype(np.float64), bands_nb=z["bands_nb"].astype(np.float64),
+                           K=float(z["K"]), gal_nu=None, gal_nb=None, share=None)
+                if "gal_nu" in z.files:
+                    run.update(gal_nu=z["gal_nu"].astype(np.float64), gal_nb=z["gal_nb"].astype(np.float64),
+                               share=z["share"])
+                return run
+        except FileNotFoundError:
+            return None
+        except Exception:                        # a damaged file: recompute
+            return None
+
+    @staticmethod
+    def _sky_write(path: str, run: dict) -> None:
+        arrays = dict(E=run["E"], band_edges=run["band_edges"], omega=run["omega"],
+                      bands_nu=run["bands_nu"].astype(np.float32), bands_nb=run["bands_nb"].astype(np.float32),
+                      K=np.float64(run["K"]))
+        if run["gal_nu"] is not None:
+            arrays.update(gal_nu=run["gal_nu"].astype(np.float32), gal_nb=run["gal_nb"].astype(np.float32),
+                          share=run["share"])
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = f"{path}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp"
+        try:
+            with open(tmp, "wb") as f:
+                np.savez(f, **arrays)
+            os.replace(tmp, path)
+        except OSError:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+
+    def band_fluxes(self, values: Mapping) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """(E_bins in eV, F_nu, F_nb): the flux per declination band, energy and flavor for neutrinos and
+        antineutrinos, each (N_b, N_E, 3) in GeV^-1 cm^-2 s^-1 sr^-1 -- the extragalactic flux times norm_astro with
+        the source composition applied, plus the Galactic one (norm_gal, f_e_S_gal); with p_nodes interpolated in
+        p_index as fluxes() is (cubic spline in log flux, and in log K)."""
+        if not self.sky:
+            raise ValueError("band_fluxes needs the model in sky mode (the event likelihoods)")
+        if self.p_nodes is None:
+            run = self._sky_exact(values)
+            b_nu, b_nb, K = run["bands_nu"], run["bands_nb"], run["K"]
+        else:
+            from scipy.interpolate import CubicSpline
+            p = float(values.get("p_index", self.base["source"]["p_index"]))
+            if not self.p_nodes[0] - 1e-12 <= p <= self.p_nodes[-1] + 1e-12:
+                raise ValueError(f"p_index = {p} lies outside the interpolation nodes {self.p_nodes.tolist()}")
+            runs = [self._sky_exact(dict(values, p_index=float(pk))) for pk in self.p_nodes]
+
+            def interp(arrs):
+                L = np.log(np.maximum(np.stack(arrs), 1e-300))
+                return np.exp(CubicSpline(self.p_nodes, L, axis=0)(p))
+            b_nu, b_nb = interp([r["bands_nu"] for r in runs]), interp([r["bands_nb"] for r in runs])
+            K = float(np.exp(CubicSpline(self.p_nodes, np.log([r["K"] for r in runs]))(p)))
+            run = runs[0]
+        if self.basis is not None:
+            comp = self.composition(values)[self.basis]
+            b_nu, b_nb = np.tensordot(comp, b_nu, axes=(0, 0)), np.tensordot(comp, b_nb, axes=(0, 0))
+        else:
+            b_nu, b_nb = b_nu[0], b_nb[0]
+        scale = float(values.get("norm_astro", 1.0)) * K
+        F_nu, F_nb = scale * b_nu, scale * b_nb
+        if run["gal_nu"] is not None:
+            x = float(values.get("f_e_S_gal", self.default("f_e_S_gal")))
+            if not 0.0 <= x <= 1.0:
+                raise ValueError(f"f_e_S_gal must lie in [0, 1], got {x}")
+            g = float(values.get("norm_gal", self.default("norm_gal"))) / self.default("norm_gal")
+            F_nu = F_nu + g * (x * run["gal_nu"][0] + (1.0 - x) * run["gal_nu"][1])
+            F_nb = F_nb + g * (x * run["gal_nb"][0] + (1.0 - x) * run["gal_nb"][1])
+        return run["E"], F_nu, F_nb
 
     def flux(self, values: Mapping) -> Tuple[np.ndarray, np.ndarray]:
         """(E_bins, flux at the detector) with the source composition and the
@@ -381,5 +551,8 @@ class FlavorModel:
     def fractions(self, values: Mapping) -> np.ndarray:
         """Energy-averaged (f_e, f_mu, f_tau) at the detector, f_tau = 1 - f_e - f_mu."""
         E, F = self.flux(values)
+        if self.flavor_band is not None:
+            m = (E >= self.flavor_band[0] * (1.0 - 1e-9)) & (E <= self.flavor_band[1] * (1.0 + 1e-9))
+            E, F = E[m], F[m]
         r = compute_energy_averaged_ratios(E, F)
         return np.array([r[0], r[1], 1.0 - r[0] - r[1]])

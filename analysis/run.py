@@ -56,9 +56,7 @@ def provenance(cfg) -> dict:
 def asimov_centre(cfg) -> tuple:
     """(f_e, f_mu) predicted at the configuration's 'asimov' values (free parameters not named
     there take their starts)."""
-    values = {p.name: p.start for p in cfg.parameters}
-    values.update(cfg.asimov)
-    f = cfg.model(cache_size=1).fractions(values)
+    f = cfg.model(cache_size=1).fractions(cfg.asimov_values())
     return float(f[0]), float(f[1])
 
 

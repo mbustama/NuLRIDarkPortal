@@ -103,3 +103,12 @@ reference flux.
   within 2 sigma (40 draws): worst 6.2% (Astro), 5.1% (Conv), 2.5% (Prompt) in sparse bins, i.e. 0.004, 0.002 and
   0.0009 Poisson sigma; one systematic between grid values: 0.5%, 5.1%, 1.9%. Against the 60 events at fixed
   nuisances, -2 ln L differs by up to 0.019 (median 0.003): hence the exact evaluation above.
+- Step 4 done: `analysis/events.py` (EventLikelihood: HESE and DR2 terms, 21 nuisances profiled with analytic
+  gradients and warm starts; the deviance continued smoothly below a floor so trial steps into unphysical nuisances
+  stay finite; the Barr parameters and cr_dgamma unbounded, held by their priors -- an L-BFGS-B problem bounded on every
+  side takes a full first step, which from a warm start landed 9.6 sigma away and stalled; convergence judged by the
+  projected gradient), the model's sky mode (`FlavorModel(sky=True, flavor_band_eV=...)`, `band_fluxes`), the
+  configuration keys `data.events` and `data.flavor_band_eV` (exclusive with `data.spectrum`), Asimov event data from
+  the configuration's asimov values. Laptop timing: a sky run 3-7 s per spectral-index node; 0.1-0.2 s per objective
+  call once cached. Asimov closure exact (-2 ln L = 0 at the truth).
+

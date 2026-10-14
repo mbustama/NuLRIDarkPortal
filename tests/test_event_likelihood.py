@@ -193,3 +193,90 @@ def test_dr2_linear_fold_exact():
     ref = tr.expected(pl, configs=["IC79"])["per_config"]["IC79"][sel]
     np.testing.assert_allclose(fold(np.broadcast_to(F[None, :], (20, len(nodes)))), ref, rtol=1e-11,
                                atol=1e-14 * ref.max())
+
+
+# Step 4: the event term (synthetic HESE Monte Carlo, the real DR2 responses and counts) and its configuration
+def test_poisson_continuation():
+    """The deviance equals 2 sum [mu - n + n ln(n/mu)] where expectations are physical; below the floor it continues
+    smoothly (value and gradient continuous), finite for negative mu; the gradient matches finite differences."""
+    from analysis.events import _poisson, MU_FLOOR
+    n = np.array([0.0, 1.0, 5.0, 2.0])
+    mu = np.array([0.3, 0.8, 7.0, 3.1])
+    ref = 2.0 * np.sum(mu - n + np.where(n > 0, n * np.log(np.where(n > 0, n, 1.0) / mu), 0.0))
+    assert abs(_poisson(mu, n) - ref) < 1e-12
+    for m_low in (np.array([-0.1, MU_FLOOR * 1.0 - 1e-9, 7.0, 3.1]), np.array([0.3, -2.0, 1e-5, 3.1])):
+        f, g = _poisson(m_low, n, grad=True)
+        assert np.isfinite(f) and np.all(np.isfinite(g))
+        for i in range(4):                              # bin by bin (the continued deviance can be ~1e6)
+            h = 1e-7 * max(1.0, abs(m_low[i]))
+            up = _poisson(m_low[i:i + 1] + h, n[i:i + 1])
+            dn = _poisson(m_low[i:i + 1] - h, n[i:i + 1])
+            assert abs(g[i] - (up - dn) / (2 * h)) < 1e-5 * max(1.0, abs(g[i]))
+    edge = np.array([0.0, MU_FLOOR, 5 * MU_FLOOR, 2 * MU_FLOOR])
+    for eps in (1e-10, -1e-10):
+        assert abs(_poisson(edge + eps, n) - _poisson(edge, n)) < 1e-4
+
+
+def _event_model(tmp_path):
+    from analysis.model import FlavorModel
+    from analysis.events import EventLikelihood
+    _fake_mc(tmp_path / "mc.npz")
+    solver = {"grid": {"n_E_bins": 60, "E_min_eV": 1e12, "E_max_eV": 3e16, "n_z_bins": 60, "n_sun_paths": 2,
+                       "N_steps_earth": 8},
+              "sky": {"nside": 4, "extragalactic_norm": 1.7e-16, "extragalactic_norm_E_GeV": 1.5e4},
+              "dark_portal": {"g_D": 1e-60, "epsilon_prime": 0.0}}
+    m = FlavorModel(solver, free_names=("norm_astro", "p_index"), p_nodes=[2.2, 2.5, 2.8], sky=True,
+                    flavor_band_eV=[1e13, 3e16])
+    spec = {"hese": {"mc": str(tmp_path / "mc.npz"), "detector": str(tmp_path / "mc.npz") + ".det.npz"},
+            "dr2": {"configs": ["IC79"]}}
+    return m, EventLikelihood(m, spec)
+
+
+def test_event_term_profile_and_asimov(tmp_path):
+    """The profile's gradient against finite differences; Asimov data at a point give chi^2 = 0 there and more
+    elsewhere; the warm-started profile follows the astrophysical flux (no stall after a first fit)."""
+    m, ev = _event_model(tmp_path)
+    A = ev.astro({"norm_astro": 1.0, "p_index": 2.5})
+    rng = np.random.default_rng(5)
+    x = ev.centre + 0.2 * ev.sigma * rng.standard_normal(len(ev.names))
+    for i, (lo, hi) in enumerate(ev.bounds):
+        x[i] = min(max(x[i], -np.inf if lo is None else lo + 1e-6), np.inf if hi is None else hi - 1e-6)
+    f, g = ev._expected_bins(x, A, grad=True)
+    for i in range(len(x)):
+        h = 1e-6 * ev.sigma[i]
+        up, dn = x.copy(), x.copy()
+        up[i] += h
+        dn[i] -= h
+        fd = (ev._expected_bins(up, A)[0] - ev._expected_bins(dn, A)[0]) / (2 * h)
+        assert abs(g[i] - fd) < 1e-4 * max(1.0, abs(fd)), ev.names[i]
+    truth = {"norm_astro": 1.4, "p_index": 2.6}
+    ev.set_asimov(truth)
+    assert abs(ev.chi2(truth)) < 1e-8
+    away = ev.chi2({"norm_astro": 0.6, "p_index": 2.6})
+    assert away > 0.1
+    z_before = ev._z0.copy()
+    ev.chi2({"norm_astro": 1.0, "p_index": 2.6})
+    assert np.max(np.abs(ev._z0 - z_before)) > 1e-4 and ev.last["profile_converged"]
+
+
+def test_events_configuration(tmp_path):
+    """data.events and data.spectrum exclude each other; the events need the flux in physical units; the identity
+    changes with the events; the model is in sky mode with the flavor band."""
+    from analysis.config import from_dict
+    base = {"name": "t", "data": {"surface": "pion_2050_case_5", "events": {"dr2": True},
+                                  "flavor_band_eV": [1e13, 3e16]},
+            "solver": {"grid": {"n_E_bins": 40, "E_min_eV": 1e12, "E_max_eV": 3e16},
+                       "sky": {"nside": 4, "extragalactic_norm": 1.7e-16, "extragalactic_norm_E_GeV": 1.5e4}},
+            "parameters": {"norm_astro": {"start": 1.0, "bounds": [0.01, 100.0], "space": "log10"}},
+            "output_dir": str(tmp_path)}
+    cfg = from_dict(base)
+    m = cfg.model(cache_size=1)
+    assert m.sky and m.flavor_band == (1e13, 3e16)
+    other = from_dict(dict(base, data=dict(base["data"], events={"hese": True, "dr2": True})))
+    assert cfg.identity() != other.identity()
+    with pytest.raises(ValueError, match="exclude each other"):
+        from_dict(dict(base, data=dict(base["data"], spectrum="ic26_astrophysical")))
+    with pytest.raises(ValueError, match="extragalactic_norm"):
+        from_dict(dict(base, solver={"grid": base["solver"]["grid"]}))
+    with pytest.raises(ValueError, match="unknown keys"):
+        from_dict(dict(base, data=dict(base["data"], events={"dr2": {"configs": ["IC79"], "foo": 1}})))

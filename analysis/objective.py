@@ -5,7 +5,8 @@ chi^2 = -2 ln L(data | model) + sum of priors, as a function of named values or 
 internal vector. The data term of the flavor-composition analyses is a surface of
 surfaces.py evaluated at the model's energy-averaged (f_e, f_mu), plus, with a spectrum
 (data.spectrum; spectra.py), the measured astrophysical spectrum against the model's
-extragalactic flux at the detector (per flavor: the all-flavor flux over 3).
+extragalactic flux at the detector (per flavor: the all-flavor flux over 3), or, with events
+(data.events; events.py), the HESE and DR2 event likelihoods profiled over their nuisances.
 
 Sterile mixing beyond unitarity (u_e^2 + u_mu^2 + u_tau^2 > 1, which the boxes of a fit
 cannot exclude) is evaluated on the unit sphere and charged UNITARITY_SLOPE per unit of
@@ -40,8 +41,10 @@ class Objective:
         pseudo-experiments); default: the surface as published.
     """
 
-    def __init__(self, model: FlavorModel, surface: str, priors: Sequence = (), data_centre=None, spectrum=None):
+    def __init__(self, model: FlavorModel, surface: str, priors: Sequence = (), data_centre=None, spectrum=None,
+                 events=None):
         self.model = model
+        self.events = events
         self.surface = surface
         self.spectrum = None
         if spectrum is not None:
@@ -90,6 +93,8 @@ class Objective:
         try:
             f = self.model.fractions(values)
             data = surfaces.chi2(f[0], f[1], self.data) + self.spectrum_chi2(values)
+            if self.events is not None:
+                data += self.events.chi2(values)
         except ValueError:
             data = WALL
         if not np.isfinite(data):

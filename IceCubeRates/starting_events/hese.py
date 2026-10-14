@@ -211,7 +211,7 @@ class LinearResponse:
     release's 'Astro' weights there. An event takes its band's flux (the Monte Carlo has no azimuth); between energy
     nodes, flux_adapters.node_interpolation."""
 
-    def __init__(self, ev, E_nodes_GeV, band_edges):
+    def __init__(self, ev, E_nodes_GeV, band_edges, detector_maps=True):
         import scipy.sparse as sp
         from IceCubeRates.flux_adapters import node_interpolation
         band_edges = np.asarray(band_edges, dtype=np.float64)
@@ -223,13 +223,15 @@ class LinearResponse:
         rows, cols = np.concatenate([ev._index[idx]] * 2), np.concatenate([col, col + 1])
         shape = (ev._size, 6 * nb * nE)
         base = ev.T * ev.w[idx]
+        # the events kept (neutrinos inside the binning) and each one's two flux columns, for per_event
+        self.events, self._col, self._c_lo, self._c_hi, self._base = idx, col, c_lo, c_hi, base
 
         def build(factor):
             f = base * factor
             return sp.csr_matrix((np.concatenate([f * c_lo, f * c_hi]), (rows, cols)), shape=shape)
         self.R = build(1.0)
         self.R_nodes = {}
-        for name, g in getattr(ev, "det_grid", {}).items():
+        for name, g in (getattr(ev, "det_grid", {}) if detector_maps else {}).items():
             L = ev.det[f"log10w_{name}_Astro"]
             self.R_nodes[name] = [build(10.0 ** L[k][idx].astype(np.float64)) for k in range(len(g))]
         self.n_bands, self.n_nodes = nb, nE
@@ -243,6 +245,11 @@ class LinearResponse:
     def __call__(self, F_nu, F_nb):
         """Expected events per bin (flat) without detector weights."""
         return self.R @ self.flat_flux(F_nu, F_nb)
+
+    def per_event(self, F_nu, F_nb):
+        """Expected events of each kept Monte Carlo event (self.events), without detector weights."""
+        phi = self.flat_flux(F_nu, F_nb)
+        return self._base * (self._c_lo * phi[self._col] + self._c_hi * phi[self._col + 1])
 
     def at_nodes(self, F_nu, F_nb):
         """{systematic: (n_grid, n_bins)}: the expected events with the 'Astro' weights at each grid value."""

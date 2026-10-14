@@ -7,9 +7,13 @@ and which fits and scans to run. Example: analysis/configs/pion_2050_case_5.json
 
   {
     "name": "...",                       label of the analysis (output file stems)
-    "data": {"surface": "pion_2050_case_5"[, "spectrum": "ic26_astrophysical"]},
+    "data": {"surface": "pion_2050_case_5"[, "spectrum": "ic26_astrophysical"]
+             [, "events": {"hese": {...}, "dr2": {...}}, "flavor_band_eV": [lo, hi]]},
                                          the flavor surface, and optionally a measured spectrum
-                                         (spectra.py; needs the extragalactic flux in physical units)
+                                         (spectra.py; needs the extragalactic flux in physical units),
+                                         or the event likelihoods (events.py; HESE and/or DR2 tracks,
+                                         never with the spectrum, which is fitted to the same events), with
+                                         the flavor fractions averaged over flavor_band_eV of the grid
     "solver": {section: {key: value}},   partial solver configuration (DEFAULT_CONFIG layout);
                                          anything not given takes the solver's default
     "parameters": {name: {"start", "bounds", "space": "linear"|"log10", "scale"}},
@@ -95,6 +99,8 @@ class AnalysisConfig:
     path: str = ""
     spectrum: Optional[str] = None
     p_nodes_n: Optional[int] = None
+    events: Optional[dict] = None
+    flavor_band: Optional[Tuple[float, float]] = None
 
     @property
     def free_names(self) -> List[str]:
@@ -120,13 +126,29 @@ class AnalysisConfig:
     def model(self, cache_size: int = 512) -> FlavorModel:
         # p_index interpolated between the nodes' solver runs: that many times the cache for the same points
         n = 1 if self.p_nodes() is None else len(self.p_nodes())
-        return FlavorModel(self.solver, self.free_names, cache_size=cache_size * n, p_nodes=self.p_nodes())
+        return FlavorModel(self.solver, self.free_names, cache_size=cache_size * n, p_nodes=self.p_nodes(),
+                           sky=self.events is not None, flavor_band_eV=self.flavor_band)
+
+    def asimov_values(self) -> Dict[str, float]:
+        """The values of the Asimov data set: the configuration's 'asimov' values, the free parameters' starts
+        otherwise."""
+        values = {p.name: p.start for p in self.parameters}
+        values.update(self.asimov)
+        return values
 
     def objective(self, model: Optional[FlavorModel] = None, data_centre: Optional[Tuple[float, float]] = None) -> Objective:
         """The chi^2 of this analysis; data_centre re-centres the data surface (Asimov data,
-        pseudo-experiments)."""
-        return Objective(model or self.model(), self.surface, self.priors, data_centre=data_centre,
-                         spectrum=self.spectrum)
+        pseudo-experiments). With events, data_centre also marks Asimov data: the event data become the
+        expectation at asimov_values() (the event nuisances at their priors' centres)."""
+        model = model or self.model()
+        events = None
+        if self.events is not None:
+            from .events import EventLikelihood
+            events = EventLikelihood(model, self.events)
+            if data_centre is not None:
+                events.set_asimov(self.asimov_values())
+        return Objective(model, self.surface, self.priors, data_centre=data_centre, spectrum=self.spectrum,
+                         events=events)
 
     def digest(self) -> str:
         return hashlib.sha256(json.dumps(self.raw, sort_keys=True).encode()).hexdigest()[:16]
@@ -144,7 +166,7 @@ class AnalysisConfig:
         solver = merge_config_with_defaults(copy.deepcopy(dict(self.solver)))
         solver = {k: v for k, v in solver.items() if k not in ("execution", "output")}
         d = dict(data=self.surface, centre=None if data_centre is None else [float(c) for c in data_centre],
-                 spectrum=self.spectrum, p_nodes=self.p_nodes(),
+                 spectrum=self.spectrum, p_nodes=self.p_nodes(), events=self.events, flavor_band=self.flavor_band,
                  solver=solver, code=dp_core._source_digest(),
                  parameters=[[p.name, p.space, list(p.bounds)] for p in self.parameters],
                  priors=[[type(p).__name__, sorted(dataclasses.asdict(p).items())] for p in self.priors], extra=extra)
@@ -175,12 +197,31 @@ def from_dict(raw: Mapping, path: str = "") -> AnalysisConfig:
             raise ValueError(f"Configuration needs '{key}'")
     surface = d["data"].get("surface")
     surfaces.surface(surface)                                  # unknown names fail here
-    bad = set(d["data"]) - {"surface", "spectrum"}
+    bad = set(d["data"]) - {"surface", "spectrum", "events", "flavor_band_eV"}
     if bad:
-        raise ValueError(f"data: unknown keys {sorted(bad)}; known: surface, spectrum")
+        raise ValueError(f"data: unknown keys {sorted(bad)}; known: surface, spectrum, events, flavor_band_eV")
     spectrum = d["data"].get("spectrum")
     if spectrum is not None and spectrum not in spectra.SPECTRA:
         raise ValueError(f"data.spectrum must be one of {sorted(spectra.SPECTRA)}, got {spectrum!r}")
+    events = d["data"].get("events")
+    if events is not None:
+        events = dict(events)
+        if spectrum is not None:
+            raise ValueError("data.events and data.spectrum exclude each other: IceCube's 2026 spectrum is fitted to "
+                             "largely the same events (Mauricio, 2026-10-14: events replace it)")
+        if not events or set(events) - {"hese", "dr2"}:
+            raise ValueError(f"data.events: use 'hese' and/or 'dr2', got {sorted(events)}")
+        known = {"hese": {"mc", "detector", "atm"}, "dr2": {"configs", "E_reco_min_log10", "dec_min_deg"}}
+        for k, v in events.items():
+            if isinstance(v, dict) and set(v) - known[k]:
+                raise ValueError(f"data.events.{k}: unknown keys {sorted(set(v) - known[k])}; known: {sorted(known[k])}")
+        if (d.get("solver", {}).get("sky") or {}).get("extragalactic_norm") is None:
+            raise ValueError("data.events needs solver.sky.extragalactic_norm (the flux in physical units)")
+    flavor_band = d["data"].get("flavor_band_eV")
+    if flavor_band is not None:
+        flavor_band = (float(flavor_band[0]), float(flavor_band[1]))
+        if not 0.0 < flavor_band[0] < flavor_band[1]:
+            raise ValueError(f"data.flavor_band_eV must be [lo, hi] with 0 < lo < hi, got {flavor_band}")
     params = []
     p_nodes_n = None
     for name, spec in d["parameters"].items():
@@ -198,7 +239,7 @@ def from_dict(raw: Mapping, path: str = "") -> AnalysisConfig:
         name=str(d["name"]), surface=surface, solver=d.get("solver", {}), parameters=params,
         priors=[prior_from_spec(p) for p in d.get("priors", [])],
         fit=FitSettings.from_dict(d.get("fit")), asimov=dict(d.get("asimov", {})),
-        raw=dict(raw), path=path, spectrum=spectrum, p_nodes_n=p_nodes_n)
+        raw=dict(raw), path=path, spectrum=spectrum, p_nodes_n=p_nodes_n, events=events, flavor_band=flavor_band)
     if spectrum is not None and not (cfg.solver.get("galactic") or {}).get("enabled"):
         raise ValueError("data.spectrum compares the extragalactic flux in physical units, which the model provides "
                          "with the Galactic component (galactic.enabled and sky.extragalactic_norm)")
