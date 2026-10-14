@@ -34,10 +34,23 @@ def limit_line(path):
     x = np.array(s["grids"][0])
     lim = []
     for col in s["columns"]:
+        # read per mass from the column's own minimum, as the planes are, also in "elevated" columns: when the data
+        # prefer new physics at some point of the plane (2026-10-14: IceCube 2026's spectrum, an SI resonance near
+        # 3 MeV, Delta chi^2 ~ 5.8), every other column's minimum lies above the plane's, yet its lowest couplings
+        # reach the no-effect region and its limit stands. No limit only without an upper end in the scanned range.
         ivs = col["intervals"].get("95%", [])
-        bad = (not ivs) or (col["value"] in s.get("elevated", [])) or ivs[0]["hi_open"]
+        bad = (not ivs) or ivs[0]["hi_open"]
         lim.append(np.nan if bad else ivs[0]["hi"])
     return x, np.array(lim), s["names"]
+
+
+def preference(path):
+    """chi^2 without new physics (the median over columns of the lowest coupling's) minus the plane's minimum: how
+    much the data prefer new physics somewhere in the plane; and where."""
+    s = json.load(open(path))
+    c = np.array(s["chi2"], dtype=float)
+    k = np.unravel_index(np.nanargmin(c), c.shape)
+    return float(np.nanmedian(c[:, 0]) - np.nanmin(c)), [float(s["grids"][0][k[0]]), float(s["grids"][1][k[1]])]
 
 
 def family(name):
@@ -72,7 +85,8 @@ def compare(a_dir, b_dir, label):
             best_a=float(np.nanmin(la)) if np.isfinite(la).any() else None,
             best_b=float(np.nanmin(lb)) if np.isfinite(lb).any() else None,
             columns_lost=int(np.sum(np.isfinite(la) & ~np.isfinite(lb))),
-            columns_gained=int(np.sum(~np.isfinite(la) & np.isfinite(lb))))
+            columns_gained=int(np.sum(~np.isfinite(la) & np.isfinite(lb))),
+            preference_a=preference(apath), preference_b=preference(bpath))
     return rows
 
 
@@ -89,7 +103,9 @@ def main():
         json.dump(out, f, indent=1)
     for k, v in out.items():
         print(f"{k:60s} median {v['median_ratio']}, range [{v['min_ratio']}, {v['max_ratio']}], best {v['best_a']} -> "
-              f"{v['best_b']}, columns lost {v['columns_lost']}, gained {v['columns_gained']}")
+              f"{v['best_b']}, columns lost {v['columns_lost']}, gained {v['columns_gained']}; preference for new "
+              f"physics (Delta chi^2, where) {v['preference_a'][0]:.2f} -> {v['preference_b'][0]:.2f} at "
+              f"{v['preference_b'][1]}")
     if not rows:
         print("no complete pairs of planes yet")
         return
@@ -117,7 +133,8 @@ def main():
             ax.set_ylabel("ratio of 95% limits", fontsize=8)
     fig.suptitle("Task 2: the 95% upper limits per mass column, ratios (>1: weaker). Top: with the Galactic component and "
                  "IceCube 2026's spectrum as data, against the original fits; bottom: compositions free against pion "
-                 "decay. Triangles at 1e3: the limit disappears.", fontsize=9)
+                 "decay. Triangles at 1e3: no limit within the scanned couplings. The dark portal's planes use the "
+                 "physics before the audit of 2026-10-14 (superseded).", fontsize=9)
     fig.tight_layout()
     fig.savefig(os.path.join(REPO, "output", "figures", "galactic_comparison.png"), dpi=110)
     print("wrote output/analysis/galactic_comparison.json, output/figures/galactic_comparison.png")

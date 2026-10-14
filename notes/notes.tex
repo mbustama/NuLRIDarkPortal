@@ -1328,6 +1328,31 @@ with the Galactic component. Bottom: ratios to A.}
 \label{fig:hese_check}
 \end{figure}
 
+\textit{The planes with the Galactic component (Mauricio's task 2; finished 2026-10-14).}---Every
+secret-interaction plane and the pre-audit dark-portal planes were rerun with the Galactic component and
+IceCube's 2026 spectrum as data (the extragalactic normalization and index floating; \file{tools/make_galactic_configs.py}),
+with the sources' compositions at pion decay and, as a variant, fitted (Fig.~\ref{fig:galactic_comparison},
+\file{tools/plot_galactic_comparison.py}). Read per mass as all planes are, the secret-interaction limits barely
+move: the median ratio to the original limits is 1.02--1.23 per plane. Two findings. First, with the 2026
+spectrum every secret-interaction plane prefers new physics somewhere: $\Delta\chi^2 = 3.6$--$10$ below the fit
+without it, always for a resonance at 0.5--7.5~MeV (couplings $10^{-4}$--$10^{-1}$), the dip it carves fitting
+the measured spectrum better than a power law ($\sim$2$\sigma$ for the two parameters); the same will show in the
+MeV planes of the campaign. (The comparison tool had first dropped every mass column whose minimum lies above
+the plane's, which this preference makes all of them; fixed.) Second, fitting the sources' compositions instead
+of fixing them at pion decay weakens the limits below $\sim$1~MeV by 1.5--10 times. The dark portal's planes of
+this task predate the physics audit (Sec.~\ref{sec:audit}) and are superseded by the campaign; its last four
+dark-portal analyses (the FrequentistAnalysis ports, with the mixing free) were stopped, with Mauricio's agreement.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{../output/figures/galactic_comparison.png}
+\caption{\textbf{Task 2: the Galactic component and IceCube's 2026 spectrum.} The 95\% upper limits per mass,
+as ratios (above 1: weaker). Top: with the Galactic component and the 2026 spectrum as data, against the
+original flavor-only fits. Bottom: the sources' compositions fitted, against pion decay. The dark portal's
+panels use the physics before the audit (superseded).}
+\label{fig:galactic_comparison}
+\end{figure}
+
 \section{Track rates with IceTracks-DR2}
 \label{sec:dr2}
 

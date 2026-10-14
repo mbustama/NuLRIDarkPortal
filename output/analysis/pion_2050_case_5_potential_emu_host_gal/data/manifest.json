@@ -1,0 +1,198 @@
+{
+ "runs": [
+  {
+   "provenance": {
+    "time": "2026-10-14T14:28:53",
+    "git_commit": "b9ea7016860839ddd54791d0cbc61de189fc4840",
+    "git_dirty": false,
+    "config": "/lustre/astro/mbustama/NuLRIDarkPortal/analysis/configs/pion_2050_case_5_potential_emu_host_gal.json",
+    "config_digest": "deb1f9081d8ab90e",
+    "host": "node810.cluster",
+    "python": "3.12.15",
+    "numpy": "1.26.4",
+    "scipy": "1.15.3",
+    "numba": "0.60.0",
+    "argv": [
+     "/lustre/astro/mbustama/NuLRIDarkPortal/analysis/__main__.py",
+     "analysis/configs/pion_2050_case_5_potential_emu_host_gal.json",
+     "--workers",
+     "4"
+    ]
+   },
+   "workers": 4,
+   "tasks": [
+    {
+     "task": "fit",
+     "seconds": 2490.316903328523,
+     "nfev": 408
+    },
+    {
+     "task": "plane m_Zd_eV/g_D_eps_u2",
+     "seconds": 9126.333296569064,
+     "nfev": 391904,
+     "passes": 2
+    }
+   ],
+   "data_centre": null,
+   "chi2_min": 15.278722905025836,
+   "seconds": 11617.77619349584
+  }
+ ],
+ "config": {
+  "_comment": "Variant of pion_2050_case_5_potential_emu.json with the sources inside a Milky-Way-like host galaxy at a Sun-like position (source.host_galaxy_scale = 1; 2026-10-13): the potential the neutrinos are emitted in is the host's Yukawa-smoothed density plus the cosmic mean, instead of the cosmic mean alone. Only the injection changes. Exclusion plane for the coherent potential, e-mu (T13) texture with |U|^2 = 1e-3 and epsilon' = 0.1, from ultralight to GeV mediators: the potential is proportional to g_D epsilon' |U|^2, and with epsilon' g/c_W >> g_D |U|^2 (here up to the largest product scanned) the absorption coupling Sum G ~ g_D |U|^2 epsilon' g/c_W depends on the same product, so the plane is a function of it alone (except for the Debye mass, m_D ~ 1e-3 g_D epsilon' |U|^2 eV here, which takes over from m_Zd only in the upper left corner, far inside the excluded region). At MeV masses the Earth's own potential is far from negligible: with g_D epsilon' = 1e-5 at 2 MeV it is ~1e-8 eV against a vacuum term of ~1e-16 eV. Where the potential at the detector comes from (2026-10-13): the Galaxy's neutrons, smoothed over the mediator's range, below ~1e-26 eV; the Sun from ~1e-26 to 1e-18 eV; the Earth (exterior and interior) above. The transit through the Galaxy is adiabatic, through the Sun and the Earth's exterior coherent (dp_transit). Whole sky, equal weights. Read per mediator mass at Delta chi^2 = 3.84.",
+  "name": "pion_2050_case_5_potential_emu_host_gal",
+  "data": {
+   "surface": "pion_2050_case_5",
+   "spectrum": "ic26_astrophysical"
+  },
+  "solver": {
+   "_comment": "Physics of FrequentistAnalysis' pion_2050_case_5 configurations, except the mixing: there it was fixed at the solver's defaults (delta_CP = 132 deg, sin^2 theta_23 = 0.571, ...), 0.0034 in f_mu (0.7 sigma) away from the projection's centre, which assumes NuFIT 6.0 normal ordering with SK atmospheric data. Here the mixing is that fit's (sin^2 theta_12 = 0.308, sin^2 theta_13 = 0.02215, sin^2 theta_23 = 0.470, delta_CP = 212 deg, Delta m^2_21 = 7.49e-5, Delta m^2_31 = 2.513e-3 eV^2), which reproduces the centre to 1e-6. Grid: 400 energy bins and 200 redshift steps (energy-averaged fractions within 1.5e-5 of 1000 x 1000 at inband, 2e-4 at m_Zd = 1e-2 eV; 2026-10-12, corrected solver); 12 Earth chords (within 1.4e-7 of 50); the transit to the Earth (dp_transit, 2026-10-13) with 8 directions to the Sun and frame-table spacing 0.002 (chi2 within 0.03 of 32 directions and 0.001 at the potential planes' critical points).",
+   "cosmology": {
+    "H0_km_s_Mpc": 67.4,
+    "Omega_m": 0.315,
+    "Omega_L": 0.685,
+    "T_nu0_eV": 0.0001676389,
+    "n_n0_cm3": 3.091e-08,
+    "m_lightest_eV": 0.01,
+    "mass_ordering": "normal",
+    "eta_e": 1.0,
+    "eta_mu": 1.0,
+    "eta_tau": 1.0
+   },
+   "standard_mixing": {
+    "th12_deg": 33.70916346871883,
+    "th13_deg": 8.559057632313843,
+    "th23_deg": 43.280093616242404,
+    "d_cp_deg": 212.0,
+    "dm21_sq": 7.49e-05,
+    "dm31_sq": 0.002513,
+    "use_SM_potential": false,
+    "n_e_earth_cm3": 1.5e+24,
+    "detector_depth_km": 1.5
+   },
+   "dark_portal": {
+    "u_tau": 0.0,
+    "epsilon_prime": 0.1,
+    "use_debye_screening": true,
+    "u_e": 0.03162277660168379,
+    "u_mu": 0.03162277660168379
+   },
+   "source": {
+    "p_index": 2.5,
+    "Phi_0": 1.0,
+    "z_max": 4.0,
+    "rho_evol": 0.0,
+    "f_e_S": 0.3333333333333333,
+    "f_mu_S": 0.6666666666666666,
+    "f_tau_S": 0.0,
+    "is_antineutrino": "sum",
+    "nubar_to_nu_ratio": 1.0,
+    "host_galaxy_scale": 1.0
+   },
+   "grid": {
+    "E_min_eV": 10000000000000.0,
+    "E_max_eV": 3e+16,
+    "n_E_bins": 400,
+    "n_z_bins": 200,
+    "n_sun_paths": 8,
+    "transit_dtheta": 0.002,
+    "n_earth_chords": 12,
+    "N_steps_earth": 25
+   },
+   "galactic": {
+    "enabled": true,
+    "template": "cringe",
+    "emission": "3d",
+    "f_e_S_gal": 0.3333333333333333
+   },
+   "sky": {
+    "nside": 8,
+    "extragalactic_norm": 1.6816476344179075e-16,
+    "extragalactic_norm_E_GeV": 14677.992676220705
+   }
+  },
+  "parameters": {
+   "m_Zd_eV": {
+    "start": 1e-10,
+    "bounds": [
+     1e-31,
+     10000000000.0
+    ],
+    "space": "log10"
+   },
+   "g_D_eps_u2": {
+    "start": 1e-40,
+    "bounds": [
+     1e-62,
+     1e-05
+    ],
+    "space": "log10"
+   },
+   "norm_gal": {
+    "start": 0.91,
+    "bounds": [
+     0.0,
+     3.0
+    ],
+    "space": "linear"
+   },
+   "norm_astro": {
+    "start": 1.0,
+    "bounds": [
+     0.01,
+     1000.0
+    ],
+    "space": "log10"
+   },
+   "p_index": {
+    "start": 2.5,
+    "bounds": [
+     2.0,
+     3.0
+    ],
+    "space": "linear",
+    "nodes": 3
+   }
+  },
+  "priors": [
+   {
+    "name": "norm_gal",
+    "type": "gaussian",
+    "centre": 0.91,
+    "width": 0.18
+   }
+  ],
+  "fit": {
+   "n_random": 0,
+   "seed": 20261012,
+   "max_evals": 400,
+   "fd_step": 0.001,
+   "ftol": 1e-09,
+   "xtol": 0.001,
+   "polish": false
+  },
+  "profiles": {},
+  "planes": [
+   {
+    "x": "m_Zd_eV",
+    "y": "g_D_eps_u2",
+    "x_range": [
+     1e-30,
+     1000000000.0
+    ],
+    "y_range": [
+     1e-60,
+     1e-06
+    ],
+    "nx": 40,
+    "ny": 55,
+    "raster": "m_Zd_eV"
+   }
+  ],
+  "asimov": {
+   "g_D_eps_u2": 1e-62
+  },
+  "output_dir": "output/analysis/pion_2050_case_5_potential_emu_host_gal",
+  "_comment_galactic": "With the Galactic component (tools/make_galactic_configs.py; Mauricio, 2026-10-14): CRINGE x norm_gal (Gaussian 0.91 +- 0.18, IceCube 2026), dark-portal emission points in 3-D; the data are the flavor surface and IceCube 2026's astrophysical spectrum (10 TeV - 1 PeV) against the extragalactic flux at the Earth; the extragalactic normalization (norm_astro, no prior) and spectral index (p_index) float. Source compositions fixed at pion decay (1/3, 2/3, 0), Galactic and extragalactic (nominal)."
+ }
+}
