@@ -48,11 +48,24 @@ Conventions and choices:
     antineutrinos). With real couplings the interaction is CP-symmetric, so this sum evolves
     exactly whatever the source's nubar/nu ratio; only its split is not modelled.
 """
+from functools import lru_cache
+
 import numpy as np
 
 from dp_core import njit, prange
 
 _ZETA3 = 1.2020569031595942
+
+
+@lru_cache(maxsize=8)
+def _leggauss(n):
+    """Gauss-Legendre nodes and weights, computed once per order: numpy builds them from an n x n eigenproblem,
+    6 s at n = 4000 (and ~30 s with sixteen processes doing it at once), which free_streaming_flux paid on every
+    call until 2026-10-14 (it made the *_gal plane points ~30 times slower)."""
+    x, w = np.polynomial.legendre.leggauss(int(n))
+    x.setflags(write=False)
+    w.setflags(write=False)
+    return x, w
 
 
 def _gl01(n):
@@ -1740,7 +1753,7 @@ def free_streaming_flux(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, rho_src, p_
     from dp_cosmo import calc_R_source
     Lmax = np.log1p(z_max)
     cuts = [0.0] + [L for L in (np.log(2.0), np.log(5.0)) if L < Lmax] + [Lmax]
-    x, w = np.polynomial.legendre.leggauss(n)
+    x, w = _leggauss(n)
     T = 0.0
     for a, b in zip(cuts[:-1], cuts[1:]):
         L = a + (b - a) * 0.5 * (x + 1.0)

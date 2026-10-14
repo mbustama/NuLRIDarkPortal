@@ -1024,6 +1024,7 @@ def build_solver_params(config: Dict) -> Tuple[np.ndarray, Dict]:
                          sun_weighting=sun_w, extragalactic_norm=eg_norm, extragalactic_norm_E_GeV=eg_E)
     gal_cfg = config['galactic']
     import dp_galactic
+    dp_galactic.use_data_dir(gal_cfg['data_dir'])
     template = str(gal_cfg['template']).strip().lower()
     if template not in dp_galactic.TEMPLATES:
         raise ValueError(f"galactic.template must be one of {sorted(dp_galactic.TEMPLATES)}, got {gal_cfg['template']!r}")

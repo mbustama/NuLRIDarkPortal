@@ -182,7 +182,10 @@ def _build_default_config() -> Dict:
             "template": "cringe",
             "norm_gal": None,
             "f_e_S_gal": 0.333333,
-            "emission": "3d"
+            "emission": "3d",
+            # where the Galactic data files are looked for first (then src/data): e.g. the N_side 64 reductions
+            # for tracks, kept outside the repository (tools/prepare_galactic.py --out)
+            "data_dir": None
         },
         "source": {
             "p_index": 2.5,

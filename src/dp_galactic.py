@@ -34,6 +34,27 @@ from dp_core import njit
 from dp_spatial import calc_MW_neutron_density
 
 _DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+_DATA_DIRS = [_DATA]
+
+
+def use_data_dir(path=None):
+    """Look for the Galactic data files in `path` first, then in src/data (galactic.data_dir: e.g. the N_side 64
+    reductions for tracks, tens of MB, kept outside the repository; tools/prepare_galactic.py --out). Clears the
+    caches when the search path changes."""
+    global _DATA_DIRS
+    new = [os.path.abspath(path), _DATA] if path else [_DATA]
+    if new != _DATA_DIRS:
+        _DATA_DIRS = new
+        _cache.clear()
+        _emission_cache.clear()
+
+
+def _path(fname):
+    for d in _DATA_DIRS:
+        p = os.path.join(d, fname)
+        if os.path.exists(p):
+            return p
+    raise FileNotFoundError(f"{fname} not found in {_DATA_DIRS}")
 
 # name -> (file, components summed): I = the diffuse intensity, U = the unresolved sources'
 TEMPLATES = {"cringe": ("galactic_cringe.npz", ("I", "U")),
@@ -82,7 +103,7 @@ def load_template(name, nside=16):
     if name not in TEMPLATES:
         raise ValueError(f"Galactic template must be one of {sorted(TEMPLATES)}, got {name!r}")
     fname, comps = TEMPLATES[name]
-    with np.load(os.path.join(_DATA, fname), allow_pickle=False) as d:
+    with np.load(_path(fname), allow_pickle=False) as d:
         stored = sorted(int(n) for n in d["nsides"])
         src = min((n for n in stored if n >= nside and n % nside == 0), default=None)
         if src is None:
@@ -201,7 +222,7 @@ _emission_cache = {}
 
 def _data_file(name):
     if name not in _emission_cache:
-        _emission_cache[name] = dict(np.load(os.path.join(_DATA, name), allow_pickle=False))
+        _emission_cache[name] = dict(np.load(_path(name), allow_pickle=False))
     return _emission_cache[name]
 
 
@@ -232,13 +253,13 @@ def emission_weights(nside=16, E_ref_GeV=E_REF_GEV):
     e = _data_file("galactic_emission.npz")
     s, ds, R, z = emission_geometry(nside)
     stored = sorted(int(n) for n in e["nsides"])
-    if nside not in stored:
-        if 16 % nside or 16 not in stored:
-            raise ValueError(f"galactic_emission.npz holds N_side {stored}; N_side {nside} needs "
-                             f"tools/prepare_galactic.py --emission --nside {nside}")
-        col = degrade(e["gas_column_nside16"].astype(np.float64), 16, nside)
-    else:
-        col = e[f"gas_column_nside{nside}"].astype(np.float64)
+    src = min((n for n in stored if n >= nside and n % nside == 0), default=None)
+    if src is None:
+        raise ValueError(f"galactic_emission.npz holds N_side {stored}; N_side {nside} needs "
+                         f"tools/prepare_galactic.py --emission --nside {nside}")
+    col = e[f"gas_column_nside{src}"].astype(np.float64)
+    if src != nside:
+        col = degrade(col, src, nside)
     Ecr = e["cr_E_GeV_per_nucleon"]
     k = int(np.argmin(np.abs(np.log(Ecr / (E_PARENT_PER_NEUTRINO * E_ref_GeV)))))
     J = RegularGridInterpolator((e["cr_z_kpc"], e["cr_R_kpc"]), e["cr_nucleon_flux"][k].astype(np.float64),
