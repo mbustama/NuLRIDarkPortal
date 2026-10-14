@@ -170,9 +170,9 @@ def main():
     ap.add_argument("--outdir", default=os.path.join(REPO, "output"), help="where tracks/ and figures/ go")
     ap.add_argument("--sky-cache", default=None, help="keep and reuse the solver's sky per case (npz) here")
     ap.add_argument("--sky-only", action="store_true", help="compute the solver's skies (with --sky-cache) and stop")
-    ap.add_argument("--fit-configs", nargs="*", default=None,
-                    help="the configurations the nuisance fit uses (default all; e.g. IC79 IC86: IC40 has horizon muons, "
-                         "IC59 a high-energy excess at every declination, 2026-10-14)")
+    ap.add_argument("--fit-configs", nargs="*", default=["IC79", "IC86"],
+                    help="the configurations the nuisance fit uses (default IC79 IC86: IC40 has horizon muons, IC59 a "
+                         "high-energy excess at every declination, 2026-10-14)")
     a = ap.parse_args()
     t0 = time.time()
     tr = DR2Tracks()
@@ -291,54 +291,54 @@ def main():
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     x = 0.5 * (edges[1:] + edges[:-1])
-    fig, axes = plt.subplots(2, 3, figsize=(15, 7.6), gridspec_kw=dict(height_ratios=(3, 1.2)), sharex="col")
-    for col, (cs, title) in enumerate(((["IC86"], "IC86 (2011-2022)"), (["IC40", "IC59", "IC79"], "IC40, IC59, IC79"))):
+    fig, axes = plt.subplots(2, 4, figsize=(19, 7.6), gridspec_kw=dict(height_ratios=(3, 1.2)))
+    groups = ((["IC86"], "IC86 (2011-2022, 3921 d)"), (["IC79"], "IC79 (313 d)"),
+              (["IC40", "IC59"], "IC40 + IC59 (730 d): flagged"))
+    for col, (cs, title) in enumerate(groups):
         ax, axr = axes[0, col], axes[1, col]
         g = lambda key: sum(np.array(res["northern_tracks"][c][key]) for c in cs)  # noqa: E731
-        nom, band, best, obs = g("nominal_E"), g("band_E"), g("best_E"), g("observed_E")
-        ax.stairs(nom, edges, color="k", lw=1.4, label="expected, nominal: atmospheric (MCEq) + astrophysical")
+        nom, band, obs = g("nominal_E"), g("band_E"), g("observed_E")
+        ax.stairs(nom, edges, color="k", lw=1.4, label="expected: atmospheric (MCEq) + astrophysical")
         ax.stairs(nom + band, edges, baseline=np.maximum(nom - band, 0), fill=True, color="0.6", alpha=0.45,
                   label=r"atmospheric priors (Barr, CR index, prompt), 1$\sigma$")
-        ax.stairs(best, edges, color="C2", lw=1.2, label="best fit of the nuisances")
         ax.stairs(g("daemonflux_E") + g("astro_E"), edges, color="C0", ls="--", lw=0.9,
                   label="daemonflux conventional + prompt + astro (cross-check)")
         ax.stairs(g("prompt_E"), edges, color="C1", lw=0.9, label="prompt (MCEq, SIBYLL-2.3d)")
         ax.stairs(g("astro_E"), edges, color="C3", lw=0.9, label="astrophysical (IceCube 9.5 yr)")
         ax.errorbar(x, obs, yerr=np.sqrt(obs), fmt="o", ms=2.5, color="k", lw=0.8, label="DR2 events")
-        ax.set_yscale("log"); ax.set_ylim(0.3, None)
+        ax.set_yscale("log"); ax.set_ylim(0.3, None); ax.set_xlim(1.5, 7.0)
         ax.set_ylabel(f"tracks per 0.1 dex, dec$_{{reco}}$ > {DEC_CUT_DEG:g}$^\\circ$")
         ax.set_title(title, fontsize=10)
-        ax.legend(fontsize=6.5)
+        if col == 0:
+            ax.legend(fontsize=6.5)
         with np.errstate(divide="ignore", invalid="ignore"):
             axr.errorbar(x, obs / nom, yerr=np.sqrt(obs) / nom, fmt="o", ms=2.5, color="k", lw=0.8)
             axr.fill_between(edges, np.append(1 - band / nom, (1 - band / nom)[-1]),
                              np.append(1 + band / nom, (1 + band / nom)[-1]), step="post", color="0.6", alpha=0.45)
-            axr.stairs(best / nom, edges, color="C2", lw=1.2)
         axr.axhline(1, color="k", lw=0.6)
-        axr.set_ylim(0.4, 1.6); axr.set_xlim(1.5, 7.0)
-        axr.set_xlabel(r"log$_{10}$(reconstructed muon energy / GeV)"); axr.set_ylabel("data / nominal")
-    ax, axr = axes[0, 2], axes[1, 2]
+        axr.set_ylim(0.4, 2.2); axr.set_xlim(1.5, 7.0)
+        axr.set_xlabel(r"log$_{10}$(reconstructed muon energy / GeV)"); axr.set_ylabel("data / expected")
+    ax, axr = axes[0, 3], axes[1, 3]
     s = np.sin(rde[1:])
     sx = 0.5 * (s[1:] + s[:-1])
-    obs_d = sum(np.array(res["northern_tracks"][c]["observed_dec"]) for c in tr.configs)
-    nom_d = sum(np.array(res["northern_tracks"][c]["nominal_dec"]) for c in tr.configs)
-    best_d = sum(np.array(res["northern_tracks"][c]["best_dec"]) for c in tr.configs)
-    ax.stairs(nom_d / np.diff(s), s, color="k", label="expected, nominal (all configurations)")
-    ax.stairs(best_d / np.diff(s), s, color="C2", label="best fit")
-    ax.errorbar(sx, obs_d / np.diff(s), yerr=np.sqrt(obs_d) / np.diff(s), fmt="o", ms=2.5, color="k", lw=0.8,
-                label="DR2 events")
+    for cs, col, lab in ((["IC86"], "k", "IC86"), (["IC79"], "C0", "IC79"), (["IC40", "IC59"], "C3", "IC40 + IC59")):
+        obs_d = sum(np.array(res["northern_tracks"][c]["observed_dec"]) for c in cs)
+        exp_d = sum(np.array(res["northern_tracks"][c]["nominal_dec"]) for c in cs)
+        ax.stairs(exp_d / np.diff(s), s, color=col, label=f"{lab}: expected")
+        ax.errorbar(sx, obs_d / np.diff(s), yerr=np.sqrt(obs_d) / np.diff(s), fmt="o", ms=2.5, color=col, lw=0.8)
+        axr.errorbar(sx, obs_d / exp_d, yerr=np.sqrt(obs_d) / exp_d, fmt="o", ms=2.5, color=col, lw=0.8)
     ax.set_yscale("log"); ax.set_ylabel(r"tracks per unit sin(dec$_{reco}$)"); ax.legend(fontsize=7)
-    ax.set_title("Declination (all reconstructed energies)", fontsize=10)
-    axr.errorbar(sx, obs_d / nom_d, yerr=np.sqrt(obs_d) / nom_d, fmt="o", ms=2.5, color="k", lw=0.8)
-    axr.stairs(best_d / nom_d, s, color="C2")
-    axr.axhline(1, color="k", lw=0.6); axr.set_ylim(0.4, 1.6)
-    axr.set_xlabel(r"sin(dec$_{reco}$)"); axr.set_ylabel("data / nominal")
+    ax.set_title("Declination (all reconstructed energies; points: data)", fontsize=10)
+    axr.axhline(1, color="k", lw=0.6); axr.set_ylim(0.8, 1.4)
+    axr.set_xlabel(r"sin(dec$_{reco}$)"); axr.set_ylabel("data / expected")
     fit = res["nuisance_fit"]
-    big = sorted(fit["pulls"].items(), key=lambda kv: -abs(kv[1]))[:4]
-    fig.suptitle("IceTracks-DR2: our expectation (DR2 responses; MCEq SIBYLL-2.3d x H3a with NuFlavorSingleSource's "
-                 "nuisances; IceCube's 9.5-yr astrophysical fit) against the events\nNuisance fit: Poisson deviance "
-                 f"{fit['deviance_nominal']:.0f} -> {fit['deviance']:.0f} over {fit['n_bins']} bins; largest pulls "
-                 + ", ".join(f"{k} {v:+.1f}" for k, v in big), fontsize=9)
+    big = sorted(fit["pulls"].items(), key=lambda kv: -abs(kv[1]))[:3]
+    fig.suptitle("IceTracks-DR2 against our expectation (DR2 responses; MCEq SIBYLL-2.3d x H3a with NuFlavorSingleSource's "
+                 "nuisance priors; IceCube's 9.5-yr astrophysical fit), nominal. IC40: muons near the horizon above "
+                 "3 TeV; IC59: excess above 3 TeV at every declination.\nThe atmospheric nuisances alone cannot absorb "
+                 f"the rest at 10^6 events (fit on {'+'.join(res['nuisance_fit_configs'])}: pulls up to "
+                 f"{max(abs(v) for _, v in big):.0f} sigma): a track likelihood needs detector nuisances or an energy "
+                 "threshold.", fontsize=9)
     fig.tight_layout()
     fig.savefig(os.path.join(a.outdir, "figures", "dr2_validation.png"), dpi=110)
     plt.close(fig)
