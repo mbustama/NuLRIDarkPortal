@@ -164,7 +164,10 @@ def _build_default_config() -> Dict:
             # per-flavor nu + nubar intensity at 100 TeV, GeV^-1 cm^-2 s^-1 sr^-1, that the extragalactic flux
             # would have without new physics (e.g. 2.12e-18 with p_index 2.87: IceCube's HESE 7.5-yr fit,
             # PRD 104, 022002, Eq. VI.1, 6.37e-18 for all six species). Needed to add the Galactic component.
-            "extragalactic_norm": None
+            "extragalactic_norm": None,
+            # the energy (GeV) at which extragalactic_norm is given (e.g. 14678 with 1.6815e-16: IceCube's 2026
+            # astrophysical flux in its 10-21.5 TeV bin, E^2 Phi = 3.623e-8 per flavor, dp_galactic.ICECUBE_2026_ANCHOR)
+            "extragalactic_norm_E_GeV": 1e5
         },
         "galactic": {
             # The Galactic-plane component (DIRECTIONS_PLAN Sections 3.4-3.6; dp_galactic), off by

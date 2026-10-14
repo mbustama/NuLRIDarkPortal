@@ -43,6 +43,18 @@ TEMPLATES = {"cringe": ("galactic_cringe.npz", ("I", "U")),
 # combined fit (arXiv:2607.25966, Table 1) where there is one, the model's own prediction otherwise.
 NORM_DEFAULT = {"cringe": 0.91, "pi0": 4.99, "cringe_diffuse": 1.0}
 KIND_SHARE = 0.5          # nu : nubar = 1 : 1 at the sources
+# The extragalactic flux's anchor in the flavor fits (Mauricio, 2026-10-14): IceCube's 2026 combined-fit
+# astrophysical flux (arXiv:2607.25966 Fig. 4, all-sky average, per flavor nu + nubar) in its 10-21.5 TeV bin,
+# where IceCube's Galactic templates were fitted (src/data/ic26_fig4_digitized.json): E^2 Phi = 3.623e-8 GeV
+# cm^-2 s^-1 sr^-1 (-20% / +33%) at the bin's geometric centre 10^4.167 GeV.
+ICECUBE_2026_ANCHOR = dict(E_GeV=10 ** (4 + 1 / 6), E2Phi=3.623e-8, rel_lo=0.198, rel_hi=0.328)
+
+
+def icecube_2026_anchor():
+    """(per-flavor intensity in GeV^-1 cm^-2 s^-1 sr^-1, its energy in GeV) of the anchor, for
+    sky.extragalactic_norm and sky.extragalactic_norm_E_GeV."""
+    a = ICECUBE_2026_ANCHOR
+    return a["E2Phi"] / a["E_GeV"] ** 2, a["E_GeV"]
 
 _cache = {}
 

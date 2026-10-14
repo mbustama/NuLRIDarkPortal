@@ -53,9 +53,7 @@ class Objective:
             return float(values[name])
         if name in DERIVED:
             return DERIVED[name](values, self.model.base)
-        from .model import solver_key
-        section, key = solver_key(name)
-        return float(self.model.base[section][key])
+        return self.model.default(name)
 
     def prior_chi2(self, values: Mapping) -> float:
         return float(sum(p.chi2(self._quantity(p.name, values)) for p in self.priors))

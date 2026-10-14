@@ -423,3 +423,67 @@ def test_extragalactic_physical_normalization():
     assert np.allclose(out["bands_nu"], raw["bands_nu"] * out["meta"]["extragalactic_scale"], rtol=1e-13, atol=0)
     with pytest.raises(ValueError):
         dps.build_solver_params({"sky": {"extragalactic_norm": -1.0}, "execution": {"verbose": 0}})
+
+
+# =============================================================================
+# The Galactic component in the flavor analysis (analysis.model; Mauricio, 2026-10-14)
+# =============================================================================
+
+def _model_cfg(**over):
+    norm, E_ref = G.icecube_2026_anchor()
+    cfg = {"grid": {"n_E_bins": 8, "n_z_bins": 40, "n_sun_paths": 2, "N_steps_earth": 8, "E_min_eV": 1e13,
+                    "E_max_eV": 1e16},
+           "sky": {"nside": 8, "extragalactic_norm": norm, "extragalactic_norm_E_GeV": E_ref},
+           "galactic": {"enabled": True, "emission": "3d"}}
+    for k, v in over.items():
+        cfg.setdefault(k, {}).update(v)
+    return cfg
+
+
+def test_analysis_galactic_component_exact():
+    """The flavor model with the Galactic component: norm_gal = 0 gives the extragalactic-only fractions; floating
+    norm_gal, x_gal and norm_astro on the cached fluxes equals recomputing them from a config with those values;
+    galactic_allsky equals propagate_sky's sky-averaged Galactic flux (nu + nubar)."""
+    from analysis.model import FlavorModel
+    dp = {"u_e": 0.5, "u_mu": 0.5, "u_tau": 0.0, "m_Zd_eV": 1e-24, "g_D": 300 * 1.66e-54 / 0.05, "epsilon_prime": 0.1}
+    m = FlavorModel(_model_cfg(dark_portal=dp), free_names=("norm_gal", "f_e_S_gal", "norm_astro"))
+    eg = FlavorModel(_model_cfg(dark_portal=dp, galactic={"enabled": False}))
+    assert np.allclose(m.fractions({"norm_gal": 0.0}), eg.fractions({}), rtol=0, atol=1e-14)
+    vals = {"norm_gal": 1.3, "f_e_S_gal": 0.6, "norm_astro": 0.8}
+    norm, E_ref = G.icecube_2026_anchor()
+    direct = FlavorModel(_model_cfg(dark_portal=dp, galactic={"norm_gal": 1.3, "f_e_S_gal": 0.6},
+                                    sky={"extragalactic_norm": 0.8 * norm}))
+    assert np.allclose(m.fractions(vals), direct.fractions({}), rtol=0, atol=1e-13)
+    assert m.n_solver_calls == 1 and abs(m.fractions(vals)[0] - m.fractions({"norm_gal": 0.0})[0]) > 1e-4
+    E, params = dps.build_solver_params(dict(_model_cfg(dark_portal=dp), execution={"n_cores": 1, "verbose": 0},
+                                             sky={"output": "healpix", "nside": 8, "extragalactic_norm": norm,
+                                                  "extragalactic_norm_E_GeV": E_ref}))
+    params["show_progress"] = False
+    sky = dps.propagate_sky(E, params)
+    G2 = dps.galactic_allsky(E, params, compositions=((1 / 3, 2 / 3, 0.0),))[0]
+    params["galactic"]["f_e_S_gal"] = 1 / 3
+    sky = dps.propagate_sky(E, params)
+    assert np.allclose(G2, sky["galactic_allsky_nu"] + sky["galactic_allsky_nubar"], rtol=1e-12, atol=0)
+
+
+def test_analysis_galactic_share_and_priors():
+    """Secret interactions (unattenuated Galactic flux) and no new physics: with the extragalactic flux anchored
+    to IceCube's 2026 astrophysical flux at 14.7 TeV, its per-flavor intensity there is the anchor's; the
+    Galactic share of the energy-integrated flux is a few percent; a prior on norm_astro (not a solver key) reads
+    its default 1; galactic.enabled without sky.extragalactic_norm is refused."""
+    from analysis.model import FlavorModel
+    from analysis.objective import Objective
+    from analysis.parameters import GaussianPrior
+    si = {"enabled": True, "texture": "tau", "m_phi_eV": 5e6, "g_phi": 1e-6}
+    m = FlavorModel(_model_cfg(secret_interactions=si, grid={"E_min_eV": 1e13, "E_max_eV": 3e16, "n_E_bins": 40}))
+    E, F = m.flux({"norm_gal": 0.0})
+    norm, E_ref = G.icecube_2026_anchor()
+    k = np.argmin(np.abs(E / 1e9 - E_ref))
+    per_flavor = F[k].sum() / 3.0 * (E[k] / 1e9 / E_ref) ** m.base["source"]["p_index"]
+    assert abs(per_flavor / norm - 1) < 0.02
+    share = m.galactic_share({})
+    assert 0.01 < share < 0.2
+    obj = Objective(m, "pion_2050_case_5", priors=[GaussianPrior("norm_astro", 1.0, 0.26), GaussianPrior("norm_gal", 0.91, 0.18)])
+    assert obj.prior_chi2({}) == 0.0 and abs(obj.prior_chi2({"norm_astro": 1.26}) - 1.0) < 1e-12
+    with pytest.raises(ValueError):
+        FlavorModel(_model_cfg(sky={"extragalactic_norm": None}))

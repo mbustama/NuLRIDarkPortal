@@ -557,10 +557,10 @@ def _flux_from_setup(E_bins: np.ndarray, params: Dict, setup: Dict, injection,
     )
 
 
-def _galactic_transfer(E_bins: np.ndarray, params: Dict, setup: Dict, band_costh, nside: int = 16):
+def _galactic_transfer(E_bins: np.ndarray, params: Dict, setup: Dict, band_costh, nside: int = 16, f_S=None):
     """The Galactic component's flavor transfer (docs/dev/DIRECTIONS_PLAN.md, steps 5 and 6), for sources of
-    composition (x, 1 - x, 0), x = galactic.f_e_S_gal, per unit flux emitted inside the Galaxy (all flavors,
-    per kind); bands in the order of band_costh (cos(zenith), increasing).
+    composition f_S (default (x, 1 - x, 0), x = galactic.f_e_S_gal), per unit flux emitted inside the Galaxy (all
+    flavors, per kind); bands in the order of band_costh (cos(zenith), increasing).
 
     Secret interactions: the averaged oscillation probabilities, the same in every band (the Galactic relic
     column is ~1e-5 of the cosmological one: unattenuated; Section 3.5). Dark portal, emission 'local': emitted
@@ -570,11 +570,10 @@ def _galactic_transfer(E_bins: np.ndarray, params: Dict, setup: Dict, band_costh
     Dark portal, emission '3d' (step 6): emitted at points along each line of sight (dp_galactic's emission
     weights and Yukawa-smoothed densities), adiabatically to the local eigenstates: returns a dict with
     F_nu, F_nb (N_pix, N_E, 3), each pixel's local-eigenstate populations, and R_nu, R_nb (N_b, N_E, 3, 3),
-    each band's flavor response to a unit population of each local eigenstate (three spatial runs per kind,
-    arrival_basis 'eigen')."""
+    each band's flavor response to a unit population of each local eigenstate (_galactic_responses)."""
     import dp_galactic
     gal = params['galactic']
-    f_S = dp_galactic.source_composition(gal['f_e_S_gal'])
+    f_S = dp_galactic.source_composition(gal['f_e_S_gal']) if f_S is None else np.asarray(f_S, dtype=np.float64)
     n_b = len(band_costh) - 1
     if setup.get('si', False):
         T = np.broadcast_to(dp_galactic.averaged_transfer(setup['U_pmns_base']) @ f_S, (n_b, len(E_bins), 3))
@@ -583,18 +582,26 @@ def _galactic_transfer(E_bins: np.ndarray, params: Dict, setup: Dict, band_costh
         _, _, T_nu, T_nb = _flux_from_setup(E_bins, params, setup, (1.0, 1.0), band_costh=band_costh,
                                             arrival_flavor=f_S)
         return T_nu, T_nb
-    R = np.empty((2, n_b, len(E_bins), 3, 3))
+    R_nu, R_nb = _galactic_responses(E_bins, params, setup, band_costh)
+    F = _galactic_emission_populations(E_bins, params, setup, nside, f_S=f_S)
+    return dict(F_nu=F[0], F_nb=F[1], R_nu=R_nu, R_nb=R_nb)
+
+
+def _galactic_responses(E_bins: np.ndarray, params: Dict, setup: Dict, band_costh):
+    """(R_nu, R_nb), each (N_b, N_E, 3, 3) in the order of band_costh: each band's flavor flux at the detector per
+    unit population of each local eigenstate (ascending eigenvalues), from three spatial runs per kind
+    (propagate_spectrum, arrival_basis 'eigen'); independent of the Galactic sources."""
+    R = np.empty((2, len(band_costh) - 1, len(E_bins), 3, 3))
     for k in range(3):
         e_k = np.zeros(3)
         e_k[k] = 1.0
         _, _, B_nu, B_nb = _flux_from_setup(E_bins, params, setup, (1.0, 1.0), band_costh=band_costh,
                                             arrival_flavor=e_k, arrival_basis='eigen')
         R[0, :, :, k, :], R[1, :, :, k, :] = B_nu, B_nb
-    F = _galactic_emission_populations(E_bins, params, setup, nside)
-    return dict(F_nu=F[0], F_nb=F[1], R_nu=R[0], R_nb=R[1])
+    return R[0], R[1]
 
 
-def _galactic_emission_populations(E_bins: np.ndarray, params: Dict, setup: Dict, nside: int):
+def _galactic_emission_populations(E_bins: np.ndarray, params: Dict, setup: Dict, nside: int, f_S=None):
     """(F_nu, F_nb), each (N_pix, N_E, 3): per pixel, the local-eigenstate populations of the Galactic flux
     emitted at its line of sight's emission points (dp_galactic.emission_populations), each kind with its
     own potential sign, texture and frame table -- the same ones the transit uses (lri_coefficient,
@@ -603,7 +610,7 @@ def _galactic_emission_populations(E_bins: np.ndarray, params: Dict, setup: Dict
     import dp_transit
     from dp_spatial import lri_coefficient
     gal = params['galactic']
-    f_S = dp_galactic.source_composition(gal['f_e_S_gal'])
+    f_S = dp_galactic.source_composition(gal['f_e_S_gal']) if f_S is None else np.asarray(f_S, dtype=np.float64)
     E_GeV = np.asarray(E_bins, dtype=np.float64) / 1e9
     # Coarser maps (e.g. N_side 8 for cascades) are averaged from the stored resolution's pixels, each along its
     # own line of sight and weighted by its emitted intensity: a coarse pixel's centre can lie degrees off the
@@ -723,11 +730,12 @@ def propagate_sky(E_bins: np.ndarray, params: Dict) -> Dict:
                          units="per unit solid angle, solver units (Phi_0 E^-p)",
                          sun="isotropic Gauss-Legendre average", galactic="none"))
     if sky_p.get('extragalactic_norm') is not None:
-        K = extragalactic_scale(params, sky_p['extragalactic_norm'])
+        E_ref = sky_p.get('extragalactic_norm_E_GeV', 1e5)
+        K = extragalactic_scale(params, sky_p['extragalactic_norm'], E_ref)
         for key in ('allsky_nu', 'allsky_nubar', 'bands_nu', 'bands_nubar'):
             out[key] = out[key] * K
         out['meta']['units'] = ("GeV^-1 cm^-2 s^-1 sr^-1 per flavor and kind; without new physics the per-flavor "
-                                f"nu + nubar intensity at 100 TeV would be {sky_p['extragalactic_norm']:.4g}")
+                                f"nu + nubar intensity at {E_ref:.4g} GeV would be {sky_p['extragalactic_norm']:.4g}")
         out['meta']['extragalactic_scale'] = K
     if sky_p['output'] == 'healpix':
         out['nside'] = grid.nside
@@ -770,19 +778,62 @@ def propagate_sky(E_bins: np.ndarray, params: Dict) -> Dict:
     return out
 
 
-def extragalactic_scale(params: Dict, per_flavor_100TeV: float) -> float:
+def extragalactic_scale(params: Dict, per_flavor: float, E_ref_GeV: float = 1e5) -> float:
     """The factor taking the solver's extragalactic flux to GeV^-1 cm^-2 s^-1 sr^-1 such that, without new
-    physics, its per-flavor nu + nubar intensity at 100 TeV is per_flavor_100TeV: the free-streaming flux
+    physics, its per-flavor nu + nubar intensity at E_ref_GeV is per_flavor: the free-streaming flux
     Phi_0 E^-p int dz (1+z)^-p R(z) / H(z) (dp_si.free_streaming_flux, the closed form; the solver's own
     no-coupling flux equals it to its redshift grid's first-order error, 3e-3 at 400 steps) over three flavors.
     The same factor scales the flux with new physics, which keeps its absorption and conversion."""
     import dp_si
     U = construct_PMNS(params['th12'], params['th13'], params['th23'], params['d_cp'])
     rho = np.array([params['f_e_S'], params['f_mu_S'], params['f_tau_S']], dtype=np.float64)
-    tot = float(dp_si.free_streaming_flux(np.array([1e14]), params['z_max'], params['H0_eV'], params['Omega_m'],
-                                          params['Omega_L'], U, rho / rho.sum(), params['p_index'],
-                                          params['rho_evol'], params['Phi_0']).sum())
-    return float(per_flavor_100TeV) / (tot / 3.0)
+    tot = float(dp_si.free_streaming_flux(np.array([float(E_ref_GeV) * 1e9]), params['z_max'], params['H0_eV'],
+                                          params['Omega_m'], params['Omega_L'], U, rho / rho.sum(),
+                                          params['p_index'], params['rho_evol'], params['Phi_0']).sum())
+    return float(per_flavor) / (tot / 3.0)
+
+
+def galactic_allsky(E_bins: np.ndarray, params: Dict, compositions=((1.0, 0.0, 0.0), (0.0, 1.0, 0.0))) -> np.ndarray:
+    """The Galactic component's sky-averaged flux at the detector, neutrinos plus antineutrinos per flavor, in
+    GeV^-1 cm^-2 s^-1 sr^-1 with galactic.norm_gal, for each source composition: (n_comp, N_E, 3). It is linear
+    in the composition, so the default pair (pure nu_e, pure nu_mu sources) gives every (x, 1 - x, 0) -- what
+    the flavor analysis needs (analysis.model; the sky's pixel means, as propagate_sky's galactic_allsky_*).
+    For the dark portal with emission '3d' the band responses are computed once for all compositions."""
+    import dp_galactic
+    import dp_sky
+    sky_p = params.get('sky') or dict(nside=16, dec_band_edges=None)
+    gal = params['galactic']
+    grid = dp_sky.SkyGrid(sky_p['nside'], sky_p['dec_band_edges'])
+    if np.any(np.bincount(grid.band, minlength=grid.n_bands) == 0):
+        raise ValueError(f"The Galactic component needs a pixel centre in every declination band (N_side {grid.nside}).")
+    setup = _flux_setup(E_bins, params)
+    E_GeV = np.asarray(E_bins, dtype=np.float64) / 1e9
+    em = dp_galactic.emitted(gal['template'], E_GeV, grid.nside, gal['norm_gal'])
+    share = np.bincount(grid.band, minlength=grid.n_bands) / grid.npix
+    em_b = dp_galactic.band_means(em, grid.band, grid.n_bands)
+    comps = [np.asarray(c, dtype=np.float64) for c in compositions]
+    out = np.empty((len(comps), len(E_bins), 3))
+    if setup.get('si', False):
+        P = dp_galactic.averaged_transfer(setup['U_pmns_base'])
+        for i, c in enumerate(comps):
+            out[i] = 2.0 * em.mean(axis=0)[:, None] * (P @ c)[None, :]
+        return out
+    if not params.get('si') and params.get('earth_sky', 'up') != 'full':
+        raise ValueError("The Galactic component needs grid.earth_sky = 'full' (bands cover the whole sky).")
+    if gal['emission'] == 'local':
+        for i, c in enumerate(comps):
+            T_nu, T_nb = _galactic_transfer(E_bins, params, setup, grid.costh_edges, grid.nside, f_S=c)
+            T = (T_nu + T_nb)[::-1]
+            out[i] = np.tensordot(share, em_b[:, :, None] * T, axes=(0, 0))
+        return out
+    R_nu, R_nb = _galactic_responses(E_bins, params, setup, grid.costh_edges)
+    R_nu, R_nb = R_nu[::-1], R_nb[::-1]
+    for i, c in enumerate(comps):
+        F_nu, F_nb = _galactic_emission_populations(E_bins, params, setup, grid.nside, f_S=c)
+        b = np.einsum('bek,bekf->bef', dp_galactic.band_means(em[:, :, None] * F_nu, grid.band, grid.n_bands), R_nu)
+        b += np.einsum('bek,bekf->bef', dp_galactic.band_means(em[:, :, None] * F_nb, grid.band, grid.n_bands), R_nb)
+        out[i] = np.tensordot(share, b, axes=(0, 0))
+    return out
 
 
 def propagation_worker(args) -> Tuple[np.ndarray, np.ndarray]:
@@ -966,8 +1017,11 @@ def build_solver_params(config: Dict) -> Tuple[np.ndarray, Dict]:
         eg_norm = float(eg_norm)
         if not eg_norm > 0.0:
             raise ValueError(f"sky.extragalactic_norm must be None or > 0, got {sky_cfg['extragalactic_norm']!r}")
+    eg_E = float(sky_cfg['extragalactic_norm_E_GeV'])
+    if not eg_E > 0.0:
+        raise ValueError(f"sky.extragalactic_norm_E_GeV must be > 0, got {sky_cfg['extragalactic_norm_E_GeV']!r}")
     params['sky'] = dict(output=sky_out, nside=nside, dec_band_edges=edges, earth_nodes_per_band=nodes_per_band,
-                         sun_weighting=sun_w, extragalactic_norm=eg_norm)
+                         sun_weighting=sun_w, extragalactic_norm=eg_norm, extragalactic_norm_E_GeV=eg_E)
     gal_cfg = config['galactic']
     import dp_galactic
     template = str(gal_cfg['template']).strip().lower()

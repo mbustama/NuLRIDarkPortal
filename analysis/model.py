@@ -41,11 +41,16 @@ from . import surfaces  # noqa: F401  (ensures the src/ path is set)
 import dark_portal_solver as dps
 import dp_core
 from dp_config import DEFAULT_CONFIG, merge_config_with_defaults
-from flux_postprocessing import compute_energy_averaged_ratios
+from flux_postprocessing import compute_energy_averaged_ratios, compute_dE_geometric
 
 SOURCE_KEYS = ("f_e_S", "f_mu_S", "f_tau_S")
 PRODUCTS = ("g_D_u2", "g_D_eps_u2")
-LINEAR_KEYS = SOURCE_KEYS + ("nubar_to_nu_ratio", "Phi_0")
+# The Galactic component (galactic.enabled): its normalization and source composition (x, 1 - x, 0) are linear
+# too, and so is the extragalactic normalization against it, norm_astro -- a parameter of the analysis only (a
+# multiplier of sky.extragalactic_norm; default 1).
+GALACTIC_KEYS = ("norm_gal", "f_e_S_gal")
+ANALYSIS_DEFAULTS = {"norm_astro": 1.0}
+LINEAR_KEYS = SOURCE_KEYS + ("nubar_to_nu_ratio", "Phi_0") + GALACTIC_KEYS + tuple(ANALYSIS_DEFAULTS)
 ALIASES = {"s12sq": "th12_deg", "s13sq": "th13_deg", "s23sq": "th23_deg"}
 _SECTIONS = ("cosmology", "standard_mixing", "dark_portal", "secret_interactions", "source", "grid", "galactic")
 
@@ -65,6 +70,8 @@ def sin2_to_deg(s: float) -> float:
 
 def solver_key(name: str) -> Tuple[str, str]:
     """(section, key) of the solver config entry a parameter sets."""
+    if name in ANALYSIS_DEFAULTS:
+        raise KeyError(f"{name!r} is a parameter of the analysis, not of the solver (default {ANALYSIS_DEFAULTS[name]})")
     if name in PRODUCTS:
         return "dark_portal", "g_D"
     key = ALIASES.get(name, name)
@@ -109,6 +116,12 @@ class FlavorModel:
                 raise ValueError("Float at most two of f_e_S, f_mu_S, f_tau_S: the third is the remainder")
             self.basis = [i for i, k in enumerate(SOURCE_KEYS)
                           if k in free_names or k == self.remainder or float(base["source"][k]) != 0.0]
+        # The Galactic component: the extragalactic flux must be in physical units to be added to it
+        self.galactic = bool(base["galactic"]["enabled"])
+        if self.galactic and base["sky"]["extragalactic_norm"] is None:
+            raise ValueError("galactic.enabled needs sky.extragalactic_norm (and sky.extragalactic_norm_E_GeV): the "
+                             "extragalactic flux's normalization against the Galactic one, e.g. "
+                             "dp_galactic.icecube_2026_anchor()")
         self._cache: "OrderedDict[tuple, tuple]" = OrderedDict()
         self._cache_size = int(cache_size)
         self.n_solver_calls = 0
@@ -140,11 +153,24 @@ class FlavorModel:
             out[("dark_portal", "g_D")] = float(values[name]) / scale
         return out
 
-    def fluxes(self, values: Mapping) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray]]:
-        """For the propagation parameters in `values`: (E_bins, F, None) with F the flux at the
+    def default(self, name: str) -> float:
+        """A parameter's value when a fit does not set it: the base solver config's, or the analysis' default."""
+        if name in ANALYSIS_DEFAULTS:
+            return float(ANALYSIS_DEFAULTS[name])
+        section, key = solver_key(name)
+        v = self.base[section][key]
+        if name == "norm_gal" and v is None:
+            import dp_galactic
+            v = dp_galactic.NORM_DEFAULT[str(self.base["galactic"]["template"]).strip().lower()]
+        return float(v)
+
+    def fluxes(self, values: Mapping) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray], Optional[dict]]:
+        """For the propagation parameters in `values`: (E_bins, F, None, gal) with F the flux at the
         detector for the configured sources, or, when the nubar/nu ratio floats,
-        (E_bins, F_from_nu, F_from_nb), the responses to unit neutrino and antineutrino
-        sources. With the pure-flavor basis the fluxes have a leading source axis."""
+        (E_bins, F_from_nu, F_from_nb, gal), the responses to unit neutrino and antineutrino
+        sources. With the pure-flavor basis the fluxes have a leading source axis. gal is None, or with the
+        Galactic component dict(G=(2, N_E, 3) its sky-averaged flux for pure nu_e and pure nu_mu sources at the
+        base norm_gal, K=the factor putting the extragalactic flux in physical units)."""
         ov = self._overrides(values)
         key = tuple(sorted((s, k, v if isinstance(v, str) else float(v)) for (s, k), v in ov.items()))
         hit = self._cache.get(key)
@@ -165,8 +191,13 @@ class FlavorModel:
             F_a, F_b = dps.propagate_nu_nubar(E, params, sources=sources)
         else:
             F_a, F_b = dps.propagate_weighted(E, params, sources=sources), None
+        gal = None
+        if self.galactic:
+            gal = dict(G=dps.galactic_allsky(E, params),
+                       K=dps.extragalactic_scale(params, params["sky"]["extragalactic_norm"],
+                                                 params["sky"]["extragalactic_norm_E_GeV"]))
         self.n_solver_calls += 1
-        out = (E, F_a, F_b)
+        out = (E, F_a, F_b, gal)
         self._cache[key] = out
         if len(self._cache) > self._cache_size:
             self._cache.popitem(last=False)
@@ -174,19 +205,38 @@ class FlavorModel:
 
     def flux(self, values: Mapping) -> Tuple[np.ndarray, np.ndarray]:
         """(E_bins, flux at the detector) with the source composition and the
-        neutrino/antineutrino ratio applied, as run_solver weights them."""
-        E, F_a, F_b = self.fluxes(values)
+        neutrino/antineutrino ratio applied, as run_solver weights them; with the Galactic component, the
+        extragalactic flux in physical units times norm_astro plus the Galactic one (norm_gal, x = f_e_S_gal)."""
+        E, F_a, F_b, gal = self.fluxes(values)
         if self.basis is not None:
             comp = self.composition(values)
             F_a = np.tensordot(comp[self.basis], F_a, axes=(0, 0))
             if F_b is not None:
                 F_b = np.tensordot(comp[self.basis], F_b, axes=(0, 0))
         if F_b is None:
-            return E, F_a
-        src = dict(self.base["source"])
-        src["nubar_to_nu_ratio"] = float(values.get("nubar_to_nu_ratio", src["nubar_to_nu_ratio"]))
-        w_nu, w_nb = dps.injection_weights(src)
-        return E, w_nu * F_a + w_nb * F_b
+            F = F_a
+        else:
+            src = dict(self.base["source"])
+            src["nubar_to_nu_ratio"] = float(values.get("nubar_to_nu_ratio", src["nubar_to_nu_ratio"]))
+            w_nu, w_nb = dps.injection_weights(src)
+            F = w_nu * F_a + w_nb * F_b
+        if gal is None:
+            return E, F
+        x = float(values.get("f_e_S_gal", self.default("f_e_S_gal")))
+        if not 0.0 <= x <= 1.0:
+            raise ValueError(f"f_e_S_gal must lie in [0, 1], got {x}")
+        scale = float(values.get("norm_gal", self.default("norm_gal"))) / self.default("norm_gal")
+        F_gal = scale * (x * gal["G"][0] + (1.0 - x) * gal["G"][1])
+        return E, float(values.get("norm_astro", 1.0)) * gal["K"] * F + F_gal
+
+    def galactic_share(self, values: Mapping) -> float:
+        """The Galactic share of the energy-integrated flux (what the energy-averaged fractions weight)."""
+        if not self.galactic:
+            return 0.0
+        E, F = self.flux(dict(values))
+        _, F_eg = self.flux(dict(values, norm_gal=0.0))
+        dE = compute_dE_geometric(E)
+        return float(1.0 - (F_eg.sum(-1) * dE).sum() / (F.sum(-1) * dE).sum())
 
     def composition(self, values: Mapping) -> np.ndarray:
         """(f_e_S, f_mu_S, f_tau_S) at the source, with the remainder rule of the module
