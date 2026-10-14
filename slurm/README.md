@@ -61,6 +61,19 @@ campaign and delete it afterwards (~0.4 GB per plane with 7 index nodes):
 NULRI_FLUX_CACHE=/lustre/astro/mbustama/flux_cache/<campaign> SLOTS=4 sbatch slurm/analysis_pack.sh CONFIG1 ...
 ```
 
+**The plane campaign** (2026-10-14; docs/dev/SCOPE_WIDENING_PLAN.md step 6): `tools/make_campaign_configs.py`
+writes the configurations (analysis/configs/campaign/<set>/), `tools/campaign_packs.py` packs them into jobs of about
+8 hours on 16 cores (longest first), and `slurm/campaign_array.sh` runs one pack per array task, throttled to 7 at a
+time (112 cores):
+
+```bash
+python tools/campaign_packs.py --sets now_ic26 now_events proj_2050 --hours 8 --out analysis/configs/campaign/packs.txt
+NULRI_FLUX_CACHE=/lustre/astro/mbustama/flux_cache/campaign \
+NULRI_HESE_MC=/lustre/astro/mbustama/external/hese_7yr/reduced/hese_mc.npz \
+NULRI_HESE_DETSYS=/lustre/astro/mbustama/external/hese_7yr/reduced/hese_detector_systematics.npz \
+PACKS=analysis/configs/campaign/packs.txt SLOTS=4 sbatch --array=0-<n-1>%7 --exclude=node812 slurm/campaign_array.sh
+```
+
 **A job far below its cores** (2026-10-14): look inside it with `srun --jobid=<job> --overlap -n1 -c1 ps -o pid,time,stat,args -u $USER` and `cat /proc/<pid>/wchan`. Processes mostly in state D/I waiting in `cl_sync_io_wait` are waiting on the node's Lustre client, not computing: node812 did this twice (a quarter of the speed of node810/811 for the same code). Resubmit elsewhere with `--exclude=<node> --dependency=afterany:<old job>`, so the new job starts only once the old one is gone, and the analysis resumes from its checkpoints.
 
 Logs are `logs/slurm_<job name>_<job>.out`. `slurm/common.sh` prints the host, job, core count
