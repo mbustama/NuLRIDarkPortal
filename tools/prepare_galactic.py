@@ -267,18 +267,34 @@ def prepare_emission(folder, nsides):
         e_m = edges[::GAS_MERGE][:nb + 1]
         width = np.diff(edges)[:nb * GAS_MERGE]
         out["gas_s_edges_kpc"] = e_m
+        cols = np.empty((npix_g, nb))                             # per native pixel, cm^-3 kpc
+        for a in range(0, npix_g, 2048):                          # chunks of pixels: ~200 MB per read
+            b = min(a + 2048, npix_g)
+            nH = (np.asarray(hi.section[a:b], dtype=np.float64).mean(axis=2)
+                  + 2.0 * np.asarray(h2.section[a:b], dtype=np.float64).mean(axis=2))[:, :nb * GAS_MERGE]
+            cols[a:b] = (nH * width).reshape(b - a, nb, GAS_MERGE).sum(axis=2)
         for ns in nsides:
-            p = dp_sky.ang2pix_ring(ns, 0.5 * np.pi - dec, ra)
             npo = dp_sky.nside_to_npix(ns)
-            col = np.zeros((npo, nb))
-            cnt = np.bincount(p, minlength=npo).astype(np.float64)
-            for a in range(0, npix_g, 2048):                     # chunks of pixels: ~200 MB per read
-                b = min(a + 2048, npix_g)
-                nH = (np.asarray(hi.section[a:b], dtype=np.float64).mean(axis=2)
-                      + 2.0 * np.asarray(h2.section[a:b], dtype=np.float64).mean(axis=2))[:, :nb * GAS_MERGE]
-                c = (nH * width).reshape(b - a, nb, GAS_MERGE).sum(axis=2)       # cm^-3 kpc
-                np.add.at(col, p[a:b], c)
-            out[f"gas_column_nside{ns}"] = (col / cnt[:, None]).astype(np.float32)
+            if 2 * ns <= nside_g:
+                # coarser than the native maps: the mean of the native pixels whose centres fall in each pixel
+                p = dp_sky.ang2pix_ring(ns, 0.5 * np.pi - dec, ra)
+                col = np.zeros((npo, nb))
+                cnt = np.bincount(p, minlength=npo).astype(np.float64)
+                for a in range(0, npix_g, 2048):
+                    b = min(a + 2048, npix_g)
+                    np.add.at(col, p[a:b], cols[a:b])
+                col /= cnt[:, None]
+            else:
+                # as fine as the native maps (2026-10-14: N_side 64 from the native 64, rotated to equatorial,
+                # left 12% of the pixels without a native centre, 0/0): bilinear interpolation of the native
+                # columns at each pixel's centre
+                th_o, ph_o = dp_sky.pix2ang_ring(ns, np.arange(npo))
+                l_o, b_o = dp_sky.equatorial_to_galactic(ph_o, 0.5 * np.pi - th_o)
+                idx, wts = healpy.get_interp_weights(nside_g, 0.5 * np.pi - b_o, l_o, nest=True)
+                col = np.einsum("kp,kpj->pj", wts, cols[idx])
+            if not np.all(np.isfinite(col)) or np.any(col.sum(axis=1) <= 0):
+                raise RuntimeError(f"gas columns at N_side {ns}: non-finite or empty lines of sight")
+            out[f"gas_column_nside{ns}"] = col.astype(np.float32)
     with fits.open(cpath, memmap=False) as h:
         hd = h[0].header
         R = np.linspace(float(hd["RMIN"]), float(hd["RMAX"]), int(hd["DIMR"]))

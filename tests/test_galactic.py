@@ -487,3 +487,30 @@ def test_analysis_galactic_share_and_priors():
     assert obj.prior_chi2({}) == 0.0 and abs(obj.prior_chi2({"norm_astro": 1.26}) - 1.0) < 1e-12
     with pytest.raises(ValueError):
         FlavorModel(_model_cfg(sky={"extragalactic_norm": None}))
+
+
+def test_emission_rejects_non_finite_gas(tmp_path):
+    """2026-10-14: NaN gas columns (an N_side 64 reduction from native N_side 64 maps left pixels without a native
+    centre) made emission_populations drop every density node they touched and zero most pixels, silently.
+    Both the data check and the populations' own check must now raise."""
+    import shutil
+    src = os.path.join(REPO, "src", "data", "galactic_emission.npz")
+    with np.load(src, allow_pickle=False) as z:
+        d = {k: z[k] for k in z.files}
+    d["gas_column_nside16"] = d["gas_column_nside16"].copy()
+    d["gas_column_nside16"][100, :] = np.nan
+    np.savez(tmp_path / "galactic_emission.npz", **d)
+    for f in ("mw_neff_tables.npz",):
+        shutil.copy(os.path.join(REPO, "src", "data", f), tmp_path / f)
+    G.use_data_dir(str(tmp_path))
+    try:
+        with pytest.raises(ValueError, match="non-finite gas columns"):
+            G.emission_weights(16)
+    finally:
+        G.use_data_dir(None)
+    q = np.full((4, 3), 1.0 / 3.0)
+    q[1, 0] = np.nan
+    n = np.tile(np.array([1e-20, 2e-20, 3e-20]), (4, 1))
+    tab = None
+    with pytest.raises(ValueError, match="non-finite"):
+        G.emission_populations(np.array([1e14]), np.array([1 / 3, 2 / 3, 0.0]), np.ones((4, 1)), q, q, n, 1.0, tab)

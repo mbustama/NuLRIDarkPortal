@@ -258,6 +258,10 @@ def emission_weights(nside=16, E_ref_GeV=E_REF_GEV):
         raise ValueError(f"galactic_emission.npz holds N_side {stored}; N_side {nside} needs "
                          f"tools/prepare_galactic.py --emission --nside {nside}")
     col = e[f"gas_column_nside{src}"].astype(np.float64)
+    if not np.all(np.isfinite(col)):
+        # (2026-10-14: NaN columns made emission_populations drop the nodes they touched, zeroing most pixels)
+        raise ValueError(f"galactic_emission.npz: {int(np.sum(~np.isfinite(col).all(axis=1)))} lines of sight at "
+                         f"N_side {src} have non-finite gas columns; rerun tools/prepare_galactic.py --emission")
     if src != nside:
         col = degrade(col, src, nside)
     Ecr = e["cr_E_GeV_per_nucleon"]
@@ -271,7 +275,7 @@ def emission_weights(nside=16, E_ref_GeV=E_REF_GEV):
     totals = []
     for q in (q_gas, q_src):
         tot = q.sum(axis=1, keepdims=True)
-        if np.any(tot <= 0):
+        if not np.all(tot > 0):                                       # also catches NaN
             raise ValueError("a pixel's line of sight carries no emission")
         q /= tot
         totals.append(tot[:, 0])
@@ -384,6 +388,8 @@ def emission_populations(E_eV, f_S, w_gas, q_gas, q_src, n_emit_eV3, coef2, tab)
     for c, q in enumerate((q_gas, q_src)):
         np.add.at(H[c], (rows, j), q * (1.0 - t))
         np.add.at(H[c], (rows, j + 1), q * t)
+    if not np.all(np.isfinite(H)):
+        raise ValueError("emission_populations: non-finite emission weights")
     used = np.nonzero(H.sum(axis=(0, 1)) > 0)[0]
     P = np.empty((len(used), len(E_eV), 3))
     for i, node in enumerate(used):
