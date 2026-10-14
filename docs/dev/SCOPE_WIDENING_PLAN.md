@@ -30,6 +30,16 @@ projections.
    tau; e-mu, e-tau, mu-tau as now; democratic e-mu-tau); maps of the bound over the whole triangle
    |U_e4|^2 : |U_mu4|^2 : |U_tau4|^2 at a few Z_D masses.
 
+4. **The split of the potential's coupling product (2026-10-14).** The potential fixes only P = g_D eps' |U|^2 (g' eps'
+   for L_mu - L_tau); the relic neutrinos' screening grows with each coupling separately, so a split with a large
+   g_D |U|^2 and a tiny eps' switches off the Earth's, the Sun's and the Galaxy's potentials (thresholds today, for a
+   mediator lighter than 1/distance: g_D |U|^2 above 2e-9, 7e-14, 4e-23; output/figures/screening_thresholds.png).
+   No published limit stops that split (MICROSCOPE bounds eps' < 3e-25 from above; cosmology bounds a neutrino-only
+   coupling at ~1e-7). **Each potential plane shows two curves**: the bound on P where screening is negligible
+   (independent of the split; computed at the balanced split g_D |U|^2 = eps' = sqrt(P)), with its condition stated on
+   the plot, and the bound profiled over all splits (frequentist, as the planes: a point is excluded only if every
+   split is), which at ultralight masses comes from the cosmological potential alone.
+
 ## Physics
 
 **Neutral matter.** n_p = n_e in every body, so any charge acts as q_n n_n + (q_p + q_e) n_e: the neutron density

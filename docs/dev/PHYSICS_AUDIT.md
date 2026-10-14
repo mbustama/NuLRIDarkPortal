@@ -140,6 +140,4 @@ Its vector transport with G = g_D u u^dag is exactly the dark portal without pot
 
 Consequences: with eps' = 0.1 the Z mixing alone couples the mediator to every neutrino with 0.074, absorbing at MeV masses
 and giving a screening mass ~2e-6 eV (a range of ~12 cm) that cuts off every ultralight local potential -- "u = 0" is no longer "no new
-physics" unless eps' = 0 too (tests updated). The potential planes therefore profile eps' (decided), which needs
-physical upper limits on eps' and g_D |U|^2 (fifth-force tests, neutrino self-interactions): to settle at the profile
-setup. absorption_model 'theory_notes' keeps the old form for comparisons.
+physics" unless eps' = 0 too (tests updated). The potential planes (decided after the screening correction): two curves each -- the bound on P = g_D eps' |U|^2 where screening is negligible (the balanced split), with its condition (g_D |U|^2 below 4e-23, 7e-14, 2e-9 for the Galaxy, the Sun, the Earth), and the bound profiled over all splits (the cosmological potential alone at ultralight masses; docs/dev/SCOPE_WIDENING_PLAN.md, decision 4). absorption_model 'theory_notes' keeps the old form for comparisons.
