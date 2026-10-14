@@ -63,22 +63,6 @@ def glow(ax, xy, r, color, n=12, alpha=0.25, z=1, squash=1.0):
                              zorder=z))
 
 
-def dimension(ax, p0, p1, label, color, side=1.0, off=0.75, z=9, size=5.2, box=False, t=0.5):
-    """A dimension line from p0 to p1 with end ticks, labelled at the fraction t along it, off it on `side` (+1 left
-    of p0->p1)."""
-    p0, p1 = np.asarray(p0, dtype=float), np.asarray(p1, dtype=float)
-    d = p1 - p0
-    u = d / np.hypot(*d)
-    nrm = np.array([-u[1], u[0]])
-    ax.plot([p0[0], p1[0]], [p0[1], p1[1]], color=color, lw=0.7, zorder=z, solid_capstyle="butt")
-    for q in (p0, p1):
-        ax.plot([q[0] - 0.35 * nrm[0], q[0] + 0.35 * nrm[0]], [q[1] - 0.35 * nrm[1], q[1] + 0.35 * nrm[1]],
-                color=color, lw=0.7, zorder=z)
-    m = p0 + t * d + side * off * nrm
-    kw = dict(bbox=dict(boxstyle="round,pad=0.15", fc="white", ec="none", alpha=0.9)) if box else dict(path_effects=HALO)
-    text(ax, m[0], m[1], label, size=size, color=color, weight="bold", z=z + 1, **kw)
-
-
 def wavy(ax, p0, p1, color, n=3, amp=0.16, lw=0.6, z=6):
     """A mediator's propagator: a sine wave from p0 to p1."""
     p0, p1 = np.asarray(p0, dtype=float), np.asarray(p1, dtype=float)
@@ -207,7 +191,6 @@ def cosmology(ax):
     for kk, c in enumerate(STRANDS):
         ax.plot([14.2, 15.8], [Y0, Y0 + (kk - 1) * SEP], color=c, lw=0.9, zorder=4)
     strands(ax, 15.8, 36.0)
-    dimension(ax, (14.2, 17.4), (23.0, 17.4), "1 Gpc", C["cosmo"], side=-1.0, off=0.85)
     # resonant absorption on relic neutrinos, at several points: each energy resonates at its own redshift
     for (vx, k, up) in ((24.8, 2, True), (29.0, 0, False), (33.2, 2, True)):
         vy = Y0 + (k - 1) * SEP
@@ -227,22 +210,8 @@ def cosmology(ax):
     # inset (a): refraction
     ax.add_patch(FancyBboxPatch((14.6, 26.5), 11.4, 4.6, boxstyle="round,pad=0.25,rounding_size=0.6",
                                 fc="white", ec=C["cosmo"], lw=0.5, zorder=6))
-    text(ax, 15.1, 30.25, "Refraction", size=5.0, color=C["cosmo"], weight="bold", ha="left")
-    text(ax, 15.1, 28.3, r"$V\propto g_D\,\epsilon'\,u\;n_{\rm eff}$", size=5.0, ha="left")
-    # n_eff, as a picture: the neutrons within lambda of the neutrino, the same sphere wherever it goes
-    px, py, pr = 24.15, 29.0, 1.6
-    ax.add_patch(Circle((px, py), pr, fc=C["relic"], ec="none", alpha=0.18, zorder=7))
-    ax.add_patch(Circle((px, py), pr, fill=False, ec=C["cosmo"], lw=0.6, ls=(0, (3, 1.5)), zorder=7))
-    for (qx, qy, inside) in ((-0.8, 0.6, 1), (0.55, 0.85, 1), (0.9, -0.5, 1), (-0.4, -0.85, 1), (-1.95, 1.1, 0),
-                             (1.85, -1.15, 0)):
-        ax.scatter([px + qx], [py + qy], s=2.4, marker="s", lw=0, zorder=8,
-                   color=C["cosmo"] if inside else C["neutron"])
-    a = np.radians(38.0)
-    ax.plot([px, px + pr * np.cos(a)], [py, py + pr * np.sin(a)], color=C["cosmo"], lw=0.5, zorder=8)
-    text(ax, px + 0.5 * pr * np.cos(a) - 0.05, py + 0.5 * pr * np.sin(a) + 0.42, r"$\lambda$", size=4.8,
-         color=C["cosmo"], z=9)
-    ax.scatter([px], [py], s=7, color="white", edgecolors="k", lw=0.45, zorder=9)
-    text(ax, px, py - pr - 0.42, r"$\lambda=1/m_{Z_D}$", size=4.6, color="#404040", z=9)
+    text(ax, 20.3, 29.9, "Refraction", size=5.0, color=C["cosmo"], weight="bold")
+    text(ax, 20.3, 28.1, r"$V\propto g_D\,\epsilon'\,u\;n_{\rm eff}$", size=5.2)
     # inset (b): resonant absorption and the cascade
     bx, by, bw, bh = 22.9, 10.2, 12.8, 5.8                 # v3: wider
     ax.add_patch(FancyBboxPatch((bx, by), bw, bh, boxstyle="round,pad=0.25,rounding_size=0.6", fc="white",
@@ -304,7 +273,6 @@ def milky_way(ax):
         ax.plot([gx, sx], [gy, sy], color=C["gal"], lw=0.6, zorder=5, alpha=0.95)
         ax.scatter([gx], [gy], s=12, color=C["gal"], zorder=7, lw=0.3, edgecolors="#8c6d00", marker="*")
     strands(ax, 36.0, 57.0)
-    dimension(ax, (sx, sy), (cx, cy), "8 kpc", "#08306b", side=1.0, off=1.6, box=True, t=0.8)  # Sun to Centre
     ax.add_patch(Circle((sx, sy), 0.36, fc="#fdb813", ec="#d95f02", lw=0.4, zorder=8))
     text(ax, sx + 0.5, sy - 1.45, "Sun", size=4.4, color=C["sun"], ha="left", path_effects=HALO)
     text(ax, 46.5, Y0 - 3.6, "Adiabatic", size=5.0, color=C["mw"], weight="bold")   # level with the Sun's "Coherent"
@@ -318,7 +286,6 @@ def sun(ax):
     glow(ax, (sx, sy), 3.3, "#fd8d3c", n=16, alpha=0.5)
     ax.add_patch(Circle((sx, sy), 1.0, fc="#fdb813", ec="#d95f02", lw=0.6, zorder=5))
     text(ax, sx, sy + 2.6, r"$V\propto e^{-r/\lambda}/r$", size=5.6, color=C["sun"], path_effects=HALO)
-    dimension(ax, (sx + 0.75, sy - 0.65), (67.6, Y0 + 1.25), "1 AU", C["sun"], side=1.0, off=0.85)  # to the Earth
     text(ax, 62.7, Y0 - 3.6, "Coherent", size=5.0, color=C["sun"], weight="bold")
 
 
@@ -354,7 +321,6 @@ def earth(ax):
                                      mutation_scale=3, lw=0.45, color="#3f3f3f", zorder=8))
     ax.scatter([px], [py], s=34, marker="*", color="#2b6cb0", edgecolors="#08306b", lw=0.35, zorder=10)
     text(ax, cx, cy + 1.24 * R + 0.65, "Exterior", size=4.4, color=C["earth"])
-    dimension(ax, (cx, cy), (cx, cy - R), r"$R_\oplus$", C["earth"], side=1.0, off=0.75, size=5.4)   # the radius
     text(ax, cx, cy - 1.24 * R - 1.3, r"IceCube: $\cos z=-\sin\delta$", size=4.8, color="#2b6cb0")
 
 
