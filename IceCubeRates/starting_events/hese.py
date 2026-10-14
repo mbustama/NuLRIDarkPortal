@@ -259,16 +259,19 @@ class LinearResponse:
 
 def lagrange4(grid, x):
     """(i, c, dc): x's cubic through the four nearest grid values -- as detector_factor interpolates -- as weights c on
-    grid[i:i + 4] and their derivatives dc in x."""
+    grid[i:i + 4] and their derivatives dc in x. Written out (2026-10-14, the event term's speed): the same products
+    in the same order as the generic form, so the same bits, ~30x faster."""
     g = np.asarray(grid, dtype=np.float64)
     i = int(np.clip(np.searchsorted(g, x) - 2, 0, len(g) - 4))
-    nodes = g[i:i + 4]
-    c, dc = np.empty(4), np.empty(4)
-    for a in range(4):
-        others = [b for b in range(4) if b != a]
-        den = np.prod([nodes[a] - nodes[b] for b in others])
-        c[a] = np.prod([x - nodes[b] for b in others]) / den
-        dc[a] = sum(np.prod([x - nodes[b] for b in others if b != m]) for m in others) / den
+    n0, n1, n2, n3 = g[i], g[i + 1], g[i + 2], g[i + 3]
+    d0, d1, d2, d3 = x - n0, x - n1, x - n2, x - n3
+    e0 = (n0 - n1) * (n0 - n2) * (n0 - n3)
+    e1 = (n1 - n0) * (n1 - n2) * (n1 - n3)
+    e2 = (n2 - n0) * (n2 - n1) * (n2 - n3)
+    e3 = (n3 - n0) * (n3 - n1) * (n3 - n2)
+    c = np.array([d1 * d2 * d3 / e0, d0 * d2 * d3 / e1, d0 * d1 * d3 / e2, d0 * d1 * d2 / e3])
+    dc = np.array([(d2 * d3 + d1 * d3 + d1 * d2) / e0, (d2 * d3 + d0 * d3 + d0 * d2) / e1,
+                   (d1 * d3 + d0 * d3 + d0 * d1) / e2, (d1 * d2 + d0 * d2 + d0 * d1) / e3])
     return i, c, dc
 
 

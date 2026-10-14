@@ -116,12 +116,18 @@ class _HESE:
         ref = np.broadcast_to(ref[None, :, None], (len(band_edges) - 1, len(E_nodes_GeV), 3))
         self.bd_astro_ref = bin_detector(self.lin.per_event(ref, ref), "Astro")
 
-    def rho(self, bd, values, grad):
-        """exp(sum_s cubic in log) per bin and its derivatives in each systematic (values: all systematics)."""
+    def coefficients(self, values):
+        """{systematic: lagrange4's (i, c, dc)} at values (all systematics): shared by every template's rho."""
+        return {s: hese.lagrange4(self.grids[s], values[s]) for s in self.names}
+
+    def rho(self, bd, values, grad, coeffs=None):
+        """exp(sum_s cubic in log) per bin and its derivatives in each systematic (values: all systematics; coeffs:
+        their coefficients, computed here when not given)."""
+        co = coeffs if coeffs is not None else self.coefficients(values)
         expo = np.zeros(self.n_bins)
         d = {}
         for s in self.names:
-            i, c, dc = hese.lagrange4(self.grids[s], values[s])
+            i, c, dc = co[s]
             L = bd.logr[s][i:i + 4]
             expo += c @ L
             if grad:
@@ -132,10 +138,11 @@ class _HESE:
     def factors(self, values):
         """The exact per-event detector weights of each component at values (all systematics)."""
         out = {}
+        co = self.coefficients(values)
         for comp, Ls in self.L.items():
             expo = np.zeros(len(self.bin))
             for s in self.names:
-                i, c, _ = hese.lagrange4(self.grids[s], values[s])
+                i, c, _ = co[s]
                 expo += c.astype(np.float32) @ Ls[s][i:i + 4]
             out[comp] = 10.0 ** expo.astype(np.float64)
         return out
@@ -255,10 +262,11 @@ class EventLikelihood:
             H = self.hese
             det = {s: v[s] for s in H.names}
             cn, mn, pr = v["hese_conv_norm"], v["hese_muon_norm"], v["prompt"]
-            rA, dA = H.rho(H.bd_astro_ref, det, grad)
-            rC, dC = H.rho(H.bd_conv, det, grad)
-            rP, dP = H.rho(H.bd_prompt, det, grad)
-            rD = [H.rho(bd, det, grad) for bd in H.bd_deriv]
+            co = H.coefficients(det)
+            rA, dA = H.rho(H.bd_astro_ref, det, grad, co)
+            rC, dC = H.rho(H.bd_conv, det, grad, co)
+            rP, dP = H.rho(H.bd_prompt, det, grad, co)
+            rD = [H.rho(bd, det, grad, co) for bd in H.bd_deriv]
             a = A["hese"] * rA
             c = H.bd_conv.H0 * rC
             dsum = sum(t * bd.H0 * r for t, bd, (r, _) in zip(theta, H.bd_deriv, rD))
