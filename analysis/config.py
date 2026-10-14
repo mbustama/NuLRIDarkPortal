@@ -13,7 +13,9 @@ and which fits and scans to run. Example: analysis/configs/pion_2050_case_5.json
                                          (spectra.py; needs the extragalactic flux in physical units),
                                          or the event likelihoods (events.py; HESE and/or DR2 tracks,
                                          never with the spectrum, which is fitted to the same events), with
-                                         the flavor fractions averaged over flavor_band_eV of the grid
+                                         the flavor fractions averaged over flavor_band_eV of the grid;
+                                         with the events the surface may be left out (2026-10-14: HESE's
+                                         events are also MESE's, so the event data set drops its surface)
     "solver": {section: {key: value}},   partial solver configuration (DEFAULT_CONFIG layout);
                                          anything not given takes the solver's default
     "parameters": {name: {"start", "bounds", "space": "linear"|"log10", "scale"}},
@@ -85,7 +87,7 @@ class Scan2D:
 class AnalysisConfig:
     """A validated analysis configuration (see the module docstring)."""
     name: str
-    surface: str
+    surface: Optional[str]
     solver: dict
     parameters: List[Parameter]
     priors: list
@@ -196,7 +198,13 @@ def from_dict(raw: Mapping, path: str = "") -> AnalysisConfig:
         if key not in d:
             raise ValueError(f"Configuration needs '{key}'")
     surface = d["data"].get("surface")
-    surfaces.surface(surface)                                  # unknown names fail here
+    if surface is None:
+        # the event likelihoods alone (Mauricio, 2026-10-14: HESE's events are also MESE's, so the event data set
+        # drops the MESE flavor surface rather than count them twice; HESE's topologies carry the flavor)
+        if not d["data"].get("events"):
+            raise ValueError("data.surface may be left out only with data.events (the events carry the flavor)")
+    else:
+        surfaces.surface(surface)                              # unknown names fail here
     bad = set(d["data"]) - {"surface", "spectrum", "events", "flavor_band_eV"}
     if bad:
         raise ValueError(f"data: unknown keys {sorted(bad)}; known: surface, spectrum, events, flavor_band_eV")

@@ -202,6 +202,24 @@ def test_coupling_split_sets_both_couplings():
             config_mod.from_dict(r).model()
 
 
+def test_the_surface_may_be_left_out_only_with_events():
+    """data.surface left out (decided 2026-10-14: the event data set drops the MESE surface, whose starting events
+    include HESE's): refused without data.events; an Objective without a surface has no flavor term."""
+    raw = _tiny_raw()
+    raw["profiles"], raw["planes"] = {}, []
+    raw["data"].pop("surface")
+    with pytest.raises(ValueError, match="only with data.events"):
+        config_mod.from_dict(raw)
+    from analysis.objective import Objective
+    cfg = config_mod.from_dict(_tiny_raw(profiles={}, planes=[]))
+    model = cfg.model()
+    v = {"m_Zd_eV": 2e6, "g_D": 1e-4}
+    with_surface = Objective(model, cfg.surface, cfg.priors).chi2(v)
+    without = Objective(model, None, cfg.priors).chi2(v)
+    f = model.fractions(v)
+    assert without == pytest.approx(with_surface - surfaces.chi2(f[0], f[1], cfg.surface), abs=1e-12)
+
+
 def test_objective_charges_mixing_beyond_unitarity_continuously():
     cfg = config_mod.from_dict(_tiny_raw())
     obj = cfg.objective()
@@ -378,9 +396,18 @@ def test_raster_plane_reads_each_column_from_its_own_minimum():
 # ---------------------------------------------------------------------------------------
 # Configurations and the command line
 # ---------------------------------------------------------------------------------------
+def config_files():
+    """Every analysis configuration under analysis/configs, the campaign's subdirectories included (their plane
+    lists, campaign.json, are not configurations)."""
+    out = []
+    for root, _, files in os.walk(CONFIGS):
+        out += [os.path.join(root, f) for f in files if f.endswith(".json") and f != "campaign.json"]
+    return sorted(out)
+
+
 def test_configs_validate():
-    for fn in sorted(os.listdir(CONFIGS)):
-        cfg = config_mod.load(os.path.join(CONFIGS, fn))
+    for path in config_files():
+        cfg = config_mod.load(path)
         assert cfg.free_names
     raw = _tiny_raw()
     with pytest.raises(ValueError):

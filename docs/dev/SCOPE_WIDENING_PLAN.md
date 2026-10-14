@@ -49,6 +49,13 @@ projections.
    1e-16, zero at x = 1e-12 and 1e-6 (the Sun and the Earth screened); the cosmological potential alone acts from
    P ~ 1e-38.
 
+5. **The campaign's data sets and composition check (2026-10-14).** Three data sets: (1) present-day flavor (IceCube's
+   MESE 2025 measurement) with IceCube's 2026 spectrum; (2) the HESE starting events and DR2 tracks alone -- no MESE
+   surface, since HESE's events are also MESE's and would be counted twice (HESE's topologies carry the flavor); (3)
+   the 2050 projection (case 5, pion centre) with the 2026 spectrum. **Every plane also with the sources' flavor
+   compositions fitted** (extragalactic and Galactic (x, 1 - x, 0), independently; nominal: both at pion decay), which
+   doubles the campaign (~50 h on 112 Tycho cores, estimated from task 2's timings).
+
 ## Physics
 
 **Neutral matter.** n_p = n_e in every body, so any charge acts as q_n n_n + (q_p + q_e) n_e: the neutron density
@@ -154,5 +161,5 @@ couplings |C_alpha alpha|^2 (the theory notes' g_D^2 |u_alpha|^4).
 | 2. Texture family and couplings | DONE 2026-10-14: src/dp_models.py, the `model` config section (matter charge, texture, Lagrangian coupling, potential product, visible width); both signs of the potential (negative eps', and the analysis' `dark_portal.potential_sign`); tests/test_models.py: every gauge model against the potential-dominated closed form to 1e-8, nu and nubar (L_e - L_mu and L_e - L_tau keep the sources' flavors) |
 | 3. Absorption for general couplings | DONE 2026-10-14 with the physics audit (docs/dev/PHYSICS_AUDIT.md): each relic mass state by its own flavor content, coherent amplitudes per eigenstate, the left-handed width, the Z mixing's three pieces, visible widths, the Moller factor, the slow relics' Debye mass (localized bodies only), the MeV regime through dp_si (every collision); tests/test_absorption.py |
 | 4. Event term speed | DONE 2026-10-14: the detector interpolation's coefficients written out and shared by every template (they were recomputed 48 times per likelihood step with Python generators: 67% of the time); 253 -> 106 ms per objective call (laptop, cached solver runs), bit-identical (12 points: chi^2 and every nuisance). The rest: the exact per-event weights (46 ms) and the nuisance fit (44 ms); a plane point's ~23 s of sky runs now dominate |
-| 5. Configurations and maps | -- |
+| 5. Configurations and maps | IN PROGRESS 2026-10-14: tools/make_campaign_configs.py -> analysis/configs/campaign/<data set>/ (232 planes and 218 608 points per data set: 116 planes and their fitted-composition twins); every configuration loads, and one point of each plane kind evaluates (laptop smoke test); tools/ratio_triangle_maps.py (66 ratio points x 4 masses, bisection in the coupling); tools/combine_split_planes.py; configurations without a flavor surface (events only) |
 | 6. Campaign | -- |

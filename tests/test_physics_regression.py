@@ -1946,6 +1946,14 @@ def test_scanner_checkpoint_resume(tmp_path, monkeypatch):
     assert len(calls) == 3, "stale (different-config) checkpoint was trusted"
 
 
+def _analysis_config_files(cfg_dir):
+    """Every analysis configuration under cfg_dir, the campaign's subdirectories included (not their plane lists)."""
+    out = []
+    for root, _, files in os.walk(cfg_dir):
+        out += [os.path.join(root, f) for f in files if f.endswith(".json") and f != "campaign.json"]
+    return sorted(out)
+
+
 def test_default_relic_neutrino_temperature_is_physical():
     """The relic-neutrino temperature must be (4/11)^(1/3) T_CMB, converted to eV.
 
@@ -1957,8 +1965,8 @@ def test_default_relic_neutrino_temperature_is_physical():
     assert abs(dps.DEFAULT_CONFIG["cosmology"]["T_nu0_eV"] / T_expected - 1.0) < 1e-5
 
     cfg_dir = os.path.join(os.path.dirname(__file__), "..", "analysis", "configs")
-    for name in sorted(os.listdir(cfg_dir)):
-        with open(os.path.join(cfg_dir, name)) as f:
+    for name in _analysis_config_files(cfg_dir):
+        with open(name) as f:
             T_cfg = json.load(f)["solver"]["cosmology"]["T_nu0_eV"]
         assert abs(T_cfg / T_expected - 1.0) < 1e-5, f"{name} carries T_nu0_eV = {T_cfg}"
 
@@ -1973,8 +1981,8 @@ def test_default_cosmological_neutron_density_is_physical():
     assert abs(dps.DEFAULT_CONFIG["cosmology"]["n_n0_cm3"] / expected - 1.0) < 1e-3
 
     cfg_dir = os.path.join(os.path.dirname(__file__), "..", "analysis", "configs")
-    for name in sorted(os.listdir(cfg_dir)):
-        with open(os.path.join(cfg_dir, name)) as f:
+    for name in _analysis_config_files(cfg_dir):
+        with open(name) as f:
             n_cfg = json.load(f)["solver"]["cosmology"]["n_n0_cm3"]
         assert abs(n_cfg / expected - 1.0) < 1e-3, f"{name} carries n_n0_cm3 = {n_cfg}"
 

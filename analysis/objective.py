@@ -34,7 +34,8 @@ class Objective:
 
     Arguments:
       model: a FlavorModel.
-      surface: name of the flavor-composition surface (the data term).
+      surface: name of the flavor-composition surface (the data term), or None with the event likelihoods
+        alone.
       priors: prior objects (parameters.GaussianPrior, HalfGaussianPrior), each on a
         parameter or on a derived quantity in DERIVED.
       data_centre: (f_e, f_mu) to move the surface's centre to (Asimov data,
@@ -50,7 +51,8 @@ class Objective:
         if spectrum is not None:
             g = model.base["grid"]
             self.spectrum = spectra.load(spectrum, float(g["E_min_eV"]) / 1e9, float(g["E_max_eV"]) / 1e9)
-        self.data = (surfaces.surface(surface) if data_centre is None
+        # no surface: the event likelihoods alone carry the flavor (data.surface left out)
+        self.data = (None if surface is None else surfaces.surface(surface) if data_centre is None
                      else surfaces.recentred(surface, *data_centre))
         self.data_centre = None if data_centre is None else (float(data_centre[0]), float(data_centre[1]))
         self.priors = list(priors)
@@ -91,8 +93,10 @@ class Objective:
                 values[k] = self._quantity(k, values) * shrink
             excess = UNITARITY_SLOPE * (u2 - 1.0)
         try:
-            f = self.model.fractions(values)
-            data = surfaces.chi2(f[0], f[1], self.data) + self.spectrum_chi2(values)
+            data = self.spectrum_chi2(values)
+            if self.data is not None:
+                f = self.model.fractions(values)
+                data += surfaces.chi2(f[0], f[1], self.data)
             if self.events is not None:
                 data += self.events.chi2(values)
         except ValueError:

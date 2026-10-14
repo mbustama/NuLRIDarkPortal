@@ -1,0 +1,229 @@
+"""
+make_campaign_configs.py -- the dark-portal paper's plane campaign (docs/dev/SCOPE_WIDENING_PLAN.md, step 5).
+
+Writes analysis configurations to analysis/configs/campaign/<data set>/<name>.json (outputs in
+output/analysis/campaign/<data set>/<name>) and a list with each plane's points, for packing on Tycho:
+analysis/configs/campaign/<data set>/campaign.json.
+
+Per data set (DATASETS), the planes (decided with Mauricio 2026-10-14 unless marked technical):
+  dark portal, for each named texture (pure e, mu, tau; e-mu, e-tau, mu-tau; democratic): the rank-one texture
+    u u^dag with Sum_alpha |U_alpha4|^2 = 0.5 (technical: the planes scan products, so only the direction and the
+    perturbativity bound g_D <= sqrt(4 pi) depend on it; 0.5 keeps g_D Sum|U|^2 <= 1.8 within reach);
+    potential planes in (m_Zd, P = g_D eps' Sum|U|^2) over 1e-30 - 1e4 eV, both signs of the potential, two curves:
+      the balanced split (dark_portal.coupling_split 'balanced': screening negligible) and the variants of the
+      split's profile (x = g_D Sum|U|^2 = 1e-24 ... 1e-8, each over the masses where its screening differs from the
+      balanced run's, m_Zd <= 2e-4 x eV, and P <= x so that eps' <= 1; tools/combine_split_planes.py);
+    the MeV plane in (m_Zd, g_D Sum|U|^2) at eps' = 0, 1e4 - 1e9 eV (absorption; the cosmological phase through
+      dp_si's every collision, cosmo_transport 'auto').
+  L_mu - L_tau: the same with P = g' eps' and the MeV plane in g'.
+  the six direct gauge models: (m_Zd, g') over 1e-30 - 1e4 eV (the potential) and 1e4 - 1e9 eV (absorption).
+Every plane also with the sources' flavor compositions fitted (Mauricio, 2026-10-14, "All planes"): the twin
+<name>_fx frees the extragalactic (f_e_S, 1 - f_e_S, 0) and the Galactic (f_e_S_gal, 1 - f_e_S_gal, 0), each flat in
+[0, 1], as task 2's _galx variants; nominal: both at pion decay (1/3, 2/3, 0).
+Technical defaults: one mass per decade below 1e4 eV and eight per decade above (the resonances); one coupling
+value per decade for the potential (P down to 1e-60), two for g' below 1e4 eV, five above; spectral-index nodes 3
+for the potential planes and 7 where the MeV absorption goes through dp_si (its secondaries make the flux's
+dependence on p least smooth, as for the secret interactions).
+
+  python tools/make_campaign_configs.py [--datasets now_ic26 now_events proj_2050] [--check]
+"""
+import argparse
+import copy
+import json
+import os
+import sys
+
+REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, REPO)
+sys.path.insert(0, os.path.join(REPO, "src"))
+
+import numpy as np  # noqa: E402
+
+import dp_models  # noqa: E402
+
+BASE = os.path.join(REPO, "analysis", "configs", "pion_2050_case_5_potential_emu_gal.json")
+D_LOG = 3.477121254719662 / 399                 # the flavor fits' node spacing in log10 E (10 TeV - 30 PeV, 400 nodes)
+DATASETS = {
+    # present-day flavor (IceCube's MESE 2025 measurement) with IceCube's 2026 spectrum
+    "now_ic26": {"data": {"surface": "icecube_mese_2025", "spectrum": "ic26_astrophysical"}},
+    # the HESE starting events and DR2 tracks alone (Mauricio, 2026-10-14: HESE's events are also MESE's, so no MESE
+    # surface here; HESE's topologies carry the flavor; the grid extended down to ~1 TeV for DR2)
+    "now_events": {"data": {"events": {"hese": {}, "dr2": {}}, "flavor_band_eV": [1e13, 3e16]},
+                   "grid": {"n_E_bins": 515, "E_min_eV": 10 ** (13.0 - 115 * D_LOG), "E_max_eV": 3e16}},
+    # the 2050 projection (IceCube-Gen2, KM3NeT, Baikal, P-ONE, HUNT; pion-decay centre) with the 2026 spectrum
+    "proj_2050": {"data": {"surface": "pion_2050_case_5", "spectrum": "ic26_astrophysical"}},
+}
+TEXTURES = {"e": (1, 0, 0), "mu": (0, 1, 0), "tau": (0, 0, 1), "emu": (1, 1, 0), "etau": (1, 0, 1),
+            "mutau": (0, 1, 1), "emutau": (1, 1, 1)}
+SUM_U2 = 0.5
+MODEL_KEYS = {"dark_portal": "dp", "L_mu-L_tau": "lmu_ltau", "L_e-L_mu": "le_lmu", "L_e-L_tau": "le_ltau",
+              "B-3L_e": "b_3le", "B-3L_mu": "b_3lmu", "B-3L_tau": "b_3ltau", "B-3/2(L_mu+L_tau)": "b_32lmultau"}
+SPLITS = (1e-24, 1e-20, 1e-16, 1e-12, 1e-8)
+M_POT = (-30, 4)                 # log10 m_Zd range of the potential planes, one per decade
+M_MEV = (4, 9, 41)               # the MeV planes: eight per decade
+P_RANGE = (-60, -6)              # log10 P, one per decade
+G_MEV = (-10, -2, 41)            # log10 of g_D Sum|U|^2 (or g') in the MeV planes, five per decade
+G_DIRECT = (-32, -2)             # log10 g' below 1e4 eV, two per decade
+COMPOSITIONS = {"f_e_S": {"start": 0.333333, "bounds": [0.0, 1.0], "space": "linear"},
+                "f_e_S_gal": {"start": 0.333333, "bounds": [0.0, 1.0], "space": "linear"}}
+FIT = {"n_random": 0, "seed": 20261014, "max_evals": 400, "fd_step": 0.001, "ftol": 1e-09, "xtol": 0.001,
+       "polish": False}
+
+
+def _texture_u(weights):
+    w = np.asarray(weights, dtype=float)
+    u = np.sqrt(SUM_U2 * w / w.sum())
+    return dict(u_e=float(u[0]), u_mu=float(u[1]), u_tau=float(u[2]))
+
+
+def _base(dataset):
+    with open(BASE) as f:
+        cfg = json.load(f)
+    solver = copy.deepcopy(cfg["solver"])
+    solver.pop("_comment", None)
+    ds = DATASETS[dataset]
+    if "grid" in ds:
+        solver["grid"].update(ds["grid"])
+    return solver, cfg["parameters"], cfg["priors"]
+
+
+def _config(dataset, name, comment, solver, params, priors, plane, asimov):
+    return {"_comment": comment, "name": name, "data": copy.deepcopy(DATASETS[dataset]["data"]),
+            "solver": solver, "parameters": params, "priors": copy.deepcopy(priors), "fit": dict(FIT),
+            "profiles": {}, "planes": [plane], "asimov": asimov,
+            "output_dir": f"output/analysis/campaign/{dataset}/{name}"}
+
+
+def _common_params(base_params, nodes):
+    p = {k: copy.deepcopy(base_params[k]) for k in ("norm_gal", "norm_astro", "p_index")}
+    p["p_index"]["nodes"] = nodes
+    return p
+
+
+def _decades(lo, hi):
+    return lo, hi, hi - lo + 1
+
+
+def planes_for(dataset):
+    """[(name, config, n_points)] for one data set."""
+    solver0, base_params, priors = _base(dataset)
+    out = []
+
+    def add(name, comment, solver, params, plane, asimov):
+        cfg = _config(dataset, name, comment, solver, params, priors, plane, asimov)
+        out.append((name, cfg, plane["nx"] * plane["ny"]))
+        fx = copy.deepcopy(cfg)
+        fx["name"] = name + "_fx"
+        fx["_comment"] += "; the sources' flavor compositions fitted (extragalactic and Galactic, independently)"
+        fx["parameters"].update(copy.deepcopy(COMPOSITIONS))
+        fx["output_dir"] += "_fx"
+        out.append((name + "_fx", fx, plane["nx"] * plane["ny"]))
+
+    for model in dp_models.model_names():
+        kind = dp_models.spec(model)[0]
+        key = MODEL_KEYS[model]
+        textures = TEXTURES.items() if model == "dark_portal" else [(None, None)]
+        for tex, w in textures:
+            stem = key if tex is None else f"{key}_{tex}"
+            solver = copy.deepcopy(solver0)
+            solver["model"] = {"name": model}
+            dp = solver.setdefault("dark_portal", {})
+            dp.update(use_debye_screening=True)
+            if model == "dark_portal":
+                dp.update(_texture_u(w))
+            else:
+                dp.update(u_e=0.0, u_mu=0.0, u_tau=0.0)
+            if kind == "mixing":
+                prod = "g_D_eps_trace" if model == "dark_portal" else "g_D_eps"
+                mev_axis = "g_D_trace" if model == "dark_portal" else "g_D"
+                for sign in (1, -1):
+                    sname = "pos" if sign > 0 else "neg"
+                    for split in ("balanced",) + SPLITS:
+                        s = copy.deepcopy(solver)
+                        s["dark_portal"].update(coupling_split=split, potential_sign=sign, epsilon_prime=0.1)
+                        if split == "balanced":
+                            m_lo, m_hi = M_POT
+                            p_hi = P_RANGE[1]
+                            tag = "bal"
+                        else:
+                            m_hi = int(np.floor(np.log10(2e-4 * split)))
+                            m_lo = M_POT[0]
+                            if m_hi < m_lo:
+                                continue
+                            p_hi = int(round(np.log10(split)))
+                            tag = f"x{split:.0e}".replace("e-", "m")
+                        params = {"m_Zd_eV": {"start": 10.0 ** ((m_lo + m_hi) / 2), "bounds": [10.0 ** (m_lo - 1),
+                                                                                             10.0 ** (m_hi + 1)],
+                                              "space": "log10"},
+                                  prod: {"start": 10.0 ** (P_RANGE[0] + 20), "bounds": [10.0 ** (P_RANGE[0] - 2),
+                                                                                       10.0 ** p_hi],
+                                         "space": "log10"}}
+                        params.update(_common_params(base_params, 3))
+                        plane = {"x": "m_Zd_eV", "y": prod, "x_range": [10.0 ** m_lo, 10.0 ** m_hi],
+                                 "y_range": [10.0 ** P_RANGE[0], 10.0 ** p_hi], "nx": m_hi - m_lo + 1,
+                                 "ny": p_hi - P_RANGE[0] + 1, "raster": "m_Zd_eV"}
+                        comment = (f"{model}{'' if tex is None else ', texture ' + tex}: the potential, "
+                                   f"{'+' if sign > 0 else '-'} sign, coupling split {split} "
+                                   f"(docs/dev/SCOPE_WIDENING_PLAN.md decision 4; tools/make_campaign_configs.py)")
+                        add(f"{stem}_pot_{tag}_{sname}", comment, s, params, plane, {prod: 10.0 ** (P_RANGE[0] - 2)})
+                s = copy.deepcopy(solver)
+                s["dark_portal"].update(epsilon_prime=0.0)
+                params = {"m_Zd_eV": {"start": 2e6, "bounds": [10.0 ** (M_MEV[0] - 1), 10.0 ** (M_MEV[1] + 1)],
+                                      "space": "log10"},
+                          mev_axis: {"start": 1e-6, "bounds": [10.0 ** (G_MEV[0] - 2), 10.0 ** (G_MEV[1] + 1)],
+                                     "space": "log10"}}
+                params.update(_common_params(base_params, 7))
+                plane = {"x": "m_Zd_eV", "y": mev_axis, "x_range": [10.0 ** M_MEV[0], 10.0 ** M_MEV[1]],
+                         "y_range": [10.0 ** G_MEV[0], 10.0 ** G_MEV[1]], "nx": M_MEV[2], "ny": G_MEV[2],
+                         "raster": "m_Zd_eV"}
+                add(f"{stem}_mev", f"{model}{'' if tex is None else ', texture ' + tex}: MeV absorption at eps' = 0",
+                    s, params, plane, {mev_axis: 10.0 ** (G_MEV[0] - 2)})
+            else:
+                s = copy.deepcopy(solver)
+                s["dark_portal"].update(epsilon_prime=0.0)
+                for tag, (m_lo, m_hi, nx), (g_lo, g_hi, ny), nodes in (
+                        ("ul", (M_POT[0], M_POT[1], M_POT[1] - M_POT[0] + 1), (G_DIRECT[0], G_DIRECT[1],
+                                                                               2 * (G_DIRECT[1] - G_DIRECT[0]) + 1), 3),
+                        ("mev", M_MEV, G_MEV, 7)):
+                    params = {"m_Zd_eV": {"start": 10.0 ** ((m_lo + m_hi) / 2), "bounds": [10.0 ** (m_lo - 1),
+                                                                                         10.0 ** (m_hi + 1)],
+                                          "space": "log10"},
+                              "g_D": {"start": 10.0 ** ((g_lo + g_hi) / 2), "bounds": [10.0 ** (g_lo - 2),
+                                                                                    10.0 ** (g_hi + 1)],
+                                      "space": "log10"}}
+                    params.update(_common_params(base_params, nodes))
+                    plane = {"x": "m_Zd_eV", "y": "g_D", "x_range": [10.0 ** m_lo, 10.0 ** m_hi],
+                             "y_range": [10.0 ** g_lo, 10.0 ** g_hi], "nx": nx, "ny": ny, "raster": "m_Zd_eV"}
+                    add(f"{stem}_{tag}", f"{model}: the gauge coupling g' over {tag} masses", s, params, plane,
+                        {"g_D": 10.0 ** (g_lo - 2)})
+    return out
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    ap.add_argument("--datasets", nargs="+", default=list(DATASETS))
+    ap.add_argument("--check", action="store_true", help="load every configuration and evaluate its model once")
+    a = ap.parse_args(argv)
+    from analysis import config as config_mod
+    for ds in a.datasets:
+        d = os.path.join(REPO, "analysis", "configs", "campaign", ds)
+        os.makedirs(d, exist_ok=True)
+        rows = planes_for(ds)
+        for name, cfg, _ in rows:
+            with open(os.path.join(d, name + ".json"), "w") as f:
+                json.dump(cfg, f, indent=1)
+            config_mod.load(os.path.join(d, name + ".json"))          # validates every key
+        with open(os.path.join(d, "campaign.json"), "w") as f:
+            json.dump({"dataset": ds, "planes": [{"name": n, "points": k} for n, _, k in rows],
+                       "total_points": int(sum(k for _, _, k in rows))}, f, indent=1)
+        print(f"{ds}: {len(rows)} planes, {sum(k for _, _, k in rows)} points -> {d}")
+        if a.check:
+            for name, cfg, _ in rows:
+                c = config_mod.load(os.path.join(d, name + ".json"))
+                pl = cfg["planes"][0]
+                v = {pl["x"]: pl["x_range"][1], pl["y"]: pl["y_range"][0]}
+                c.model()._overrides(v)
+
+
+if __name__ == "__main__":
+    main()
