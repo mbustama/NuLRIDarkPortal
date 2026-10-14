@@ -4,6 +4,8 @@ schematic_dark_portal.py -- the schematic of the dark-portal calculation for the
 calculation's main ingredients). Layout agreed in text first: a ruler of the mediator mass on top (what sources the
 potential the neutrinos feel), the journey in six stages, the ingredients per stage below.
 
+v3 (2026-10-14): the ruler aligned with the stages (a piecewise scale, values at the dividers), absorption in the
+cosmological inset; no bottom legend; the Earth turned so that IceCube faces the neutrinos' entry; plainer labels.
 v2, after Mauricio's edits (2026-10-14): every phrase capitalized; no marks for what is new; the Earth as a globe
 with a quarter cut away, in the style of the GeoneutrinoDecay schematic (its land outlines, tools/data/naturalearth);
 the Sun drawn as what it is in the calculation, a point source whose potential falls as exp(-r/lambda)/r; a barred
@@ -25,8 +27,9 @@ from matplotlib.patches import (Circle, Ellipse, FancyArrowPatch, FancyBboxPatch
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 LAND = os.path.join(REPO, "tools", "data", "naturalearth", "land_110m_decimated.json")
-W_IN, H_IN = 7.0, 2.9
-X1, Y1 = 100.0, 100.0 * H_IN / W_IN                     # data units: equal aspect
+W_IN = 7.0
+X1, Y_LO, Y1 = 100.0, 3.9, 100.0 * 2.9 / 7.0             # data units (equal aspect); v3: no legend below Y_LO
+H_IN = W_IN * (Y1 - Y_LO) / X1
 C = dict(src="#525252", cosmo="#6a51a3", mw="#2b6cb0", sun="#d95f02", earth="#238b45", det="#525252",
          gal="#c9a227", relic="#9e9ac8", neutron="#969696", contact="#bdbdbd")
 STRANDS = ("#3b5b92", "#c44e52", "#55a868")                # the propagation eigenstates
@@ -127,32 +130,26 @@ def globe_rings(lon0_deg):
 
 
 def ruler(ax):
-    """The mediator-mass ruler: which body sources the potential the neutrinos feel."""
-    lo, hi, xa, xb, y, h = -34.0, 9.0, 12.5, 98.5, 36.3, 1.5
-    X = lambda lg: xa + (lg - lo) / (hi - lo) * (xb - xa)  # noqa: E731
-    segs = [(-34, -31, C["cosmo"], "Cosmos"), (-31, -26, C["mw"], "Galaxy"), (-26, -18, C["sun"], "Sun"),
-            (-18, -12, C["earth"], "Earth"), (-12, 5.0, C["contact"], "Contact: the local density"),
-            (5.0, 9.0, C["cosmo"], "")]
-    for a, b, col, lab in segs:
-        ax.add_patch(FancyBboxPatch((X(a), y), X(b) - X(a), h, boxstyle="square,pad=0", fc=col, ec="white",
-                                    lw=0.6, alpha=0.85 if lab else 0.35, zorder=3,
-                                    hatch="////" if not lab else None))
-        if lab:
-            text(ax, 0.5 * (X(a) + X(b)), y + h / 2, lab, size=5.0, color="white" if col != C["contact"] else "k",
-                 weight="bold")
-    text(ax, X(7.0), y + h / 2, "Absorption", size=4.6, color=C["cosmo"], weight="bold")
-    for lg in range(-30, 7, 5):
-        ax.plot([X(lg)] * 2, [y + h, y + h + 0.5], color="k", lw=0.4, zorder=3)
-        text(ax, X(lg), y + h + 1.45, rf"$10^{{{lg}}}$", size=6.2)
+    """Which matter sources the potential, by mediator mass: one segment above each stage whose matter dominates
+    (v3: aligned with the stages, so the scale is piecewise; values at the boundaries, which fall on the stages'
+    dividers). Cosmos below 1e-31 eV; the Earth's local density beyond 1e-12 eV (ranges under ~200 km); resonant
+    absorption (MeV) is the cosmological stage's inset."""
+    y, h = 36.3, 1.5
+    segs = [(12.0, 36.0, C["cosmo"], "Cosmos", "white"), (36.0, 57.0, C["mw"], "Galaxy", "white"),
+            (57.0, 68.5, C["sun"], "Sun", "white"), (68.5, 76.0, C["earth"], "Earth", "white"),
+            (76.0, 83.5, "#a1d99b", "Local density", "#1b5e20")]
+    for xa, xb, col, lab, ink in segs:
+        ax.add_patch(FancyBboxPatch((xa, y), xb - xa, h, boxstyle="square,pad=0", fc=col, ec="white", lw=0.8,
+                                    alpha=0.9, zorder=3))
+        text(ax, 0.5 * (xa + xb), y + h / 2, lab, size=5.0 if len(lab) < 8 else 4.5, color=ink, weight="bold")
+    for x, lg, lam in ((36.0, -31, "60 Mpc"), (57.0, -26, "0.6 kpc"), (68.5, -18, "1.3 AU"), (76.0, -12, "200 km")):
+        ax.plot([x] * 2, [y + h, y + h + 0.5], color="k", lw=0.4, zorder=3)
+        text(ax, x, y + h + 1.45, rf"$10^{{{lg}}}$", size=6.2)
+        ax.plot([x] * 2, [y - 0.5, y], color="k", lw=0.4, zorder=3)
+        text(ax, x, y - 1.35, lam, size=5.8)
     text(ax, 0.6, y + h + 1.45, r"Mediator mass $m_{Z_D}$ [eV]", size=5.4, ha="left")
-    for name, m in (("Gpc", 1.97e-7 / 3.086e25), ("Mpc", 1.97e-7 / 3.086e22), ("kpc", 1.97e-7 / 3.086e19),
-                    ("pc", 1.97e-7 / 3.086e16), ("AU", 1.97e-7 / 1.496e11), (r"$R_\oplus$", 1.97e-7 / 6.371e6),
-                    ("km", 1.97e-7 / 1e3)):
-        lg = np.log10(m)
-        ax.plot([X(lg)] * 2, [y - 0.5, y], color="k", lw=0.4, zorder=3)
-        text(ax, X(lg), y - 1.35, name, size=5.8)
     text(ax, 0.6, y - 1.35, r"Range $\lambda = 1/m_{Z_D}$", size=5.4, ha="left")
-    text(ax, 0.6, y + h / 2, "The potential felt\ncomes from:", size=4.7, ha="left", color="#525252")
+    text(ax, 0.6, y + h / 2, "Matter potential from:", size=5.0, ha="left", color="#525252")
 
 
 def sources(ax):
@@ -181,7 +178,7 @@ def cosmology(ax):
         ax.plot([xa, xb], [Y0 + (t - 0.5) * 12.0, Y0 + (t - 0.5) * 18.0], color="#d9d9d9", lw=0.4, zorder=1)
 
     def clear(x, y):                                       # off the strands and the insets
-        return (np.abs(y - Y0) > 1.7) & ~((x > 14.3) & (x < 26.3) & (y > 26.2)) & ~((x > 24.3) & (y < 16.3))
+        return (np.abs(y - Y0) > 1.7) & ~((x > 14.3) & (x < 26.3) & (y > 26.2)) & ~((x > 22.6) & (y < 16.3))
     u = rng.random(140) ** 0.7                             # relic neutrinos, diluting with the expansion
     xs, ys = xa + u * (xb - xa), Y0 + (rng.random(140) - 0.5) * (12 + 6 * u)
     keep = clear(xs, ys)
@@ -208,7 +205,7 @@ def cosmology(ax):
     text(ax, 20.3, 28.75, r"$V\propto g_D\,\epsilon'\,u\;n_{\rm eff}$", size=5.2)
     text(ax, 20.3, 27.4, r"$n_{\rm eff}$ smoothed over $\lambda$", size=4.6, color="#525252")
     # inset (b): resonant absorption and the cascade
-    bx, by, bw, bh = 24.6, 10.2, 11.0, 5.8
+    bx, by, bw, bh = 22.9, 10.2, 12.8, 5.8                 # v3: wider
     ax.add_patch(FancyBboxPatch((bx, by), bw, bh, boxstyle="round,pad=0.25,rounding_size=0.6", fc="white",
                                 ec=C["cosmo"], lw=0.5, zorder=6))
     lx = np.linspace(0, 1, 200)
@@ -220,6 +217,7 @@ def cosmology(ax):
             zorder=7)
     text(ax, bx + bw / 2, by + bh - 0.95, r"Absorption $+$ cascade", size=4.8, color=C["cosmo"], weight="bold")
     text(ax, bx + 0.5, by + 0.3, r"$E_{\rm res}\approx m_{Z_D}^2/2m_\nu$", size=4.6, va="bottom", ha="left", z=8)
+    text(ax, bx + bw - 0.5, by + 0.3, r"$m_{Z_D}\sim$ MeV", size=4.6, va="bottom", ha="right", z=8, color="#525252")
 
 
 def milky_way(ax):
@@ -283,7 +281,6 @@ def sun(ax):
     sx, sy = 61.6, Y0 + 5.0
     glow(ax, (sx, sy), 4.3, "#fd8d3c", n=16, alpha=0.5)
     ax.add_patch(Circle((sx, sy), 1.15, fc="#fdb813", ec="#d95f02", lw=0.6, zorder=5))
-    text(ax, sx, sy + 2.9, "Point source", size=4.8, color=C["sun"], weight="bold", path_effects=HALO)
     text(ax, sx, sy + 1.8, r"$V\propto e^{-r/\lambda}/r$", size=5.6, color=C["sun"], path_effects=HALO)
     ex, ey = 69.6, Y0                                      # the Earth (its exterior's edge)
     for y_start in (Y0 + 6.2, Y0 + 2.6, Y0 - 3.6):          # paths at different angles to the Sun, near and far
@@ -293,35 +290,37 @@ def sun(ax):
 
 
 def earth(ax):
-    """The globe with a quarter cut away (in the style of GeoneutrinoDecay's schematic): mantle and core, IceCube at
-    the South Pole at the bottom of the limb; chords through the cut from the northern sky, short paths from the
-    southern sky; the dashed circle is the exterior, whose potential matters for lambda beyond the Earth's radius."""
-    cx, cy, R = 76.2, Y0, 5.3
+    """The globe with a quarter cut away (in the style of GeoneutrinoDecay's schematic), turned 90 degrees
+    counter-clockwise (v3) so that IceCube, at the South Pole on the right, sits opposite the neutrinos' entry from the
+    northern sky on the left: mantle and core in the cut, chords through it; short paths from the southern sky reach
+    IceCube from the right; the dashed circle is the exterior, whose potential matters for lambda beyond the Earth's
+    radius."""
+    cx, cy, R = 75.4, Y0, 5.2
     ax.add_patch(Circle((cx, cy), 1.24 * R, fill=False, ec=C["earth"], lw=0.45, ls=(0, (2, 1.5)), zorder=2))
-    surface = Wedge((cx, cy), R, 90.0, 360.0, fc="#cfe3f5", ec="none", zorder=5)
+    surface = Wedge((cx, cy), R, 180.0, 450.0, fc="#cfe3f5", ec="none", zorder=5)
     ax.add_patch(surface)
-    for ring in globe_rings(-40.0):
-        land = Polygon(np.column_stack([cx + R * ring[:, 0], cy + R * ring[:, 1]]), closed=True, fc="#8fb98a",
+    for ring in globe_rings(-40.0):                        # turned: (x, y) -> (-y, x), the South Pole to the right
+        land = Polygon(np.column_stack([cx - R * ring[:, 1], cy + R * ring[:, 0]]), closed=True, fc="#8fb98a",
                        ec="#4f7a55", lw=0.2, zorder=6)
         ax.add_patch(land)
         land.set_clip_path(surface)
     for r_out, r_in, col in ((1.0, 0.546, "#f6e8c3"), (0.546, 0.192, "#d4d4d4"), (0.192, 0.0, "#ececec")):
-        ax.add_patch(Wedge((cx, cy), r_out * R, 0.0, 90.0, width=(r_out - r_in) * R, fc=col, ec="white", lw=0.4,
+        ax.add_patch(Wedge((cx, cy), r_out * R, 90.0, 180.0, width=(r_out - r_in) * R, fc=col, ec="white", lw=0.4,
                            zorder=6))
     ax.add_patch(Circle((cx, cy), R, fill=False, ec=INK, lw=0.6, zorder=7))
-    curved_text(ax, "Mantle", (cx, cy), 0.80 * R, 45.0, 4.3, "0.3")
-    curved_text(ax, "Core", (cx, cy), 0.40 * R, 45.0, 4.3, "0.3")
-    px, py = cx, cy - R                                    # IceCube
-    for beta in (28.0, 55.0, 80.0):                        # up-going: chords through the mantle and the core
+    curved_text(ax, "Mantle", (cx, cy), 0.80 * R, 135.0, 4.3, "0.3")
+    curved_text(ax, "Core", (cx, cy), 0.40 * R, 135.0, 4.3, "0.3")
+    px, py = cx + R, cy                                    # IceCube
+    for beta in (118.0, 145.0, 170.0):                     # up-going: chords through the mantle and the core
         bx, by = cx + R * np.cos(np.radians(beta)), cy + R * np.sin(np.radians(beta))
         ax.plot([bx, px], [by, py], color="#3f3f3f", lw=0.55, zorder=8)
         ax.scatter([bx], [by], s=3, color="#3f3f3f", zorder=8, lw=0)
-    for dx in (-2.9, 2.7):                                 # down-going: short paths from the southern sky
-        ax.add_patch(FancyArrowPatch((px + dx, py - 2.4), (px + 0.1 * np.sign(dx), py - 0.35), arrowstyle="-|>",
+    for dy in (2.8, -2.6):                                 # down-going: short paths from the southern sky
+        ax.add_patch(FancyArrowPatch((px + 2.3, py + dy), (px + 0.35, py + 0.1 * np.sign(dy)), arrowstyle="-|>",
                                      mutation_scale=3, lw=0.45, color="#3f3f3f", zorder=8))
     ax.scatter([px], [py], s=34, marker="*", color="#2b6cb0", edgecolors="#08306b", lw=0.35, zorder=10)
     text(ax, cx, cy + 1.24 * R + 0.65, "Exterior", size=4.4, color=C["earth"])
-    text(ax, cx, py - 3.4, r"IceCube: $\cos z=-\sin\delta$", size=4.8, color="#2b6cb0")
+    text(ax, cx, cy - 1.24 * R - 1.3, r"IceCube: $\cos z=-\sin\delta$", size=4.8, color="#2b6cb0")
 
 
 def detection(ax):
@@ -335,7 +334,7 @@ def detection(ax):
     ax.plot([94.15, 95.85], [y, y], color="#d94801", lw=0.5, ls=(0, (1, 1)), zorder=5)
     for xx, lab in ((86.0, "Cascade"), (89.8, "Track"), (95.0, "Double\ncascade")):
         text(ax, xx, y - 2.0, lab, size=4.4, color="#525252")
-    text(ax, 91.5, y + 2.3, "HESE; DR2 tracks", size=5.0, weight="bold", color=C["det"])
+    text(ax, 91.5, y + 2.3, "HESE + through-going tracks", size=4.8, weight="bold", color=C["det"])
     tx, ty, s = 85.0, 14.8, 6.0                            # the flavor triangle
     tri = np.array([[tx, ty], [tx + s, ty], [tx + s / 2, ty + s * np.sqrt(3) / 2]])
     ax.add_patch(Polygon(tri, fill=False, ec="#525252", lw=0.5, zorder=4))
@@ -357,28 +356,25 @@ def detection(ax):
 
 def ingredients(ax):
     rows = {
-        "Sources": ["Extragalactic,", "with evolution", "Optional host galaxy"],
+        "Sources": ["Extragalactic,", r"with $z$-evolution", "Optional host galaxy"],
         "Cosmological propagation": [r"Refraction $+$ absorption, one calculation",
-                                     r"Thermal relic $\nu$, Debye screening; cascade",
-                                     "Exactly unitary propagator"],
+                                     r"Thermal relic $\nu$, Debye screening; cascade"],
         "Milky Way": [r"$n_{\rm eff}$: Yukawa integral of", "the Galaxy's neutrons",
-                      r"Non-uniform to $4\times10^{-31}$ eV"],
-        "Sun": ["Point source,", "integrated along paths", r"Yearly: $\lesssim10^{-3}$"],
+                      r"Galactic $\nu$ born in local eigenstates"],
+        "Sun": ["Potential along paths", "at all angles to the Sun", "Its yearly motion averaged"],
         "Earth": ["Yukawa integral of", "the Earth's neutrons", "Exact chords, PREM"],
         "Detection": ["IceCube responses", r"MCEq $+$ Barr", "Flavor, spectrum, direction"],
     }
     for name, xa, xb, col in STAGES:
         for i, line in enumerate(rows[name]):
             text(ax, 0.5 * (xa + xb), 7.6 - 1.3 * i, line, size=4.7, color="#252525")
-    text(ax, 0.8, 1.0, "Strands: propagation eigenstates.   Parallel: populations kept.   Twisted: coherent "
-                       "evolution.   Gold: Galactic neutrinos.", size=4.8, ha="left", color="#252525")
 
 
 def main():
     fig = plt.figure(figsize=(W_IN, H_IN))
     ax = fig.add_axes([0, 0, 1, 1])
     ax.set_xlim(0, X1)
-    ax.set_ylim(0, Y1)
+    ax.set_ylim(Y_LO, Y1)
     ax.set_aspect("equal")
     ax.axis("off")
     for k, (name, xa, xb, col) in enumerate(STAGES):
@@ -391,7 +387,7 @@ def main():
     cosmology(ax)
     milky_way(ax)
     sun(ax)
-    twist(ax, 57.0, 71.0)                                  # through the Sun's potential and into the Earth
+    twist(ax, 57.0, 70.8)                                  # through the Sun's potential and into the Earth
     earth(ax)
     detection(ax)
     ingredients(ax)
