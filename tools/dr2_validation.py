@@ -15,7 +15,8 @@ tools/atmospheric_background.py) and the solver's per-direction fluxes.
       N_side 64 data from --galactic-data).
 
   python -I tools/dr2_validation.py --dr2 /lustre/astro/mbustama/external/icetracks_dr2 \\
-      --galactic-data /lustre/astro/mbustama/external/galactic_nside64      (Tycho; --skip-solver for (a)-(b))
+      --galactic-data /lustre/astro/mbustama/external/galactic_nside64      (Tycho; --skip-solver for (a)-(b);
+      --sky-cache DIR keeps the solver's skies, --sky-only computes them alone)
 
 Writes output/tracks/dr2_validation.json, output/figures/dr2_validation.png ((a)-(b)) and
 output/figures/dr2_tracks.png ((c)).
@@ -66,8 +67,7 @@ def observed(dr2_dir, config, reco_edges, dec_edges_deg):
     return counts, len(files)
 
 
-def sky_flux(dp=None, si=None, nside=64, galactic_data=None, dec_edges_deg=None):
-    import dark_portal_solver as dps
+def sky_config(dp=None, si=None, nside=64, galactic_data=None, dec_edges_deg=None):
     cfg = {"source": {"p_index": ASTRO_9P5["gamma"]},
            "grid": {"n_E_bins": 150, "E_min_eV": 1e12, "E_max_eV": 1e17, "n_z_bins": 400},
            "sky": {"output": "bands", "nside": nside, "dec_band_edges_deg": [float(x) for x in dec_edges_deg],
@@ -78,9 +78,32 @@ def sky_flux(dp=None, si=None, nside=64, galactic_data=None, dec_edges_deg=None)
         cfg["dark_portal"] = dp
     if si is not None:
         cfg["secret_interactions"] = si
+    return cfg
+
+
+def sky_flux(cfg, cache_dir=None):
+    """propagate_sky for cfg; with cache_dir, kept as sky_<digest of cfg and code version>.npz and reused."""
+    import hashlib
+    path = None
+    if cache_dir:
+        head = subprocess.run(["git", "-C", REPO, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+        key = hashlib.sha1((json.dumps(cfg, sort_keys=True) + head).encode()).hexdigest()[:12]
+        path = os.path.join(cache_dir, f"sky_{key}.npz")
+        if os.path.exists(path):
+            with np.load(path, allow_pickle=False) as z:
+                out = {k: z[k] for k in z.files if k != "meta_json"}
+                out["meta"] = json.loads(str(z["meta_json"]))
+            print(f"  (sky from {path})", flush=True)
+            return out
+    import dark_portal_solver as dps
     E, params = dps.build_solver_params(cfg)
     params["show_progress"] = False
-    return dps.propagate_sky(E, params)
+    out = dps.propagate_sky(E, params)
+    if path:
+        os.makedirs(cache_dir, exist_ok=True)
+        np.savez(path, meta_json=np.array(json.dumps(out["meta"], default=float)),
+                 **{k: v for k, v in out.items() if k != "meta"})
+    return out
 
 
 def windowed(flux, E_lo, E_hi):
@@ -145,9 +168,19 @@ def main():
     ap.add_argument("--skip-solver", action="store_true")
     ap.add_argument("--atm", default=None, help="the atmospheric table (default IceCubeRates/data/atmospheric_mceq_southpole.npz)")
     ap.add_argument("--outdir", default=os.path.join(REPO, "output"), help="where tracks/ and figures/ go")
+    ap.add_argument("--sky-cache", default=None, help="keep and reuse the solver's sky per case (npz) here")
+    ap.add_argument("--sky-only", action="store_true", help="compute the solver's skies (with --sky-cache) and stop")
     a = ap.parse_args()
     t0 = time.time()
     tr = DR2Tracks()
+    dec_deg = np.degrees(tr.dec_edges("IC86"))
+    dec_deg[0], dec_deg[-1] = -90.0, 90.0
+    if a.sky_only:
+        for name, kw in CASES.items():
+            t1 = time.time()
+            sky_flux(sky_config(galactic_data=a.galactic_data, dec_edges_deg=dec_deg, **kw), a.sky_cache)
+            print(f"{name}: sky computed ({time.time() - t1:.0f} s)", flush=True)
+        return
     edges, rde = tr.reco_edges, np.radians(RECO_DEC_DEG)
     north = slice(1, None)
     res = dict(reco_dec_edges_deg=RECO_DEC_DEG.tolist(), reco_log10E_edges=edges.tolist(),
@@ -206,13 +239,11 @@ def main():
     # (c) the solver's fluxes
     rows = {}
     if not a.skip_solver:
-        dec_deg = np.degrees(tr.dec_edges("IC86"))
-        dec_deg[0], dec_deg[-1] = -90.0, 90.0
         pl_counts = tr.expected(windowed(pl, 1e3, 1e8), reco_dec_edges=rde)["counts"]
         res["cases"] = {}
         for name, kw in CASES.items():
             t1 = time.time()
-            sky = sky_flux(galactic_data=a.galactic_data, dec_edges_deg=dec_deg, **kw)
+            sky = sky_flux(sky_config(galactic_data=a.galactic_data, dec_edges_deg=dec_deg, **kw), a.sky_cache)
             eg = tr.expected(FA.from_sky(sky, galactic=False), reco_dec_edges=rde)["counts"]
             ga = tr.expected(FA.from_sky(sky, extragalactic=False), reco_dec_edges=rde)["counts"]
             rows[name] = (eg, ga)
