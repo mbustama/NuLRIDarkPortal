@@ -51,6 +51,16 @@ runs one start per worker; one start wandering to strong couplings held 12-15 of
 one configuration's global fit overlaps the others' planes. Its per-configuration logs are
 `logs/pack_<job>/<name>.out`.
 
+**Shared solver-run cache** (2026-10-14): `NULRI_FLUX_CACHE=<directory>` makes every analysis process store and
+reuse its solver runs on disk (keyed by the full solver configuration, the flux mode and the solver's code digest;
+read back bit for bit). The planes' first repair pass re-evaluates every point on whichever worker is free, so
+without it most repairs re-solve their point (7 runs each when the spectral index floats). Use one directory per
+campaign and delete it afterwards (~0.4 GB per plane with 7 index nodes):
+
+```bash
+NULRI_FLUX_CACHE=/lustre/astro/mbustama/flux_cache/<campaign> SLOTS=4 sbatch slurm/analysis_pack.sh CONFIG1 ...
+```
+
 Logs are `logs/slurm_<job name>_<job>.out`. `slurm/common.sh` prints the host, job, core count
 and commit at the top of each, flagging a modified working tree. The analysis resumes from its
 checkpoints when a job is resubmitted; its `manifest.json` records the host, commit and timing of

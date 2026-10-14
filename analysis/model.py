@@ -26,6 +26,12 @@ products, so exclusion planes scan those directly (decided 2026-10-13). For a te
   g_D_eps_u2  = g_D epsilon' |U|^2 sets g_D = g_D_eps_u2 / (epsilon' |U|^2) (the coherent
                                    potential, which is proportional to it).
 
+Solver runs can also be shared on disk by every process (NULRI_FLUX_CACHE=<directory>; 2026-10-14): the planes'
+repair passes re-evaluate every point on whichever worker is free, and with per-process caches most of them
+re-solved (7 runs per point with p_index free). Files are keyed by the full solver configuration, the flux mode and
+the solver's code digest, written atomically, and read back bit for bit; nothing is ever evicted (delete the
+directory after a campaign).
+
 The spectral index (Mauricio, 2026-10-14: the flux normalization and shape float): with p_index free the
 model runs the solver at fixed nodes of p (p_nodes, from the parameter's bounds; P_NODES_N of them) per point of
 the other propagation parameters and interpolates the fluxes between them (cubic spline in log flux), so a fit
@@ -39,6 +45,10 @@ float (the theory notes' parametrization), f_mu_S otherwise (f_e_S floated with 
 fixed, the agreed systematics). A negative remainder is outside the model (ValueError).
 """
 import copy
+import hashlib
+import json
+import os
+import uuid
 from collections import OrderedDict
 from typing import Dict, Mapping, Optional, Sequence, Tuple
 
@@ -59,6 +69,8 @@ GALACTIC_KEYS = ("norm_gal", "f_e_S_gal")
 ANALYSIS_DEFAULTS = {"norm_astro": 1.0}
 LINEAR_KEYS = SOURCE_KEYS + ("nubar_to_nu_ratio", "Phi_0") + GALACTIC_KEYS + tuple(ANALYSIS_DEFAULTS)
 ALIASES = {"s12sq": "th12_deg", "s13sq": "th13_deg", "s23sq": "th23_deg"}
+DISK_CACHE_ENV = "NULRI_FLUX_CACHE"
+DISK_CACHE_VERSION = 1
 P_NODES_N = 7             # solver runs per propagation point when p_index floats (fractions to ~2e-4 under strong SI)
 _SECTIONS = ("cosmology", "standard_mixing", "dark_portal", "secret_interactions", "source", "grid", "galactic")
 
@@ -84,6 +96,17 @@ def solver_key(name: str) -> Tuple[str, str]:
         return "dark_portal", "g_D"
     key = ALIASES.get(name, name)
     return _section_of(key), key
+
+
+def _json_default(o):
+    """Exact JSON for the disk cache's key: arrays in full (str() would abbreviate long ones), complex as pairs."""
+    if isinstance(o, np.ndarray):
+        return [_json_default(x) if isinstance(x, (complex, np.complexfloating)) else x for x in o.tolist()]
+    if isinstance(o, (complex, np.complexfloating)):
+        return [float(o.real), float(o.imag)]
+    if isinstance(o, np.generic):
+        return o.item()
+    raise TypeError(f"cannot key the disk cache on {type(o).__name__}")
 
 
 def sum_of_masses(values: Mapping, base: Mapping) -> float:
@@ -140,6 +163,9 @@ class FlavorModel:
         self._cache_size = int(cache_size)
         self.n_solver_calls = 0
         self.n_cache_hits = 0
+        self.n_disk_hits = 0
+        # a solver-run cache on disk shared by every process (2026-10-14): NULRI_FLUX_CACHE names its directory
+        self.disk_cache = os.environ.get(DISK_CACHE_ENV) or None
 
     # ------------------------------------------------------------------
     def _overrides(self, values: Mapping) -> Dict[Tuple[str, str], object]:
@@ -177,6 +203,49 @@ class FlavorModel:
             import dp_galactic
             v = dp_galactic.NORM_DEFAULT[str(self.base["galactic"]["template"]).strip().lower()]
         return float(v)
+
+    def _disk_path(self, cfg: Mapping) -> Optional[str]:
+        """The cache file of one solver run: a digest of everything that decides it -- the solver configuration
+        (without execution and output), the flux mode (basis sources, nu/nubar responses, Galactic part) and the
+        solver's source code (dp_core._source_digest), so results of other code are never reused."""
+        if not self.disk_cache:
+            return None
+        solver = {k: v for k, v in cfg.items() if k not in ("execution", "output")}
+        ident = dict(solver=solver, basis=self.basis, ratio_free=self.ratio_free, galactic=self.galactic,
+                     code=dp_core._source_digest(), version=DISK_CACHE_VERSION)
+        h = hashlib.sha256(json.dumps(ident, sort_keys=True, default=_json_default).encode()).hexdigest()
+        return os.path.join(self.disk_cache, h[:2], h + ".npz")
+
+    @staticmethod
+    def _disk_read(path: str):
+        try:
+            with np.load(path, allow_pickle=False) as z:
+                gal = dict(G=z["G"], K=float(z["K"])) if "G" in z.files else None
+                return z["E"], z["F_a"], (z["F_b"] if "F_b" in z.files else None), gal
+        except FileNotFoundError:
+            return None
+        except Exception:                        # a damaged file (e.g. a writer killed mid-way): recompute
+            return None
+
+    @staticmethod
+    def _disk_write(path: str, out) -> None:
+        E, F_a, F_b, gal = out
+        arrays = dict(E=E, F_a=F_a)
+        if F_b is not None:
+            arrays["F_b"] = F_b
+        if gal is not None:
+            arrays.update(G=gal["G"], K=np.float64(gal["K"]))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = f"{path}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp"
+        try:
+            with open(tmp, "wb") as f:
+                np.savez(f, **arrays)
+            os.replace(tmp, path)                # atomic: readers see a whole file or none
+        except OSError:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
 
     def fluxes(self, values: Mapping) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray], Optional[dict]]:
         """As _fluxes_exact; with p_nodes, interpolated in p_index between the solver runs at the nodes (cubic
@@ -220,6 +289,15 @@ class FlavorModel:
         if self.basis is not None:
             # any valid composition passes the solver's checks; the basis fluxes ignore it
             cfg["source"].update(f_e_S=1.0, f_mu_S=0.0, f_tau_S=0.0)
+        disk = self._disk_path(cfg)
+        if disk is not None:
+            out = self._disk_read(disk)
+            if out is not None:
+                self.n_disk_hits += 1
+                self._cache[key] = out
+                if len(self._cache) > self._cache_size:
+                    self._cache.popitem(last=False)
+                return out
         E, params = dps.build_solver_params(cfg)
         params["show_progress"] = False
         sources = None if self.basis is None else [np.eye(3)[i] for i in self.basis]
@@ -234,6 +312,8 @@ class FlavorModel:
                                                  params["sky"]["extragalactic_norm_E_GeV"]))
         self.n_solver_calls += 1
         out = (E, F_a, F_b, gal)
+        if disk is not None:
+            self._disk_write(disk, out)
         self._cache[key] = out
         if len(self._cache) > self._cache_size:
             self._cache.popitem(last=False)
