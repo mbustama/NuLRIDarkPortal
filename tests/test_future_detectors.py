@@ -26,10 +26,14 @@ def calibrated():
 
 
 def test_calibration_reproduces_nuflavorsinglesource(calibrated):
-    """Every calibration number equals NuFlavorSingleSource's own run of its commit 39088bd (final inputs), bit for bit."""
+    """Every calibration number equals NuFlavorSingleSource's own run of its commit 39088bd (final inputs): bit for bit
+    on the machine that made the reference, to 1e-12 elsewhere (CI's libraries move the last digit: 2026-10-15)."""
     ref = json.load(open(os.path.join(REPO, "tests", "data", "nfss_calibration_39088bd.json")))
     _, info = calibrated
-    assert {k: float(info[k]) for k in ref} == ref
+    got = {k: float(info[k]) for k in ref}
+    assert set(got) == set(ref)
+    bad = {k: (got[k], ref[k]) for k in ref if not np.isclose(got[k], ref[k], rtol=1e-12, atol=0.0)}
+    assert not bad, bad
 
 
 @pytest.mark.parametrize("name", ["IceCube", "ARCA_base", "GVD_base", "Gen2_new_base"])
