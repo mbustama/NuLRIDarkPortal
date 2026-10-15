@@ -25,7 +25,17 @@ value per decade for the potential (P down to 1e-60), two for g' below 1e4 eV, f
 for the potential planes and 7 where the MeV absorption goes through dp_si (its secondaries make the flux's
 dependence on p least smooth, as for the secret interactions).
 
-  python tools/make_campaign_configs.py [--datasets now_ic26 now_events proj_2050 proj_future] [--check]
+The broken power law (Mauricio, 2026-10-15; --spectrum bpl, the default since): IceCube's 2026 combined fit bends
+below ~25 TeV, so the extragalactic flux is its broken power law (analysis/model.py: two source populations split
+at E_b = 10^4.39 GeV, fixed), the upper index p_index and the lower one p_index_low free (technical: [0.5, 2.5] on
+three nodes), normalized at 100 TeV (1.77e-18 per flavor: norm_astro = 1 is IceCube's fit). Configurations under
+analysis/configs/campaign_bpl/, outputs under output/analysis/campaign_bpl/. The 2026-spectrum sets' grid extends
+down to 4.6 TeV, where IceCube's lowest spectrum segment starts (technical: two segments below the break constrain
+p_index_low; the flavor surfaces keep their 10 TeV - 30 PeV band). The future detectors' projection (proj_future)
+exists only with it. --spectrum pl: the single power law of the first campaign (analysis/configs/campaign/).
+
+  python tools/make_campaign_configs.py [--spectrum bpl|pl] [--datasets now_ic26 now_events proj_2050 proj_future]
+                                        [--check]
 """
 import argparse
 import copy
@@ -52,15 +62,29 @@ DATASETS = {
                    "grid": {"n_E_bins": 515, "E_min_eV": 10 ** (13.0 - 115 * D_LOG), "E_max_eV": 3e16}},
     # the 2050 projection (IceCube-Gen2, KM3NeT, Baikal, P-ONE, HUNT; pion-decay centre) with the 2026 spectrum
     "proj_2050": {"data": {"surface": "pion_2050_case_5", "spectrum": "ic26_astrophysical"}},
-    # the projection with the future detectors' events instead (docs/dev/FUTURE_DETECTORS_PLAN.md, 2026-10-15):
-    # NuFlavorSingleSource's main case, 10 yr of each of the eight; always on Asimov data (analysis.run); the solver's
-    # grid down to ~100 GeV with the same spacing, where the detectors' energy grid starts. Its Asimov data: standard
-    # physics, pion-decay sources and today's spectrum (the 2026-spectrum set's best fit, 2026-10-15: norm_astro
-    # 1.548, p_index 2.636)
+}
+# The broken power law (module docstring): IceCube's 2026 combined fit (PRD 113, 062002 (2026), Table 3, "CF BPL",
+# as NuFlavorSingleSource's CF26): 1.77e-18 GeV^-1 cm^-2 s^-1 sr^-1 per flavor at 100 TeV, E^-2.735 above
+# 10^4.39 GeV, E^-1.31 below
+BPL = dict(E_break_GeV=10 ** 4.39, norm=1.77e-18, norm_E_GeV=1e5, p_index=2.735, p_index_low=1.31,
+           low={"start": 1.31, "bounds": [0.5, 2.5], "space": "linear", "nodes": 3})
+GRID_IC26 = {"n_E_bins": 439, "E_min_eV": 10 ** (13.0 - 39 * D_LOG), "E_max_eV": 3e16}    # down to 4.57 TeV
+DATASETS_BPL = {
+    "now_ic26": {"data": {"surface": "icecube_mese_2025", "spectrum": "ic26_astrophysical",
+                          "flavor_band_eV": [1e13, 3e16]}, "grid": GRID_IC26},
+    "now_events": copy.deepcopy(DATASETS["now_events"]),
+    "proj_2050": {"data": {"surface": "pion_2050_case_5", "spectrum": "ic26_astrophysical",
+                           "flavor_band_eV": [1e13, 3e16]}, "grid": GRID_IC26},
+    # the projection with the future detectors' events instead of the 2050 surface (docs/dev/FUTURE_DETECTORS_PLAN.md,
+    # 2026-10-15): NuFlavorSingleSource's main case, 10 yr of each of the eight; always on Asimov data (analysis.run):
+    # standard physics, pion-decay sources, IceCube's 2026 broken power law; the solver's grid down to ~100 GeV with
+    # the same spacing, where the detectors' energy grid starts
     "proj_future": {"data": {"events": {"future": {"config": "All8_base"}}, "flavor_band_eV": [1e13, 3e16]},
                     "grid": {"n_E_bins": 630, "E_min_eV": 10 ** (13.0 - 230 * D_LOG), "E_max_eV": 3e16},
-                    "asimov": {"norm_astro": 1.55, "p_index": 2.64}, "asimov_fx": {"f_e_S": 1 / 3, "f_e_S_gal": 1 / 3}},
+                    "asimov": {"norm_astro": 1.0, "p_index": BPL["p_index"], "p_index_low": BPL["p_index_low"]},
+                    "asimov_fx": {"f_e_S": 1 / 3, "f_e_S_gal": 1 / 3}},
 }
+SPECTRA = {"pl": ("campaign", DATASETS), "bpl": ("campaign_bpl", DATASETS_BPL)}
 TEXTURES = {"e": (1, 0, 0), "mu": (0, 1, 0), "tau": (0, 0, 1), "emu": (1, 1, 0), "etau": (1, 0, 1),
             "mutau": (0, 1, 1), "emutau": (1, 1, 1)}
 SUM_U2 = 0.5
@@ -84,31 +108,38 @@ def _texture_u(weights):
     return dict(u_e=float(u[0]), u_mu=float(u[1]), u_tau=float(u[2]))
 
 
-def _base(dataset):
+def _base(dataset, spectrum):
     with open(BASE) as f:
         cfg = json.load(f)
     solver = copy.deepcopy(cfg["solver"])
     solver.pop("_comment", None)
-    ds = DATASETS[dataset]
+    ds = SPECTRA[spectrum][1][dataset]
     if "grid" in ds:
         solver["grid"].update(ds["grid"])
+    if spectrum == "bpl":
+        solver["source"].update(p_index=BPL["p_index"], E_break_GeV=BPL["E_break_GeV"], p_index_low=BPL["p_index_low"])
+        solver["sky"].update(extragalactic_norm=BPL["norm"], extragalactic_norm_E_GeV=BPL["norm_E_GeV"])
     return solver, cfg["parameters"], cfg["priors"]
 
 
-def _config(dataset, name, comment, solver, params, priors, plane, asimov):
+def _config(dataset, spectrum, name, comment, solver, params, priors, plane, asimov):
     # flux_basis 'pure_flavors' (2026-10-14): the fixed-composition planes run the same pure-flavor sources as their
     # fitted twins, and the two spectrum data sets the same physics, so one set of solver runs serves four planes
     # (NULRI_FLUX_CACHE); the composition is linear, to rounding (1e-9 through dp_si's MeV transport)
-    return {"_comment": comment, "name": name, "data": copy.deepcopy(DATASETS[dataset]["data"]),
+    tree, sets = SPECTRA[spectrum]
+    return {"_comment": comment, "name": name, "data": copy.deepcopy(sets[dataset]["data"]),
             "solver": solver, "parameters": params, "priors": copy.deepcopy(priors), "fit": dict(FIT),
-            "profiles": {}, "planes": [plane], "asimov": {**DATASETS[dataset].get("asimov", {}), **asimov},
+            "profiles": {}, "planes": [plane], "asimov": {**sets[dataset].get("asimov", {}), **asimov},
             "flux_basis": "pure_flavors",
-            "output_dir": f"output/analysis/campaign/{dataset}/{name}"}
+            "output_dir": f"output/analysis/{tree}/{dataset}/{name}"}
 
 
-def _common_params(base_params, nodes):
+def _common_params(base_params, nodes, spectrum="pl"):
     p = {k: copy.deepcopy(base_params[k]) for k in ("norm_gal", "norm_astro", "p_index")}
     p["p_index"]["nodes"] = nodes
+    if spectrum == "bpl":
+        p["p_index"]["start"] = BPL["p_index"]
+        p["p_index_low"] = copy.deepcopy(BPL["low"])
     return p
 
 
@@ -116,19 +147,20 @@ def _decades(lo, hi):
     return lo, hi, hi - lo + 1
 
 
-def planes_for(dataset):
+def planes_for(dataset, spectrum="pl"):
     """[(name, config, n_points)] for one data set."""
-    solver0, base_params, priors = _base(dataset)
+    solver0, base_params, priors = _base(dataset, spectrum)
+    sets = SPECTRA[spectrum][1]
     out = []
 
     def add(name, comment, solver, params, plane, asimov):
-        cfg = _config(dataset, name, comment, solver, params, priors, plane, asimov)
+        cfg = _config(dataset, spectrum, name, comment, solver, params, priors, plane, asimov)
         out.append((name, cfg, plane["nx"] * plane["ny"]))
         fx = copy.deepcopy(cfg)
         fx["name"] = name + "_fx"
         fx["_comment"] += "; the sources' flavor compositions fitted (extragalactic and Galactic, independently)"
         fx["parameters"].update(copy.deepcopy(COMPOSITIONS))
-        fx["asimov"].update(DATASETS[dataset].get("asimov_fx", {}))
+        fx["asimov"].update(sets[dataset].get("asimov_fx", {}))
         fx["output_dir"] += "_fx"
         out.append((name + "_fx", fx, plane["nx"] * plane["ny"]))
 
@@ -171,7 +203,7 @@ def planes_for(dataset):
                                   prod: {"start": 10.0 ** (P_RANGE[0] + 20), "bounds": [10.0 ** (P_RANGE[0] - 2),
                                                                                        10.0 ** p_hi],
                                          "space": "log10"}}
-                        params.update(_common_params(base_params, 3))
+                        params.update(_common_params(base_params, 3, spectrum))
                         plane = {"x": "m_Zd_eV", "y": prod, "x_range": [10.0 ** m_lo, 10.0 ** m_hi],
                                  "y_range": [10.0 ** P_RANGE[0], 10.0 ** p_hi], "nx": m_hi - m_lo + 1,
                                  "ny": p_hi - P_RANGE[0] + 1, "raster": "m_Zd_eV"}
@@ -185,7 +217,7 @@ def planes_for(dataset):
                                       "space": "log10"},
                           mev_axis: {"start": 1e-6, "bounds": [10.0 ** (G_MEV[0] - 2), 10.0 ** (G_MEV[1] + 1)],
                                      "space": "log10"}}
-                params.update(_common_params(base_params, 7))
+                params.update(_common_params(base_params, 7, spectrum))
                 plane = {"x": "m_Zd_eV", "y": mev_axis, "x_range": [10.0 ** M_MEV[0], 10.0 ** M_MEV[1]],
                          "y_range": [10.0 ** G_MEV[0], 10.0 ** G_MEV[1]], "nx": M_MEV[2], "ny": G_MEV[2],
                          "raster": "m_Zd_eV"}
@@ -204,7 +236,7 @@ def planes_for(dataset):
                               "g_D": {"start": 10.0 ** ((g_lo + g_hi) / 2), "bounds": [10.0 ** (g_lo - 2),
                                                                                     10.0 ** (g_hi + 1)],
                                       "space": "log10"}}
-                    params.update(_common_params(base_params, nodes))
+                    params.update(_common_params(base_params, nodes, spectrum))
                     plane = {"x": "m_Zd_eV", "y": "g_D", "x_range": [10.0 ** m_lo, 10.0 ** m_hi],
                              "y_range": [10.0 ** g_lo, 10.0 ** g_hi], "nx": nx, "ny": ny, "raster": "m_Zd_eV"}
                     add(f"{stem}_{tag}", f"{model}: the gauge coupling g' over {tag} masses", s, params, plane,
@@ -214,14 +246,18 @@ def planes_for(dataset):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--datasets", nargs="+", default=list(DATASETS))
+    ap.add_argument("--spectrum", choices=sorted(SPECTRA), default="bpl")
+    ap.add_argument("--datasets", nargs="+", default=None, help="default: every data set of the spectrum")
     ap.add_argument("--check", action="store_true", help="load every configuration and evaluate its model once")
     a = ap.parse_args(argv)
     from analysis import config as config_mod
-    for ds in a.datasets:
-        d = os.path.join(REPO, "analysis", "configs", "campaign", ds)
+    tree, sets = SPECTRA[a.spectrum]
+    for ds in a.datasets or list(sets):
+        if ds not in sets:
+            raise SystemExit(f"data set {ds!r} does not exist with --spectrum {a.spectrum}; known: {sorted(sets)}")
+        d = os.path.join(REPO, "analysis", "configs", tree, ds)
         os.makedirs(d, exist_ok=True)
-        rows = planes_for(ds)
+        rows = planes_for(ds, a.spectrum)
         for name, cfg, _ in rows:
             with open(os.path.join(d, name + ".json"), "w") as f:
                 json.dump(cfg, f, indent=1)

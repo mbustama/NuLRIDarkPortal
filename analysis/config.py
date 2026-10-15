@@ -105,6 +105,7 @@ class AnalysisConfig:
     path: str = ""
     spectrum: Optional[str] = None
     p_nodes_n: Optional[int] = None
+    p1_nodes_n: Optional[int] = None
     events: Optional[dict] = None
     flavor_band: Optional[Tuple[float, float]] = None
     flux_basis: str = "auto"
@@ -130,16 +131,27 @@ class AnalysisConfig:
         lo, hi = self.parameter("p_index").bounds
         return [float(v) for v in np.linspace(lo, hi, self.p_nodes_n or P_NODES_N)]
 
+    def p1_nodes(self) -> Optional[List[float]]:
+        """With a broken power law's lower index p_index_low free: its nodes (parameters.p_index_low.nodes, default
+        P_NODES_N) spanning its bounds."""
+        if "p_index_low" not in self.free_names:
+            return None
+        lo, hi = self.parameter("p_index_low").bounds
+        return [float(v) for v in np.linspace(lo, hi, self.p1_nodes_n or P_NODES_N)]
+
     def model(self, cache_size: int = 512) -> FlavorModel:
-        # p_index interpolated between the nodes' solver runs: that many times the cache for the same points
+        # p_index interpolated between the nodes' solver runs: that many times the cache for the same points (and
+        # the lower index's nodes with a broken power law: each piece is its own run)
         n = 1 if self.p_nodes() is None else len(self.p_nodes())
+        if self.p1_nodes() is not None:
+            n += len(self.p1_nodes())
         sites = ()
         if self.events is not None and "future" in self.events:
             from .future_events import config_sites
             sites = config_sites((self.events["future"] or {}).get("config", "All8_base"))
         return FlavorModel(self.solver, self.free_names, cache_size=cache_size * n, p_nodes=self.p_nodes(),
                            sky=self.events is not None, flavor_band_eV=self.flavor_band,
-                           pure_flavor_basis=self.flux_basis == "pure_flavors", sites=sites)
+                           pure_flavor_basis=self.flux_basis == "pure_flavors", sites=sites, p1_nodes=self.p1_nodes())
 
     def asimov_values(self) -> Dict[str, float]:
         """The values of the Asimov data set: the configuration's 'asimov' values, the free parameters' starts
@@ -191,6 +203,7 @@ class AnalysisConfig:
         d = dict(data=self.surface, centre=None if data_centre is None else [float(c) for c in data_centre],
                  spectrum=self.spectrum, p_nodes=self.p_nodes(), events=self.events, flavor_band=self.flavor_band,
                  **({} if self.flux_basis == "auto" else dict(flux_basis=self.flux_basis)),
+                 **({} if self.p1_nodes() is None else dict(p1_nodes=self.p1_nodes())),
                  solver=solver, code=dp_core._source_digest(),
                  parameters=[[p.name, p.space, list(p.bounds)] for p in self.parameters],
                  priors=[[type(p).__name__, sorted(dataclasses.asdict(p).items())] for p in self.priors], extra=extra)
@@ -271,23 +284,25 @@ def from_dict(raw: Mapping, path: str = "") -> AnalysisConfig:
         if not 0.0 < flavor_band[0] < flavor_band[1]:
             raise ValueError(f"data.flavor_band_eV must be [lo, hi] with 0 < lo < hi, got {flavor_band}")
     params = []
-    p_nodes_n = None
+    nodes_n = {}
     for name, spec in d["parameters"].items():
         spec = dict(spec)
-        bad = set(spec) - {"start", "bounds", "space", "scale"} - ({"nodes"} if name == "p_index" else set())
+        bad = set(spec) - {"start", "bounds", "space", "scale"} - ({"nodes"} if name in ("p_index", "p_index_low")
+                                                                   else set())
         if bad:
             raise ValueError(f"Parameter {name}: unknown keys {sorted(bad)}")
         if "nodes" in spec:
-            p_nodes_n = int(spec.pop("nodes"))
-            if p_nodes_n < 2:
-                raise ValueError(f"p_index: nodes must be >= 2, got {p_nodes_n}")
+            nodes_n[name] = int(spec.pop("nodes"))
+            if nodes_n[name] < 2:
+                raise ValueError(f"{name}: nodes must be >= 2, got {nodes_n[name]}")
         params.append(Parameter(name, float(spec["start"]), tuple(float(b) for b in spec["bounds"]),
                                 spec.get("space", "linear"), spec.get("scale")))
     cfg = AnalysisConfig(
         name=str(d["name"]), surface=surface, solver=d.get("solver", {}), parameters=params,
         priors=[prior_from_spec(p) for p in d.get("priors", [])],
         fit=FitSettings.from_dict(d.get("fit")), asimov=dict(d.get("asimov", {})),
-        raw=dict(raw), path=path, spectrum=spectrum, p_nodes_n=p_nodes_n, events=events, flavor_band=flavor_band,
+        raw=dict(raw), path=path, spectrum=spectrum, p_nodes_n=nodes_n.get("p_index"),
+        p1_nodes_n=nodes_n.get("p_index_low"), events=events, flavor_band=flavor_band,
         flux_basis=str(d.get("flux_basis", "auto")))
     if cfg.flux_basis not in ("auto", "pure_flavors"):
         raise ValueError(f"flux_basis must be 'auto' or 'pure_flavors', got {cfg.flux_basis!r}")
@@ -324,12 +339,12 @@ def from_dict(raw: Mapping, path: str = "") -> AnalysisConfig:
     cfg.output_dir = out if os.path.isabs(out) else os.path.join(REPO_DIR, out)
     # Build the model once to validate every solver key and parameter name now, not in a worker
     model = cfg.model(cache_size=1)
-    from .model import solver_key, LINEAR_KEYS
+    from .model import solver_key, LINEAR_KEYS, ANALYSIS_SPECTRAL
     for p in params:
-        if p.name not in LINEAR_KEYS:
+        if p.name not in LINEAR_KEYS and p.name not in ANALYSIS_SPECTRAL:
             solver_key(p.name)
     for name in cfg.asimov:
-        if name not in LINEAR_KEYS:
+        if name not in LINEAR_KEYS and name not in ANALYSIS_SPECTRAL:
             solver_key(name)
     from .objective import DERIVED
     for prior in cfg.priors:                     # a misspelt prior must fail, not go silently unused

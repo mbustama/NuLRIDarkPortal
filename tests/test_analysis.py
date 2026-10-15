@@ -464,10 +464,10 @@ def test_configs_validate():
 def test_future_detector_configs_run_on_asimov_data():
     """The future detectors have no data: analysis.run turns --asimov on for their configurations, only theirs."""
     from analysis import run
-    camp = os.path.join(CONFIGS, "campaign")
-    for dataset, expected in (("proj_future", True), ("now_events", False), ("now_ic26", False),
-                              ("proj_2050", False)):
-        path = os.path.join(camp, dataset, "dp_emu_pot_bal_pos.json")
+    for tree, dataset, expected in (("campaign_bpl", "proj_future", True), ("campaign_bpl", "now_events", False),
+                                    ("campaign_bpl", "now_ic26", False), ("campaign_bpl", "proj_2050", False),
+                                    ("campaign", "now_events", False)):
+        path = os.path.join(CONFIGS, tree, dataset, "dp_emu_pot_bal_pos.json")
         assert run.asimov_only(config_mod.load(path)) is expected, path
 
 

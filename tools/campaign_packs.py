@@ -12,7 +12,12 @@ Costs in core-seconds per plane point (laptop, one core, 2026-10-14, after the s
 the solver's runs at all index nodes (potential 8, MeV 18; event sky runs 9 and 20) and the fits (spectrum sets ~2;
 event sets ~10 per fit, 1.5x with the fitted compositions' extra parameters).
 
-  python tools/campaign_packs.py --sets now_ic26 now_events proj_2050 --hours 8 --out analysis/configs/campaign/packs.txt
+The broken power law (2026-10-15, --tree campaign_bpl, the default): each point runs both pieces, the upper at
+p_index's nodes and the lower at p_index_low's three, and the fits have one more parameter (BPL_SOLVER, BPL_FIT:
+estimates until timed on Tycho).
+
+  python tools/campaign_packs.py [--tree campaign_bpl] --sets now_ic26 now_events proj_2050 proj_future --hours 8 \
+      --out analysis/configs/campaign_bpl/packs.txt
 """
 import argparse
 import json
@@ -31,18 +36,24 @@ PRODUCER_SETS = {"now_ic26": "now_ic26", "proj_2050": "now_ic26", "now_events": 
                  "proj_future": "proj_future"}
 
 
-def plane_cost(dataset, name, points):
+BPL_SOLVER = {"pot": (3 + 3) / 3, "mev": (7 + 3) / 7}
+BPL_FIT = 1.3
+
+
+def plane_cost(dataset, name, points, bpl=True):
     """(core-seconds, producer?) of one plane."""
     kind = KIND[dataset]
     planes = "mev" if "_mev" in name else "pot"
     fx = name.endswith("_fx")
     producer = PRODUCER_SETS[dataset] == dataset and not fx
-    per_point = FIT[kind] * (FX_FIT if fx else 1.0) + (SOLVER[kind][planes] if producer else 0.0)
-    return per_point * points, producer
+    fit = FIT[kind] * (FX_FIT if fx else 1.0) * (BPL_FIT if bpl else 1.0)
+    solver = SOLVER[kind][planes] * (BPL_SOLVER[planes] if bpl else 1.0) if producer else 0.0
+    return (fit + solver) * points, producer
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    ap.add_argument("--tree", default="campaign_bpl", choices=("campaign", "campaign_bpl"))
     ap.add_argument("--sets", nargs="+", required=True)
     ap.add_argument("--hours", type=float, default=8.0)
     ap.add_argument("--cores", type=int, default=16)
@@ -50,11 +61,11 @@ def main(argv=None):
     a = ap.parse_args(argv)
     waves = {True: [], False: []}
     for ds in a.sets:
-        d = os.path.join("analysis", "configs", "campaign", ds)
+        d = os.path.join("analysis", "configs", a.tree, ds)
         with open(os.path.join(REPO, d, "campaign.json")) as f:
             lst = json.load(f)["planes"]
         for p in lst:
-            c, prod = plane_cost(ds, p["name"], p["points"])
+            c, prod = plane_cost(ds, p["name"], p["points"], bpl=a.tree == "campaign_bpl")
             waves[prod].append((c, os.path.join(d, p["name"] + ".json")))
     cap = a.hours * 3600.0 * a.cores
     packs = []                                    # [cost, [paths]], producers' packs first

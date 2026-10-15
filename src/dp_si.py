@@ -1711,7 +1711,7 @@ def propagate_si(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta
                  p_index, rho_evol, Phi_0, M, g_mass, majorana=True, channels="full",
                  phiphi="coherent", z_substeps=1, E_extension=10.0, n_u=4096,
                  return_diagnostics=False, regeneration=True, mediator="scalar", dirac_sterile="track",
-                 Gamma_vis=0.0, thermal=False):
+                 Gamma_vis=0.0, thermal=False, inj_window=(0.0, np.inf)):
     """Cosmological transport of the astrophysical neutrinos under secret interactions.
 
     Arguments: E_bins -- the (geometric) energy grid of the result, eV; z_max, H0 (eV),
@@ -1719,7 +1719,9 @@ def propagate_si(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta
     masses -- (3,) neutrino masses, eV; T_nu0 -- relic temperature today, eV; eta_mass -- (3,)
     relic density per mass state relative to the standard one; rho_src -- (3,) source flavor
     composition; p_index, rho_evol, Phi_0 -- source spectrum E^-p, evolution R(z) (1+z)^rho_evol
-    (dp_cosmo.calc_R_source), normalization; M -- mediator mass, eV; g_mass -- (3, 3) mass-basis
+    (dp_cosmo.calc_R_source), normalization (inj_window: (E_min, E_max) in eV, 2026-10-15: the sources emit
+    only where the energy today, E_source / (1+z), lies in [E_min, E_max) -- one piece of a broken power law);
+    M -- mediator mass, eV; g_mass -- (3, 3) mass-basis
     couplings (mass_basis_couplings_model); majorana -- the neutrinos' nature; mediator -- 'scalar'
     or 'vector' (left-handed currents); channels -- 'full', 's' (s channel only) or 'delta' (its
     narrow-width limit), the approximations compared in 2107.13568; phiphi -- 'coherent' or
@@ -1760,7 +1762,8 @@ def propagate_si(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta
     g_mass = np.ascontiguousarray(g_mass, dtype=np.complex128)
     if not np.any(g_mass):
         # no coupling: free streaming (the transport's Breit-Wigner would have zero width)
-        out = free_streaming_flux(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, rho_src, p_index, rho_evol, Phi_0)
+        out = free_streaming_flux(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, rho_src, p_index, rho_evol, Phi_0,
+                                  inj_window=inj_window)
         return (out, dict(no_coupling=True)) if return_diagnostics else out
     M2 = M * M
     Gam = mediator_width(M, g_mass, mediator, majorana) + float(Gamma_vis)
@@ -1802,6 +1805,9 @@ def propagate_si(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta
     node = np.zeros((N, 3), dtype=np.int64)
     jj = np.arange(N, dtype=np.int64)
     Ep = E ** (-p_index)
+    if inj_window[0] > 0.0 or np.isfinite(inj_window[1]):
+        # the sources' emission window in today's energy (2026-10-15): one piece of a broken power law
+        Ep = np.where((E >= inj_window[0]) & (E < inj_window[1]), Ep, 0.0)
     hbin = float(np.exp(0.5 * dlnE))
     Cregs = [np.ascontiguousarray(C if regeneration else np.zeros_like(C)) for C, _ in runs]
     # the steps' collision terms do not depend on the source (spectral index, evolution, composition): kept from one
@@ -1857,11 +1863,11 @@ def propagate_si(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta
 
 
 def free_streaming_flux(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, rho_src, p_index, rho_evol, Phi_0,
-                        n=4000):
+                        n=4000, inj_window=(0.0, np.inf)):
     """The mass-state fluxes without interactions, (N_E, 3): E^-p P_a int_0^z_max Phi_0 (1+z)^-p
     R(z) / H(z) dz (the standard result: every emitted neutrino arrives), by Gauss-Legendre on n
     nodes in ln(1+z) split at the kinks of R(z) -- the reference for the no-coupling limit of
-    propagate_si."""
+    propagate_si; zero outside the emission window inj_window (eV, in today's energy)."""
     from dp_cosmo import calc_R_source
     Lmax = np.log1p(z_max)
     cuts = [0.0] + [L for L in (np.log(2.0), np.log(5.0)) if L < Lmax] + [Lmax]
@@ -1873,4 +1879,8 @@ def free_streaming_flux(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, rho_src, p_
         R = np.array([calc_R_source(z, rho_evol) for z in zp1 - 1.0])
         T += np.sum(0.5 * w * (b - a) * Phi_0 * zp1 ** (1.0 - p_index) * R / (H0 * np.sqrt(Omega_m * zp1 ** 3 + Omega_L)))
     P_src = (np.abs(np.asarray(U_pmns)) ** 2).T @ np.asarray(rho_src, dtype=np.float64)
-    return np.outer(np.asarray(E_bins, dtype=np.float64) ** (-p_index) * T, P_src)
+    E = np.asarray(E_bins, dtype=np.float64)
+    spec = E ** (-p_index)
+    if inj_window[0] > 0.0 or np.isfinite(inj_window[1]):
+        spec = np.where((E >= inj_window[0]) & (E < inj_window[1]), spec, 0.0)
+    return np.outer(spec * T, P_src)

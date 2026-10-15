@@ -55,7 +55,20 @@ The flux per local zenith at a site of latitude phi: the solver's Earth crossing
    NuFlavorSingleSource's all-sky rates for a reference flux, and against IceCube's HESE/DR2 blocks where they
    overlap (IceCube's own detector).
 4. Projection configurations (the campaign's third data set, in place of the 2050 surface) and their planes on
-   Tycho.
+   Tycho. Configurations: `proj_future` under analysis/configs/campaign_bpl/ (the broken power law, below),
+   NuFlavorSingleSource's main case `All8_base`, the 232 planes of the other sets, the solver's grid down to ~100 GeV
+   (630 energies); always on Asimov data (analysis.run): standard physics, pion-decay sources, IceCube's 2026 broken
+   power law (norm_astro 1, p_index 2.735, p_index_low 1.31). To do: time a point on Tycho
+   (tools/campaign_packs.py's costs are estimates), run after the present campaign.
+
+The energies (Mauricio, 2026-10-15: "Add the bend to the model"). IceCube's 2026 combined fit flattens below ~25 TeV
+(E^-1.31), while the model's flux was one power law: extended down to 100 GeV it carried ~3x IceCube's flux at 10 TeV
+and ~60x at 1 TeV (output/figures/future_low_energy_flux.png), which would have overstated the projections. The
+model now has IceCube's broken power law (docs/dev/BROKEN_POWER_LAW.md), for every data set: the present-day sets
+are rerun with it (analysis/configs/campaign_bpl/), and the future detectors use all their energies.
+
+Not modeled (as in the present-day analyses): the new physics acting on the atmospheric neutrinos (their flavor
+through the Earth's dark potential); only the astrophysical flux feels it, which is conservative.
 
 **No cross-section variation (Mauricio, 2026-10-15).** NuFlavorSingleSource varies the CC and NC cross sections by
 5% as templates of the in-detector rates; a proper variation needs the Earth propagation with regeneration and

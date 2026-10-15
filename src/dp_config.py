@@ -232,7 +232,13 @@ def _build_default_config() -> Dict:
             # Where the sources sit (2026-10-13): 0 = in the cosmic mean density (the
             # default); s > 0 = inside a Milky-Way-like host galaxy at a Sun-like position, its
             # neutrons scaled by s, which sets the potential the neutrinos are emitted in.
-            "host_galaxy_scale": 0.0
+            "host_galaxy_scale": 0.0,
+            # The sources' emission window (2026-10-15, the broken power law's two pieces; analysis/model.py): the
+            # sources inject only neutrinos whose energy today, E_source / (1+z), lies in [E_min, E_max) (GeV;
+            # None: unbounded). Every effect downstream (absorption and its secondaries, conversion) is then that
+            # population's; the extragalactic scale (sky.extragalactic_norm) stays the whole power law's.
+            "injection_E_min_GeV": None,
+            "injection_E_max_GeV": None
         },
         "grid": {
             "E_min_eV": 1e13,

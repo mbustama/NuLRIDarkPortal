@@ -48,6 +48,15 @@ re-solved (7 runs per point with p_index free). Files are keyed by the full solv
 the solver's code digest, written atomically, and read back bit for bit; nothing is ever evicted (delete the
 directory after a campaign).
 
+The broken power law (Mauricio, 2026-10-15: IceCube's 2026 combined fit bends below ~25 TeV): with
+source.E_break_GeV set, the extragalactic flux is two source populations split at the energy today E_b, each a power
+law, p_index above and p_index_low below (an analysis parameter), normalized so that without new physics the flux
+at Earth is exactly the broken power law, continuous at E_b (sky.extragalactic_norm then refers to the upper piece
+extended to its reference energy). Each piece is its own solver run with the sources emitting only on its side
+(source.injection_E_min_GeV / injection_E_max_GeV), so everything downstream -- conversion, absorption, the
+secondaries an absorption above E_b sends below it -- is that population's, and each piece is interpolated in its
+own index (p_nodes above, p1_nodes below). E_b is fixed.
+
 The spectral index (Mauricio, 2026-10-14: the flux normalization and shape float): with p_index free the
 model runs the solver at fixed nodes of p (p_nodes, from the parameter's bounds; P_NODES_N of them) per point of
 the other propagation parameters and interpolates the fluxes between them (cubic spline in log flux), so a fit
@@ -142,16 +151,28 @@ _SECTIONS = ("cosmology", "standard_mixing", "matter_charge", "dark_portal", "se
 
 
 ANALYSIS_ONLY_DARK_PORTAL = ("potential_sign", "coupling_split")
+# the broken power law (2026-10-15): read here, never by the solver -- the break (GeV; None: one power law) and the
+# lower piece's index (its default value; a free parameter of the analysis when floated)
+ANALYSIS_ONLY_SOURCE = ("E_break_GeV", "p_index_low")
+ANALYSIS_SPECTRAL = ("p_index_low",)
+WINDOW_KEYS = ("injection_E_min_GeV", "injection_E_max_GeV")
+# a broken power law's scale K(p) is the closed form at the base configuration's cosmology and source evolution
+BPL_FIXED = ("z_max", "rho_evol", "Phi_0", "H0_km_s_Mpc", "Omega_m", "Omega_L")
 
 
 def split_analysis_keys(solver_config: Mapping) -> Tuple[dict, dict]:
-    """(solver configuration without this package's own dark_portal keys, those keys): potential_sign and
-    coupling_split are read here, never by the solver, whose configuration check would refuse them."""
+    """(solver configuration without this package's own keys, those keys): dark_portal.potential_sign and
+    coupling_split, source.E_break_GeV and p_index_low are read here, never by the solver, whose configuration check
+    would refuse them."""
     sc = copy.deepcopy(dict(solver_config))
     dpc = dict(sc.get("dark_portal", {}))
     own = {k: dpc.pop(k) for k in ANALYSIS_ONLY_DARK_PORTAL if k in dpc}
     if "dark_portal" in sc:
         sc["dark_portal"] = dpc
+    src = dict(sc.get("source", {}))
+    own.update({k: src.pop(k) for k in ANALYSIS_ONLY_SOURCE if k in src})
+    if "source" in sc:
+        sc["source"] = src
     return sc, own
 
 
@@ -228,7 +249,7 @@ class FlavorModel:
     def __init__(self, solver_config: Mapping, free_names: Sequence[str] = (), cache_size: int = 512,
                  p_nodes: Optional[Sequence[float]] = None, sky: bool = False,
                  flavor_band_eV: Optional[Sequence[float]] = None, pure_flavor_basis: bool = False,
-                 sites: Sequence[float] = ()):
+                 sites: Sequence[float] = (), p1_nodes: Optional[Sequence[float]] = None):
         sc, own = split_analysis_keys(solver_config)
         self.potential_sign = float(own.get("potential_sign", 1.0))
         if self.potential_sign not in (1.0, -1.0):
@@ -275,6 +296,30 @@ class FlavorModel:
             self.p_nodes = np.array(sorted(float(p) for p in p_nodes))
             if len(self.p_nodes) < 2 or np.any(np.diff(self.p_nodes) <= 0):
                 raise ValueError(f"p_nodes must hold at least two distinct values, got {p_nodes}")
+        # the broken power law (module docstring)
+        self.E_break = None if own.get("E_break_GeV") is None else float(own["E_break_GeV"])
+        self.p_low_default = float(own.get("p_index_low", base["source"]["p_index"]))
+        self.p1_nodes = None
+        if p1_nodes is not None:
+            self.p1_nodes = np.array(sorted(float(p) for p in p1_nodes))
+            if len(self.p1_nodes) < 2 or np.any(np.diff(self.p1_nodes) <= 0):
+                raise ValueError(f"p1_nodes must hold at least two distinct values, got {p1_nodes}")
+        self._scales = {}
+        self._scale_params = None
+        if self.E_break is None:
+            if "p_index_low" in free_names or self.p1_nodes is not None:
+                raise ValueError("p_index_low is the lower index of a broken power law: set source.E_break_GeV")
+        else:
+            if not self.E_break > 0.0:
+                raise ValueError(f"source.E_break_GeV must be positive, got {self.E_break}")
+            if any(base["source"].get(k) is not None for k in WINDOW_KEYS):
+                raise ValueError("with source.E_break_GeV the model sets the sources' emission windows itself")
+            if base["sky"]["extragalactic_norm"] is None:
+                raise ValueError("source.E_break_GeV needs sky.extragalactic_norm: the pieces join in physical units")
+            fixed = [k for k in BPL_FIXED if k in free_names]
+            if fixed:
+                raise ValueError(f"a broken power law keeps {fixed} fixed (its scale is their closed form)")
+            self.E_ref = float(base["sky"]["extragalactic_norm_E_GeV"])
         budget = int(float(os.environ.get("NULRI_MODEL_CACHE_MB", CACHE_MB_DEFAULT)) * 2 ** 20)
         self._cache: "OrderedDict[tuple, tuple]" = _BoundedCache(cache_size, budget)
         self._sky_cache: "OrderedDict[tuple, dict]" = _BoundedCache(cache_size, budget)
@@ -295,7 +340,7 @@ class FlavorModel:
         if len(products) > 1 or (products and "g_D" in values):
             raise ValueError(f"Set g_D through at most one of g_D, {PRODUCTS}; got {sorted(values)}")
         for name, v in values.items():
-            if name in LINEAR_KEYS or name in PRODUCTS:
+            if name in LINEAR_KEYS or name in PRODUCTS or name in ANALYSIS_SPECTRAL:
                 continue
             section, key = solver_key(name)
             if name in ALIASES:
@@ -336,7 +381,9 @@ class FlavorModel:
 
     @staticmethod
     def _without_index(key: tuple) -> tuple:
-        return tuple(item for item in key if not (item[0] == "source" and item[1] == "p_index"))
+        # the Galactic component depends on neither the spectral index nor the extragalactic sources' window
+        return tuple(item for item in key if not (item[0] == "source" and (item[1] == "p_index"
+                                                                           or item[1] in WINDOW_KEYS)))
 
     def _gal_get(self, key: tuple):
         g = self._gal_cache.get(self._without_index(key))
@@ -355,6 +402,8 @@ class FlavorModel:
         """A parameter's value when a fit does not set it: the base solver config's, or the analysis' default."""
         if name in ANALYSIS_DEFAULTS:
             return float(ANALYSIS_DEFAULTS[name])
+        if name == "p_index_low":
+            return self.p_low_default
         section, key = solver_key(name)
         v = self.base[section][key]
         if name == "norm_gal" and v is None:
@@ -409,25 +458,75 @@ class FlavorModel:
             except OSError:
                 pass
 
+    # ------------------------------------------------------------------ the broken power law
+    def _index_values(self, values: Mapping) -> Tuple[float, float]:
+        return (float(values.get("p_index", self.base["source"]["p_index"])),
+                float(values.get("p_index_low", self.p_low_default)))
+
+    def _scale(self, p: float) -> float:
+        """K(p), the whole power law's extragalactic scale (dark_portal_solver.extragalactic_scale, the closed form;
+        the solver's runs carry the same number)."""
+        k = self._scales.get(p)
+        if k is None:
+            if self._scale_params is None:
+                cfg = copy.deepcopy(self.base)
+                cfg["source"].update(f_e_S=1.0, f_mu_S=0.0, f_tau_S=0.0)     # K does not depend on the composition
+                self._scale_params = dps.build_solver_params(cfg)[1]
+            sky = self._scale_params["sky"]
+            k = dps.extragalactic_scale(dict(self._scale_params, p_index=float(p)), sky["extragalactic_norm"],
+                                        sky["extragalactic_norm_E_GeV"])
+            if len(self._scales) < 4096:
+                self._scales[p] = k
+        return k
+
+    def _piece_scale(self, p: float, nodes) -> float:
+        """K at p for a piece interpolated on `nodes`: the spline of log K through the nodes, as the fluxes are
+        (their product then reproduces the power law exactly without new physics), or K(p) itself."""
+        if nodes is None:
+            return self._scale(p)
+        from scipy.interpolate import CubicSpline
+        return float(np.exp(CubicSpline(nodes, np.log([self._scale(float(q)) for q in nodes]))(p)))
+
+    def _join(self, p2: float, p1: float) -> Tuple[float, float]:
+        """The pieces' factors (upper, lower) into physical units: K(p2) and (E_b / E_ref)^(p1 - p2) K(p1), which
+        join the two power laws continuously at E_b."""
+        return (self._piece_scale(p2, self.p_nodes),
+                (self.E_break / self.E_ref) ** (p1 - p2) * self._piece_scale(p1, self.p1_nodes))
+
     def fluxes(self, values: Mapping) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray], Optional[dict]]:
         """As _fluxes_exact; with p_nodes, interpolated in p_index between the solver runs at the nodes (cubic
-        spline in log flux, and in log K for the extragalactic scale)."""
-        if self.p_nodes is None:
+        spline in log flux, and in log K for the extragalactic scale). With a broken power law (module docstring):
+        the two pieces joined in physical units (gal K = 1)."""
+        if self.E_break is None:
+            return self._fluxes_index(values, self.p_nodes)
+        p2, p1 = self._index_values(values)
+        up = self._fluxes_index(dict(values, injection_E_min_GeV=self.E_break), self.p_nodes)
+        lo = self._fluxes_index(dict(values, injection_E_max_GeV=self.E_break, p_index=p1), self.p1_nodes)
+        k2, k1 = self._join(p2, p1)
+        F_a = k2 * up[1] + k1 * lo[1]
+        F_b = None if up[2] is None else k2 * up[2] + k1 * lo[2]
+        gal = None if up[3] is None else dict(G=up[3]["G"], K=1.0)
+        return up[0], F_a, F_b, gal
+
+    def _fluxes_index(self, values: Mapping, nodes) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray],
+                                                               Optional[dict]]:
+        """_fluxes_exact at values' p_index, or interpolated in it between the runs at `nodes`."""
+        if nodes is None:
             return self._fluxes_exact(values)
         from scipy.interpolate import CubicSpline
         p = float(values.get("p_index", self.base["source"]["p_index"]))
-        if not self.p_nodes[0] - 1e-12 <= p <= self.p_nodes[-1] + 1e-12:
-            raise ValueError(f"p_index = {p} lies outside the interpolation nodes {self.p_nodes.tolist()}")
-        runs = [self._fluxes_exact(dict(values, p_index=float(pk))) for pk in self.p_nodes]
+        if not nodes[0] - 1e-12 <= p <= nodes[-1] + 1e-12:
+            raise ValueError(f"p_index = {p} lies outside the interpolation nodes {nodes.tolist()}")
+        runs = [self._fluxes_exact(dict(values, p_index=float(pk))) for pk in nodes]
 
         def interp(arrs):
             L = np.log(np.maximum(np.stack(arrs), 1e-300))
-            return np.exp(CubicSpline(self.p_nodes, L, axis=0)(p))
+            return np.exp(CubicSpline(nodes, L, axis=0)(p))
         F_a = interp([r[1] for r in runs])
         F_b = None if runs[0][2] is None else interp([r[2] for r in runs])
         gal = None
         if runs[0][3] is not None:
-            K = float(np.exp(CubicSpline(self.p_nodes, np.log([r[3]["K"] for r in runs]))(p)))
+            K = float(np.exp(CubicSpline(nodes, np.log([r[3]["K"] for r in runs]))(p)))
             gal = dict(G=runs[0][3]["G"], K=K)
         return runs[0][0], F_a, F_b, gal
 
@@ -626,22 +725,16 @@ class FlavorModel:
         p_index as fluxes() is (cubic spline in log flux, and in log K)."""
         if not self.sky:
             raise ValueError("band_fluxes needs the model in sky mode (the event likelihoods)")
-        if self.p_nodes is None:
-            run = self._sky_exact(values)
-            b_nu, b_nb, K = run["bands_nu"], run["bands_nb"], run["K"]
+        if self.E_break is None:
+            b_nu, b_nb, K, run = self._bands_index(values, self.p_nodes)
         else:
-            from scipy.interpolate import CubicSpline
-            p = float(values.get("p_index", self.base["source"]["p_index"]))
-            if not self.p_nodes[0] - 1e-12 <= p <= self.p_nodes[-1] + 1e-12:
-                raise ValueError(f"p_index = {p} lies outside the interpolation nodes {self.p_nodes.tolist()}")
-            runs = [self._sky_exact(dict(values, p_index=float(pk))) for pk in self.p_nodes]
-
-            def interp(arrs):
-                L = np.log(np.maximum(np.stack(arrs), 1e-300))
-                return np.exp(CubicSpline(self.p_nodes, L, axis=0)(p))
-            b_nu, b_nb = interp([r["bands_nu"] for r in runs]), interp([r["bands_nb"] for r in runs])
-            K = float(np.exp(CubicSpline(self.p_nodes, np.log([r["K"] for r in runs]))(p)))
-            run = runs[0]
+            # the broken power law: the two pieces joined in physical units (module docstring)
+            p2, p1 = self._index_values(values)
+            u_nu, u_nb, _, run = self._bands_index(dict(values, injection_E_min_GeV=self.E_break), self.p_nodes)
+            l_nu, l_nb, _, _ = self._bands_index(dict(values, injection_E_max_GeV=self.E_break, p_index=p1),
+                                                 self.p1_nodes)
+            k2, k1 = self._join(p2, p1)
+            b_nu, b_nb, K = k2 * u_nu + k1 * l_nu, k2 * u_nb + k1 * l_nb, 1.0
         if self.basis is not None:
             comp = self.composition(values)[self.basis]
             b_nu, b_nb = np.tensordot(comp, b_nu, axes=(0, 0)), np.tensordot(comp, b_nb, axes=(0, 0))
@@ -658,6 +751,34 @@ class FlavorModel:
             F_nb = F_nb + g * (x * run["gal_nb"][0] + (1.0 - x) * run["gal_nb"][1])
         return run["E"], F_nu, F_nb
 
+    def _bands_index(self, values: Mapping, nodes):
+        """(bands_nu, bands_nb, K, the first run) at values' p_index: one sky run, or interpolated in p_index between
+        the runs at `nodes` (cubic spline in log flux, and in log K)."""
+        if nodes is None:
+            run = self._sky_exact(values)
+            return run["bands_nu"], run["bands_nb"], run["K"], run
+        from scipy.interpolate import CubicSpline
+        p = float(values.get("p_index", self.base["source"]["p_index"]))
+        if not nodes[0] - 1e-12 <= p <= nodes[-1] + 1e-12:
+            raise ValueError(f"p_index = {p} lies outside the interpolation nodes {nodes.tolist()}")
+        runs = [self._sky_exact(dict(values, p_index=float(pk))) for pk in nodes]
+
+        def interp(arrs):
+            L = np.log(np.maximum(np.stack(arrs), 1e-300))
+            return np.exp(CubicSpline(nodes, L, axis=0)(p))
+        K = float(np.exp(CubicSpline(nodes, np.log([r["K"] for r in runs]))(p)))
+        return interp([r["bands_nu"] for r in runs]), interp([r["bands_nb"] for r in runs]), K, runs[0]
+
+    def _galactic_run(self, values: Mapping) -> dict:
+        """A sky run of this point that carries its Galactic bands (they depend on neither the index nor the
+        window): the first index node's, of the upper piece with a broken power law -- one the fluxes already ran."""
+        v = dict(values)
+        if self.p_nodes is not None:
+            v["p_index"] = float(self.p_nodes[0])
+        if self.E_break is not None:
+            v["injection_E_min_GeV"] = self.E_break
+        return self._sky_exact(v)
+
     def site_band_fluxes(self, values: Mapping, lat: float) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """As band_fluxes, per local cos-zenith band (increasing cos Z: up-going first) at a site of latitude lat (deg):
         the extragalactic flux is isotropic before the Earth and the Earth crossing depends on the zenith only, so it
@@ -667,7 +788,7 @@ class FlavorModel:
         F_nu, F_nb = F_nu[::-1], F_nb[::-1]                       # declination order -> cos-zenith order (South Pole)
         if not self.galactic:
             return E, F_nu, F_nb
-        run = self._sky_exact(dict(values, p_index=float(self.p_nodes[0])) if self.p_nodes is not None else values)
+        run = self._galactic_run(values)
         x = float(values.get("f_e_S_gal", self.default("f_e_S_gal")))
         if not 0.0 <= x <= 1.0:
             raise ValueError(f"f_e_S_gal must lie in [0, 1], got {x}")

@@ -281,7 +281,7 @@ def step_cosmological_rates(z: float, dt: float, R_z: float, E_bins: np.ndarray,
                             p_index: float, Phi_0: float,
                             W3: np.ndarray, pref3: np.ndarray, self_same: np.ndarray,
                             W1: np.ndarray, W2: np.ndarray, c1: np.ndarray, c2: np.ndarray,
-                            self_cross: np.ndarray, R_nu: np.ndarray, R_nb: np.ndarray):
+                            self_cross: np.ndarray, R_nu: np.ndarray, R_nb: np.ndarray, inj_w: np.ndarray):
     """step_cosmological_pair with this step's rates given per eigenstate: Pi_* (N_E, 3, 3) the flavor contents
     of the eigenstates at the sources (injection), G_* (N_E, 3) the absorption rates (eV), brp_* (N_E, 3) the
     fraction of each absorption's decays that gives a neutrino of that kind in each eigenstate (_cosmo_coherent_rates
@@ -308,7 +308,8 @@ def step_cosmological_rates(z: float, dt: float, R_z: float, E_bins: np.ndarray,
     (cross_kernel_weights); P_nu, P_nb -- (N_E, 3, 3) projection buffers; Gamma_flavor --
     (N_E, 3) flavor absorption rates at this z (eV), the same for both species; R_nu, R_nb --
     (N_E,) receive each bin's absorbed number per unit energy per unit time, averaged over
-    the step (diagnostics and tests).
+    the step (diagnostics and tests); inj_w -- (N_E,) the sources' emission window per bin (1 inside, 0
+    outside; source.injection_E_min/max_GeV, 2026-10-15).
 
     An absorption nu(E_j) + relic nubar -> Z_D -> nu + nubar emits TWO secondaries. The
     Z_D is polarized along the incoming neutrino, and the outgoing particle of the same kind
@@ -352,7 +353,9 @@ def step_cosmological_rates(z: float, dt: float, R_z: float, E_bins: np.ndarray,
         # the standard result (number of emitted neutrinos conserved). Without the (1+z), until
         # 2026-10-13, a source at z was weighted by R(z)/(1+z): 45% of the emitted neutrinos lost
         # (SFR to z = 4) and the absorption/potential effects weighted toward low z.
-        inj_spectrum = Phi_0 * (E_z**(-p_index)) * R_z * (1.0 + z)
+        # inj_w: the sources' emission window per bin of today's energy (source.injection_E_min/max_GeV; 1 inside, 0
+        # outside; all ones for the whole power law)
+        inj_spectrum = Phi_0 * (E_z**(-p_index)) * R_z * (1.0 + z) * inj_w[i]
         # regeneration densities into bin i from absorptions above it
         from_nu_same = pref3[i] * s3_nu
         from_nb_same = pref3[i] * s3_nb
@@ -432,7 +435,7 @@ def step_cosmological_pair(z: float, dt: float, R_z: float, E_bins: np.ndarray,
                            self_cross: np.ndarray, P_nu: np.ndarray, P_nb: np.ndarray,
                            Gamma_flavor: np.ndarray, R_nu: np.ndarray, R_nb: np.ndarray,
                            c_inj_nu: float, c_inj_nb: float, P_inj_nu: np.ndarray,
-                           P_inj_nb: np.ndarray):
+                           P_inj_nb: np.ndarray, inj_w: np.ndarray):
     """One cosmological z-step in the theory notes' absorption form (flavor rates Gamma_flavor (N_E, 3) and flavor
     branching BR projected on the eigenstates without interference; absorption_model 'theory_notes'): the
     projections, then step_cosmological_rates."""
@@ -455,7 +458,7 @@ def step_cosmological_pair(z: float, dt: float, R_z: float, E_bins: np.ndarray,
     _cosmo_flavor_rates(P_nb, Gamma_flavor, BR, G_nb, b_nb)
     step_cosmological_rates(z, dt, R_z, E_bins, F_nu, F_nb, w_nu, w_nb, rho_src, Pi_nu, Pi_nb, G_nu, G_nb,
                             b_nu, b_nb, p_index, Phi_0, W3, pref3, self_same, W1, W2, c1, c2, self_cross,
-                            R_nu, R_nb)
+                            R_nu, R_nb, inj_w)
 
 
 def cascade_kernel_weights(E_bins: np.ndarray):

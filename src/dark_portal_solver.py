@@ -120,7 +120,8 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                        earth_band_costh=None, earth_nodes_per_band: int = 2, sun_path_cos=None,
                        arrival_flavor=None, arrival_basis: str = "flavor", matter_charge=None,
                        absorption_model: str = "lagrangian", G_coupling=None, Gamma_vis=None,
-                       si_cosmology: bool = False, si_settings=None, potential_product=None):
+                       si_cosmology: bool = False, si_settings=None, potential_product=None,
+                       inj_window=(0.0, np.inf)):
     """
     Executes the complete spectrum integration, driving the underlying JIT kernels.
     Neutrinos and antineutrinos are evolved together through the cosmological phase (an
@@ -147,6 +148,9 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         (e.g. (1, 0) for neutrino sources only, (1/2, 1/2) for nubar/nu = 1). Until
         2026-10-13 this was a single-species flag and each call propagated one kind alone.
       p_index, rho_evol, Phi_0: source spectrum E^-p, redshift evolution, normalization.
+      inj_window: (E_min, E_max) in eV (2026-10-15): the sources emit only neutrinos whose energy today,
+        E_source / (1+z), lies in [E_min, E_max) -- one piece of a broken power law (analysis/model.py); the
+        default emits the whole power law.
       eta_bg: (3,) CnuB flavor asymmetries.
       n_sun_paths, n_earth_chords: directions to the Sun in its transit, and zenith chords.
       transit_dtheta: resolution of the transit to the Earth (dp_transit.build_frame_table).
@@ -379,6 +383,8 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
     # The cascade kernels' exact bin integrals depend only on the (fixed) energy grid
     W3, pref3, self_same = cascade_kernel_weights(E_bins)
     W1, W2, c1, c2, self_cross = cross_kernel_weights(E_bins)
+    inj_lo, inj_hi = float(inj_window[0]), float(inj_window[1])
+    inj_w = ((E_bins >= inj_lo) & (E_bins < inj_hi)).astype(np.float64)
 
     z_steps = range(1, len(z_bins)) if (arrival_flavor is None and not si_cosmology) else range(0)
     iterator = tqdm(z_steps, desc="Cosmo Phase", leave=False) if (dp_core.HAS_TQDM and show_progress) else z_steps
@@ -397,7 +403,8 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                                    nb["P_table"], nb["log_s0"], nb["inv_dlogs"], nb["c_z"][k],
                                    p_index, Phi_0, BR, W3, pref3, self_same, W1, W2, c1, c2, self_cross,
                                    nu["P_all"], nb["P_all"], np.ascontiguousarray(Gamma_grid_all[k, :, :]),
-                                   nu["R"], nb["R"], nu["c_inj"][k], nb["c_inj"][k], nu["P_inj"], nb["P_inj"])
+                                   nu["R"], nb["R"], nu["c_inj"][k], nb["c_inj"][k], nu["P_inj"], nb["P_inj"],
+                                   inj_w)
             continue
         G_state = np.ascontiguousarray(Gamma_grid_all[k, :, :])
         Pis = []
@@ -412,7 +419,7 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
             Pis.append(Pi)
         step_cosmological_rates(z, dt, R_z, E_bins, nu["F"], nb["F"], w_nu, w_nb, rho_src, Pis[0], Pis[1],
                                 nu["G_step"], nb["G_step"], nu["brp_step"], nb["brp_step"], p_index, Phi_0,
-                                W3, pref3, self_same, W1, W2, c1, c2, self_cross, nu["R"], nb["R"])
+                                W3, pref3, self_same, W1, W2, c1, c2, self_cross, nu["R"], nb["R"], inj_w)
     if verbose == 2:
         safe_print(f"Cosmological baseline finished at z = {z_bins[-1]:.4f}.")
 
@@ -429,7 +436,7 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                                     eta_mass, rho_src, p_index, rho_evol, Phi_0 * w_tot, m_Zd, g_mass,
                                     majorana=True, channels="full", mediator="vector",
                                     z_substeps=int(st["z_substeps"]), E_extension=float(st["E_extension"]),
-                                    Gamma_vis=ab[0].Gamma_vis, thermal=True)
+                                    Gamma_vis=ab[0].Gamma_vis, thermal=True, inj_window=(inj_lo, inj_hi))
         # dp_si carries both kinds of each mass state together (exact for their sum, the interaction conserving CP
         # to O(Gamma/M)); split in the injection's proportions; the arrival's eigenstates are the mass states
         # (no potential) in ascending order of the vacuum term
@@ -687,7 +694,8 @@ def _flux_from_setup(E_bins: np.ndarray, params: Dict, setup: Dict, injection,
                                     si_p['m_phi_eV'], setup['g_mass'], majorana=si_p['majorana'],
                                     channels=si_p['channels'], phiphi=si_p['phiphi'],
                                     z_substeps=si_p['z_substeps'], E_extension=si_p['E_extension'],
-                                    mediator=si_p['mediator'], dirac_sterile=si_p['dirac_sterile'])
+                                    mediator=si_p['mediator'], dirac_sterile=si_p['dirac_sterile'],
+                                    inj_window=params.get('inj_window_eV', (0.0, np.inf)))
         F_fl = np.ascontiguousarray(F_mass @ (np.abs(U) ** 2).T)
         if not np.isfinite(F_fl).all():
             raise ValueError(f"Non-finite flux from the secret-interaction transport at m_phi_eV="
@@ -728,7 +736,8 @@ def _flux_from_setup(E_bins: np.ndarray, params: Dict, setup: Dict, injection,
         si_cosmology=setup.get('si_cosmology', False),
         si_settings=dict(z_substeps=params.get('si', {}).get('z_substeps', 1),
                          E_extension=params.get('si', {}).get('E_extension', 10.0)),
-        potential_product=params.get('potential_product', None)
+        potential_product=params.get('potential_product', None),
+        inj_window=params.get('inj_window_eV', (0.0, np.inf))
     )
 
 
@@ -1327,6 +1336,15 @@ def build_solver_params(config: Dict) -> Tuple[np.ndarray, Dict]:
     params['host_galaxy_scale'] = float(config['source']['host_galaxy_scale'])
     if params['host_galaxy_scale'] < 0.0:
         raise ValueError("source.host_galaxy_scale must be >= 0 (0: sources in the cosmic mean density).")
+    # The sources' emission window in today's energy (2026-10-15; propagate_spectrum's inj_window), eV
+    lo = config['source'].get('injection_E_min_GeV')
+    hi = config['source'].get('injection_E_max_GeV')
+    lo = 0.0 if lo is None else float(lo) * 1e9
+    hi = np.inf if hi is None else float(hi) * 1e9
+    if not (0.0 <= lo < hi):
+        raise ValueError(f"source.injection_E_min_GeV / injection_E_max_GeV must satisfy 0 <= min < max, got "
+                         f"{config['source'].get('injection_E_min_GeV')}, {config['source'].get('injection_E_max_GeV')}")
+    params['inj_window_eV'] = (lo, hi)
     
     # Secret neutrino interactions (dp_si, 2026-10-13): when enabled they replace the dark portal
     # (see DEFAULT_CONFIG's comments).

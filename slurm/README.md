@@ -74,6 +74,17 @@ NULRI_HESE_DETSYS=/lustre/astro/mbustama/external/hese_7yr/reduced/hese_detector
 PACKS=analysis/configs/campaign/packs.txt SLOTS=4 sbatch --array=0-<n-1>%7 --exclude=node812 slurm/campaign_array.sh
 ```
 
+**The broken power law's campaign** (2026-10-15; docs/dev/BROKEN_POWER_LAW.md): the same with the configurations
+under analysis/configs/campaign_bpl/<set>/ (four sets: the future detectors' projection proj_future too) and a fresh
+cache directory (the solver's code changed, so no run of the first campaign is reused):
+
+```bash
+python tools/campaign_packs.py --tree campaign_bpl --sets now_ic26 now_events proj_2050 proj_future --hours 8 \
+    --out analysis/configs/campaign_bpl/packs.txt
+NULRI_FLUX_CACHE=/lustre/astro/mbustama/flux_cache/campaign_bpl ... PACKS=analysis/configs/campaign_bpl/packs.txt \
+    SLOTS=4 sbatch --array=0-<n-1>%7 --exclude=node812 slurm/campaign_array.sh
+```
+
 **A job far below its cores** (2026-10-14): look inside it with `srun --jobid=<job> --overlap -n1 -c1 ps -o pid,time,stat,args -u $USER` and `cat /proc/<pid>/wchan`. Processes mostly in state D/I waiting in `cl_sync_io_wait` are waiting on the node's Lustre client, not computing: node812 did this twice (a quarter of the speed of node810/811 for the same code). Resubmit elsewhere with `--exclude=<node> --dependency=afterany:<old job>`, so the new job starts only once the old one is gone, and the analysis resumes from its checkpoints.
 
 Logs are `logs/slurm_<job name>_<job>.out`. `slurm/common.sh` prints the host, job, core count
