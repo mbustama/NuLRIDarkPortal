@@ -487,3 +487,22 @@ def test_command_line_end_to_end(tmp_path):
     assert len(plane["columns"]) == 2 and all(min(r) == pytest.approx(0.0, abs=1e-12) for r in plane["dchi2"])
     man = json.load(open(out / "manifest.json"))
     assert man["runs"][-1]["provenance"]["git_commit"]
+
+
+def test_model_caches_are_bounded_by_bytes():
+    """The model's in-memory caches evict by entries and by array bytes (2026-10-15: the event fits' sky runs, a few
+    MB each, outgrew a job's memory under an entry bound alone), newest kept, bytes tracked through replacement."""
+    from analysis.model import _BoundedCache
+    c = _BoundedCache(maxlen=100, maxbytes=10 * 8000)
+    for k in range(30):
+        c[k] = (np.zeros(1000), {"a": np.zeros(500)})          # 12 kB each
+    assert len(c) == 6 and c.nbytes == 6 * 12000 and list(c)[-1] == 29
+    c[29] = np.zeros(10)                                       # replace: bytes follow
+    assert c.nbytes == 5 * 12000 + 80 and len(c) == 6
+    c.move_to_end(25)
+    c[100] = np.zeros(100000)                                  # bigger than the budget: only the newest stays
+    assert list(c) == [100] and c.nbytes == 800000
+    small = _BoundedCache(maxlen=3, maxbytes=10 ** 9)
+    for k in range(5):
+        small[k] = np.zeros(1)
+    assert list(small) == [2, 3, 4]

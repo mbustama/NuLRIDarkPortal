@@ -84,6 +84,47 @@ from dp_config import DEFAULT_CONFIG, merge_config_with_defaults
 from flux_postprocessing import compute_energy_averaged_ratios, compute_dE_geometric
 
 SOURCE_KEYS = ("f_e_S", "f_mu_S", "f_tau_S")
+# The in-memory caches' byte budget, each (2026-10-15): the event fits' sky runs carry per-band arrays of a few MB per
+# index node, and a cache sized by entries alone (512 points x the index nodes) grew past a 16-worker job's 32 GB on
+# Tycho (six campaign packs killed). Override with NULRI_MODEL_CACHE_MB.
+CACHE_MB_DEFAULT = 256
+
+
+def _nbytes(obj) -> int:
+    """The numpy arrays' bytes in a (nested) tuple, list or dict."""
+    if isinstance(obj, np.ndarray):
+        return int(obj.nbytes)
+    if isinstance(obj, dict):
+        return sum(_nbytes(v) for v in obj.values())
+    if isinstance(obj, (tuple, list)):
+        return sum(_nbytes(v) for v in obj)
+    return 0
+
+
+class _BoundedCache(OrderedDict):
+    """An LRU dict bounded by entries and by the bytes of the arrays it holds: inserting evicts the oldest entries
+    until both bounds hold (keeping at least the newest)."""
+
+    def __init__(self, maxlen: int, maxbytes: int):
+        super().__init__()
+        self.maxlen, self.maxbytes = int(maxlen), int(maxbytes)
+        self._sizes = {}
+        self.nbytes = 0
+
+    def __setitem__(self, key, value):
+        if key in self:
+            self.nbytes -= self._sizes.pop(key, 0)
+        super().__setitem__(key, value)
+        size = _nbytes(value)
+        self._sizes[key] = size
+        self.nbytes += size
+        while len(self) > 1 and (len(self) > self.maxlen or self.nbytes > self.maxbytes):
+            self.popitem(last=False)
+
+    def popitem(self, last=True):
+        k, v = super().popitem(last)
+        self.nbytes -= self._sizes.pop(k, 0)
+        return k, v
 PRODUCTS = ("g_D_u2", "g_D_eps_u2", "g_D_trace", "g_D_eps_trace", "g_D_eps")
 # The Galactic component (galactic.enabled): its normalization and source composition (x, 1 - x, 0) are linear
 # too, and so is the extragalactic normalization against it, norm_astro -- a parameter of the analysis only (a
@@ -229,11 +270,12 @@ class FlavorModel:
             self.p_nodes = np.array(sorted(float(p) for p in p_nodes))
             if len(self.p_nodes) < 2 or np.any(np.diff(self.p_nodes) <= 0):
                 raise ValueError(f"p_nodes must hold at least two distinct values, got {p_nodes}")
-        self._cache: "OrderedDict[tuple, tuple]" = OrderedDict()
-        self._sky_cache: "OrderedDict[tuple, dict]" = OrderedDict()
+        budget = int(float(os.environ.get("NULRI_MODEL_CACHE_MB", CACHE_MB_DEFAULT)) * 2 ** 20)
+        self._cache: "OrderedDict[tuple, tuple]" = _BoundedCache(cache_size, budget)
+        self._sky_cache: "OrderedDict[tuple, dict]" = _BoundedCache(cache_size, budget)
         # the Galactic component per propagation point WITHOUT the spectral index (2026-10-14): it does not depend on
         # it (checked bit for bit), and recomputing it at every index node took half of a plane point's time
-        self._gal_cache: "OrderedDict[tuple, object]" = OrderedDict()
+        self._gal_cache: "OrderedDict[tuple, object]" = _BoundedCache(cache_size, budget)
         self._cache_size = int(cache_size)
         self.n_solver_calls = 0
         self.n_cache_hits = 0
