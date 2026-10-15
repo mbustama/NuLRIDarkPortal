@@ -56,3 +56,9 @@ The flux per local zenith at a site of latitude phi: the solver's Earth crossing
    overlap (IceCube's own detector).
 4. Projection configurations (the campaign's third data set, in place of the 2050 surface) and their planes on
    Tycho.
+
+**No cross-section variation (Mauricio, 2026-10-15).** NuFlavorSingleSource varies the CC and NC cross sections by
+5% as templates of the in-detector rates; a proper variation needs the Earth propagation with regeneration and
+effective areas rebuilt with the varied cross sections (its calibration anchors embed the nominal ones), so the port
+leaves it out, as this project's analysis does. (A first port carried the templates, and a linearized absorption
+term; with them the flavor chi^2 moved by ~1%. Removed.)

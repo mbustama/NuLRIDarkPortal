@@ -5,14 +5,15 @@ counted per channel, reconstructed energy and local cos-zenith band by IceCubeRa
 model's flux per local zenith at each detector's site (FlavorModel.site_band_fluxes), with NuFlavorSingleSource's
 main-analysis uncertainties profiled inside the term:
 
-  mu_k = (1 + eff_k) s_k + escale_k s_k^escale + misid_k s_k^misid [+ xs s_k^xs]
-         + n_k B_k + sum_g theta_g GB_k,g + escale_k BX_k^escale + misid_k BX_k^misid [+ xs GB_k^xs]
+  mu_k = (1 + eff_k) s_k + escale_k s_k^escale + misid_k s_k^misid
+         + n_k B_k + sum_g theta_g GB_k,g + escale_k BX_k^escale + misid_k BX_k^misid
 
 per block k = (detector part, channel): s the astrophysical events (the model's flux, the signal here), B the
 atmospheric background (NuFlavorSingleSource's MCEq table, with its atmospheric-muon multipliers), n_k its
 normalization (10% prior), theta_g the Barr parameters, the cosmic-ray index and the prompt normalization (shared, with
-NuFlavorSingleSource's priors), eff, escale, misid per block (DET_PRIOR; no PSF: no rings), the cross sections only
-with spec cross_sections (this project decided against them, 2026-10-13; NuFlavorSingleSource has them at 5%).
+NuFlavorSingleSource's priors), eff, escale, misid per block (DET_PRIOR; no PSF: no rings). No cross-section variation
+(Mauricio, 2026-10-15; NuFlavorSingleSource has it at 5%): it needs the Earth propagation with regeneration and
+effective areas rebuilt with the varied cross sections.
 -2 ln L = 2 sum [mu - n + n ln(n / mu)] (continued smoothly below a floor, as the HESE and DR2 terms) + the
 priors; the data of a projection: the Asimov expectation at the
 configuration's asimov values (standard physics) with the nuisances at their centres.
@@ -34,7 +35,7 @@ if REPO_DIR not in sys.path:
     sys.path.insert(0, REPO_DIR)
 from IceCubeRates.future import nfss_detectors as ND  # noqa: E402
 from IceCubeRates.future import nfss_forecast as NF  # noqa: E402
-from IceCubeRates.future.diffuse import ATM_PARAMS, COSZ_EDGES, KEYS, XS_PARAMS, DiffuseDetector  # noqa: E402
+from IceCubeRates.future.diffuse import ATM_PARAMS, COSZ_EDGES, KEYS, DiffuseDetector  # noqa: E402
 
 WATER = ("ARCA", "GVD", "P-ONE", "TRIDENT", "NEON", "HUNT")
 # the detectors' latitudes (deg), as NuFlavorSingleSource's calibrate() sets them (checked in the tests)
@@ -74,15 +75,14 @@ class FutureEventLikelihood:
     """-2 ln L of the future detectors' events at the model's values, profiled over their nuisances (module docstring).
 
     Arguments: model -- a FlavorModel in sky mode built with sites=config_sites(config); spec -- {"config":
-    "All8_base", "cross_sections": False}."""
+    "All8_base"}."""
 
     def __init__(self, model, spec: Mapping):
         spec = dict(spec)
-        bad = set(spec) - {"config", "cross_sections"}
+        bad = set(spec) - {"config"}
         if bad:
-            raise ValueError(f"data.events.future: unknown keys {sorted(bad)}; known: config, cross_sections")
+            raise ValueError(f"data.events.future: unknown keys {sorted(bad)}; known: config")
         self.config = str(spec.get("config", "All8_base"))
-        self.xs = bool(spec.get("cross_sections", False))
         self.model = model
         out, _ = ND.calibrate(verbose=False)
         self.dets = [DiffuseDetector(n, out[n]) for n in config_parts(self.config)]
@@ -93,7 +93,7 @@ class FutureEventLikelihood:
         self._inside = (lg >= lo - 1e-9) & (lg <= hi + 1e-9)
         self._lg = np.clip(lg, lo, hi)
         self.blocks = [(d, ch) for d in self.dets for ch in d.channels]
-        gparams = list(ATM_PARAMS) + (list(XS_PARAMS) if self.xs else [])
+        gparams = list(ATM_PARAMS)
         names, centre, sigma, bounds = [], [], [], []
         for d, ch in self.blocks:
             names.append(f"{d.name}|{ch}|bkg")
@@ -160,7 +160,7 @@ class FutureEventLikelihood:
         for d, ch in self.blocks:
             pn, pb = fluxes[part_lat(d.name)]
             base = 0.0
-            tpl = {p: 0.0 for p in ("escale", "misid") + XS_PARAMS}
+            tpl = {p: 0.0 for p in ("escale", "misid")}
             for fl, bar in KEYS:
                 phi = (pb if bar else pn)[fl_index[fl]]                     # (nE, N_z)
                 base = base + np.einsum("ez,ebz->bz", phi, d.R[ch][(fl, bar)])
@@ -179,8 +179,7 @@ class FutureEventLikelihood:
                 mu = mu + x[own["misid"]] * (sk["misid"] + self._BX[k]["misid"])
             mu = mu + x[k] * self._B[k]
             for p in self._gparams:
-                g = self._GB[k][p] + (sk[p] if p in XS_PARAMS else 0.0)
-                mu = mu + x[self._gidx[p]] * g
+                mu = mu + x[self._gidx[p]] * self._GB[k][p]
             mus.append(mu)
         return mus
 
@@ -199,7 +198,7 @@ class FutureEventLikelihood:
             if "misid" in own:
                 g[own["misid"]] += r @ (sk["misid"] + self._BX[k]["misid"])
             for p in self._gparams:
-                g[self._gidx[p]] += r @ (self._GB[k][p] + (sk[p] if p in XS_PARAMS else 0.0))
+                g[self._gidx[p]] += r @ self._GB[k][p]
         z = (x - self.centre) / self.sigma
         f += float(z @ z)
         g += 2.0 * z / self.sigma

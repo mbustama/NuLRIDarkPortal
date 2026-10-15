@@ -259,7 +259,7 @@ def from_dict(raw: Mapping, path: str = "") -> AnalysisConfig:
         if not events or set(events) - {"hese", "dr2", "future"}:
             raise ValueError(f"data.events: use 'hese', 'dr2' and/or 'future', got {sorted(events)}")
         known = {"hese": {"mc", "detector", "atm"}, "dr2": {"configs", "E_reco_min_log10", "dec_min_deg"},
-                 "future": {"config", "cross_sections"}}
+                 "future": {"config"}}
         for k, v in events.items():
             if isinstance(v, dict) and set(v) - known[k]:
                 raise ValueError(f"data.events.{k}: unknown keys {sorted(set(v) - known[k])}; known: {sorted(known[k])}")

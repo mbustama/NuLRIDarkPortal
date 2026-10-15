@@ -11,11 +11,11 @@ Per detector part and channel, as NuFlavorSingleSource's Detector.build():
     down-going showers' gate, over `years` of exposure: R[ch][(fl, bar)] (nE, nb, nz), events per unit flux
     (GeV^-1 cm^-2 s^-1 sr^-1) on the true-energy grid nfss_forecast.E;
   - the atmospheric background (atm_flux at |cos Z|, times the atmospheric-muon multiplier bkgmult for showers)
-    B[ch] (nb, nz), and its templates per unit of each global parameter (Barr, cosmic-ray index, prompt; cross
-    sections) GB[ch][p];
+    B[ch] (nb, nz), and its templates per unit of each global parameter (Barr, cosmic-ray index, prompt) GB[ch][p];
   - the per-block systematics' templates (per unit parameter): the signal's (escale, misid for showers and double
-    cascades; xs_cc, xs_nc) RX[ch][(fl, bar)][p], the background's (escale, misid) BX[ch][p]; the efficiency scales
-    the signal (1 + eff).
+    cascades) RX[ch][(fl, bar)][p], the background's (escale, misid) BX[ch][p]; the efficiency scales the signal
+    (1 + eff). No cross-section variation (Mauricio, 2026-10-15): it needs the Earth propagation with regeneration and
+    effective areas rebuilt with the varied cross sections, not a template on a fixed calibration.
 The diffuse astrophysical flux, which NuFlavorSingleSource counted as a background around its source, is here the
 signal: the model's flux.
 
@@ -32,7 +32,6 @@ CHANNELS = ("trk", "shw", "dc")
 KEYS = [(fl, bar) for fl in F.FLAVS for bar in (0, 1)]
 DET_PARAMS = ("eff", "escale", "misid")                 # NuFlavorSingleSource's per-block systematics, but the PSF
 ATM_PARAMS = tuple(F.BARR_PARAMS) + ("cr_dgamma", "prompt")
-XS_PARAMS = ("xs_cc", "xs_nc")
 
 
 def _sub_points(edges, n):
@@ -68,9 +67,9 @@ class DiffuseDetector:
         bias = -0.15 if ch == "trk" else 0.0
         acc = P["trk_accept"] if ch == "trk" else P["shw_accept"]
         R = {k: np.zeros((len(F.E), nb, self.nz)) for k in KEYS}
-        RX = {k: {p: np.zeros((len(F.E), nb, self.nz)) for p in ("escale", "misid") + XS_PARAMS} for k in KEYS}
+        RX = {k: {p: np.zeros((len(F.E), nb, self.nz)) for p in ("escale", "misid")} for k in KEYS}
         B = np.zeros((nb, self.nz))
-        GB = {p: np.zeros((nb, self.nz)) for p in ATM_PARAMS + XS_PARAMS}
+        GB = {p: np.zeros((nb, self.nz)) for p in ATM_PARAMS}
         BX = {p: np.zeros((nb, self.nz)) for p in ("escale", "misid")}
         for fl, bar in KEYS:
             comps = d.aeff(ch, fl, bar)
@@ -89,7 +88,6 @@ class DiffuseDetector:
                         w = 2.0 * np.pi * wc * a * self.T * (A * surv * F.DE)          # (nE,)
                         R[(fl, bar)][:, :, z] += w[:, None] * mig
                         RX[(fl, bar)]["escale"][:, :, z] += w[:, None] * dmig
-                        RX[(fl, bar)]["xs_" + kind][:, :, z] += w[:, None] * mig
                         if mis:
                             RX[(fl, bar)]["misid"][:, :, z] += w[:, None] * mig
                         m = d.bkgmult(ch, c, lgobs)
@@ -98,7 +96,6 @@ class DiffuseDetector:
                         B[:, z] += (atm * aw) @ mig
                         for p in ATM_PARAMS:
                             GB[p][:, z] += (F.atm_rel(p, F.ATMNAME[fl], bar, F.E, c) * atm * aw) @ mig
-                        GB["xs_" + kind][:, z] += (atm * aw) @ mig
                         BX["escale"][:, z] += (atm * aw) @ dmig
                         if mis:
                             BX["misid"][:, z] += (atm * aw) @ mig
