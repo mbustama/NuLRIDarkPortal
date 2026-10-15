@@ -16,7 +16,10 @@ NuFlavorSingleSource's priors), eff, escale, misid per block (DET_PRIOR; no PSF:
 effective areas rebuilt with the varied cross sections.
 -2 ln L = 2 sum [mu - n + n ln(n / mu)] (continued smoothly below a floor, as the HESE and DR2 terms) + the
 priors; the data of a projection: the Asimov expectation at the
-configuration's asimov values (standard physics) with the nuisances at their centres.
+configuration's asimov values (standard physics) with the nuisances at their centres. The expectation is linear in
+every nuisance, so -2 ln L is convex in them and its Hessian exact: the profile takes projected Newton steps within
+their bounds (2026-10-15: 4-5 steps, ~0.03 s, where L-BFGS-B took ~2000 iterations and 8-10 s and stopped ~1e-7
+short of the minimum).
 
 Detector sets as NuFlavorSingleSource's run.py (config_parts): 'All8_base' (its main case: IceCube, the six water
 detectors and IceCube-Gen2, published selections), 'All_<sc>', 'Current_<sc>', 'Gen2_<sc>', single parts.
@@ -28,8 +31,10 @@ from typing import Mapping
 import numpy as np
 from scipy.optimize import minimize
 
+from types import SimpleNamespace
+
 from . import REPO_DIR
-from .events import _poisson
+from .events import MU_FLOOR, NEG_PENALTY, _poisson
 
 if REPO_DIR not in sys.path:
     sys.path.insert(0, REPO_DIR)
@@ -129,10 +134,21 @@ class FutureEventLikelihood:
             self._B.append(d.B[ch].reshape(-1))
             self._GB.append({p: d.GB[ch][p].reshape(-1) for p in gparams})
             self._BX.append({p: d.BX[ch][p].reshape(-1) for p in ("escale", "misid")})
+        # the expectation is linear in every nuisance, mu_k = s_k + A_k x[cols_k] (_design): the profile is a convex
+        # problem that Newton's method solves exactly in a few steps (profile; 2026-10-15)
+        self._cols = []
+        for k, own in enumerate(self._own):
+            self._cols.append(np.array([k] + [own[p] for p in DET_PARAMS if p in own]
+                                       + [self._gidx[p] for p in gparams], dtype=np.int64))
+        self._lo = np.array([b[0] for b in bounds])
+        self._hi = np.array([b[1] for b in bounds])
         self.data = None
         self._z0 = np.zeros(len(names))
         self.last = {}
         self.n_calls = 0
+        self.n_newton = 0
+        self.n_fallback = 0
+        self.newton_fail = ""
 
     # ---------------------------------------------------------------- the astrophysical events
     def _phi(self, F):
@@ -204,7 +220,101 @@ class FutureEventLikelihood:
         g += 2.0 * z / self.sigma
         return f, g
 
+    def _design(self, S):
+        """Per block, the columns of the expectation's linear dependence on its nuisances (in _cols' order): the
+        background (its normalization multiplies it), the signal (efficiency), the energy scale's and the
+        mis-identification's templates (signal and background), and each global atmospheric template."""
+        A = []
+        for k, (sk, own) in enumerate(zip(S, self._own)):
+            cols = [self._B[k], sk["s"], sk["escale"] + self._BX[k]["escale"]]
+            if "misid" in own:
+                cols.append(sk["misid"] + self._BX[k]["misid"])
+            cols += [self._GB[k][p] for p in self._gparams]
+            A.append(np.ascontiguousarray(np.stack(cols, axis=1)))
+        return A
+
+    def _fgh(self, x, A, S, data, hess=True):
+        """-2 ln L (the continued Poisson deviance plus the priors), its gradient and its Hessian at the nuisances
+        x (the Hessian exact: the expectation is linear in x)."""
+        n_par = len(x)
+        f, g = 0.0, np.zeros(n_par)
+        H = np.zeros((n_par, n_par)) if hess else None
+        for k, (Ak, sk, n) in enumerate(zip(A, S, data)):
+            c = self._cols[k]
+            mu = sk["s"] + Ak @ x[c]
+            dev, r = _poisson(mu, n, grad=True)
+            f += dev
+            if hess:
+                g[c] += Ak.T @ r
+                # the continued deviance's second derivative (events._poisson): 2 n / max(mu, MU_FLOOR n)^2 in bins
+                # with data, 0 in empty bins (2 NEG_PENALTY below mu = 0)
+                pos = n > 0
+                m = np.where(pos, np.maximum(mu, MU_FLOOR * n), 1.0)
+                h = np.where(pos, 2.0 * n / (m * m), np.where(mu < 0.0, 2.0 * NEG_PENALTY, 0.0))
+                H[np.ix_(c, c)] += Ak.T @ (h[:, None] * Ak)
+        z = (x - self.centre) / self.sigma
+        f += float(z @ z)
+        if hess:
+            g += 2.0 * z / self.sigma
+            H[np.diag_indices(n_par)] += 2.0 / self.sigma ** 2
+        return f, g, H
+
+    def _newton(self, S, data, x0, tol=1e-12, max_iter=100):
+        """The profile by projected Newton steps within the nuisances' bounds (Bertsekas 1982): a nuisance at a
+        bound whose gradient pushes outward stays there, the others take the Newton step of their block of the
+        exact Hessian, and a backtracking search on the step projected into the bounds keeps the descent. Returns
+        (x, chi^2, iterations) once the free nuisances' Newton decrement falls below tol (chi^2 then within tol / 2 of
+        the minimum: the problem is convex), or None (the caller falls back to L-BFGS-B)."""
+        A = self._design(S)
+        lo, hi = self._lo, self._hi
+        x = np.clip(np.array(x0, dtype=np.float64), lo, hi)
+        f, g, H = self._fgh(x, A, S, data)
+        for it in range(max_iter):
+            span = 1e-12 * np.maximum(1.0, np.abs(x))
+            fixed = ((x <= lo + span) & (g > 0.0)) | ((x >= hi - span) & (g < 0.0))
+            free = ~fixed
+            d = np.zeros_like(x)
+            try:
+                d[free] = np.linalg.solve(H[np.ix_(free, free)], g[free])
+            except np.linalg.LinAlgError:
+                self.newton_fail = "singular Hessian"
+                return None
+            dec = float(g[free] @ d[free])
+            if not np.isfinite(dec) or dec < 0.0:
+                self.newton_fail = f"no descent direction (decrement {dec:g})"
+                return None
+            if dec < tol:
+                return x, f, it
+            t = 1.0
+            while True:
+                xn = np.clip(x - t * d, lo, hi)
+                fn = self._fgh(xn, A, S, data, hess=False)[0]
+                if fn <= f - 1e-4 * float(g @ (x - xn)):
+                    break
+                t *= 0.5
+                if t < 1e-12:
+                    self.newton_fail = f"line search failed (decrement {dec:g})"
+                    return None
+            x = xn
+            f, g, H = self._fgh(x, A, S, data)
+        self.newton_fail = f"no convergence in {max_iter} steps (decrement {dec:g})"
+        return None
+
     def profile(self, S, data):
+        """The nuisances minimizing -2 ln L within their bounds: projected Newton steps from the last profile's
+        nuisances (exact in a few steps: the problem is convex; 400 times faster than L-BFGS-B, which needed ~2000
+        iterations), L-BFGS-B if Newton ever stalls."""
+        x0 = np.clip(self.centre + self.sigma * self._z0, self._lo, self._hi)
+        out = self._newton(S, data, x0)
+        if out is not None:
+            x, f, it = out
+            self.n_newton += 1
+            self._z0 = (x - self.centre) / self.sigma
+            return x, SimpleNamespace(fun=f, x=self._z0.copy(), success=True, nit=it)
+        self.n_fallback += 1
+        return self.profile_lbfgsb(S, data)
+
+    def profile_lbfgsb(self, S, data):
         zb = [((lo - c) / s, (hi - c) / s) for (lo, hi), c, s in zip(self.bounds, self.centre, self.sigma)]
 
         def fun(z):

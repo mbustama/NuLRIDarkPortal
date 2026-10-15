@@ -280,3 +280,31 @@ def test_events_configuration(tmp_path):
         from_dict(dict(base, solver={"grid": base["solver"]["grid"]}))
     with pytest.raises(ValueError, match="unknown keys"):
         from_dict(dict(base, data=dict(base["data"], events={"dr2": {"configs": ["IC79"], "foo": 1}})))
+
+
+def test_gauss_newton_profile_equals_lbfgsb(tmp_path):
+    """The HESE + DR2 nuisances' profile by projected Gauss-Newton steps (2026-10-15) reaches the L-BFGS-B profile's
+    minimum (or below it) at points near and far from the data's best fit; its value and gradient are
+    _expected_bins'."""
+    m, ev = _event_model(tmp_path)
+    rng = np.random.default_rng(11)
+    x = ev.centre + 0.3 * ev.sigma * rng.standard_normal(len(ev.names))
+    for i, (lo, hi) in enumerate(ev.bounds):
+        x[i] = min(max(x[i], -np.inf if lo is None else lo + 1e-6), np.inf if hi is None else hi - 1e-6)
+    A = ev.astro({"norm_astro": 1.0, "p_index": 2.5})
+    f_ref, g_ref = ev._expected_bins(x, A, grad=True)
+    f_gn, g_gn, H = ev._gn_terms(x, A)
+    assert abs(f_gn - f_ref) < 1e-10 * max(1.0, abs(f_ref))
+    assert np.max(np.abs(g_gn - g_ref)) < 1e-9 * max(1.0, np.max(np.abs(g_ref)))
+    assert np.all(np.linalg.eigvalsh(H) > 0.0)
+    for v in ({"norm_astro": 1.0, "p_index": 2.5}, {"norm_astro": 1.6, "p_index": 2.3},
+              {"norm_astro": 0.3, "p_index": 2.75}, {"norm_astro": 20.0, "p_index": 2.25}):
+        A = ev.astro(v)
+        z0 = ev._z0.copy()
+        x_gn, r_gn = ev.profile(A)
+        ev._z0 = z0
+        x_lb, r_lb = ev.profile_lbfgsb(A)
+        assert r_gn.fun <= r_lb.fun + 1e-9 * max(1.0, r_lb.fun), (v, r_gn.fun, r_lb.fun)
+        assert abs(r_gn.fun - r_lb.fun) < 1e-6 * max(1.0, r_lb.fun), (v, r_gn.fun, r_lb.fun)
+        assert abs(ev.exact(x_gn, A)["total"] - ev.exact(x_lb, A)["total"]) < 1e-4 * max(1.0, r_lb.fun)
+    assert ev.n_fallback == 0, ev.gn_fail

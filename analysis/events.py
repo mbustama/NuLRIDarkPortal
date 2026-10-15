@@ -25,6 +25,8 @@ import os
 import sys
 from typing import Mapping, Optional
 
+from types import SimpleNamespace
+
 import numpy as np
 from scipy.optimize import minimize
 
@@ -231,6 +233,9 @@ class EventLikelihood:
         self._z0 = np.zeros(len(self.names))                          # warm start (units of sigma from the centre)
         self.last = {}
         self.n_calls = 0
+        self.n_gn = 0
+        self.n_fallback = 0
+        self.gn_fail = ""
 
     # ------------------------------------------------------------------ the astrophysical templates
     def astro(self, values: Mapping) -> dict:
@@ -305,9 +310,135 @@ class EventLikelihood:
         g += 2.0 * z / self.sigma
         return f, g
 
+    def _gn_terms(self, x, A, hess=True):
+        """-2 ln L + priors (the per-bin detector model, as _expected_bins), its gradient, and the Gauss-Newton
+        Hessian J^T diag(d^2 dev / dmu^2) J + the priors' (J the expectation's exact first derivatives): positive
+        definite, and exact wherever the expectation is linear in the nuisances."""
+        v = self._unpack(x)
+        theta = np.array([v[p] for p in self.atm_params])
+        n_par = len(x)
+        idx = {n: i for i, n in enumerate(self.names)}
+        f, g = 0.0, np.zeros(n_par)
+        Hm = np.zeros((n_par, n_par)) if hess else None
+
+        def add(mu, n, cols):
+            nonlocal f, g, Hm
+            dev, r = _poisson(mu, n, grad=True)
+            f += dev
+            if hess:
+                J = np.zeros((len(mu), n_par))
+                for i, col in cols.items():
+                    J[:, i] += col
+                g += J.T @ r
+                pos = n > 0
+                m = np.where(pos, np.maximum(mu, MU_FLOOR * n), 1.0)
+                h = np.where(pos, 2.0 * n / (m * m), np.where(mu < 0.0, 2.0 * NEG_PENALTY, 0.0))
+                Hm += J.T @ (h[:, None] * J)
+        if self.hese is not None:
+            H = self.hese
+            det = {s: v[s] for s in H.names}
+            cn, mn, pr = v["hese_conv_norm"], v["hese_muon_norm"], v["prompt"]
+            co = H.coefficients(det)
+            rA, dA = H.rho(H.bd_astro_ref, det, hess, co)
+            rC, dC = H.rho(H.bd_conv, det, hess, co)
+            rP, dP = H.rho(H.bd_prompt, det, hess, co)
+            rD = [H.rho(bd, det, hess, co) for bd in H.bd_deriv]
+            a = A["hese"] * rA
+            c = H.bd_conv.H0 * rC
+            dk = [bd.H0 * r for bd, (r, _) in zip(H.bd_deriv, rD)]
+            dsum = sum(t * d for t, d in zip(theta, dk))
+            p = H.bd_prompt.H0 * rP
+            mu = a + (1.0 + cn) * (c + dsum) + (1.0 + pr) * p + mn * H.muons
+            cols = {}
+            if hess:
+                for k, pname in enumerate(self.atm_params):
+                    cols[idx[pname]] = (1.0 + cn) * dk[k]
+                cols[idx["prompt"]] = p
+                cols[idx["hese_conv_norm"]] = c + dsum
+                cols[idx["hese_muon_norm"]] = H.muons
+                for s_ in H.names:
+                    cols[idx[s_]] = (a * dA[s_] + (1.0 + cn) * (c * dC[s_] + sum(t * d * rd[1][s_] for t, d, rd
+                                                                                    in zip(theta, dk, rD)))
+                                     + (1.0 + pr) * p * dP[s_])
+            add(mu, H.data, cols)
+        if self.dr2 is not None:
+            D = self.dr2
+            pr = v["prompt"]
+            for c_ in D.configs:
+                nc = v[f"dr2_norm_{c_}"]
+                B = D.nom[c_] + theta @ D.deriv[c_] + pr * D.prompt[c_]
+                mu = A["dr2"][c_] + (1.0 + nc) * B
+                cols = {}
+                if hess:
+                    for k, pname in enumerate(self.atm_params):
+                        cols[idx[pname]] = (1.0 + nc) * D.deriv[c_][k]
+                    cols[idx["prompt"]] = (1.0 + nc) * D.prompt[c_]
+                    cols[idx[f"dr2_norm_{c_}"]] = B
+                add(mu, D.data[c_], cols)
+        z = (x - self.centre) / self.sigma
+        f += float(z @ z)
+        if hess:
+            g += 2.0 * z / self.sigma
+            Hm[np.diag_indices(n_par)] += 2.0 / self.sigma ** 2
+        return f, g, Hm
+
+    def _gauss_newton(self, A, x0, tol=1e-12, max_iter=200):
+        """The profile by projected Gauss-Newton steps within the bounds (as FutureEventLikelihood._newton; the
+        Hessian here Gauss-Newton's, so the convergence is linear where the expectation is not linear in the
+        nuisances, but the fixed point is the stationary point all the same). Returns (x, value, iterations) once
+        the free nuisances' decrement falls below tol, or None (the caller falls back to L-BFGS-B)."""
+        lo = np.array([-np.inf if b[0] is None else b[0] for b in self.bounds])
+        hi = np.array([np.inf if b[1] is None else b[1] for b in self.bounds])
+        x = np.clip(np.array(x0, dtype=np.float64), lo, hi)
+        f, g, H = self._gn_terms(x, A)
+        for it in range(max_iter):
+            span = 1e-12 * np.maximum(1.0, np.abs(x))
+            fixed = ((x <= lo + span) & (g > 0.0)) | ((x >= hi - span) & (g < 0.0))
+            free = ~fixed
+            d = np.zeros_like(x)
+            try:
+                d[free] = np.linalg.solve(H[np.ix_(free, free)], g[free])
+            except np.linalg.LinAlgError:
+                self.gn_fail = "singular Hessian"
+                return None
+            dec = float(g[free] @ d[free])
+            if not np.isfinite(dec) or dec < 0.0:
+                self.gn_fail = f"no descent direction (decrement {dec:g})"
+                return None
+            if dec < tol:
+                return x, f, it
+            t = 1.0
+            while True:
+                xn = np.clip(x - t * d, lo, hi)
+                fn = self._gn_terms(xn, A, hess=False)[0]
+                if fn <= f - 1e-4 * float(g @ (x - xn)):
+                    break
+                t *= 0.5
+                if t < 1e-12:
+                    self.gn_fail = f"line search failed (decrement {dec:g})"
+                    return None
+            x = xn
+            f, g, H = self._gn_terms(x, A)
+        self.gn_fail = f"no convergence in {max_iter} steps (decrement {dec:g})"
+        return None
+
     def profile(self, A):
-        """Minimize -2 ln L + priors over the nuisances (per-bin detector model) for the astrophysical templates A;
+        """Minimize -2 ln L + priors over the nuisances (per-bin detector model) for the astrophysical templates A:
+        projected Gauss-Newton steps from the last profile's nuisances (2026-10-15), L-BFGS-B if they ever stall;
         returns the nuisances."""
+        out = self._gauss_newton(A, self.centre + self.sigma * self._z0)
+        if out is not None:
+            x, f, it = out
+            self.n_gn += 1
+            self._z0 = (x - self.centre) / self.sigma
+            return x, SimpleNamespace(fun=f, x=self._z0.copy(), success=True, nit=it, converged=True,
+                                      message="gauss-newton")
+        self.n_fallback += 1
+        return self.profile_lbfgsb(A)
+
+    def profile_lbfgsb(self, A):
+        """Minimize -2 ln L + priors over the nuisances (per-bin detector model) for the astrophysical templates A by
+        L-BFGS-B (the method until 2026-10-15); returns the nuisances."""
         # bounds in units of sigma; the Barr parameters and cr_dgamma are unbounded (an L-BFGS-B problem bounded on
         # every side takes a full, unnormalized first step, which from a warm start landed many sigma away)
         zb = [(None if lo is None else (lo - c) / s, None if hi is None else (hi - c) / s)

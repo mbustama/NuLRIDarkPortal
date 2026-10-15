@@ -13,8 +13,8 @@ the solver's runs at all index nodes (potential 8, MeV 18; event sky runs 9 and 
 event sets ~10 per fit, 1.5x with the fitted compositions' extra parameters).
 
 The broken power law (2026-10-15, --tree campaign_bpl, the default): each point runs both pieces, the upper at
-p_index's nodes and the lower at p_index_low's three, and the fits have one more parameter (BPL_SOLVER, BPL_FIT:
-estimates until timed on Tycho).
+p_index's nodes and the lower at p_index_low's three, and the fits have one more parameter (BPL_COST: timed on the
+laptop where marked, estimated otherwise).
 
   python tools/campaign_packs.py [--tree campaign_bpl] --sets now_ic26 now_events proj_2050 proj_future --hours 8 \
       --out analysis/configs/campaign_bpl/packs.txt
@@ -36,8 +36,14 @@ PRODUCER_SETS = {"now_ic26": "now_ic26", "proj_2050": "now_ic26", "now_events": 
                  "proj_future": "proj_future"}
 
 
-BPL_SOLVER = {"pot": (3 + 3) / 3, "mev": (7 + 3) / 7}
-BPL_FIT = 1.3
+# the broken power law's campaign (2026-10-15): core-seconds per point, laptop, one core, steady state, after the day's
+# speed-ups (spline weights, Newton and Gauss-Newton profiles): producers run both pieces' solver runs and the fit,
+# reusers (the fitted-composition twins, the 2050 projection) the fit only. Measured: 2026-spectrum set potential 6.3,
+# MeV 37; future detectors potential 29-55. Estimated: the rest (the HESE + DR2 fits need the release's Monte Carlo,
+# on Tycho only).
+BPL_COST = {"spectrum": {"pot": (6.3, 2.5), "mev": (37.0, 3.0)},
+            "events": {"pot": (20.0, 8.0), "mev": (45.0, 10.0)},
+            "future": {"pot": (46.0, 30.0), "mev": (70.0, 35.0)}}
 
 
 def plane_cost(dataset, name, points, bpl=True):
@@ -46,9 +52,13 @@ def plane_cost(dataset, name, points, bpl=True):
     planes = "mev" if "_mev" in name else "pot"
     fx = name.endswith("_fx")
     producer = PRODUCER_SETS[dataset] == dataset and not fx
-    fit = FIT[kind] * (FX_FIT if fx else 1.0) * (BPL_FIT if bpl else 1.0)
-    solver = SOLVER[kind][planes] * (BPL_SOLVER[planes] if bpl else 1.0) if producer else 0.0
-    return (fit + solver) * points, producer
+    if bpl:
+        prod, fit = BPL_COST[kind][planes]
+        per_point = prod if producer else fit * (FX_FIT if fx else 1.0)
+    else:
+        fit = FIT[kind] * (FX_FIT if fx else 1.0)
+        per_point = fit + (SOLVER[kind][planes] if producer else 0.0)
+    return per_point * points, producer
 
 
 def main(argv=None):

@@ -203,6 +203,31 @@ def sin2_to_deg(s: float) -> float:
     return float(np.degrees(np.arcsin(np.sqrt(np.clip(float(s), 1e-10, 1.0)))))
 
 
+_SPLINE_WEIGHTS: Dict[tuple, np.ndarray] = {}
+
+
+def spline_weights(nodes, p: float) -> np.ndarray:
+    """The weights of the cubic spline through `nodes` (scipy's CubicSpline, not-a-knot) on its nodes' values, at p:
+    the spline is linear in them, so sum_j w_j y_j is CubicSpline(nodes, y)(p) to rounding -- without building a
+    spline over every element of large arrays at every call (2026-10-15: half of an event fit's model time)."""
+    key = (tuple(float(q) for q in nodes), float(p))
+    w = _SPLINE_WEIGHTS.get(key)
+    if w is None:
+        from scipy.interpolate import CubicSpline
+        x = np.asarray(nodes, dtype=np.float64)
+        w = np.asarray(CubicSpline(x, np.eye(len(x)), axis=0)(float(p)), dtype=np.float64)
+        if len(_SPLINE_WEIGHTS) >= 200000:
+            _SPLINE_WEIGHTS.clear()
+        _SPLINE_WEIGHTS[key] = w
+    return w
+
+
+def spline_log_interp(nodes, p: float, arrays) -> np.ndarray:
+    """exp of the cubic spline in p through log(arrays) (stacked along a new first axis; floored at 1e-300)."""
+    L = np.log(np.maximum(np.stack(arrays), 1e-300))
+    return np.exp(np.tensordot(spline_weights(nodes, p), L, axes=(0, 0)))
+
+
 def solver_key(name: str) -> Tuple[str, str]:
     """(section, key) of the solver config entry a parameter sets."""
     if name in ANALYSIS_DEFAULTS:
@@ -484,8 +509,7 @@ class FlavorModel:
         (their product then reproduces the power law exactly without new physics), or K(p) itself."""
         if nodes is None:
             return self._scale(p)
-        from scipy.interpolate import CubicSpline
-        return float(np.exp(CubicSpline(nodes, np.log([self._scale(float(q)) for q in nodes]))(p)))
+        return float(spline_log_interp(nodes, p, [np.float64(self._scale(float(q))) for q in nodes]))
 
     def _join(self, p2: float, p1: float) -> Tuple[float, float]:
         """The pieces' factors (upper, lower) into physical units: K(p2) and (E_b / E_ref)^(p1 - p2) K(p1), which
@@ -513,20 +537,15 @@ class FlavorModel:
         """_fluxes_exact at values' p_index, or interpolated in it between the runs at `nodes`."""
         if nodes is None:
             return self._fluxes_exact(values)
-        from scipy.interpolate import CubicSpline
         p = float(values.get("p_index", self.base["source"]["p_index"]))
         if not nodes[0] - 1e-12 <= p <= nodes[-1] + 1e-12:
             raise ValueError(f"p_index = {p} lies outside the interpolation nodes {nodes.tolist()}")
         runs = [self._fluxes_exact(dict(values, p_index=float(pk))) for pk in nodes]
-
-        def interp(arrs):
-            L = np.log(np.maximum(np.stack(arrs), 1e-300))
-            return np.exp(CubicSpline(nodes, L, axis=0)(p))
-        F_a = interp([r[1] for r in runs])
-        F_b = None if runs[0][2] is None else interp([r[2] for r in runs])
+        F_a = spline_log_interp(nodes, p, [r[1] for r in runs])
+        F_b = None if runs[0][2] is None else spline_log_interp(nodes, p, [r[2] for r in runs])
         gal = None
         if runs[0][3] is not None:
-            K = float(np.exp(CubicSpline(nodes, np.log([r[3]["K"] for r in runs]))(p)))
+            K = float(spline_log_interp(nodes, p, [np.float64(r[3]["K"]) for r in runs]))
             gal = dict(G=runs[0][3]["G"], K=K)
         return runs[0][0], F_a, F_b, gal
 
@@ -757,17 +776,13 @@ class FlavorModel:
         if nodes is None:
             run = self._sky_exact(values)
             return run["bands_nu"], run["bands_nb"], run["K"], run
-        from scipy.interpolate import CubicSpline
         p = float(values.get("p_index", self.base["source"]["p_index"]))
         if not nodes[0] - 1e-12 <= p <= nodes[-1] + 1e-12:
             raise ValueError(f"p_index = {p} lies outside the interpolation nodes {nodes.tolist()}")
         runs = [self._sky_exact(dict(values, p_index=float(pk))) for pk in nodes]
-
-        def interp(arrs):
-            L = np.log(np.maximum(np.stack(arrs), 1e-300))
-            return np.exp(CubicSpline(nodes, L, axis=0)(p))
-        K = float(np.exp(CubicSpline(nodes, np.log([r["K"] for r in runs]))(p)))
-        return interp([r["bands_nu"] for r in runs]), interp([r["bands_nb"] for r in runs]), K, runs[0]
+        K = float(spline_log_interp(nodes, p, [np.float64(r["K"]) for r in runs]))
+        return (spline_log_interp(nodes, p, [r["bands_nu"] for r in runs]),
+                spline_log_interp(nodes, p, [r["bands_nb"] for r in runs]), K, runs[0])
 
     def _galactic_run(self, values: Mapping) -> dict:
         """A sky run of this point that carries its Galactic bands (they depend on neither the index nor the
@@ -784,10 +799,18 @@ class FlavorModel:
         the extragalactic flux is isotropic before the Earth and the Earth crossing depends on the zenith only, so it
         is the South Pole's bands in cos-zenith order; the Galactic flux is the site's own (the model's sites), or the
         South Pole's for a site within SITE_POLE_DEG of it."""
-        E, F_nu, F_nb = self.band_fluxes(dict(values, norm_gal=0.0)) if self.galactic else self.band_fluxes(values)
+        # the extragalactic part is every site's (isotropic before the Earth): computed once per values for all of
+        # them (2026-10-15; the future detectors ask for five sites per chi^2)
+        key = tuple(sorted((k, float(v)) for k, v in values.items()))
+        memo = getattr(self, "_site_eg", None)
+        if memo is not None and memo[0] == key:
+            E, F_nu, F_nb = memo[1]
+        else:
+            E, F_nu, F_nb = self.band_fluxes(dict(values, norm_gal=0.0)) if self.galactic else self.band_fluxes(values)
+            self._site_eg = (key, (E, F_nu, F_nb))
         F_nu, F_nb = F_nu[::-1], F_nb[::-1]                       # declination order -> cos-zenith order (South Pole)
         if not self.galactic:
-            return E, F_nu, F_nb
+            return E, F_nu.copy(), F_nb.copy()
         run = self._galactic_run(values)
         x = float(values.get("f_e_S_gal", self.default("f_e_S_gal")))
         if not 0.0 <= x <= 1.0:

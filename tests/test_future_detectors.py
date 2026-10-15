@@ -116,3 +116,42 @@ def test_future_event_likelihood_end_to_end():
         assert abs(fd - g[i]) < 1e-5 * max(1.0, abs(g[i])), (ev.names[i], fd, g[i])
     far = ev.chi2({"f_e_S": 0.9, "norm_astro": 1.0})
     assert far > 25.0, far                                        # 10 yr of eight detectors see the composition
+
+
+def test_newton_profile_equals_lbfgsb():
+    """The nuisances' profile by Newton's method (the expectation is linear in them: exact Hessian) gives the
+    L-BFGS-B profile's chi^2, at the Asimov point and away from it; its Hessian is the gradient's finite difference."""
+    from analysis import config as config_mod
+    from test_event_likelihood import _sky_cfg
+    std = {"u_e": 0.5, "u_mu": 0.5, "u_tau": 0.0, "m_Zd_eV": 1e-24, "g_D": 1e-60, "epsilon_prime": 0.0}
+    cfg = _sky_cfg(1.0 / 3.0, 1.0 / 3.0, "3d", dark_portal=std, grid={"E_min_eV": 1e11, "E_max_eV": 3e16, "n_E_bins": 24})
+    raw = {"name": "future_newton", "data": {"events": {"future": {"config": "All8_base"}}, "flavor_band_eV": [1e13, 3e16]},
+           "solver": cfg, "parameters": {"f_e_S": {"start": 0.333, "bounds": [0.0, 1.0], "space": "linear"},
+                                         "norm_astro": {"start": 1.0, "bounds": [0.01, 100.0], "space": "log10"}},
+           "fit": {"n_random": 0}, "profiles": {}, "planes": [], "asimov": {"f_e_S": 1.0 / 3.0}}
+    c = config_mod.from_dict(raw)
+    ev = c.objective(c.model(), data_centre=(1.0 / 3.0, 2.0 / 3.0)).events
+    for v in ({"f_e_S": 1.0 / 3.0, "norm_astro": 1.0}, {"f_e_S": 0.5, "norm_astro": 1.3},
+              {"f_e_S": 0.9, "norm_astro": 0.7}, {"f_e_S": 0.0, "norm_astro": 2.0}):
+        S = ev.signals(v)
+        z_start = ev._z0.copy()
+        x_n, r_n = ev.profile(S, ev.data)
+        ev._z0 = z_start
+        x_l, r_l = ev.profile_lbfgsb(S, ev.data)
+        assert r_n.fun <= r_l.fun + 1e-9 * max(1.0, r_l.fun), (v, r_n.fun, r_l.fun)
+        assert abs(r_n.fun - r_l.fun) < 1e-6 * max(1.0, r_l.fun), (v, r_n.fun, r_l.fun)
+    assert ev.n_fallback == 0 and ev.n_newton >= 4
+    A = ev._design(S)
+    rng = np.random.default_rng(3)
+    x = x_n + 0.2 * ev.sigma * rng.normal(size=len(x_n))
+    _, g, H = ev._fgh(x, A, S, ev.data)
+    for i in rng.choice(len(x), 6, replace=False):
+        h = 1e-5 * ev.sigma[i]
+        xp, xm = x.copy(), x.copy()
+        xp[i] += h
+        xm[i] -= h
+        dg = (ev._fgh(xp, A, S, ev.data)[1] - ev._fgh(xm, A, S, ev.data)[1]) / (2 * h)
+        assert np.max(np.abs(dg - H[:, i])) < 1e-5 * max(1.0, np.max(np.abs(H[:, i]))), ev.names[i]
+    f_dev, g_dev = ev._dev(x, S, ev.data)
+    assert abs(f_dev - ev._fgh(x, A, S, ev.data)[0]) < 1e-9 * max(1.0, f_dev)
+    assert np.max(np.abs(g_dev - g)) < 1e-9 * max(1.0, np.max(np.abs(g)))

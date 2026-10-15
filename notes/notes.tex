@@ -1732,6 +1732,19 @@ inverted ordering, $0.0995$~eV costs $8.85$. Both orderings are fitted. As a che
 excludes the two minimal sums at 96.0\% and 99.9\%, against 96.6\% and 99.9\% stated in the
 paper.
 
+\textit{The spectral shape (2026-10-15).}---IceCube's 2026 combined fit of tracks and cascades (PRD 113, 062002,
+Table~3, ``CF BPL'') bends below $\sim$25~TeV: $1.77\times10^{-18}$~GeV$^{-1}$~cm$^{-2}$~s$^{-1}$~sr$^{-1}$ per flavor at
+100~TeV, $E^{-2.735}$ above $E_b = 10^{4.39}$~GeV and $E^{-1.31}$ below. A single power law fitted to the same data and
+extended down carries 3 times its flux at 10~TeV and 60 times at 1~TeV, which DR2 (from 3~TeV), IceCube's own
+spectrum segments (from 4.6~TeV) and the future detectors (from 100~GeV) all see. So the extragalactic flux is now
+IceCube's broken power law, in every data set: two source populations split at the energy the neutrinos have today,
+$E_b$, each a power law, with the upper index $p$ and the lower index $p_{\rm low}$ free and $E_b$ fixed, normalized
+so that without new physics the flux at Earth is exactly the broken power law (\file{docs/dev/BROKEN\_POWER\_LAW.md}).
+Each population is its own solver run, with the sources emitting only on their side of $E_b$; the transport is linear
+in its sources, so everything downstream (conversion, absorption, and the secondaries that an absorption above $E_b$
+sends below it) is each population's own. We expect the bend to absorb part of the preference for an MeV resonance
+that the 2026 spectrum gave every secret-interaction plane (Sec.~\ref{sec:directions}); the rerun campaign will tell.
+
 \textit{Not varied.}---The cross sections are fixed by the public responses; varying them
 would require generating our own effective areas. The detector-systematic corrections of the
 HESE release (optical efficiency, hole ice, ice anisotropy) are deferred, because they need the
