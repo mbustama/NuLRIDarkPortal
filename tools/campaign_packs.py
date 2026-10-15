@@ -4,8 +4,8 @@ campaign_packs.py -- the plane campaign's job packs for slurm/campaign_array.sh 
 Reads analysis/configs/campaign/<set>/campaign.json (tools/make_campaign_configs.py), estimates each plane's cost and
 packs the planes into packs of about --hours on --cores cores. One set of solver runs serves several planes through
 the shared disk cache (NULRI_FLUX_CACHE; flux_basis 'pure_flavors'): the 2026-spectrum set's fixed-composition planes
-compute them for their fitted twins and for both of the 2050 projection's (the same physics), and the event set's
-fixed-composition planes for their twins. So the packs come in two waves, listed in that order: the producers (first)
+compute them for their fitted twins and for both of the 2050 projection's (the same physics), the event set's
+fixed-composition planes for their twins, and so the future detectors' set's (its own energy grid and sites). So the packs come in two waves, listed in that order: the producers (first)
 and the planes that reuse their runs (cost: their fits only).
 
 Costs in core-seconds per plane point (laptop, one core, 2026-10-14, after the speed-ups; Tycho to be calibrated):
@@ -19,19 +19,25 @@ import json
 import os
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-SOLVER = {False: {"pot": 8.0, "mev": 18.0}, True: {"pot": 9.0, "mev": 20.0}}      # by sky mode (the event set)
-FIT = {False: 2.0, True: 10.0}
+SOLVER = {"spectrum": {"pot": 8.0, "mev": 18.0}, "events": {"pot": 9.0, "mev": 20.0},
+          # the future detectors (2026-10-15, NOT YET CALIBRATED): 630 energies instead of 515, five sites' Galactic
+          # bands; their fits profile ~110 nuisances inside each chi^2
+          "future": {"pot": 12.0, "mev": 26.0}}
+FIT = {"spectrum": 2.0, "events": 10.0, "future": 30.0}
 FX_FIT = 1.5
-PRODUCER_SETS = {"now_ic26": "now_ic26", "proj_2050": "now_ic26", "now_events": "now_events"}
+KIND = {"now_ic26": "spectrum", "proj_2050": "spectrum", "now_events": "events", "proj_future": "future"}
+# the set whose fixed-composition planes compute the solver runs (proj_future: its own grid and sites)
+PRODUCER_SETS = {"now_ic26": "now_ic26", "proj_2050": "now_ic26", "now_events": "now_events",
+                 "proj_future": "proj_future"}
 
 
 def plane_cost(dataset, name, points):
     """(core-seconds, producer?) of one plane."""
-    sky = dataset == "now_events"
-    kind = "mev" if "_mev" in name else "pot"
+    kind = KIND[dataset]
+    planes = "mev" if "_mev" in name else "pot"
     fx = name.endswith("_fx")
     producer = PRODUCER_SETS[dataset] == dataset and not fx
-    per_point = FIT[sky] * (FX_FIT if fx else 1.0) + (SOLVER[sky][kind] if producer else 0.0)
+    per_point = FIT[kind] * (FX_FIT if fx else 1.0) + (SOLVER[kind][planes] if producer else 0.0)
     return per_point * points, producer
 
 

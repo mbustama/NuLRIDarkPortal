@@ -53,6 +53,11 @@ def provenance(cfg) -> dict:
                 numba=numba.__version__, argv=sys.argv)
 
 
+def asimov_only(cfg) -> bool:
+    """The future detectors have no data: their projections always use the Asimov data set (2026-10-15)."""
+    return cfg.events is not None and "future" in cfg.events
+
+
 def asimov_centre(cfg) -> tuple:
     """(f_e, f_mu) predicted at the configuration's 'asimov' values (free parameters not named
     there take their starts)."""
@@ -226,6 +231,9 @@ def main(argv=None):
 
     import dp_core
     cfg = config_mod.load(args.config)
+    if not args.asimov and asimov_only(cfg):
+        args.asimov = True
+        print("future detectors: the Asimov data set at the configuration's asimov values")
     out_dir = cfg.output_path("asimov" if args.asimov else "data")
     os.makedirs(out_dir, exist_ok=True)
     workers = args.workers or dp_core.default_n_cores()

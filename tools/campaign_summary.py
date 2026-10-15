@@ -33,7 +33,9 @@ LEVEL = "95%"
 
 
 def plane_json(run_dir):
-    hits = sorted(glob.glob(os.path.join(run_dir, "data", "plane_*.json")))
+    # the future detectors' projections run on Asimov data: their results sit in asimov/
+    hits = sorted(glob.glob(os.path.join(run_dir, "data", "plane_*.json"))) or \
+        sorted(glob.glob(os.path.join(run_dir, "asimov", "plane_*.json")))
     hits = [h for h in hits if not h.endswith("_profiled_split.json")]
     return hits[0] if hits else None
 

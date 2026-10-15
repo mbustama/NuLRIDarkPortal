@@ -33,7 +33,11 @@ from analysis.model import parse_coupling_split  # noqa: E402
 
 def load_run(run_dir: str):
     """(summary, coupling_split) of an analysis run's plane."""
-    data = os.path.join(run_dir, "data") if os.path.isdir(os.path.join(run_dir, "data")) else run_dir
+    data = run_dir
+    for sub in ("data", "asimov"):                  # the future detectors' projections run on Asimov data
+        if glob.glob(os.path.join(run_dir, sub, "plane_*.json")):
+            data = os.path.join(run_dir, sub)
+            break
     planes = sorted(glob.glob(os.path.join(data, "plane_*.json")))
     if len(planes) != 1:
         raise ValueError(f"{run_dir}: expected one plane_*.json, found {planes}")

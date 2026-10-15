@@ -461,6 +461,16 @@ def test_configs_validate():
     assert len(config_mod.from_dict(ok).priors) == 2
 
 
+def test_future_detector_configs_run_on_asimov_data():
+    """The future detectors have no data: analysis.run turns --asimov on for their configurations, only theirs."""
+    from analysis import run
+    camp = os.path.join(CONFIGS, "campaign")
+    for dataset, expected in (("proj_future", True), ("now_events", False), ("now_ic26", False),
+                              ("proj_2050", False)):
+        path = os.path.join(camp, dataset, "dp_emu_pot_bal_pos.json")
+        assert run.asimov_only(config_mod.load(path)) is expected, path
+
+
 def test_command_line_end_to_end(tmp_path):
     """Fit, a three-point profile and a 2 x 2 plane with the real solver at a tiny grid:
     the outputs exist, intervals are reported, and Delta chi^2 is measured from the lowest

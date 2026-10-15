@@ -74,9 +74,10 @@ def test_triangle_map_search_finds_the_first_crossing():
     assert len(RT.ratio_points()) == 66 and all(abs(sum(w) - 1) < 1e-12 for w in RT.ratio_points())
 
 
-def test_campaign_summary_reads_bounds_and_profiles(tmp_path):
+@pytest.mark.parametrize("sub", ["data", "asimov"])
+def test_campaign_summary_reads_bounds_and_profiles(tmp_path, sub):
     """tools/campaign_summary.py on a synthetic campaign: the balanced plane's bound per mass, its profiled curve from
-    a split variant, a missing plane listed."""
+    a split variant, a missing plane listed; from data/ or, as the future detectors' projections write them, asimov/."""
     import campaign_summary as SUM
     m = np.logspace(-24, -18, 4)
     P = np.logspace(-60, -30, 31)
@@ -84,7 +85,7 @@ def test_campaign_summary_reads_bounds_and_profiles(tmp_path):
     var = 10.0 * np.clip(np.log10(P) + 36.0, 0.0, None)[None, :].repeat(2, axis=0)
     from analysis import intervals
     for name, mm, c, split in (("dp_emu_pot_bal_pos", m, bal, "balanced"), ("dp_emu_pot_x1m12_pos", m[:2], var, 1e-12)):
-        d = tmp_path / "set" / name / "data"
+        d = tmp_path / "set" / name / sub
         d.mkdir(parents=True)
         s = _summary(mm, P, c)
         rs = intervals.summarize_raster(mm, P, np.asarray(c), THR, 0.0, True)

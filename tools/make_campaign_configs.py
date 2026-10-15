@@ -25,7 +25,7 @@ value per decade for the potential (P down to 1e-60), two for g' below 1e4 eV, f
 for the potential planes and 7 where the MeV absorption goes through dp_si (its secondaries make the flux's
 dependence on p least smooth, as for the secret interactions).
 
-  python tools/make_campaign_configs.py [--datasets now_ic26 now_events proj_2050] [--check]
+  python tools/make_campaign_configs.py [--datasets now_ic26 now_events proj_2050 proj_future] [--check]
 """
 import argparse
 import copy
@@ -52,6 +52,14 @@ DATASETS = {
                    "grid": {"n_E_bins": 515, "E_min_eV": 10 ** (13.0 - 115 * D_LOG), "E_max_eV": 3e16}},
     # the 2050 projection (IceCube-Gen2, KM3NeT, Baikal, P-ONE, HUNT; pion-decay centre) with the 2026 spectrum
     "proj_2050": {"data": {"surface": "pion_2050_case_5", "spectrum": "ic26_astrophysical"}},
+    # the projection with the future detectors' events instead (docs/dev/FUTURE_DETECTORS_PLAN.md, 2026-10-15):
+    # NuFlavorSingleSource's main case, 10 yr of each of the eight; always on Asimov data (analysis.run); the solver's
+    # grid down to ~100 GeV with the same spacing, where the detectors' energy grid starts. Its Asimov data: standard
+    # physics, pion-decay sources and today's spectrum (the 2026-spectrum set's best fit, 2026-10-15: norm_astro
+    # 1.548, p_index 2.636)
+    "proj_future": {"data": {"events": {"future": {"config": "All8_base"}}, "flavor_band_eV": [1e13, 3e16]},
+                    "grid": {"n_E_bins": 630, "E_min_eV": 10 ** (13.0 - 230 * D_LOG), "E_max_eV": 3e16},
+                    "asimov": {"norm_astro": 1.55, "p_index": 2.64}, "asimov_fx": {"f_e_S": 1 / 3, "f_e_S_gal": 1 / 3}},
 }
 TEXTURES = {"e": (1, 0, 0), "mu": (0, 1, 0), "tau": (0, 0, 1), "emu": (1, 1, 0), "etau": (1, 0, 1),
             "mutau": (0, 1, 1), "emutau": (1, 1, 1)}
@@ -93,7 +101,8 @@ def _config(dataset, name, comment, solver, params, priors, plane, asimov):
     # (NULRI_FLUX_CACHE); the composition is linear, to rounding (1e-9 through dp_si's MeV transport)
     return {"_comment": comment, "name": name, "data": copy.deepcopy(DATASETS[dataset]["data"]),
             "solver": solver, "parameters": params, "priors": copy.deepcopy(priors), "fit": dict(FIT),
-            "profiles": {}, "planes": [plane], "asimov": asimov, "flux_basis": "pure_flavors",
+            "profiles": {}, "planes": [plane], "asimov": {**DATASETS[dataset].get("asimov", {}), **asimov},
+            "flux_basis": "pure_flavors",
             "output_dir": f"output/analysis/campaign/{dataset}/{name}"}
 
 
@@ -119,6 +128,7 @@ def planes_for(dataset):
         fx["name"] = name + "_fx"
         fx["_comment"] += "; the sources' flavor compositions fitted (extragalactic and Galactic, independently)"
         fx["parameters"].update(copy.deepcopy(COMPOSITIONS))
+        fx["asimov"].update(DATASETS[dataset].get("asimov_fx", {}))
         fx["output_dir"] += "_fx"
         out.append((name + "_fx", fx, plane["nx"] * plane["ny"]))
 
