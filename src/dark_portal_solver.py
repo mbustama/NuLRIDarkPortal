@@ -973,8 +973,45 @@ def propagate_sky(E_bins: np.ndarray, params: Dict) -> Dict:
     return out
 
 
+def site_zenith_weights(dec: np.ndarray, lat_deg: float, cosz_edges: np.ndarray, n_hour: int = 720,
+                        dec_band=None) -> np.ndarray:
+    """(N_pix, N_z): the fraction of a sidereal day each sky direction (declination dec, rad) spends in each local
+    cos-zenith band of a site at latitude lat_deg, from cos Z = sin(lat) sin(dec) + cos(lat) cos(dec) cos(H) at n_hour
+    hour angles. At a pole each direction stays in one band, cos Z = -+sin(dec): with dec_band (the directions'
+    declination bands, SkyGrid.band, whose edges map onto cosz_edges) exactly the grid's own assignment, so that the
+    South Pole reproduces the per-declination bands even for pixel centres on a band edge (HEALPix rings sit on
+    sin(dec) = 0, +-0.5)."""
+    if dec_band is not None and abs(abs(float(lat_deg)) - 90.0) < 1e-9:
+        nz = len(cosz_edges) - 1
+        z = (nz - 1 - np.asarray(dec_band)) if lat_deg < 0 else np.asarray(dec_band)
+        W = np.zeros((len(dec), nz))
+        W[np.arange(len(dec)), z] = 1.0
+        return W
+    H = (np.arange(n_hour) + 0.5) * (2.0 * np.pi / n_hour)
+    la = np.radians(float(lat_deg))
+    cz = np.sin(la) * np.sin(dec)[:, None] + np.cos(la) * np.cos(dec)[:, None] * np.cos(H)[None, :]
+    idx = np.clip(np.searchsorted(cosz_edges, cz, side="right") - 1, 0, len(cosz_edges) - 2)
+    W = np.zeros((len(dec), len(cosz_edges) - 1))
+    for z in range(len(cosz_edges) - 1):
+        W[:, z] = np.mean(idx == z, axis=1)
+    return W
+
+
+def site_band_means(X: np.ndarray, W: np.ndarray) -> np.ndarray:
+    """Per local cos-zenith band, the time-weighted mean of the sky maps X (N_pix, ...) over the directions passing
+    through it (W: site_zenith_weights): the band's time-averaged intensity. At the South Pole, the pixel means per
+    declination band (dp_galactic.band_means), in cos-zenith order."""
+    X = np.asarray(X, dtype=np.float64)
+    flat = X.reshape(len(W), -1)
+    norm = W.sum(axis=0)
+    if np.any(norm == 0):
+        raise ValueError("a cos-zenith band receives no sky direction: use a finer N_side or more hour angles")
+    return ((W.T @ flat) / norm[:, None]).reshape((W.shape[1],) + X.shape[1:])
+
+
 def propagate_sky_basis(E_bins: np.ndarray, params: Dict, sources=((1.0, 0.0, 0.0), (0.0, 1.0, 0.0)),
-                        galactic_compositions=((1.0, 0.0, 0.0), (0.0, 1.0, 0.0)), galactic: bool = True) -> Dict:
+                        galactic_compositions=((1.0, 0.0, 0.0), (0.0, 1.0, 0.0)), galactic: bool = True,
+                        site_latitudes_deg=()) -> Dict:
     """propagate_sky for several source compositions at once (the analysis' event likelihoods,
     docs/dev/EVENT_LIKELIHOOD_PLAN.md): the extragalactic bands for each composition in `sources` and, with
     galactic.enabled, the Galactic bands for each composition in `galactic_compositions`, sharing one setup
@@ -988,7 +1025,13 @@ def propagate_sky_basis(E_bins: np.ndarray, params: Dict, sources=((1.0, 0.0, 0.
     3) in GeV^-1 cm^-2 s^-1 sr^-1 at galactic.norm_gal (pixel means per band) and galactic_band_share (N_b,), each
     band's share of the pixels (the sky's pixel mean, galactic_allsky, weights the bands by it); meta.
     galactic=False skips the Galactic bands (a caller that has them: they do not depend on the extragalactic
-    source's spectral index, 2026-10-14)."""
+    source's spectral index, 2026-10-14).
+    site_latitudes_deg: detectors elsewhere than the South Pole (the future detectors, docs/dev/FUTURE_DETECTORS_PLAN.md,
+    2026-10-15): with galactic.enabled (3-D emission or secret interactions), site_galactic_bands_nu, _nubar {latitude:
+    (n_comp, N_z, N_E, 3)} per local cos-zenith band (site_cosz_edges, increasing): each sky direction's emission
+    spread over the site's zeniths over a sidereal day (site_zenith_weights), then through the Earth with the
+    per-zenith responses. The extragalactic flux is isotropic before the Earth, so its bands in cos-zenith order
+    (bands_* reversed) serve every site."""
     import dp_sky
     sky_p = params.get('sky') or dict(output='bands', nside=16, dec_band_edges=None, earth_nodes_per_band=2)
     gal = params.get('galactic') or dict(enabled=False)
@@ -1026,6 +1069,10 @@ def propagate_sky_basis(E_bins: np.ndarray, params: Dict, sources=((1.0, 0.0, 0.
         em = dp_galactic.emitted(gal['template'], np.asarray(E_bins, dtype=np.float64) / 1e9, grid.nside,
                                  gal['norm_gal'])
         g_nu, g_nb = [], []
+        sites = {float(lat): site_zenith_weights(grid.dec, lat, grid.costh_edges, dec_band=grid.band)
+                 for lat in site_latitudes_deg}
+        s_nu = {lat: [] for lat in sites}
+        s_nb = {lat: [] for lat in sites}
         if setup.get('si', False):
             # unattenuated, averaged oscillations: the same transfer in every band (_galactic_transfer)
             P = dp_galactic.averaged_transfer(setup['U_pmns_base'])
@@ -1034,7 +1081,13 @@ def propagate_sky_basis(E_bins: np.ndarray, params: Dict, sources=((1.0, 0.0, 0.
                 T = em_b[:, :, None] * (P @ np.asarray(c, dtype=np.float64))[None, None, :]
                 g_nu.append(T)
                 g_nb.append(T.copy())
+                for lat, W in sites.items():
+                    Ts = site_band_means(em, W)[:, :, None] * (P @ np.asarray(c, dtype=np.float64))[None, None, :]
+                    s_nu[lat].append(Ts)
+                    s_nb[lat].append(Ts.copy())
         elif gal['emission'] == 'local':
+            if sites:
+                raise NotImplementedError("site_latitudes_deg needs galactic.emission '3d' (or secret interactions)")
             em_b = dp_galactic.band_means(em, grid.band, grid.n_bands)
             for c in galactic_compositions:
                 T_nu, T_nb = _galactic_transfer(E_bins, params, setup, grid.costh_edges, grid.nside,
@@ -1042,8 +1095,8 @@ def propagate_sky_basis(E_bins: np.ndarray, params: Dict, sources=((1.0, 0.0, 0.
                 g_nu.append(em_b[:, :, None] * T_nu[::-1])
                 g_nb.append(em_b[:, :, None] * T_nb[::-1])
         else:
-            R_nu, R_nb = _galactic_responses(E_bins, params, setup, grid.costh_edges)
-            R_nu, R_nb = np.ascontiguousarray(R_nu[::-1]), np.ascontiguousarray(R_nb[::-1])
+            R_nu_z, R_nb_z = _galactic_responses(E_bins, params, setup, grid.costh_edges)      # cos-zenith order
+            R_nu, R_nb = np.ascontiguousarray(R_nu_z[::-1]), np.ascontiguousarray(R_nb_z[::-1])
             for c in galactic_compositions:
                 F_nu, F_nb = _galactic_emission_populations(E_bins, params, setup, grid.nside,
                                                             f_S=np.asarray(c, dtype=np.float64))
@@ -1051,10 +1104,17 @@ def propagate_sky_basis(E_bins: np.ndarray, params: Dict, sources=((1.0, 0.0, 0.
                                                                               grid.n_bands), R_nu))
                 g_nb.append(np.einsum('bek,bekf->bef', dp_galactic.band_means(em[:, :, None] * F_nb, grid.band,
                                                                               grid.n_bands), R_nb))
+                for lat, W in sites.items():
+                    s_nu[lat].append(np.einsum('zek,zekf->zef', site_band_means(em[:, :, None] * F_nu, W), R_nu_z))
+                    s_nb[lat].append(np.einsum('zek,zekf->zef', site_band_means(em[:, :, None] * F_nb, W), R_nb_z))
         out['galactic_bands_nu'] = np.ascontiguousarray(np.stack(g_nu))
         out['galactic_bands_nubar'] = np.ascontiguousarray(np.stack(g_nb))
         # each band's share of the pixels: the sky's pixel mean (galactic_allsky) is the bands weighted by it
         out['galactic_band_share'] = np.bincount(grid.band, minlength=grid.n_bands) / grid.npix
+        if sites:
+            out['site_cosz_edges'] = np.asarray(grid.costh_edges, dtype=np.float64)
+            out['site_galactic_bands_nu'] = {lat: np.ascontiguousarray(np.stack(v)) for lat, v in s_nu.items()}
+            out['site_galactic_bands_nubar'] = {lat: np.ascontiguousarray(np.stack(v)) for lat, v in s_nb.items()}
         out['meta']['galactic'] = dict(template=gal['template'], norm_gal=gal['norm_gal'],
                                        compositions=[list(map(float, c)) for c in galactic_compositions],
                                        emission='unattenuated, averaged oscillations' if params.get('si')

@@ -16,6 +16,9 @@ sys.path.insert(0, REPO)
 from IceCubeRates.future import nfss_detectors as D, nfss_forecast as F  # noqa: E402
 from IceCubeRates.future.diffuse import DiffuseDetector  # noqa: E402
 
+sys.path.insert(0, os.path.join(REPO, "src"))
+sys.path.insert(0, os.path.join(REPO, "tests"))
+
 
 @pytest.fixture(scope="module")
 def calibrated():
@@ -46,3 +49,29 @@ def test_diffuse_response_matches_allsky_rates(calibrated, name):
                         for lo, hi in zip(ed[:-1], ed[1:])])
         ok = ref > 1e-6
         np.testing.assert_allclose(mine[ok], ref[ok], rtol=5e-5)
+
+
+@pytest.mark.parametrize("case", ["dark portal", "secret interactions"])
+def test_site_galactic_bands(case):
+    """The Galactic flux per local cos-zenith band at a site (propagate_sky_basis(site_latitudes_deg)): at the South
+    Pole the per-declination bands in cos-zenith order; at every latitude, sky averages and day averages agree --
+    each direction spends the whole day somewhere; a mid-latitude site and the North Pole differ from the South
+    Pole's."""
+    import dark_portal_solver as dps
+    from test_event_likelihood import DP, SI, _sky_cfg
+    over = {"secret_interactions": SI} if case == "secret interactions" else {"dark_portal": DP}
+    E, params = dps.build_solver_params(_sky_cfg(0.3, 0.7, "3d", **over))
+    params["show_progress"] = False
+    out = dps.propagate_sky_basis(E, params, site_latitudes_deg=(-90.0, 36.27, 90.0))
+    edges = out["site_cosz_edges"]
+    for kind in ("nu", "nubar"):
+        pole = out["site_galactic_bands_" + kind][-90.0]
+        np.testing.assert_allclose(pole, out["galactic_bands_" + kind][:, ::-1], rtol=1e-12, atol=0)
+        north = out["site_galactic_bands_" + kind][90.0]           # sees the northern sky above, the Galactic Centre below
+        assert np.max(np.abs(north / pole - 1)) > 1e-3
+        arca = out["site_galactic_bands_" + kind][36.27]
+        assert np.max(np.abs(arca / pole - 1)) > 1e-3
+    W = dps.site_zenith_weights(np.radians(np.array([-60.0, 0.0, 45.0])), 36.27, edges)
+    np.testing.assert_allclose(W.sum(axis=1), 1.0, rtol=0, atol=1e-12)
+    # ARCA (36.27 N): dec = -60 never rises above cos Z = sin(36.27 - 90 + 60) ... it stays below the horizon
+    assert W[0, edges[:-1] >= 0.0].sum() == 0.0
