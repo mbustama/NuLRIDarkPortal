@@ -308,3 +308,20 @@ def test_gauss_newton_profile_equals_lbfgsb(tmp_path):
         assert abs(r_gn.fun - r_lb.fun) < 1e-6 * max(1.0, r_lb.fun), (v, r_gn.fun, r_lb.fun)
         assert abs(ev.exact(x_gn, A)["total"] - ev.exact(x_lb, A)["total"]) < 1e-4 * max(1.0, r_lb.fun)
     assert ev.n_fallback == 0, ev.gn_fail
+
+
+def test_empty_settings_mean_the_defaults(tmp_path, monkeypatch):
+    """data.events {"hese": {}, "dr2": {}} -- what the campaign's configurations write -- turns both data sets on
+    with their defaults (until 2026-10-15 an empty {} read as off, and those planes had no data: chi^2 = 0)."""
+    from analysis.events import EventLikelihood, HESE_MC_ENV, HESE_DET_ENV
+    m, ev_full = _event_model(tmp_path)
+    monkeypatch.setenv(HESE_MC_ENV, str(tmp_path / "mc.npz"))
+    monkeypatch.setenv(HESE_DET_ENV, str(tmp_path / "mc.npz") + ".det.npz")
+    ev = EventLikelihood(m, {"hese": {}, "dr2": {}})
+    assert ev.hese is not None and ev.dr2 is not None
+    assert any(n.startswith("dr2_norm_") for n in ev.names) and "hese_conv_norm" in ev.names
+    assert ev.chi2({"norm_astro": 1.0, "p_index": 2.5}) > 1.0                    # the data are there
+    assert EventLikelihood(m, {"hese": {}, "dr2": False}).dr2 is None
+    assert EventLikelihood(m, {"hese": True}).hese is not None
+    with pytest.raises(ValueError, match="neither HESE nor DR2"):
+        EventLikelihood(m, {"hese": False, "dr2": None})

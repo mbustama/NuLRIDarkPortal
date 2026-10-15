@@ -48,6 +48,12 @@ MU_FLOOR = 1e-3                   # bins with data: the deviance continued quadr
 NEG_PENALTY = 1e6                 # empty bins: + NEG_PENALTY mu^2 below mu = 0
 
 
+def _enabled(setting) -> bool:
+    """A data set's entry in data.events: on when a mapping (an empty one: the defaults) or true; off when absent,
+    false or null."""
+    return isinstance(setting, Mapping) or setting is True
+
+
 def _poisson(mu, n, grad=False):
     """-2 ln L / L_max = 2 sum [mu - n + n ln(n / mu)], continued smoothly (C^2) where no physical expectation goes:
     below MU_FLOOR n in bins with data by its quadratic Taylor expansion there, below 0 in empty bins with a steep
@@ -203,18 +209,24 @@ class EventLikelihood:
         E, self.band_edges = model.grid()
         self.E_GeV = E / 1e9
         self.hese = self.dr2 = None
-        if spec.get("hese"):
+        # a data set is on when named with its settings, an empty {} meaning the defaults (until 2026-10-15 an empty
+        # {} read as off: the campaign's HESE + DR2 planes had no data); off only when absent, false or null
+        if _enabled(spec.get("hese")):
             h = spec["hese"] if isinstance(spec["hese"], Mapping) else {}
             bad = set(h) - {"mc", "detector", "atm"}
             if bad:
                 raise ValueError(f"data.events.hese: unknown keys {sorted(bad)}")
             self.hese = _HESE(self.E_GeV, self.band_edges, **h)
-        if spec.get("dr2"):
+        if _enabled(spec.get("dr2")):
             d = dict(DEFAULT_DR2, **(spec["dr2"] if isinstance(spec["dr2"], Mapping) else {}))
             bad = set(d) - set(DEFAULT_DR2)
             if bad:
                 raise ValueError(f"data.events.dr2: unknown keys {sorted(bad)}")
             self.dr2 = _DR2(self.E_GeV, self.band_edges, **d)
+        if self.hese is None and self.dr2 is None:
+            # an event term without data would return chi^2 = 0 everywhere (as the campaign's first HESE + DR2
+            # planes did): refuse it
+            raise ValueError(f"data.events {spec}: neither HESE nor DR2 is on (use {{}} for the defaults)")
         # the nuisances: name, centre, sigma, bounds
         pri = FA.Atmospheric().priors()
         nz = [(p, 0.0, pri[p], (None, None)) for p in FA.ATM_PARAMS if p != "prompt"]   # held by their priors
@@ -414,7 +426,10 @@ class EventLikelihood:
                 if fn <= f - 1e-4 * float(g @ (x - xn)):
                     break
                 t *= 0.5
-                if t < 1e-12:
+                if t < 1e-6:
+                    # typically a detector systematic whose profile minimum sits on a node of the release's
+                    # four-point interpolation (a kink: continuous, not differentiable), which the quadratic model
+                    # cannot see across; L-BFGS-B takes over (it lands on the node, as before 2026-10-15)
                     self.gn_fail = f"line search failed (decrement {dec:g})"
                     return None
             x = xn

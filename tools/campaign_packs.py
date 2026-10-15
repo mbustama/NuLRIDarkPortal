@@ -39,11 +39,11 @@ PRODUCER_SETS = {"now_ic26": "now_ic26", "proj_2050": "now_ic26", "now_events": 
 # the broken power law's campaign (2026-10-15): core-seconds per point, laptop, one core, steady state, after the day's
 # speed-ups (spline weights, Newton and Gauss-Newton profiles): producers run both pieces' solver runs and the fit,
 # reusers (the fitted-composition twins, the 2050 projection) the fit only. Measured: 2026-spectrum set potential 6.3,
-# MeV 37; future detectors potential 29-55. Estimated: the rest (the HESE + DR2 fits need the release's Monte Carlo,
-# on Tycho only).
+# MeV 37; future detectors potential 17-19 when chained as the scan runs them (each fit starting from the previous
+# point's; 29-55 from the configured starts); HESE + DR2 potential 21-38 chained. Estimated: the rest.
 BPL_COST = {"spectrum": {"pot": (6.3, 2.5), "mev": (37.0, 3.0)},
-            "events": {"pot": (20.0, 8.0), "mev": (45.0, 10.0)},
-            "future": {"pot": (46.0, 30.0), "mev": (70.0, 35.0)}}
+            "events": {"pot": (25.0, 12.0), "mev": (50.0, 14.0)},
+            "future": {"pot": (18.0, 10.0), "mev": (40.0, 12.0)}}
 
 
 def plane_cost(dataset, name, points, bpl=True):
