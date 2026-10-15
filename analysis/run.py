@@ -157,6 +157,61 @@ def summarize(cfg, out_dir: str, data_centre=None, log=print) -> dict:
     return ref
 
 
+LOCK_NAME = "RUNNING.lock"
+LOCK_HEARTBEAT_S = 300.0
+LOCK_STALE_S = 1800.0
+
+
+def acquire_lock(out_dir: str, heartbeat_s: float = LOCK_HEARTBEAT_S, stale_s: float = LOCK_STALE_S):
+    """A run's lock on its output directory (2026-10-15: idle jobs take over planes queued in other jobs' packs):
+    created atomically, kept fresh by a heartbeat thread, removed at exit; a lock whose heartbeat stopped more than
+    stale_s ago (a killed job) is taken over. Returns a release function, or None when another live run holds it."""
+    import atexit
+    import socket
+    import threading
+    path = os.path.join(out_dir, LOCK_NAME)
+    me = dict(host=socket.gethostname(), pid=os.getpid(), job=os.environ.get("SLURM_JOB_ID"), started=time.time())
+    for _ in range(2):
+        try:
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        except FileExistsError:
+            try:
+                age = time.time() - os.path.getmtime(path)
+            except FileNotFoundError:
+                continue
+            if age < stale_s:
+                return None
+            try:
+                os.remove(path)                       # stale: its heartbeat stopped
+            except FileNotFoundError:
+                pass
+            continue
+        with os.fdopen(fd, "w") as f:
+            json.dump(me, f)
+        stop = threading.Event()
+
+        def beat():
+            while not stop.wait(heartbeat_s):
+                try:
+                    os.utime(path)
+                except FileNotFoundError:
+                    return
+
+        threading.Thread(target=beat, daemon=True).start()
+
+        def release():
+            stop.set()
+            try:
+                with open(path) as f:
+                    if json.load(f).get("pid") == me["pid"]:
+                        os.remove(path)
+            except (FileNotFoundError, ValueError):
+                pass
+        atexit.register(release)
+        return release
+    return None
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="python -m analysis", description=__doc__.split("\n\n")[0])
     ap.add_argument("config", help="analysis configuration (JSON)")
@@ -177,6 +232,9 @@ def main(argv=None):
     if args.summarize:
         centre = asimov_centre(cfg) if args.asimov else None
         summarize(cfg, out_dir, centre)
+        return 0
+    if acquire_lock(out_dir) is None:
+        print(f"SKIPPED: {os.path.join(out_dir, LOCK_NAME)} is held by a live run (its heartbeat is fresh)")
         return 0
     everything = not (args.fit or args.profiles is not None or args.planes)
     run = dict(provenance=provenance(cfg), workers=workers, tasks=[])

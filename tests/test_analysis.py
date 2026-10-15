@@ -506,3 +506,23 @@ def test_model_caches_are_bounded_by_bytes():
     for k in range(5):
         small[k] = np.zeros(1)
     assert list(small) == [2, 3, 4]
+
+
+def test_run_lock_skips_live_and_takes_over_stale(tmp_path):
+    """analysis.run.acquire_lock (2026-10-15): one live run per output directory; a second is refused while the
+    heartbeat is fresh, a stale lock (a killed job) is taken over, and the release removes only one's own lock."""
+    from analysis import run as run_mod
+    rel = run_mod.acquire_lock(str(tmp_path), heartbeat_s=0.05, stale_s=0.5)
+    assert rel is not None and (tmp_path / run_mod.LOCK_NAME).exists()
+    assert run_mod.acquire_lock(str(tmp_path), heartbeat_s=0.05, stale_s=0.5) is None
+    import time as _t
+    _t.sleep(0.3)                                       # the heartbeat keeps it fresh past the stale age
+    assert run_mod.acquire_lock(str(tmp_path), heartbeat_s=0.05, stale_s=0.25) is None
+    rel()
+    assert not (tmp_path / run_mod.LOCK_NAME).exists()
+    (tmp_path / run_mod.LOCK_NAME).write_text('{"pid": -1}')
+    old = _t.time() - 10.0
+    os.utime(tmp_path / run_mod.LOCK_NAME, (old, old))  # a dead run's lock
+    rel2 = run_mod.acquire_lock(str(tmp_path), heartbeat_s=0.05, stale_s=1.0)
+    assert rel2 is not None
+    rel2()
