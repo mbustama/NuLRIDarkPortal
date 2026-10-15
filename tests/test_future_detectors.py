@@ -75,3 +75,40 @@ def test_site_galactic_bands(case):
     np.testing.assert_allclose(W.sum(axis=1), 1.0, rtol=0, atol=1e-12)
     # ARCA (36.27 N): dec = -60 never rises above cos Z = sin(36.27 - 90 + 60) ... it stays below the horizon
     assert W[0, edges[:-1] >= 0.0].sum() == 0.0
+
+
+def test_future_event_likelihood_end_to_end():
+    """A projection with the future detectors' events alone (data.events.future, All8_base): the model provides each
+    site's per-zenith flux, the Asimov data close (chi^2 = 0 at the truth), the profile's gradient is the finite
+    difference's, and a different source composition costs chi^2."""
+    from analysis import config as config_mod
+    from analysis.future_events import config_parts, part_lat
+    from test_event_likelihood import _sky_cfg
+    std = {"u_e": 0.5, "u_mu": 0.5, "u_tau": 0.0, "m_Zd_eV": 1e-24, "g_D": 1e-60, "epsilon_prime": 0.0}   # no new physics
+    cfg = _sky_cfg(1.0 / 3.0, 1.0 / 3.0, "3d", dark_portal=std, grid={"E_min_eV": 1e11, "E_max_eV": 3e16, "n_E_bins": 24})
+    raw = {"name": "future_test", "data": {"events": {"future": {"config": "All8_base"}}, "flavor_band_eV": [1e13, 3e16]},
+           "solver": cfg, "parameters": {"f_e_S": {"start": 0.333, "bounds": [0.0, 1.0], "space": "linear"},
+                                         "norm_astro": {"start": 1.0, "bounds": [0.01, 100.0], "space": "log10"}},
+           "fit": {"n_random": 0}, "profiles": {}, "planes": [], "asimov": {"f_e_S": 1.0 / 3.0}}
+    c = config_mod.from_dict(raw)
+    m = c.model()
+    assert set(m.site_lats) == {36.27, 51.77, 47.7, 17.4}
+    out, _ = D.calibrate(verbose=False)
+    assert all(abs(out[p]["lat"] - part_lat(p)) < 1e-12 for p in config_parts("All8_base"))
+    obj = c.objective(m, data_centre=(1.0 / 3.0, 2.0 / 3.0))
+    ev = obj.events
+    v = {"f_e_S": 1.0 / 3.0, "norm_astro": 1.0}
+    assert abs(ev.chi2(v)) < 1e-6
+    rng = np.random.default_rng(5)
+    S = ev.signals(v)
+    x = ev.centre + ev.sigma * rng.normal(scale=0.3, size=len(ev.centre))
+    f0, g = ev._dev(x, S, ev.data)
+    for i in rng.choice(len(x), 8, replace=False):
+        h = 1e-4 * ev.sigma[i]                          # central differences: rounding ~1e-16 f / h
+        xp, xm = x.copy(), x.copy()
+        xp[i] += h
+        xm[i] -= h
+        fd = (ev._dev(xp, S, ev.data)[0] - ev._dev(xm, S, ev.data)[0]) / (2 * h)
+        assert abs(fd - g[i]) < 1e-5 * max(1.0, abs(g[i])), (ev.names[i], fd, g[i])
+    far = ev.chi2({"f_e_S": 0.9, "norm_astro": 1.0})
+    assert far > 25.0, far                                        # 10 yr of eight detectors see the composition

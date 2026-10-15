@@ -133,9 +133,13 @@ class AnalysisConfig:
     def model(self, cache_size: int = 512) -> FlavorModel:
         # p_index interpolated between the nodes' solver runs: that many times the cache for the same points
         n = 1 if self.p_nodes() is None else len(self.p_nodes())
+        sites = ()
+        if self.events is not None and "future" in self.events:
+            from .future_events import config_sites
+            sites = config_sites((self.events["future"] or {}).get("config", "All8_base"))
         return FlavorModel(self.solver, self.free_names, cache_size=cache_size * n, p_nodes=self.p_nodes(),
                            sky=self.events is not None, flavor_band_eV=self.flavor_band,
-                           pure_flavor_basis=self.flux_basis == "pure_flavors")
+                           pure_flavor_basis=self.flux_basis == "pure_flavors", sites=sites)
 
     def asimov_values(self) -> Dict[str, float]:
         """The values of the Asimov data set: the configuration's 'asimov' values, the free parameters' starts
@@ -151,8 +155,15 @@ class AnalysisConfig:
         model = model or self.model()
         events = None
         if self.events is not None:
-            from .events import EventLikelihood
-            events = EventLikelihood(model, self.events)
+            terms = []
+            icecube = {k: v for k, v in self.events.items() if k in ("hese", "dr2")}
+            if icecube:
+                from .events import EventLikelihood
+                terms.append(EventLikelihood(model, icecube))
+            if "future" in self.events:
+                from .future_events import FutureEventLikelihood
+                terms.append(FutureEventLikelihood(model, self.events["future"] or {}))
+            events = terms[0] if len(terms) == 1 else _EventTerms(terms)
             if data_centre is not None:
                 events.set_asimov(self.asimov_values())
         return Objective(model, self.surface, self.priors, data_centre=data_centre, spectrum=self.spectrum,
@@ -187,6 +198,23 @@ class AnalysisConfig:
 
     def output_path(self, *parts: str) -> str:
         return os.path.join(self.output_dir, *parts)
+
+
+class _EventTerms:
+    """Several independent event likelihoods (IceCube's HESE and DR2; the future detectors) as one term."""
+
+    def __init__(self, terms):
+        self.terms = list(terms)
+        self.last = {}
+
+    def chi2(self, values):
+        total = sum(t.chi2(values) for t in self.terms)
+        self.last = {type(t).__name__: t.last for t in self.terms}
+        return total
+
+    def set_asimov(self, values, nuisances=None):
+        for t in self.terms:
+            t.set_asimov(values)
 
 
 def _grid(p: Parameter, lo: float, hi: float, n: int) -> np.ndarray:
@@ -228,9 +256,10 @@ def from_dict(raw: Mapping, path: str = "") -> AnalysisConfig:
         if spectrum is not None:
             raise ValueError("data.events and data.spectrum exclude each other: IceCube's 2026 spectrum is fitted to "
                              "largely the same events (Mauricio, 2026-10-14: events replace it)")
-        if not events or set(events) - {"hese", "dr2"}:
-            raise ValueError(f"data.events: use 'hese' and/or 'dr2', got {sorted(events)}")
-        known = {"hese": {"mc", "detector", "atm"}, "dr2": {"configs", "E_reco_min_log10", "dec_min_deg"}}
+        if not events or set(events) - {"hese", "dr2", "future"}:
+            raise ValueError(f"data.events: use 'hese', 'dr2' and/or 'future', got {sorted(events)}")
+        known = {"hese": {"mc", "detector", "atm"}, "dr2": {"configs", "E_reco_min_log10", "dec_min_deg"},
+                 "future": {"config", "cross_sections"}}
         for k, v in events.items():
             if isinstance(v, dict) and set(v) - known[k]:
                 raise ValueError(f"data.events.{k}: unknown keys {sorted(set(v) - known[k])}; known: {sorted(known[k])}")

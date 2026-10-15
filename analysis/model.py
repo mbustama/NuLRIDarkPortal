@@ -135,6 +135,7 @@ LINEAR_KEYS = SOURCE_KEYS + ("nubar_to_nu_ratio", "Phi_0") + GALACTIC_KEYS + tup
 ALIASES = {"s12sq": "th12_deg", "s13sq": "th13_deg", "s23sq": "th23_deg"}
 DISK_CACHE_ENV = "NULRI_FLUX_CACHE"
 DISK_CACHE_VERSION = 1
+SITE_POLE_DEG = 89.9
 P_NODES_N = 7             # solver runs per propagation point when p_index floats (fractions to ~2e-4 under strong SI)
 _SECTIONS = ("cosmology", "standard_mixing", "matter_charge", "dark_portal", "secret_interactions", "source", "grid",
              "galactic")
@@ -226,7 +227,8 @@ class FlavorModel:
 
     def __init__(self, solver_config: Mapping, free_names: Sequence[str] = (), cache_size: int = 512,
                  p_nodes: Optional[Sequence[float]] = None, sky: bool = False,
-                 flavor_band_eV: Optional[Sequence[float]] = None, pure_flavor_basis: bool = False):
+                 flavor_band_eV: Optional[Sequence[float]] = None, pure_flavor_basis: bool = False,
+                 sites: Sequence[float] = ()):
         sc, own = split_analysis_keys(solver_config)
         self.potential_sign = float(own.get("potential_sign", 1.0))
         if self.potential_sign not in (1.0, -1.0):
@@ -236,6 +238,9 @@ class FlavorModel:
         base["execution"].update(n_cores=1, verbose=0, use_gpu=False)
         self.base = base
         self.sky = bool(sky)
+        # detectors away from the South Pole (the future detectors, 2026-10-15): their latitudes (deg); a site within
+        # 0.1 deg of a pole takes the per-declination bands (IceCube's -89.99 in NuFlavorSingleSource)
+        self.site_lats = tuple(sorted({float(l) for l in sites if abs(float(l)) < SITE_POLE_DEG}))
         self.flavor_band = None if flavor_band_eV is None else (float(flavor_band_eV[0]), float(flavor_band_eV[1]))
         free_src = [k for k in SOURCE_KEYS if k in free_names]
         # Pure-flavor sources needed when the composition is free: the floated ones, the one
@@ -368,6 +373,8 @@ class FlavorModel:
                      code=dp_core._source_digest(), version=DISK_CACHE_VERSION)
         if self.sky:
             ident["sky"] = "propagate_sky_basis, single-precision bands"
+            if self.site_lats:
+                ident["sites"] = list(self.site_lats)
         h = hashlib.sha256(json.dumps(ident, sort_keys=True, default=_json_default).encode()).hexdigest()
         return os.path.join(self.disk_cache, h[:2], h + ".npz")
 
@@ -529,7 +536,8 @@ class FlavorModel:
         if run is not None:
             self.n_disk_hits += 1
             if run["gal_nu"] is not None:
-                self._gal_put(key, dict(gal_nu=run["gal_nu"], gal_nb=run["gal_nb"], share=run["share"]))
+                self._gal_put(key, dict(gal_nu=run["gal_nu"], gal_nb=run["gal_nb"], share=run["share"],
+                                        site_gal=run.get("site_gal", {})))
         else:
             E, params = dps.build_solver_params(cfg)
             params["show_progress"] = False
@@ -540,7 +548,8 @@ class FlavorModel:
             raw = dict(params)
             raw["sky"] = dict(params["sky"], extragalactic_norm=None)     # solver units; K kept apart
             g_hit = self._gal_get(key) if self.galactic else None
-            out = dps.propagate_sky_basis(E, raw, sources=sources, galactic=g_hit is None)
+            out = dps.propagate_sky_basis(E, raw, sources=sources, galactic=g_hit is None,
+                                          site_latitudes_deg=self.site_lats if g_hit is None else ())
 
             def r32(a):
                 return np.asarray(a, dtype=np.float32).astype(np.float64)
@@ -549,8 +558,11 @@ class FlavorModel:
                        bands_nb=r32(out["bands_nubar"]), K=float(K), gal_nu=None, gal_nb=None, share=None)
             if "galactic_bands_nu" in out:
                 run.update(gal_nu=r32(out["galactic_bands_nu"]), gal_nb=r32(out["galactic_bands_nubar"]),
-                           share=np.asarray(out["galactic_band_share"], dtype=np.float64))
-                self._gal_put(key, dict(gal_nu=run["gal_nu"], gal_nb=run["gal_nb"], share=run["share"]))
+                           share=np.asarray(out["galactic_band_share"], dtype=np.float64),
+                           site_gal={lat: (r32(out["site_galactic_bands_nu"][lat]),
+                                           r32(out["site_galactic_bands_nubar"][lat])) for lat in self.site_lats})
+                self._gal_put(key, dict(gal_nu=run["gal_nu"], gal_nb=run["gal_nb"], share=run["share"],
+                                        site_gal=run["site_gal"]))
             elif g_hit is not None:
                 run.update(g_hit)                   # every run (and its disk file) carries the Galactic bands
             self.n_solver_calls += 1
@@ -571,6 +583,9 @@ class FlavorModel:
                 if "gal_nu" in z.files:
                     run.update(gal_nu=z["gal_nu"].astype(np.float64), gal_nb=z["gal_nb"].astype(np.float64),
                                share=z["share"])
+                    lats = z["site_lats"].tolist() if "site_lats" in z.files else []
+                    run["site_gal"] = {float(l): (z[f"site_nu_{i}"].astype(np.float64), z[f"site_nb_{i}"].astype(np.float64))
+                                       for i, l in enumerate(lats)}
                 return run
         except FileNotFoundError:
             return None
@@ -585,6 +600,13 @@ class FlavorModel:
         if run["gal_nu"] is not None:
             arrays.update(gal_nu=run["gal_nu"].astype(np.float32), gal_nb=run["gal_nb"].astype(np.float32),
                           share=run["share"])
+            site = run.get("site_gal") or {}
+            if site:
+                lats = sorted(site)
+                arrays["site_lats"] = np.array(lats, dtype=np.float64)
+                for i, l in enumerate(lats):
+                    arrays[f"site_nu_{i}"] = site[l][0].astype(np.float32)
+                    arrays[f"site_nb_{i}"] = site[l][1].astype(np.float32)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         tmp = f"{path}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp"
         try:
@@ -635,6 +657,31 @@ class FlavorModel:
             F_nu = F_nu + g * (x * run["gal_nu"][0] + (1.0 - x) * run["gal_nu"][1])
             F_nb = F_nb + g * (x * run["gal_nb"][0] + (1.0 - x) * run["gal_nb"][1])
         return run["E"], F_nu, F_nb
+
+    def site_band_fluxes(self, values: Mapping, lat: float) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """As band_fluxes, per local cos-zenith band (increasing cos Z: up-going first) at a site of latitude lat (deg):
+        the extragalactic flux is isotropic before the Earth and the Earth crossing depends on the zenith only, so it
+        is the South Pole's bands in cos-zenith order; the Galactic flux is the site's own (the model's sites), or the
+        South Pole's for a site within SITE_POLE_DEG of it."""
+        E, F_nu, F_nb = self.band_fluxes(dict(values, norm_gal=0.0)) if self.galactic else self.band_fluxes(values)
+        F_nu, F_nb = F_nu[::-1], F_nb[::-1]                       # declination order -> cos-zenith order (South Pole)
+        if not self.galactic:
+            return E, F_nu, F_nb
+        run = self._sky_exact(dict(values, p_index=float(self.p_nodes[0])) if self.p_nodes is not None else values)
+        x = float(values.get("f_e_S_gal", self.default("f_e_S_gal")))
+        if not 0.0 <= x <= 1.0:
+            raise ValueError(f"f_e_S_gal must lie in [0, 1], got {x}")
+        g = float(values.get("norm_gal", self.default("norm_gal"))) / self.default("norm_gal")
+        lat = float(lat)
+        if abs(lat) >= SITE_POLE_DEG:
+            if lat > 0:
+                raise ValueError("a site at the North Pole needs its own bands")
+            G_nu, G_nb = run["gal_nu"][:, ::-1], run["gal_nb"][:, ::-1]
+        else:
+            if lat not in run.get("site_gal", {}):
+                raise ValueError(f"the model was not built for a site at latitude {lat} (sites={self.site_lats})")
+            G_nu, G_nb = run["site_gal"][lat]
+        return E, F_nu + g * (x * G_nu[0] + (1.0 - x) * G_nu[1]), F_nb + g * (x * G_nb[0] + (1.0 - x) * G_nb[1])
 
     def flux(self, values: Mapping) -> Tuple[np.ndarray, np.ndarray]:
         """(E_bins, flux at the detector) with the source composition and the
