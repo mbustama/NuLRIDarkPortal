@@ -10,3 +10,12 @@ export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMEXPR_NUM_TH
 cd "${SLURM_SUBMIT_DIR:-.}"
 mkdir -p logs
 echo "host $(hostname), job ${SLURM_JOB_ID:-none} task ${SLURM_ARRAY_TASK_ID:-none}, ${SLURM_CPUS_PER_TASK:-?} cores, $(date), commit $(git rev-parse --short HEAD)$(git diff --quiet -- src analysis || echo ' (modified)')"
+# Progress lines for the Tycho monitor (2026-10-17): campaign jobs (PACKS) and clean-up jobs (TREE) print
+# "PROGRESS <p>% | ..." to their output now and every PROGRESS_EVERY seconds (tools/job_progress.py: the planes'
+# checkpoints, weighted by cost). The reporter runs beside the job and stops with it; any failure of it is ignored.
+if [ -n "${PACKS:-}${TREE:-}" ] && [ -f tools/job_progress.py ]; then
+    ( python tools/job_progress.py 2>/dev/null
+      while sleep "${PROGRESS_EVERY:-300}"; do python tools/job_progress.py 2>/dev/null; done ) &
+    PROGRESS_PID=$!
+    trap 'kill "$PROGRESS_PID" 2>/dev/null' EXIT
+fi
