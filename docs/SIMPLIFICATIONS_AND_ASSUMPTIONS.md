@@ -69,6 +69,13 @@ small, not yet measured), **open** (decided to remove or change, not yet done).
 
 11c. **Majorana phases not varied.** *Accepted.* (Mauricio, 2026-10-18: they don't matter to our observables.)
 
+11d. **The mixing parameters varied through templates, not a solver run at every value.** *To quantify.*
+    (2026-10-18; `analysis/templates.py`, docs/dev/MIXING_VARIATION.md) At each point, runs with one parameter moved
+    to a few values, at the central spectral-index node; the flux in between is interpolated parameter by parameter
+    (no cross terms) and the relative correction is taken to be the same at every index. Measured on the test
+    configuration: the index transfer below 1e-6 of each bin's flux, s12 linear 1e-5, delta_CP over a whole turn 1e-4
+    with 7 runs; the validation at the campaign's resolution (chi^2 against exact runs) is running.
+
 ## Data and detectors
 
 12. **Flavor-composition data (IceCube's MESE 2025 measurement, the 2050 projection) compared with flux-weighted
