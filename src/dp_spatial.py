@@ -800,6 +800,27 @@ def _evolve_rho_all_bins(E_bins: np.ndarray, rho: np.ndarray, M_rot: np.ndarray,
                 rho[i, b, a] = np.conjugate(val)
 
 @njit(fastmath=True, error_model="numpy", cache=True)
+def _evolve_U_all_bins(E_bins: np.ndarray, U: np.ndarray, M_rot: np.ndarray, V_const: np.ndarray, dr_eV_inv: float,
+                       H_buf: np.ndarray, S_buf: np.ndarray, T_buf: np.ndarray):
+    """U -> exp(-i (H_vac(E) + V_const) dr) U in every energy bin: a chord's evolution operator accumulated step by
+    step (2026-10-18), the steps of _evolve_rho_all_bins, so that U rho U^dagger is their result to rounding for any
+    rho (one crossing serves every input)."""
+    N_E = len(E_bins)
+    for i in range(N_E):
+        inv2E = 1.0 / (2.0 * E_bins[i])
+        for a in range(3):
+            for b in range(3):
+                H_buf[a, b] = inv2E * M_rot[a, b] + V_const[a, b]
+        propagator_3x3(H_buf, dr_eV_inv, S_buf)
+        for a in range(3):
+            for b in range(3):
+                T_buf[a, b] = S_buf[a, 0] * U[i, 0, b] + S_buf[a, 1] * U[i, 1, b] + S_buf[a, 2] * U[i, 2, b]
+        for a in range(3):
+            for b in range(3):
+                U[i, a, b] = T_buf[a, b]
+
+
+@njit(fastmath=True, error_model="numpy", cache=True)
 def step_earth_transit(l_km: float, baseline_km: float, costh: float, dr_earth_eV_inv: float,
                        E_bins: np.ndarray, rho_earth: np.ndarray, M_rot: np.ndarray,
                        n_n_amb_eV3: float, Coef: float, U_LRI_struct: np.ndarray,
@@ -1222,17 +1243,57 @@ def average_earth_chords(rho_chords: np.ndarray, earth_costh: np.ndarray, Coef: 
     K = len(earth_costh)
     if zenith_average == "plain" or K == 1:
         return np.mean(rho_chords, axis=0)
+    rho_avg = np.zeros(rho_chords.shape[1:], dtype=np.complex128)
+    for Pg, Ph, w in _zenith_weights(earth_costh, None, Coef, U_LRI_struct, detector_depth_km, n_n_amb_eV3, m_eff_eV,
+                                     earth_yk):
+        R = np.tensordot(w, rho_chords, axes=(0, 0))          # (N_E, 3, 3)
+        rho_avg += Pg @ R @ Ph
+    return rho_avg
+
+
+_ZENITH_WEIGHTS = {}
+_ZENITH_WEIGHTS_MAX = 16
+
+
+def _zenith_weights(earth_costh, band_costh, Coef, U_LRI_struct, detector_depth_km, n_n_amb_eV3, m_eff_eV, earth_yk):
+    """The 'phase' rule's weights per pair of the texture's projectors, [(Pg, Ph, w)]: w (K,) over the whole range
+    (divided by its span) with band_costh None, else (N_b, K), each band's (divided by its width; band edges among
+    the chords). Kept per argument set (2026-10-18): they do not depend on the chords' density matrices, and every
+    run of a point, and each mixing template's, repeats them."""
+    yk_key = tuple(np.ascontiguousarray(x).tobytes() for x in earth_yk)
+    key = (np.ascontiguousarray(earth_costh, dtype=np.float64).tobytes(),
+           None if band_costh is None else np.ascontiguousarray(band_costh, dtype=np.float64).tobytes(),
+           float(Coef), np.ascontiguousarray(U_LRI_struct, dtype=np.complex128).tobytes(), float(detector_depth_km),
+           float(n_n_amb_eV3), float(m_eff_eV), yk_key)
+    hit = _ZENITH_WEIGHTS.get(key)
+    if hit is not None:
+        return hit
     projectors, lam = _lri_texture_projectors(U_LRI_struct)
     c_fine, node_index, col = _zenith_phase_grid(earth_costh, detector_depth_km, n_n_amb_eV3, m_eff_eV, earth_yk)
     psi = Coef * col * _KM_IN_EV_INV                       # Psi(c), rad per unit eigenvalue
-    span = earth_costh[-1] - earth_costh[0]
-    rho_avg = np.zeros(rho_chords.shape[1:], dtype=np.complex128)
-    for g, Pg in enumerate(projectors):
-        for h, Ph in enumerate(projectors):
-            w = _zenith_filon_weights(c_fine, node_index, (lam[g] - lam[h]) * psi) / span
-            R = np.tensordot(w, rho_chords, axes=(0, 0))      # (N_E, 3, 3)
-            rho_avg += Pg @ R @ Ph
-    return rho_avg
+    out = []
+    if band_costh is None:
+        span = earth_costh[-1] - earth_costh[0]
+        for g, Pg in enumerate(projectors):
+            for h, Ph in enumerate(projectors):
+                out.append((Pg, Ph, _zenith_filon_weights(c_fine, node_index, (lam[g] - lam[h]) * psi) / span))
+    else:
+        pos = np.searchsorted(earth_costh, band_costh)
+        nb = len(band_costh) - 1
+        for g, Pg in enumerate(projectors):
+            for h, Ph in enumerate(projectors):
+                W = _zenith_filon_weights_intervals(c_fine, node_index, (lam[g] - lam[h]) * psi)
+                w = np.zeros((nb, len(earth_costh)), dtype=np.complex128)
+                for b in range(nb):
+                    for j in range(pos[b], pos[b + 1]):
+                        w[b, j] += W[j, 0]
+                        w[b, j + 1] += W[j, 1]
+                    w[b] /= (band_costh[b + 1] - band_costh[b])
+                out.append((Pg, Ph, w))
+    if len(_ZENITH_WEIGHTS) >= _ZENITH_WEIGHTS_MAX:
+        _ZENITH_WEIGHTS.pop(next(iter(_ZENITH_WEIGHTS)))
+    _ZENITH_WEIGHTS[key] = out
+    return out
 
 
 def _zenith_phase_grid(earth_costh: np.ndarray, detector_depth_km: float, n_n_amb_eV3: float,
@@ -1314,19 +1375,10 @@ def average_earth_chords_bands(rho_chords: np.ndarray, earth_costh: np.ndarray, 
                 w[j + 1] += 0.5 * dc[j]
             out[b] = np.tensordot(w / (band_costh[b + 1] - band_costh[b]), rho_chords, axes=(0, 0))
         return out
-    projectors, lam = _lri_texture_projectors(U_LRI_struct)
-    c_fine, node_index, col = _zenith_phase_grid(earth_costh, detector_depth_km, n_n_amb_eV3, m_eff_eV, earth_yk)
-    psi = Coef * col * _KM_IN_EV_INV
-    for g, Pg in enumerate(projectors):
-        for h, Ph in enumerate(projectors):
-            W = _zenith_filon_weights_intervals(c_fine, node_index, (lam[g] - lam[h]) * psi)
-            for b in range(nb):
-                w = np.zeros(len(earth_costh), dtype=np.complex128)
-                for j in range(pos[b], pos[b + 1]):
-                    w[j] += W[j, 0]
-                    w[j + 1] += W[j, 1]
-                R = np.tensordot(w / (band_costh[b + 1] - band_costh[b]), rho_chords, axes=(0, 0))
-                out[b] += Pg @ R @ Ph
+    for Pg, Ph, w in _zenith_weights(earth_costh, band_costh, Coef, U_LRI_struct, detector_depth_km, n_n_amb_eV3,
+                                     m_eff_eV, earth_yk):
+        R = np.tensordot(w, rho_chords, axes=(1, 0))          # (N_b, N_E, 3, 3)
+        out += Pg @ R @ Ph
     return out
 
 
@@ -1529,6 +1581,44 @@ def _earth_chord_worker(args) -> np.ndarray:
                                n_n_amb_eV3, Coef, U_LRI_struct, V_SM,
                                detector_depth_km, U_step_buffer, H_buf, T_buf, earth_yk)
     return rho_earth
+
+def _earth_chord_unitary_worker(args) -> np.ndarray:
+    """_earth_chord_worker's crossing as its evolution operator (N_E, 3, 3): the exterior's phase and steps, then the
+    chord's steps, accumulated (_evolve_U_all_bins) instead of applied to one density matrix (2026-10-18)."""
+    (costh, baseline_km, N_steps_earth, E_bins, M_rot, n_n_amb_eV3, Coef, U_LRI_struct, V_SM, detector_depth_km,
+     earth_scheme, earth_yk, ext) = args
+    N_E = len(E_bins)
+    U = np.zeros((N_E, 3, 3), dtype=np.complex128)
+    for a in range(3):
+        U[:, a, a] = 1.0
+    S_buf = np.zeros((3, 3), dtype=np.complex128)
+    H_buf = np.zeros((3, 3), dtype=np.complex128)
+    T_buf = np.zeros((3, 3), dtype=np.complex128)
+    if ext is not None:
+        U_dcol, L_eV_inv, nbar_ext = ext
+        U = np.ascontiguousarray(np.einsum("ab,nbc->nac", U_dcol, U))
+        for j in range(len(L_eV_inv)):
+            if L_eV_inv[j] <= 0.0:
+                continue
+            V = np.ascontiguousarray((Coef * (n_n_amb_eV3 + nbar_ext[j])) * U_LRI_struct, dtype=np.complex128)
+            _evolve_U_all_bins(E_bins, U, M_rot, V, L_eV_inv[j], H_buf, S_buf, T_buf)
+    dr_earth_km = baseline_km / N_steps_earth
+    dr_earth_eV_inv = dr_earth_km * 1e3 * m_to_eV_inv
+    if earth_scheme == "avg":
+        cross_ls = _earth_layer_crossings(baseline_km, costh, detector_depth_km)
+        nbar = chord_density_seq(earth_yk)(baseline_km, costh, N_steps_earth, detector_depth_km,
+                                           n_n_amb_eV3, cross_ls, _GL10_X, _GL10_W, earth_yk)
+        for step in range(N_steps_earth):
+            V_LRI = np.ascontiguousarray((Coef * nbar[step]) * U_LRI_struct + V_SM)
+            _evolve_U_all_bins(E_bins, U, M_rot, V_LRI, dr_earth_eV_inv, H_buf, S_buf, T_buf)
+    else:
+        for step in range(N_steps_earth):
+            n_tot = earth_total_density(step * dr_earth_km, baseline_km, costh, detector_depth_km, n_n_amb_eV3,
+                                        earth_yk)
+            V_LRI = np.ascontiguousarray((Coef * n_tot) * U_LRI_struct + V_SM)
+            _evolve_U_all_bins(E_bins, U, M_rot, V_LRI, dr_earth_eV_inv, H_buf, S_buf, T_buf)
+    return U
+
 
 def _split_E_blocks(N_E: int, n_units: int, n_workers: int):
     """Contiguous energy-index blocks for splitting spatial-transit tasks.
@@ -1741,6 +1831,93 @@ def transit_to_earth(E_bins: np.ndarray, F_mass_arrival: np.ndarray, M_rot: np.n
     return rho, n_amb, info
 
 
+def _earth_setup(M_rot, u_arr, m_Zd, g_D, eps_prime, T_nu0, use_debye_screening, eta_bg, detector_depth_km,
+                 use_SM_potential, n_e_earth_eV3, is_antineutrino, n_sun_paths, n_earth_chords, U_LRI_struct,
+                 V_SM_struct, use_gpu, earth_step_scheme, earth_zenith_average, earth_sky, earth_band_costh,
+                 earth_nodes_per_band, matter_charge, debye_sq_z0, potential_product) -> dict:
+    """Everything of the spatial handover that does not depend on its input (_propagate_earth_spatial_direct's
+    arguments of the same names): the checks, the chords, the potential's coefficient and effective mass, the Earth's
+    Yukawa table, the texture, the standard matter potential and each chord's exterior. Returns a dict of them."""
+    if earth_zenith_average not in _ZENITH_AVERAGES:
+        raise ValueError(f"earth_zenith_average must be one of {_ZENITH_AVERAGES}, got {earth_zenith_average!r}")
+    if earth_sky not in ("full", "up"):
+        raise ValueError(f"earth_sky must be 'full' or 'up', got {earth_sky!r}")
+    if earth_zenith_average == "phase" and earth_step_scheme != "avg":
+        raise ValueError("The 'phase' zenith average needs the phase-exact earth_step_scheme = 'avg' "
+                         "(under 'left' each chord's phase carries a Riemann error); use 'plain' with 'left'.")
+    if int(n_sun_paths) < 1:
+        raise ValueError(f"n_sun_paths must be >= 1, got {n_sun_paths}")
+
+    # --- Dynamic Earth Chords ---
+    # n_earth_chords evenly spaced chords from exact core transit (costh = -1) to the horizon
+    # (0); with earth_sky = 'full' (decided 2026-10-13) the down-going hemisphere gets the
+    # mirror image, up to straight down (+1), whose chords cross only the ice above the
+    # detector (1.5 km straight down, ~140 km at the horizon). The zenith average then
+    # weights every cos(zenith) of the whole sky equally.
+    if earth_band_costh is not None:
+        earth_band_costh = np.asarray(earth_band_costh, dtype=np.float64)
+        top = 0.0 if earth_sky == "up" else 1.0
+        if abs(earth_band_costh[0] + 1.0) > 1e-12 or abs(earth_band_costh[-1] - top) > 1e-12:
+            raise ValueError(f"earth_band_costh must run from -1 to {top:g} for earth_sky = '{earth_sky}'")
+        earth_costh = earth_chord_nodes(earth_band_costh, earth_nodes_per_band)
+    elif n_earth_chords <= 1:
+        earth_costh = np.array([-1.0]) if earth_sky == "up" else np.array([-1.0, 1.0])
+    else:
+        up = np.linspace(-1.0, 0.0, int(n_earth_chords))
+        earth_costh = up if earth_sky == "up" else np.concatenate([up, -up[-2::-1]])
+
+    Coef, m_eff = lri_coefficient(m_Zd, g_D, eps_prime, u_arr, T_nu0, use_debye_screening, eta_bg, is_antineutrino,
+                                  debye_sq=debye_sq_z0, potential_product=potential_product)
+    # A general matter charge (dp_matter, docs/dev/SCOPE_WIDENING_PLAN.md): its sign rides on the coefficient,
+    # its densities (Galaxy, Sun, Moon, the Earth's table) are its own. Neutrons: None, the historical path.
+    cpg = None
+    if matter_charge is not None:
+        import dp_matter
+        Coef = Coef * matter_charge.sign
+        cpg = dp_matter.earth_cpg(matter_charge)
+        if earth_step_scheme != "avg":
+            raise ValueError("A matter charge other than the neutron's needs earth_step_scheme = 'avg'")
+        if use_gpu:
+            raise ValueError("The GPU path supports the neutron charge only")
+
+    # The Earth's own neutrons enter through their spherical Yukawa integral over the mediator
+    # range 1/m_eff (see earth_yukawa_table); at MeV masses this is the contact density.
+    earth_yk = earth_yukawa_table(m_eff, cpg=cpg)
+
+    if U_LRI_struct is None:
+        # Default texture: outer product of the sterile mixing vector. u_arr arrives
+        # pre-conjugated for antineutrinos, so this construction is automatically in the
+        # right convention for either case.
+        U_LRI_struct = np.outer(u_arr, np.conjugate(u_arr))
+    U_LRI_struct = np.ascontiguousarray(U_LRI_struct, dtype=np.complex128)
+
+    # The SM matter potential is constant along every chord (it depends only on the
+    # configured electron density, the flavor structure, and the antineutrino sign
+    # convention -- never on position), so it is built exactly once here and handed to
+    # step_earth_transit prebuilt. V_SM_struct defaults to the standard charged-current
+    # texture diag(1, 0, 0); a user override arrives here already conjugated for
+    # antineutrinos (propagate_spectrum's convention).
+    V_SM = np.zeros((3, 3), dtype=np.complex128)
+    if use_SM_potential:
+        if V_SM_struct is None:
+            S_SM = np.zeros((3, 3), dtype=np.complex128)
+            S_SM[0, 0] = 1.0
+        else:
+            S_SM = np.asarray(V_SM_struct, dtype=np.complex128)
+        V_SM_scale = np.sqrt(2.0) * G_F * n_e_earth_eV3
+        if is_antineutrino:
+            V_SM_scale = -V_SM_scale
+        V_SM = V_SM_scale * S_SM
+    V_SM = np.ascontiguousarray(V_SM)
+
+    # Each chord's exterior below r_split (None when the exterior is out of range)
+    exterior = earth_exterior_active(m_eff) and int(earth_yk[0][0]) != _YUKAWA_CONTACT
+    ext_data = [chord_exterior(c, detector_depth_km, earth_yk, Coef, U_LRI_struct) if exterior else None
+                for c in earth_costh]
+    return dict(earth_band_costh=earth_band_costh, earth_costh=earth_costh, Coef=Coef, m_eff=m_eff, cpg=cpg,
+                earth_yk=earth_yk, U_LRI_struct=U_LRI_struct, V_SM=V_SM, ext_data=ext_data)
+
+
 def _propagate_earth_spatial_direct(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
                             M_rot: np.ndarray,
                             u_arr: np.ndarray, m_Zd: float, g_D: float, eps_prime: float,
@@ -1845,77 +2022,13 @@ def _propagate_earth_spatial_direct(E_bins: np.ndarray, F_mass_arrival: np.ndarr
     N_E = len(E_bins)
     lbl = "Anti-Nu" if is_antineutrino else "Nu"
     n_workers = max(1, min(int(n_cores), available_cores()))
-    if earth_zenith_average not in _ZENITH_AVERAGES:
-        raise ValueError(f"earth_zenith_average must be one of {_ZENITH_AVERAGES}, got {earth_zenith_average!r}")
-    if earth_sky not in ("full", "up"):
-        raise ValueError(f"earth_sky must be 'full' or 'up', got {earth_sky!r}")
-    if earth_zenith_average == "phase" and earth_step_scheme != "avg":
-        raise ValueError("The 'phase' zenith average needs the phase-exact earth_step_scheme = 'avg' "
-                         "(under 'left' each chord's phase carries a Riemann error); use 'plain' with 'left'.")
-    if int(n_sun_paths) < 1:
-        raise ValueError(f"n_sun_paths must be >= 1, got {n_sun_paths}")
-
-    # --- Dynamic Earth Chords ---
-    # n_earth_chords evenly spaced chords from exact core transit (costh = -1) to the horizon
-    # (0); with earth_sky = 'full' (decided 2026-10-13) the down-going hemisphere gets the
-    # mirror image, up to straight down (+1), whose chords cross only the ice above the
-    # detector (1.5 km straight down, ~140 km at the horizon). The zenith average then
-    # weights every cos(zenith) of the whole sky equally.
-    if earth_band_costh is not None:
-        earth_band_costh = np.asarray(earth_band_costh, dtype=np.float64)
-        top = 0.0 if earth_sky == "up" else 1.0
-        if abs(earth_band_costh[0] + 1.0) > 1e-12 or abs(earth_band_costh[-1] - top) > 1e-12:
-            raise ValueError(f"earth_band_costh must run from -1 to {top:g} for earth_sky = '{earth_sky}'")
-        earth_costh = earth_chord_nodes(earth_band_costh, earth_nodes_per_band)
-    elif n_earth_chords <= 1:
-        earth_costh = np.array([-1.0]) if earth_sky == "up" else np.array([-1.0, 1.0])
-    else:
-        up = np.linspace(-1.0, 0.0, int(n_earth_chords))
-        earth_costh = up if earth_sky == "up" else np.concatenate([up, -up[-2::-1]])
-
-    Coef, m_eff = lri_coefficient(m_Zd, g_D, eps_prime, u_arr, T_nu0, use_debye_screening, eta_bg, is_antineutrino,
-                                  debye_sq=debye_sq_z0, potential_product=potential_product)
-    # A general matter charge (dp_matter, docs/dev/SCOPE_WIDENING_PLAN.md): its sign rides on the coefficient,
-    # its densities (Galaxy, Sun, Moon, the Earth's table) are its own. Neutrons: None, the historical path.
-    cpg = None
-    if matter_charge is not None:
-        import dp_matter
-        Coef = Coef * matter_charge.sign
-        cpg = dp_matter.earth_cpg(matter_charge)
-        if earth_step_scheme != "avg":
-            raise ValueError("A matter charge other than the neutron's needs earth_step_scheme = 'avg'")
-        if use_gpu:
-            raise ValueError("The GPU path supports the neutron charge only")
-
-    # The Earth's own neutrons enter through their spherical Yukawa integral over the mediator
-    # range 1/m_eff (see earth_yukawa_table); at MeV masses this is the contact density.
-    earth_yk = earth_yukawa_table(m_eff, cpg=cpg)
-
-    if U_LRI_struct is None:
-        # Default texture: outer product of the sterile mixing vector. u_arr arrives
-        # pre-conjugated for antineutrinos, so this construction is automatically in the
-        # right convention for either case.
-        U_LRI_struct = np.outer(u_arr, np.conjugate(u_arr))
-    U_LRI_struct = np.ascontiguousarray(U_LRI_struct, dtype=np.complex128)
-
-    # The SM matter potential is constant along every chord (it depends only on the
-    # configured electron density, the flavor structure, and the antineutrino sign
-    # convention -- never on position), so it is built exactly once here and handed to
-    # step_earth_transit prebuilt. V_SM_struct defaults to the standard charged-current
-    # texture diag(1, 0, 0); a user override arrives here already conjugated for
-    # antineutrinos (propagate_spectrum's convention).
-    V_SM = np.zeros((3, 3), dtype=np.complex128)
-    if use_SM_potential:
-        if V_SM_struct is None:
-            S_SM = np.zeros((3, 3), dtype=np.complex128)
-            S_SM[0, 0] = 1.0
-        else:
-            S_SM = np.asarray(V_SM_struct, dtype=np.complex128)
-        V_SM_scale = np.sqrt(2.0) * G_F * n_e_earth_eV3
-        if is_antineutrino:
-            V_SM_scale = -V_SM_scale
-        V_SM = V_SM_scale * S_SM
-    V_SM = np.ascontiguousarray(V_SM)
+    st = _earth_setup(M_rot, u_arr, m_Zd, g_D, eps_prime, T_nu0, use_debye_screening, eta_bg, detector_depth_km,
+                      use_SM_potential, n_e_earth_eV3, is_antineutrino, n_sun_paths, n_earth_chords,
+                      U_LRI_struct, V_SM_struct, use_gpu, earth_step_scheme, earth_zenith_average, earth_sky,
+                      earth_band_costh, earth_nodes_per_band, matter_charge, debye_sq_z0, potential_product)
+    earth_band_costh, earth_costh, Coef, m_eff, cpg, earth_yk, U_LRI_struct, V_SM, ext_data = (
+        st[k] for k in ("earth_band_costh", "earth_costh", "Coef", "m_eff", "cpg", "earth_yk", "U_LRI_struct", "V_SM",
+                        "ext_data"))
 
     # PHASE 1: Galaxy, Sun and the Earth's exterior beyond r_split (dp_transit)
     if verbose == 2:
@@ -1948,11 +2061,6 @@ def _propagate_earth_spatial_direct(E_bins: np.ndarray, F_mass_arrival: np.ndarr
                 f"(m_Zd_eV={m_Zd:.3g}, g_D={g_D:.3g}, epsilon_prime={eps_prime:.3g}): "
                 f"per-step phases exceed double precision. Fluxes are unitary but "
                 f"decoherence-averaged only (see propagator_3x3's docstring).")
-
-    # Each chord's exterior below r_split (None when the exterior is out of range)
-    exterior = earth_exterior_active(m_eff) and int(earth_yk[0][0]) != _YUKAWA_CONTACT
-    ext_data = [chord_exterior(c, detector_depth_km, earth_yk, Coef, U_LRI_struct) if exterior else None
-                for c in earth_costh]
 
     # Optional CUDA path: the chords as one batched GPU workload (same physics -- shared
     # density helpers, same propagator algorithm ported to batched arrays; see
@@ -2096,6 +2204,56 @@ _EARTH_TRANSFER = {}
 _EARTH_NONRESULT_ARGS = ("F_mass_arrival", "show_progress", "verbose", "n_cores", "external_pool")
 
 
+def _earth_transfer_columns(a: dict) -> list:
+    """The handover's responses to the three unit inputs e_k, [(whole sky (N_E, 3), per band (N_b, N_E, 3) or None)]
+    for k = 0, 1, 2: _propagate_earth_spatial_direct's arithmetic to rounding (a: its bound arguments), with each
+    chord crossed once -- its evolution operator applied to the three arrivals -- and one zenith average for the
+    three (their density matrices stacked along the energy axis, which the average does not mix)."""
+    E_bins = np.ascontiguousarray(a["E_bins"], dtype=np.float64)
+    N_E = len(E_bins)
+    st = _earth_setup(a["M_rot"], a["u_arr"], a["m_Zd"], a["g_D"], a["eps_prime"], a["T_nu0"],
+                      a["use_debye_screening"], a["eta_bg"], a["detector_depth_km"], a["use_SM_potential"],
+                      a["n_e_earth_eV3"], a["is_antineutrino"], a["n_sun_paths"], a["n_earth_chords"],
+                      a["U_LRI_struct"], a["V_SM_struct"], a["use_gpu"], a["earth_step_scheme"],
+                      a["earth_zenith_average"], a["earth_sky"], a["earth_band_costh"], a["earth_nodes_per_band"],
+                      a["matter_charge"], a["debye_sq_z0"], a["potential_product"])
+    earth_costh, Coef, m_eff, earth_yk, S = st["earth_costh"], st["Coef"], st["m_eff"], st["earth_yk"], st["U_LRI_struct"]
+    surf, n_amb = [], None
+    for k in range(3):
+        e = np.zeros((N_E, 3))
+        e[:, k] = 1.0
+        rho, n_amb, _ = transit_to_earth(
+            E_bins, e, a["M_rot"], S, Coef, m_eff, a["n_n0_eV3"], a["R_H_eV_inv"], earth_yk,
+            n_sun_paths=a["n_sun_paths"], transit_dtheta=a["transit_dtheta"], sun_path_cos=a["sun_path_cos"],
+            arrival=a["arrival"], matter_charge=a["matter_charge"],
+            m_bare=(a["m_Zd"] if a["debye_sq_z0"] is not None else None))
+        surf.append(rho)
+    n_workers = max(1, min(int(a["n_cores"]), available_cores()))
+    blocks = _split_E_blocks(N_E, len(earth_costh), n_workers)
+    tasks = [(costh, get_baseline_earth(a["detector_depth_km"], costh), a["N_steps_earth"], E_bins[b0:b1], a["M_rot"],
+              n_amb, Coef, S, st["V_SM"], a["detector_depth_km"], a["earth_step_scheme"], earth_yk, st["ext_data"][c])
+             for c, costh in enumerate(earth_costh) for (b0, b1) in blocks]
+    res = _run_spatial_tasks(_earth_chord_unitary_worker, tasks, "Earth chords (operators)", n_workers, False,
+                             external_pool=a["external_pool"])
+    U = np.empty((len(earth_costh), N_E, 3, 3), dtype=np.complex128)
+    for c in range(len(earth_costh)):
+        for b, (b0, b1) in enumerate(blocks):
+            U[c, b0:b1] = res[c * len(blocks) + b]
+    Uc = np.conjugate(U)
+    rho = np.concatenate([np.einsum("cnab,nbd,cned->cnae", U, surf[k], Uc) for k in range(3)], axis=1)
+    rho = 0.5 * (rho + np.conjugate(np.swapaxes(rho, -1, -2)))              # Hermitian, as each step keeps it
+    whole = average_earth_chords(rho, earth_costh, Coef, S, a["detector_depth_km"], n_amb, m_eff, earth_yk,
+                                 a["earth_zenith_average"])
+    W = np.real(np.diagonal(whole, axis1=1, axis2=2))
+    B = None
+    if st["earth_band_costh"] is not None:
+        bands = average_earth_chords_bands(rho, earth_costh, st["earth_band_costh"], Coef, S, a["detector_depth_km"],
+                                           n_amb, m_eff, earth_yk, a["earth_zenith_average"])
+        B = np.real(np.diagonal(bands, axis1=2, axis2=3))
+    return [(np.ascontiguousarray(W[k * N_E:(k + 1) * N_E]),
+             None if B is None else np.ascontiguousarray(B[:, k * N_E:(k + 1) * N_E])) for k in range(3)]
+
+
 def _earth_key_part(v):
     """A hashable, exact stand-in for one argument of the handover (arrays by dtype, shape and bytes)."""
     if v is None or isinstance(v, (bool, int, float, str)):
@@ -2153,11 +2311,8 @@ def propagate_earth_spatial(*args, earth_transfer: str = "off", **kwargs):
         entry = _EARTH_TRANSFER[key] = dict(cols={}, calls=0)
 
     def column(k):
-        if k not in entry["cols"]:
-            e = np.zeros_like(F)
-            e[:, k] = 1.0
-            r = _propagate_earth_spatial_direct(**dict(a, F_mass_arrival=e))
-            entry["cols"][k] = (r[0], r[1]) if bands else (r, None)
+        if len(entry["cols"]) < 3:                     # every chord crossed once for the three (2026-10-18)
+            entry["cols"] = dict(enumerate(_earth_transfer_columns(a)))
         return entry["cols"][k]
 
     def out(whole, per_band):

@@ -120,9 +120,37 @@ def load_template(name, nside=16):
     return out
 
 
+# Results kept between calls (2026-10-18): every solver run of the Galactic component recomputed these maps, which do not
+# depend on the run's physics (the mixing templates multiply the runs per point). Returned read-only.
+_MEMO = {}
+_MEMO_MAX = 32
+
+
+def _memo_get(key):
+    return _MEMO.get(key)
+
+
+def _memo_put(key, value):
+    if len(_MEMO) >= _MEMO_MAX:
+        _MEMO.pop(next(iter(_MEMO)))
+    value = np.asarray(value)
+    value.flags.writeable = False
+    _MEMO[key] = value
+    return value
+
+
 def intensity(name, E_GeV, nside=16):
     """The template's intensity (N_pix, N_E) at energies E_GeV, interpolated linearly in log I versus log E
-    between its nodes (exact for power laws: the pi0 template; linearly where a node is zero)."""
+    between its nodes (exact for power laws: the pi0 template; linearly where a node is zero). Kept (read-only)."""
+    E_c = np.ascontiguousarray(E_GeV, dtype=np.float64)
+    key = ("intensity", name, E_c.tobytes(), int(nside))
+    hit = _memo_get(key)
+    if hit is not None:
+        return hit
+    return _memo_put(key, _intensity(name, E_c, nside))
+
+
+def _intensity(name, E_GeV, nside):
     Et, I, _ = load_template(name, nside)
     lE, lEt = np.log(np.asarray(E_GeV, dtype=np.float64)), np.log(Et)
     if lE.min() < lEt[0] - 1e-9 or lE.max() > lEt[-1] + 1e-9:
@@ -322,6 +350,18 @@ NEFF_TABLE_FILES = {0: ("mw_neff_tables.npz", "n_n0_cm3"), 1: ("mw_neff_tables_e
 
 
 def effective_density(R, z, m_eff_eV, n_n0_eV3, R_H_eV_inv, species=0):
+    """_effective_density (its docstring), kept (read-only) for the same arguments."""
+    R_c = np.ascontiguousarray(R, dtype=np.float64)
+    z_c = np.ascontiguousarray(z, dtype=np.float64)
+    key = ("effective_density", R_c.shape, R_c.tobytes(), z_c.tobytes(), float(m_eff_eV), float(n_n0_eV3),
+           float(R_H_eV_inv), int(species))
+    hit = _memo_get(key)
+    if hit is not None:
+        return hit
+    return _memo_put(key, _effective_density(R_c, z_c, m_eff_eV, n_n0_eV3, R_H_eV_inv, species))
+
+
+def _effective_density(R, z, m_eff_eV, n_n0_eV3, R_H_eV_inv, species=0):
     """The Yukawa-smoothed neutron density n_eff (eV^3) at galactocentric (R, |z|) kpc for the mediator mass
     m_eff: the local density for m_eff >= 1e-12 eV (contact); below, the tabulated integral (log-linear in
     m between the table's masses, and in z and R between its nodes) plus the cosmic tail beyond the table's
@@ -440,7 +480,16 @@ def degrade_weighted(F, w, nside_in, nside_out):
 
 def gas_share(name, E_GeV, nside=16):
     """(N_pix, N_E): the diffuse (cosmic rays on gas) share of the template's intensity -- CRINGE's diffuse map
-    over the total; 1 for the gas tracers ('pi0', 'cringe_diffuse')."""
+    over the total; 1 for the gas tracers ('pi0', 'cringe_diffuse'). Kept (read-only)."""
+    E_c = np.ascontiguousarray(np.atleast_1d(E_GeV), dtype=np.float64)
+    key = ("gas_share", name, E_c.tobytes(), int(nside))
+    hit = _memo_get(key)
+    if hit is not None:
+        return hit
+    return _memo_put(key, _gas_share(name, E_c, nside))
+
+
+def _gas_share(name, E_GeV, nside):
     if name != "cringe":
         return np.ones((dp_sky.nside_to_npix(nside), len(np.atleast_1d(E_GeV))))
     tot = intensity("cringe", E_GeV, nside)
