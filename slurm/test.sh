@@ -12,4 +12,9 @@
 # kernels on the first run on a node type). Usage, from the repository root:
 #   sbatch slurm/test.sh
 source slurm/common.sh
-python -m pytest tests/ -q -p no:warnings
+# in parallel over the allocation when pytest-xdist is installed (on Tycho since 2026-10-18)
+if python -c "import xdist" 2>/dev/null; then
+    python -m pytest tests/ -q -p no:warnings -n "${SLURM_CPUS_PER_TASK:-4}"
+else
+    python -m pytest tests/ -q -p no:warnings
+fi
