@@ -85,6 +85,16 @@ NULRI_FLUX_CACHE=/lustre/astro/mbustama/flux_cache/campaign_bpl ... PACKS=analys
     SLOTS=4 sbatch --array=0-<n-1>%7 --exclude=node812 slurm/campaign_array.sh
 ```
 
+**The clean-up** (2026-10-17): packs that hit the 24-hour limit leave planes unfinished (their checkpoints kept).
+`slurm/campaign_sweep.sh` lists, when it starts, every configuration under TREE without a finished plane and runs
+them again from their checkpoints; its array tasks share the list through the run locks. Queue it behind the campaign
+so the total stays at 112 cores:
+
+```bash
+TREE=analysis/configs/campaign_bpl NULRI_FLUX_CACHE=... NULRI_HESE_MC=... NULRI_HESE_DETSYS=... SLOTS=4 \
+    sbatch --array=0-6%7 --exclude=node812 --dependency=afterany:<the campaign's array> slurm/campaign_sweep.sh
+```
+
 **A job far below its cores** (2026-10-14): look inside it with `srun --jobid=<job> --overlap -n1 -c1 ps -o pid,time,stat,args -u $USER` and `cat /proc/<pid>/wchan`. Processes mostly in state D/I waiting in `cl_sync_io_wait` are waiting on the node's Lustre client, not computing: node812 did this twice (a quarter of the speed of node810/811 for the same code). Resubmit elsewhere with `--exclude=<node> --dependency=afterany:<old job>`, so the new job starts only once the old one is gone, and the analysis resumes from its checkpoints.
 
 Logs are `logs/slurm_<job name>_<job>.out`. `slurm/common.sh` prints the host, job, core count
