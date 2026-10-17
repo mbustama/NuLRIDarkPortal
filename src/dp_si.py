@@ -1619,8 +1619,12 @@ _TABLE_CACHE_MAX = 2
 # Memory: the lattice tables grow as N^2 z_substeps (about 30 MB for the three relics at the
 # analysis grid with the scalar's seven profiles, 515 bins with the extension and one step per bin;
 # 1.5 GB at 1830 bins and four substeps). Only sets up to this size are kept between calls (scans
-# over the coupling at a fixed mediator mass reuse them); larger ones are rebuilt each call and freed.
-_TABLE_CACHE_MAX_BYTES = 128 * 2 ** 20
+# over the coupling at a fixed mediator mass reuse them, and every run of a plane point shares them);
+# larger ones are rebuilt each call and freed. Raised from 128 MB on 2026-10-18: the vector's set at the
+# future detectors' grid (745 bins with the extension) is 145 MB, so every run of their MeV points rebuilt it
+# (a quarter of the point's time). A set above 128 MB is kept alone.
+_TABLE_CACHE_MAX_BYTES = 320 * 2 ** 20
+_TABLE_CACHE_ALONE_BYTES = 128 * 2 ** 20
 
 
 def _tables_nbytes(tabs):
@@ -1658,8 +1662,9 @@ def _profile_tables(prof, M, masses, E0, N, dlnE, q, K, top_full, L_top_mid, n_u
             top.append(_tri_table(prof, mu0, N, 1, N, dlnE, Delta, n_u, mu_list=mu_top))
     out = (_stack_tables(lat, P), _stack_tables(top, P) if not top_full else None)
     del lat, top
-    if _tables_nbytes(out) <= _TABLE_CACHE_MAX_BYTES:
-        while len(_TABLE_CACHE) >= _TABLE_CACHE_MAX:
+    nbytes = _tables_nbytes(out)
+    if nbytes <= _TABLE_CACHE_MAX_BYTES:
+        while len(_TABLE_CACHE) >= (1 if nbytes > _TABLE_CACHE_ALONE_BYTES else _TABLE_CACHE_MAX):
             _TABLE_CACHE.pop(next(iter(_TABLE_CACHE)))
         _TABLE_CACHE[key] = out
     return out
