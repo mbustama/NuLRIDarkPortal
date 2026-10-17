@@ -2084,13 +2084,13 @@ def _propagate_earth_spatial_direct(E_bins: np.ndarray, F_mass_arrival: np.ndarr
 # rounding. An analysis point runs the handover tens of times with the same parameters (spectral-index nodes,
 # source compositions, the Galactic responses), each through the same Earth: those calls now cost three handovers
 # in total (the Galactic responses, _galactic_responses, are exactly the three unit inputs and fill the table for
-# free). earth_transfer chooses when a parameter set's table is built: 'repeat' (the default) on its second call
-# with a general input, so a one-off call (a single run of the solver) costs what it always did; 'always' on its
-# first, so every result is the combination whatever the order of the calls (the analysis, whose sets all repeat:
-# one handover fewer per set, and runs computed by another process are bit for bit those computed here).
-# EARTH_TRANSFER_REUSE = False restores the direct path everywhere.
+# free). earth_transfer chooses: 'off' (the default: every call direct, bit for bit as before), 'repeat' (a
+# parameter set's table built on its second call with a general input, so a one-off call costs what it always did)
+# or 'always' (built on its first, so every result is the combination whatever the order of the calls: the
+# analysis, whose sets all repeat -- one handover fewer per set, and runs computed by another process are bit for
+# bit those computed here). EARTH_TRANSFER_REUSE = False forces the direct path everywhere.
 EARTH_TRANSFER_REUSE = True
-EARTH_TRANSFER_MODES = ("repeat", "always")
+EARTH_TRANSFER_MODES = ("off", "repeat", "always")
 _EARTH_TRANSFER_MAX = 32
 _EARTH_TRANSFER = {}
 _EARTH_NONRESULT_ARGS = ("F_mass_arrival", "show_progress", "verbose", "n_cores", "external_pool")
@@ -2130,13 +2130,13 @@ def _earth_signature():
 _EARTH_SIG = _earth_signature()
 
 
-def propagate_earth_spatial(*args, earth_transfer: str = "repeat", **kwargs):
+def propagate_earth_spatial(*args, earth_transfer: str = "off", **kwargs):
     """The spatial handover (_propagate_earth_spatial_direct, whose arguments and returns it takes), reusing the
     handover's response to the three unit inputs for repeated calls with the same parameters (section notes);
     earth_transfer: 'repeat' or 'always' (section notes)."""
     if earth_transfer not in EARTH_TRANSFER_MODES:
         raise ValueError(f"earth_transfer must be one of {EARTH_TRANSFER_MODES}, got {earth_transfer!r}")
-    if not EARTH_TRANSFER_REUSE:
+    if not EARTH_TRANSFER_REUSE or earth_transfer == "off":
         return _propagate_earth_spatial_direct(*args, **kwargs)
     ba = _EARTH_SIG.bind(*args, **kwargs)
     ba.apply_defaults()

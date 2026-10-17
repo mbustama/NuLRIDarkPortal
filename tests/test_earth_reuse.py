@@ -1,8 +1,9 @@
 """
 Reuse of the Earth crossing within a parameter point (src/dp_spatial.py, 2026-10-18): the handover's responses to
 the three unit inputs, combined, equal the direct handover to rounding -- whole sky and per band, neutrinos and
-antineutrinos, with the potential on and off, eigenstate and flavor arrivals; a parameter set's first call takes the
-direct path; and a sky with its Galactic component is the same with the reuse on and off.
+antineutrinos, with the potential on and off, eigenstate and flavor arrivals; in mode 'repeat' a parameter set's
+first call takes the direct path; and a sky with its Galactic component is the same in modes 'off' (the solver's
+default), 'repeat' and 'always' (the analysis').
 """
 import os
 import sys
@@ -20,7 +21,7 @@ import dp_spatial  # noqa: E402
 
 BANDS = dp_sky.SkyGrid(16).costh_edges
 KW = dict(N_steps_earth=25, show_progress=False, verbose=0, earth_step_scheme="avg", earth_zenith_average="phase",
-          earth_sky="full")
+          earth_sky="full", earth_transfer="repeat")
 
 
 def _args(u_mag, anti, m_Zd=2e6, g_D=1e-4):
@@ -35,7 +36,10 @@ def _args(u_mag, anti, m_Zd=2e6, g_D=1e-4):
 
 def _call(fn, F, args, **kw):
     E, rest = args[0], args[1:]
-    return fn(E, F, *rest, **dict(KW, **kw))
+    kw = dict(KW, **kw)
+    if fn is dp_spatial._propagate_earth_spatial_direct:
+        kw.pop("earth_transfer")
+    return fn(E, F, *rest, **kw)
 
 
 def _close(a, b):
@@ -94,13 +98,13 @@ def test_sky_with_galactic_component_unchanged():
     from test_event_likelihood import DP, _sky_cfg
     E, params = dps.build_solver_params(_sky_cfg(0.3, 0.7, "3d", dark_portal=DP))
     params["show_progress"] = False
+    assert params["earth_transfer"] == "off"                     # the solver's default: direct, as before
     out = {}
-    for reuse in (False, True):
-        dp_spatial.EARTH_TRANSFER_REUSE = reuse
+    for mode in ("off", "repeat", "always"):
         dp_spatial._EARTH_TRANSFER.clear()
-        try:
-            out[reuse] = dps.propagate_sky_basis(E, params)
-        finally:
-            dp_spatial.EARTH_TRANSFER_REUSE = True
-    for k in ("bands_nu", "bands_nubar", "galactic_bands_nu", "galactic_bands_nubar"):
-        assert _close(out[True][k], out[False][k]), k
+        out[mode] = dps.propagate_sky_basis(E, dict(params, earth_transfer=mode))
+    for mode in ("repeat", "always"):
+        for k in ("bands_nu", "bands_nubar", "galactic_bands_nu", "galactic_bands_nubar"):
+            assert _close(out[mode][k], out["off"][k]), (mode, k)
+    with pytest.raises(ValueError, match="earth_transfer"):
+        _call(dps.propagate_earth_spatial, np.ones((6, 3)), _args(0.5, False), earth_transfer="sometimes")
