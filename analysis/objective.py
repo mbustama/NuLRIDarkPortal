@@ -111,3 +111,58 @@ class Objective:
         def f(u):
             return self.chi2(pset.as_values(u))
         return f
+
+    # ------------------------------------------------------------------ the exact gradient (2026-10-17)
+    def supports_gradient(self, names: Sequence[str]) -> bool:
+        """Whether chi2_and_grad can give the exact gradient in `names`: the future detectors' events alone (their
+        profiled chi^2 is differentiable with the nuisances at their optimum; FutureEventLikelihood.chi2_and_grad),
+        every name one whose derivative the model gives in closed form (model.GRADIENT_NAMES), and every prior on
+        them Gaussian. Anything else -- a surface, a spectrum, HESE or DR2, a mass or a coupling free -- keeps the
+        finite differences."""
+        from .future_events import FutureEventLikelihood
+        from .model import GRADIENT_NAMES
+        from .parameters import GaussianPrior
+        if self.surface is not None or self.spectrum is not None or not isinstance(self.events, FutureEventLikelihood):
+            return False
+        if not names or not set(names) <= set(GRADIENT_NAMES):
+            return False
+        return all(isinstance(p, GaussianPrior) or p.name not in names for p in self.priors)
+
+    def chi2_and_grad(self, values: Mapping, names: Sequence[str]):
+        """(chi2(values), its gradient in `names`) where supports_gradient(names): the same value as chi2."""
+        t0 = time.perf_counter()
+        self.n_calls += 1
+        names = list(names)
+        excess = 0.0
+        u2 = sum(self._quantity(k, values) ** 2 for k in U_KEYS)
+        if u2 > 1.0:
+            shrink = (1.0 - 1e-12) / np.sqrt(u2)
+            values = dict(values)
+            for k in U_KEYS:
+                values[k] = self._quantity(k, values) * shrink
+            excess = UNITARITY_SLOPE * (u2 - 1.0)
+        try:
+            data, g = self.events.chi2_and_grad(values, names)
+        except ValueError:
+            data, g = WALL, np.zeros(len(names))
+        if not np.isfinite(data) or not np.all(np.isfinite(g)):
+            data, g = WALL, np.zeros(len(names))
+        g = np.array(g, dtype=np.float64)
+        for p in self.priors:
+            if p.name in names:                         # Gaussian (supports_gradient)
+                g[names.index(p.name)] += 2.0 * (self._quantity(p.name, values) - p.centre) / p.width ** 2
+        self.time_s += time.perf_counter() - t0
+        return data + excess + self.prior_chi2(values), g
+
+    def on_with_grad(self, pset: ParameterSet):
+        """(chi^2, its gradient) as a function of a fit's internal vector: the chain rule through each parameter's
+        map (parameters.Parameter: x = u step, or 10^(u step) in log10 space)."""
+        names = pset.names
+
+        def fg(u):
+            values = pset.as_values(u)
+            f, g = self.chi2_and_grad(values, names)
+            dxdu = np.array([p.step * (np.log(10.0) * values[p.name] if p.space == "log10" else 1.0)
+                             for p in pset.free])
+            return f, g * dxdu
+        return fg

@@ -228,6 +228,29 @@ def spline_log_interp(nodes, p: float, arrays) -> np.ndarray:
     return np.exp(np.tensordot(spline_weights(nodes, p), L, axes=(0, 0)))
 
 
+_SPLINE_DERIVATIVES: Dict[tuple, np.ndarray] = {}
+
+
+def spline_weight_derivatives(nodes, p: float) -> np.ndarray:
+    """d/dp of spline_weights(nodes, p): the same spline's first derivative on its nodes' values (exact)."""
+    key = (tuple(float(q) for q in nodes), float(p))
+    w = _SPLINE_DERIVATIVES.get(key)
+    if w is None:
+        from scipy.interpolate import CubicSpline
+        x = np.asarray(nodes, dtype=np.float64)
+        w = np.asarray(CubicSpline(x, np.eye(len(x)), axis=0)(float(p), 1), dtype=np.float64)
+        if len(_SPLINE_DERIVATIVES) >= 200000:
+            _SPLINE_DERIVATIVES.clear()
+        _SPLINE_DERIVATIVES[key] = w
+    return w
+
+
+# The parameters whose derivatives the model gives in closed form (site_band_flux_jacobian; 2026-10-17): the
+# extragalactic and Galactic normalizations and compositions (linear) and the spectral indices (through the cubic
+# spline between the solver runs at the index nodes)
+GRADIENT_NAMES = ("norm_astro", "norm_gal", "f_e_S", "f_mu_S", "f_tau_S", "f_e_S_gal", "p_index", "p_index_low")
+
+
 def solver_key(name: str) -> Tuple[str, str]:
     """(section, key) of the solver config entry a parameter sets."""
     if name in ANALYSIS_DEFAULTS:
@@ -769,6 +792,121 @@ class FlavorModel:
             F_nu = F_nu + g * (x * run["gal_nu"][0] + (1.0 - x) * run["gal_nu"][1])
             F_nb = F_nb + g * (x * run["gal_nb"][0] + (1.0 - x) * run["gal_nb"][1])
         return run["E"], F_nu, F_nb
+
+    def _bands_index_jac(self, values: Mapping, nodes):
+        """_bands_index (the same arithmetic) with the derivatives in p_index of log(bands), element by element, and
+        of log K: (bands_nu, bands_nb, K, the first run, dlog_nu, dlog_nb, dlogK); the derivatives None without
+        nodes (the index fixed)."""
+        if nodes is None:
+            b_nu, b_nb, K, run = self._bands_index(values, nodes)
+            return b_nu, b_nb, K, run, None, None, None
+        p = float(values.get("p_index", self.base["source"]["p_index"]))
+        if not nodes[0] - 1e-12 <= p <= nodes[-1] + 1e-12:
+            raise ValueError(f"p_index = {p} lies outside the interpolation nodes {nodes.tolist()}")
+        runs = [self._sky_exact(dict(values, p_index=float(pk))) for pk in nodes]
+        w, w1 = spline_weights(nodes, p), spline_weight_derivatives(nodes, p)
+        lK = np.log(np.maximum(np.stack([np.float64(r["K"]) for r in runs]), 1e-300))
+        K = float(np.exp(np.tensordot(w, lK, axes=(0, 0))))
+        out = []
+        for key in ("bands_nu", "bands_nb"):
+            L = np.log(np.maximum(np.stack([r[key] for r in runs]), 1e-300))
+            out.append((np.exp(np.tensordot(w, L, axes=(0, 0))), np.tensordot(w1, L, axes=(0, 0))))
+        return out[0][0], out[1][0], K, runs[0], out[0][1], out[1][1], float(np.dot(w1, lK))
+
+    def _piece_scale_dlog(self, p: float, nodes) -> float:
+        """d log(_piece_scale(p, nodes)) / dp: the spline of log K through the nodes (as _piece_scale)."""
+        lK = np.log(np.maximum(np.array([self._scale(float(q)) for q in nodes]), 1e-300))
+        return float(np.dot(spline_weight_derivatives(nodes, p), lK))
+
+    def extragalactic_band_jacobian(self, values: Mapping, names: Sequence[str]):
+        """(E, F_nu, F_nb, dF): the extragalactic flux per declination band, as band_fluxes(values, norm_gal=0) gives
+        it (the same arithmetic, so the same values), and its derivatives in each of `names` (GRADIENT_NAMES), in
+        closed form: {name: (dF_nu, dF_nb)}, zero for names it does not depend on. norm_astro and the source
+        composition enter linearly; the indices through the spline in p (exact derivatives of the same spline) and,
+        with a broken power law, the pieces' join (E_b / E_ref)^(p_low - p) K(p_low)."""
+        names = list(names)
+        key = (tuple(sorted((k, float(v)) for k, v in values.items())), tuple(names))
+        memo = getattr(self, "_eg_jac", None)
+        if memo is not None and memo[0] == key:
+            return memo[1]
+        p2, p1 = self._index_values(values)
+        db = {}                                            # d(bands per source)/d(index): (nu, nb)
+        if self.E_break is None:
+            b_nu, b_nb, K, run, dl_nu, dl_nb, dlK = self._bands_index_jac(values, self.p_nodes)
+            if "p_index" in names and dl_nu is not None:
+                db["p_index"] = (b_nu * (dl_nu + dlK), b_nb * (dl_nb + dlK))
+        else:
+            up = self._bands_index_jac(dict(values, injection_E_min_GeV=self.E_break), self.p_nodes)
+            lo = self._bands_index_jac(dict(values, injection_E_max_GeV=self.E_break, p_index=p1), self.p1_nodes)
+            k2, k1 = self._join(p2, p1)
+            b_nu, b_nb, K = k2 * up[0] + k1 * lo[0], k2 * up[1] + k1 * lo[1], 1.0
+            run = up[3]
+            lnr = float(np.log(self.E_break / self.E_ref))
+            if "p_index" in names and up[4] is not None:
+                dk2 = self._piece_scale_dlog(p2, self.p_nodes)
+                db["p_index"] = (k2 * up[0] * (up[4] + dk2) - lnr * k1 * lo[0],
+                                 k2 * up[1] * (up[5] + dk2) - lnr * k1 * lo[1])
+            if "p_index_low" in names and lo[4] is not None:
+                dk1 = lnr + self._piece_scale_dlog(p1, self.p1_nodes)
+                db["p_index_low"] = (k1 * lo[0] * (lo[4] + dk1), k1 * lo[1] * (lo[5] + dk1))
+
+        def compose(a_nu, a_nb, comp):
+            if self.basis is None:
+                return a_nu[0], a_nb[0]
+            return np.tensordot(comp, a_nu, axes=(0, 0)), np.tensordot(comp, a_nb, axes=(0, 0))
+        comp = self.composition(values)[self.basis] if self.basis is not None else None
+        c_nu, c_nb = compose(b_nu, b_nb, comp)
+        norm = float(values.get("norm_astro", 1.0))
+        scale = norm * K
+        F_nu, F_nb = scale * c_nu, scale * c_nb
+        dF = {}
+        for n in names:
+            if n == "norm_astro":
+                dF[n] = (K * c_nu, K * c_nb)
+            elif n in db:
+                dF[n] = tuple(scale * a for a in compose(db[n][0], db[n][1], comp))
+            elif n in SOURCE_KEYS and self.basis is not None and self.remainder is not None and n != self.remainder:
+                d = np.zeros(3)
+                d[SOURCE_KEYS.index(n)] = 1.0
+                d[SOURCE_KEYS.index(self.remainder)] = -1.0
+                dF[n] = tuple(scale * a for a in compose(b_nu, b_nb, d[self.basis]))
+            else:
+                dF[n] = (np.zeros_like(F_nu), np.zeros_like(F_nb))
+        out = (run["E"], F_nu, F_nb, dF)
+        self._eg_jac = (key, out)
+        return out
+
+    def site_band_flux_jacobian(self, values: Mapping, lat: float, names: Sequence[str]):
+        """(E, F_nu, F_nb, dF) at a site of latitude lat (deg): site_band_fluxes (the same arithmetic, so the same
+        values) and the derivatives in each of `names` (GRADIENT_NAMES), {name: (dF_nu, dF_nb)}, per local cos-zenith
+        band (increasing cos Z); norm_gal and f_e_S_gal enter the Galactic part linearly."""
+        names = list(names)
+        E, e_nu, e_nb, de = self.extragalactic_band_jacobian(values, names)
+        F_nu, F_nb = e_nu[::-1], e_nb[::-1]                       # declination order -> cos-zenith order (South Pole)
+        dF = {n: (de[n][0][::-1], de[n][1][::-1]) for n in names}
+        if not self.galactic:
+            return E, F_nu.copy(), F_nb.copy(), dF
+        run = self._galactic_run(values)
+        x = float(values.get("f_e_S_gal", self.default("f_e_S_gal")))
+        if not 0.0 <= x <= 1.0:
+            raise ValueError(f"f_e_S_gal must lie in [0, 1], got {x}")
+        ng0 = self.default("norm_gal")
+        g = float(values.get("norm_gal", ng0)) / ng0
+        lat = float(lat)
+        if abs(lat) >= SITE_POLE_DEG:
+            if lat > 0:
+                raise ValueError("a site at the North Pole needs its own bands")
+            G_nu, G_nb = run["gal_nu"][:, ::-1], run["gal_nb"][:, ::-1]
+        else:
+            if lat not in run.get("site_gal", {}):
+                raise ValueError(f"the model was not built for a site at latitude {lat} (sites={self.site_lats})")
+            G_nu, G_nb = run["site_gal"][lat]
+        gal_nu, gal_nb = x * G_nu[0] + (1.0 - x) * G_nu[1], x * G_nb[0] + (1.0 - x) * G_nb[1]
+        if "norm_gal" in names:
+            dF["norm_gal"] = (gal_nu / ng0, gal_nb / ng0)
+        if "f_e_S_gal" in names:
+            dF["f_e_S_gal"] = (g * (G_nu[0] - G_nu[1]), g * (G_nb[0] - G_nb[1]))
+        return E, F_nu + g * gal_nu, F_nb + g * gal_nb, dF
 
     def _bands_index(self, values: Mapping, nodes):
         """(bands_nu, bands_nb, K, the first run) at values' p_index: one sky run, or interpolated in p_index between

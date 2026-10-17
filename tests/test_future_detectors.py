@@ -155,3 +155,40 @@ def test_newton_profile_equals_lbfgsb():
     f_dev, g_dev = ev._dev(x, S, ev.data)
     assert abs(f_dev - ev._fgh(x, A, S, ev.data)[0]) < 1e-9 * max(1.0, f_dev)
     assert np.max(np.abs(g_dev - g)) < 1e-9 * max(1.0, np.max(np.abs(g)))
+
+
+def test_vectorized_signals_equal_the_per_key_sums():
+    """The signals from the stacked responses and the vectorized interpolation (2026-10-17) equal the sums over each
+    (flavor, kind) of np.interp-ed fluxes times the per-key responses, to rounding."""
+    from analysis import config as config_mod
+    from analysis.future_events import part_lat
+    from IceCubeRates.future.diffuse import KEYS
+    from test_event_likelihood import _sky_cfg
+    std = {"u_e": 0.5, "u_mu": 0.5, "u_tau": 0.0, "m_Zd_eV": 1e-24, "g_D": 1e-60, "epsilon_prime": 0.0}
+    cfg = _sky_cfg(1.0 / 3.0, 1.0 / 3.0, "3d", dark_portal=std, grid={"E_min_eV": 1e11, "E_max_eV": 3e16, "n_E_bins": 24})
+    raw = {"name": "future_vec", "data": {"events": {"future": {"config": "All8_base"}}, "flavor_band_eV": [1e13, 3e16]},
+           "solver": cfg, "parameters": {"f_e_S": {"start": 0.333, "bounds": [0.0, 1.0], "space": "linear"}},
+           "fit": {"n_random": 0}, "profiles": {}, "planes": [], "asimov": {"f_e_S": 1.0 / 3.0}}
+    c = config_mod.from_dict(raw)
+    ev = c.objective(c.model(), data_centre=(1.0 / 3.0, 2.0 / 3.0)).events
+    v = {"f_e_S": 0.4}
+    S = ev.signals(v)
+    fl_index = {"e": 0, "mu": 1, "tau": 2}
+    ref_phi = {}
+    for d in ev.dets:
+        lat = part_lat(d.name)
+        if lat not in ref_phi:
+            _, F_nu, F_nb = ev.model.site_band_fluxes(v, lat)
+            per = []
+            for F in (F_nu, F_nb):
+                L = np.log(np.maximum(F, 1e-300))
+                per.append({i: (np.exp(np.array([np.interp(ev._lg, ev._lgE_model, L[z, :, i]) for z in range(L.shape[0])]))
+                                * ev._inside[None, :]).T for i in range(3)})
+            ref_phi[lat] = per
+    for (d, ch), sk in zip(ev.blocks, S):
+        pn, pb = ref_phi[part_lat(d.name)]
+        for key, get in (("s", lambda k: d.R[ch][k]), ("escale", lambda k: d.RX[ch][k]["escale"]),
+                         ("misid", lambda k: d.RX[ch][k]["misid"])):
+            ref = sum(np.einsum("ez,ebz->bz", (pb if bar else pn)[fl_index[fl]], get((fl, bar))) for fl, bar in KEYS)
+            ref = np.asarray(ref).reshape(-1)
+            assert np.max(np.abs(sk[key] - ref)) <= 1e-12 * max(np.max(np.abs(ref)), 1e-300), (d.name, ch, key)

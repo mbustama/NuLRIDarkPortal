@@ -175,7 +175,7 @@ The flux at the detector is the average over the up-going hemisphere. Inside the
 │   ├── surfaces.py, parameters.py, objective.py, fitting.py
 │   ├── scans.py                   # Global fit, profiles, planes: spawn pool, repair, checkpoints
 │   ├── events.py                  # The HESE and DR2 event likelihoods, their nuisances profiled (Gauss-Newton)
-│   ├── future_events.py           # The future detectors' event likelihood (projections; Newton profile)
+│   ├── future_events.py           # The future detectors' event likelihood (projections; Newton profile, exact gradient)
 │   ├── intervals.py, plots.py
 │   └── run.py                     # Command line: python -m analysis CONFIG.json
 ├── tools/
