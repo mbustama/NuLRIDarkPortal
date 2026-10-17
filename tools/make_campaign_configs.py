@@ -85,6 +85,48 @@ DATASETS_BPL = {
                     "asimov_fx": {"f_e_S": 1 / 3, "f_e_S_gal": 1 / 3}},
 }
 SPECTRA = {"pl": ("campaign", DATASETS), "bpl": ("campaign_bpl", DATASETS_BPL)}
+# The mixing and the lightest mass varied (--mixing vary, 2026-10-18; docs/dev/MIXING_VARIATION.md): Table II of
+# arXiv:2606.17132, normal ordering only. Present-day data under NuFIT 6.1's pairwise chi^2, projections under Table
+# II's Gaussians (central value, width); every fit at Table II's central values (theta0) varies the six through
+# templates (analysis/templates.py; the schemes per data kind technical, from the accuracy scans); the mass sum under
+# a half-Gaussian (MASS_SUM, eV at 95%: Table II's, recommended 2026-10-18, pending Mauricio). Configurations under
+# analysis/configs/campaign_mix/.
+TABLE2 = dict(s12sq=(0.3088, 0.0016416), s13sq=(0.02248, 0.00059), s23sq=(0.470, 0.00418), d_cp_deg=(212.0, 6.687),
+              dm21_sq=(7.537e-5, 3.7685e-7), dm31_sq=(2.511e-3, 1.2555e-5))
+MIX_KIND = {"now_ic26": "now", "now_events": "now", "proj_2050": "proj", "proj_future": "proj"}
+MIX_BOUNDS = {"now": dict(s12sq=[0.24, 0.38], s13sq=[0.018, 0.027], s23sq=[0.38, 0.65], d_cp_deg=[0.0, 360.0],
+                          dm21_sq=[6.4e-5, 8.7e-5], dm31_sq=[2.40e-3, 2.62e-3]),
+              "proj": {n: [c - 8.0 * w, c + 8.0 * w] for n, (c, w) in TABLE2.items()}}
+MIX_TEMPLATES = {"now": dict(s12sq={"points": [0.2888, 0.3288]}, s13sq={"step": 0.001},
+                             s23sq={"points": [0.40, 0.55, 0.60]}, d_cp_deg={"turn": 7}, dm21_sq={"step": 3e-6},
+                             dm31_sq={"step": 4e-5}),
+                 "proj": dict(s12sq={"step": 0.003}, s13sq={"step": 0.001}, s23sq={"step": 0.008},
+                              d_cp_deg={"points": [200.0, 224.0]}, dm21_sq={"step": 7e-7}, dm31_sq={"step": 2.5e-5})}
+MASS_SUM = {"now": 0.12, "proj": 0.09}
+M_LIGHTEST = 0.01                # eV, every plane until the lightest-mass study decides (tools/mlightest_study.py)
+
+
+def apply_mixing(cfg: dict, dataset: str, m_lightest: float = M_LIGHTEST) -> dict:
+    """cfg with the mixing varied (the module's notes on --mixing vary): the solver at Table II's central values and
+    the given lightest mass in the normal ordering, the six mixing parameters free with their templates, and the
+    data kind's penalties."""
+    kind = MIX_KIND[dataset]
+    deg = lambda s2: float(np.degrees(np.arcsin(np.sqrt(s2))))
+    sm = cfg["solver"].setdefault("standard_mixing", {})
+    sm.update(th12_deg=deg(TABLE2["s12sq"][0]), th13_deg=deg(TABLE2["s13sq"][0]), th23_deg=deg(TABLE2["s23sq"][0]),
+              d_cp_deg=TABLE2["d_cp_deg"][0], dm21_sq=TABLE2["dm21_sq"][0], dm31_sq=TABLE2["dm31_sq"][0])
+    cfg["solver"].setdefault("cosmology", {}).update(mass_ordering="normal", m_lightest_eV=float(m_lightest))
+    for n, (c, _) in TABLE2.items():
+        cfg["parameters"][n] = {"start": c, "bounds": list(MIX_BOUNDS[kind][n]), "space": "linear",
+                                "template": dict(MIX_TEMPLATES[kind][n])}
+    if kind == "now":
+        cfg["priors"].append({"type": "nufit_6.1_pairwise", "ordering": "normal"})
+    else:
+        cfg["priors"].extend({"name": n, "type": "gaussian", "centre": c, "width": w} for n, (c, w) in TABLE2.items())
+    cfg["priors"].append({"name": "sum_masses_eV", "type": "half_gaussian", "limit": MASS_SUM[kind], "cl": 0.95})
+    cfg["_comment"] += (f"; mixing varied ({'NuFIT 6.1 pairwise' if kind == 'now' else 'Table II Gaussians'}, "
+                        f"templates), m_lightest {m_lightest:g} eV, mass sum < {MASS_SUM[kind]:g} eV (95%)")
+    return cfg
 TEXTURES = {"e": (1, 0, 0), "mu": (0, 1, 0), "tau": (0, 0, 1), "emu": (1, 1, 0), "etau": (1, 0, 1),
             "mutau": (0, 1, 1), "emutau": (1, 1, 1)}
 SUM_U2 = 0.5
@@ -147,14 +189,17 @@ def _decades(lo, hi):
     return lo, hi, hi - lo + 1
 
 
-def planes_for(dataset, spectrum="pl"):
-    """[(name, config, n_points)] for one data set."""
+def planes_for(dataset, spectrum="pl", mixing="fixed"):
+    """[(name, config, n_points)] for one data set; mixing 'vary' (with spectrum 'bpl'): the tree campaign_mix."""
     solver0, base_params, priors = _base(dataset, spectrum)
     sets = SPECTRA[spectrum][1]
     out = []
 
     def add(name, comment, solver, params, plane, asimov):
         cfg = _config(dataset, spectrum, name, comment, solver, params, priors, plane, asimov)
+        if mixing == "vary":
+            cfg = apply_mixing(cfg, dataset)
+            cfg["output_dir"] = cfg["output_dir"].replace("/campaign_bpl/", "/campaign_mix/")
         out.append((name, cfg, plane["nx"] * plane["ny"]))
         fx = copy.deepcopy(cfg)
         fx["name"] = name + "_fx"
@@ -249,15 +294,21 @@ def main(argv=None):
     ap.add_argument("--spectrum", choices=sorted(SPECTRA), default="bpl")
     ap.add_argument("--datasets", nargs="+", default=None, help="default: every data set of the spectrum")
     ap.add_argument("--check", action="store_true", help="load every configuration and evaluate its model once")
+    ap.add_argument("--mixing", choices=("fixed", "vary"), default="fixed",
+                    help="'vary': the mixing and the lightest mass varied (needs --spectrum bpl; campaign_mix)")
     a = ap.parse_args(argv)
     from analysis import config as config_mod
     tree, sets = SPECTRA[a.spectrum]
+    if a.mixing == "vary":
+        if a.spectrum != "bpl":
+            raise SystemExit("--mixing vary needs --spectrum bpl")
+        tree = "campaign_mix"
     for ds in a.datasets or list(sets):
         if ds not in sets:
             raise SystemExit(f"data set {ds!r} does not exist with --spectrum {a.spectrum}; known: {sorted(sets)}")
         d = os.path.join(REPO, "analysis", "configs", tree, ds)
         os.makedirs(d, exist_ok=True)
-        rows = planes_for(ds, a.spectrum)
+        rows = planes_for(ds, a.spectrum, a.mixing)
         for name, cfg, _ in rows:
             with open(os.path.join(d, name + ".json"), "w") as f:
                 json.dump(cfg, f, indent=1)
