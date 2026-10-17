@@ -1741,7 +1741,7 @@ def transit_to_earth(E_bins: np.ndarray, F_mass_arrival: np.ndarray, M_rot: np.n
     return rho, n_amb, info
 
 
-def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
+def _propagate_earth_spatial_direct(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
                             M_rot: np.ndarray,
                             u_arr: np.ndarray, m_Zd: float, g_D: float, eps_prime: float,
                             T_nu0: float, use_debye_screening: bool, eta_bg: np.ndarray,
@@ -2073,4 +2073,99 @@ def propagate_earth_spatial(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
         return F_earth, np.real(np.diagonal(rho_bands, axis1=2, axis2=3)).copy()
     return F_earth
 
+
+# =============================================================================
+# REUSE OF THE EARTH CROSSING WITHIN A PARAMETER POINT (2026-10-18)
+# =============================================================================
+# The spatial handover is linear in its input, per energy bin: every step maps the arriving populations to density
+# matrices (dp_transit.galactic_map, flavor_populations), conjugates them by unitaries (the transits, the chords) or
+# averages them (Sun paths, zenith chords and bands), and none of its branches depends on the input. So with
+# T_k = the handover of the unit input e_k (every bin), the handover of any F is sum_k F[:, k] T_k -- exact up to
+# rounding. An analysis point runs the handover tens of times with the same parameters (spectral-index nodes,
+# source compositions, the Galactic responses), each through the same Earth: those calls now cost three handovers
+# in total (the Galactic responses, _galactic_responses, are exactly the three unit inputs and fill the table for
+# free). A parameter set's table is built on its second call with a general input, so a one-off call (a single
+# run of the solver) costs what it always did. EARTH_TRANSFER_REUSE = False restores the direct path everywhere.
+EARTH_TRANSFER_REUSE = True
+_EARTH_TRANSFER_MAX = 32
+_EARTH_TRANSFER = {}
+_EARTH_NONRESULT_ARGS = ("F_mass_arrival", "show_progress", "verbose", "n_cores", "external_pool")
+
+
+def _earth_key_part(v):
+    """A hashable, exact stand-in for one argument of the handover (arrays by dtype, shape and bytes)."""
+    if v is None or isinstance(v, (bool, int, float, str)):
+        return v
+    if isinstance(v, (np.bool_, np.integer, np.floating)):
+        return v.item()
+    if isinstance(v, (complex, np.complexfloating)):
+        return ("complex", float(v.real), float(v.imag))
+    if hasattr(v, "_fields"):                         # NamedTuple (dp_matter.MatterCharge)
+        return (type(v).__name__,) + tuple(_earth_key_part(x) for x in v)
+    if isinstance(v, (np.ndarray, list, tuple)):
+        a = np.ascontiguousarray(v)
+        return (str(a.dtype), a.shape, a.tobytes())
+    raise TypeError(f"cannot key the Earth transfer on a {type(v).__name__}")
+
+
+def _unit_column(F: np.ndarray):
+    """k if every row of F is exactly e_k, else None."""
+    if F.ndim != 2 or F.shape[1] != 3 or F.shape[0] == 0:
+        return None
+    for k in range(3):
+        if np.all(F[:, k] == 1.0) and np.all(np.delete(F, k, axis=1) == 0.0):
+            return k
+    return None
+
+
+def _earth_signature():
+    import inspect
+    return inspect.signature(_propagate_earth_spatial_direct)
+
+
+_EARTH_SIG = _earth_signature()
+
+
+def propagate_earth_spatial(*args, **kwargs):
+    """The spatial handover (_propagate_earth_spatial_direct, whose arguments and returns it takes), reusing the
+    handover's response to the three unit inputs for repeated calls with the same parameters (section notes)."""
+    if not EARTH_TRANSFER_REUSE:
+        return _propagate_earth_spatial_direct(*args, **kwargs)
+    ba = _EARTH_SIG.bind(*args, **kwargs)
+    ba.apply_defaults()
+    a = dict(ba.arguments)
+    if a["use_gpu"]:
+        return _propagate_earth_spatial_direct(*args, **kwargs)
+    key = tuple((n, _earth_key_part(v)) for n, v in a.items() if n not in _EARTH_NONRESULT_ARGS)
+    F = np.ascontiguousarray(a["F_mass_arrival"], dtype=np.float64)
+    bands = a["earth_band_costh"] is not None
+    entry = _EARTH_TRANSFER.get(key)
+    if entry is None:
+        if len(_EARTH_TRANSFER) >= _EARTH_TRANSFER_MAX:
+            _EARTH_TRANSFER.pop(next(iter(_EARTH_TRANSFER)))
+        entry = _EARTH_TRANSFER[key] = dict(cols={}, calls=0)
+
+    def column(k):
+        if k not in entry["cols"]:
+            e = np.zeros_like(F)
+            e[:, k] = 1.0
+            r = _propagate_earth_spatial_direct(**dict(a, F_mass_arrival=e))
+            entry["cols"][k] = (r[0], r[1]) if bands else (r, None)
+        return entry["cols"][k]
+
+    def out(whole, per_band):
+        return (whole.copy(), per_band.copy()) if bands else whole.copy()
+
+    k = _unit_column(F)
+    if k is not None:
+        return out(*column(k))
+    entry["calls"] += 1
+    if len(entry["cols"]) < 3 and entry["calls"] == 1:
+        r = _propagate_earth_spatial_direct(**a)
+        return r
+    cols = [column(j) for j in range(3)]
+    whole = np.einsum("ik,kib->ib", F, np.stack([c[0] for c in cols]))
+    if not bands:
+        return whole
+    return whole, np.einsum("ik,knib->nib", F, np.stack([c[1] for c in cols]))
 
