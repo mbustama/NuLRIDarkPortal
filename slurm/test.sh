@@ -8,7 +8,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=8G
-# The regression suite and the analysis tests (a few minutes, most of it numba compiling the
+# The regression suite and the analysis tests, including those marked slow that CI skips (a few minutes, most of it numba compiling the
 # kernels on the first run on a node type). Usage, from the repository root:
 #   sbatch slurm/test.sh
 source slurm/common.sh

@@ -151,6 +151,7 @@ def test_gradient_only_where_it_is_exact(setup, tmp_path):
     assert not Objective(m_ev, None, (), events=ev).supports_gradient(["norm_astro", "p_index"])
 
 
+@pytest.mark.slow
 def test_gradient_fit_matches_finite_difference_fit(setup):
     """At held (m, coupling): the fit with the exact gradient reaches the finite-difference fit's chi^2 or lower, with
     fewer evaluations, and its end-of-fit check passes."""
@@ -166,6 +167,7 @@ def test_gradient_fit_matches_finite_difference_fit(setup):
         assert r_g.nfev < r_f.nfev, (r_g.nfev, r_f.nfev)
 
 
+@pytest.mark.slow
 def test_gradient_check_catches_a_wrong_gradient(setup, monkeypatch):
     """A wrong gradient (here half the true one) lets L-BFGS-B stop away from the minimum; the end-of-fit check
     catches it and the finite-difference refit recovers the minimum."""

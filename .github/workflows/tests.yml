@@ -37,5 +37,6 @@ jobs:
 
       - name: Run the test suite
         # First run includes numba JIT compilation of every kernel (a few minutes cold).
-        # The GPU test self-skips on CUDA-less runners.
-        run: python -m pytest tests/ -v
+        # The GPU test self-skips on CUDA-less runners. Tests marked slow (full fits, 10-20 minutes each here)
+        # run on Tycho instead (slurm/test.sh).
+        run: python -m pytest tests/ -v -m "not slow"

@@ -32,3 +32,8 @@ test = ["pytest", "mpmath"]
 package-dir = { "" = "src" }
 py-modules = ["dark_portal_solver", "dp_core", "dp_propagator", "dp_thermal", "dp_cosmo",
               "dp_spatial", "dp_config", "dark_portal_scanner", "flux_postprocessing", "gpu_spatial"]
+
+[tool.pytest.ini_options]
+# slow: full fits that take minutes on a laptop and 10-20 on CI's runners (which stopped at their 30-minute limit
+# on 2026-10-17); CI skips them (-m "not slow"), slurm/test.sh runs everything on Tycho.
+markers = ["slow: full fits taking minutes; skipped on CI, run on Tycho by slurm/test.sh"]
