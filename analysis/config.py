@@ -19,7 +19,7 @@ and which fits and scans to run. Example: analysis/configs/pion_2050_case_5.json
     "solver": {section: {key: value}},   partial solver configuration (DEFAULT_CONFIG layout);
                                          anything not given takes the solver's default
     "parameters": {name: {"start", "bounds", "space": "linear"|"log10", "scale"}},
-    "priors": [{"name", "type": "gaussian"|"half_gaussian", ...}],
+    "priors": [{"name", "type": "gaussian"|"half_gaussian", ...} or {"type": "nufit_6.1_pairwise", "ordering"}],
     "fit": {FitSettings fields},         settings of every minimization
     "profiles": {name: {"range": [lo, hi], "n": int}},
     "planes": [{"x", "y", "x_range", "y_range", "nx", "ny", "raster"}],
@@ -347,8 +347,11 @@ def from_dict(raw: Mapping, path: str = "") -> AnalysisConfig:
         if name not in LINEAR_KEYS and name not in ANALYSIS_SPECTRAL:
             solver_key(name)
     from .objective import DERIVED
+    from .nufit import NuFitPairwisePrior
     for prior in cfg.priors:                     # a misspelt prior must fail, not go silently unused
-        if prior.name not in cfg.free_names and prior.name not in DERIVED and prior.name not in LINEAR_KEYS:
+        if isinstance(prior, NuFitPairwisePrior):  # its ordering the solver's, the fit's bounds inside its tables
+            prior.check(model.base, {p.name: p.bounds for p in params})
+        elif prior.name not in cfg.free_names and prior.name not in DERIVED and prior.name not in LINEAR_KEYS:
             solver_key(prior.name)
     del model
     return cfg

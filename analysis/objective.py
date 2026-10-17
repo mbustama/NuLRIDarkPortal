@@ -20,7 +20,7 @@ from typing import Mapping, Sequence
 import numpy as np
 
 from . import spectra, surfaces
-from .model import FlavorModel, sum_of_masses
+from .model import ALIASES, FlavorModel, sum_of_masses
 from .parameters import ParameterSet
 
 WALL = 1e9
@@ -37,7 +37,8 @@ class Objective:
       surface: name of the flavor-composition surface (the data term), or None with the event likelihoods
         alone.
       priors: prior objects (parameters.GaussianPrior, HalfGaussianPrior), each on a
-        parameter or on a derived quantity in DERIVED.
+        parameter or on a derived quantity in DERIVED; or nufit.NuFitPairwisePrior, on the
+        six mixing quantities at once.
       data_centre: (f_e, f_mu) to move the surface's centre to (Asimov data,
         pseudo-experiments); default: the surface as published.
     """
@@ -62,12 +63,16 @@ class Objective:
     def _quantity(self, name: str, values: Mapping) -> float:
         if name in values:
             return float(values[name])
+        if name in ALIASES and ALIASES[name] in values:     # sin^2 of an angle the fit sets in degrees
+            return float(np.sin(np.radians(float(values[ALIASES[name]]))) ** 2)
         if name in DERIVED:
             return DERIVED[name](values, self.model.base)
         return self.model.default(name)
 
     def prior_chi2(self, values: Mapping) -> float:
-        return float(sum(p.chi2(self._quantity(p.name, values)) for p in self.priors))
+        """The priors' sum: each on one quantity, or (nufit.NuFitPairwisePrior) on several at once."""
+        return float(sum(p.chi2_values(values, self.model.base) if hasattr(p, "chi2_values")
+                         else p.chi2(self._quantity(p.name, values)) for p in self.priors))
 
     def fractions(self, values: Mapping) -> np.ndarray:
         return self.model.fractions(values)
@@ -126,7 +131,8 @@ class Objective:
             return False
         if not names or not set(names) <= set(GRADIENT_NAMES):
             return False
-        return all(isinstance(p, GaussianPrior) or p.name not in names for p in self.priors)
+        return all(isinstance(p, GaussianPrior) or not ({p.name, *getattr(p, "quantities", ())} & set(names))
+                   for p in self.priors)
 
     def chi2_and_grad(self, values: Mapping, names: Sequence[str]):
         """(chi2(values), its gradient in `names`) where supports_gradient(names): the same value as chi2."""

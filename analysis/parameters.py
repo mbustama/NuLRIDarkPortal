@@ -56,13 +56,22 @@ class HalfGaussianPrior:
 
 def prior_from_spec(spec: Mapping) -> object:
     """A prior from its config entry: {"name": ..., "type": "gaussian", "centre": ...,
-    "width": ...} or {"name": ..., "type": "half_gaussian", "limit": ..., "cl": ...}."""
+    "width": ...}, {"name": ..., "type": "half_gaussian", "limit": ..., "cl": ...}, or
+    {"type": "nufit_6.1_pairwise", "ordering": "normal" | "inverted"} (nufit.py: NuFIT 6.1's
+    three pairwise tables on the six mixing quantities at once; no name)."""
     kind = str(spec.get("type", "")).lower()
     if kind == "gaussian":
         return GaussianPrior(spec["name"], float(spec["centre"]), float(spec["width"]))
     if kind in ("half_gaussian", "half-gaussian"):
         return HalfGaussianPrior(spec["name"], float(spec["limit"]), float(spec.get("cl", 0.95)))
-    raise ValueError(f"Unknown prior type {spec.get('type')!r} in {dict(spec)}; use 'gaussian' or 'half_gaussian'.")
+    if kind == "nufit_6.1_pairwise":
+        from .nufit import NuFitPairwisePrior
+        bad = set(spec) - {"type", "ordering"}
+        if bad or "ordering" not in spec:
+            raise ValueError(f"nufit_6.1_pairwise takes only 'ordering' ('normal' or 'inverted'); got {dict(spec)}")
+        return NuFitPairwisePrior(str(spec["ordering"]))
+    raise ValueError(f"Unknown prior type {spec.get('type')!r} in {dict(spec)}; use 'gaussian', 'half_gaussian' "
+                     f"or 'nufit_6.1_pairwise'.")
 
 
 @dataclass(frozen=True)

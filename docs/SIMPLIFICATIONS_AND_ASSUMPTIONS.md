@@ -53,8 +53,21 @@ small, not yet measured), **open** (decided to remove or change, not yet done).
 ## Standard neutrino physics
 
 11. **Mixing parameters and the lightest neutrino mass fixed in the campaign** (NuFIT 6.0, normal ordering with SK;
-    m_lightest = 0.01 eV). *Open.* (2026-10-12: decided to vary the mixing with NuFIT 6.1's chi^2 and m_lightest
-    with the prior on the mass sum, both orderings; the campaign's planes do not do it yet.)
+    m_lightest = 0.01 eV). *Open.* (2026-10-12: decided to vary them. 2026-10-18: that campaign cancelled; the next
+    one varies them as Table II of arXiv:2606.17132 does: present-day data under NuFIT 6.1's pairwise chi^2, item
+    11a; projections under Table II's Gaussians; m_lightest free under a half-Gaussian penalty on the mass sum,
+    limits pending: Table II's 0.12 eV now and 0.09 eV for projections recommended.)
+
+11a. **NuFIT 6.1's chi^2 as the sum of three two-dimensional projections** (sin^2 th13 x sin^2 th12, sin^2 th23 x
+    delta_CP, Delta m^2_21 x Delta m^2_31), each profiled by NuFIT over the other parameters. *Accepted.* (Mauricio,
+    2026-10-18; `analysis/nufit.py`) Summing projections drops the correlations between parameters in different
+    tables; NuFIT publishes no full six-dimensional table. Interpolated by bicubic splines, shifted up by their
+    undershoot below zero (at most 0.05 in chi^2, a constant).
+
+11b. **Normal ordering only.** *Accepted.* (Mauricio, 2026-10-18) NuFIT 6.1 disfavors the inverted ordering by
+    Delta chi^2 = 5.9, and the mass-sum limits disfavor it further.
+
+11c. **Majorana phases not varied.** *Accepted.* (Mauricio, 2026-10-18: they don't matter to our observables.)
 
 ## Data and detectors
 

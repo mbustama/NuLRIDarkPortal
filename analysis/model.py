@@ -454,6 +454,8 @@ class FlavorModel:
             return self.p_low_default
         section, key = solver_key(name)
         v = self.base[section][key]
+        if name in ALIASES:                    # sin^2 of the angle the solver keeps in degrees
+            return float(np.sin(np.radians(float(v))) ** 2)
         if name == "norm_gal" and v is None:
             import dp_galactic
             v = dp_galactic.NORM_DEFAULT[str(self.base["galactic"]["template"]).strip().lower()]
