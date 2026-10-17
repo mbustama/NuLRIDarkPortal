@@ -55,8 +55,9 @@ small, not yet measured), **open** (decided to remove or change, not yet done).
 11. **Mixing parameters and the lightest neutrino mass fixed in the campaign** (NuFIT 6.0, normal ordering with SK;
     m_lightest = 0.01 eV). *Open.* (2026-10-12: decided to vary them. 2026-10-18: that campaign cancelled; the next
     one varies them as Table II of arXiv:2606.17132 does: present-day data under NuFIT 6.1's pairwise chi^2, item
-    11a; projections under Table II's Gaussians; m_lightest free under a half-Gaussian penalty on the mass sum,
-    limits pending: Table II's 0.12 eV now and 0.09 eV for projections recommended.)
+    11a; projections under Table II's Gaussians; m_lightest under a half-Gaussian penalty on the mass sum bounded at
+    zero, Table II's 0.12 eV now and 0.09 eV for projections at 95% C.L. as there and in its sources: sigma =
+    limit / 1.960; Mauricio, 2026-10-18.)
 
 11a. **NuFIT 6.1's chi^2 as the sum of three two-dimensional projections** (sin^2 th13 x sin^2 th12, sin^2 th23 x
     delta_CP, Delta m^2_21 x Delta m^2_31), each profiled by NuFIT over the other parameters. *Accepted.* (Mauricio,

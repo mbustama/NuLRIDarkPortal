@@ -1,5 +1,5 @@
 {
- "_comment": "dark_portal, texture e: the potential, - sign, coupling split 1e-24 (docs/dev/SCOPE_WIDENING_PLAN.md decision 4; tools/make_campaign_configs.py); mixing varied (NuFIT 6.1 pairwise, templates), m_lightest 0.01 eV, mass sum < 0.12 eV (95%)",
+ "_comment": "dark_portal, texture e: the potential, - sign, coupling split 1e-24 (docs/dev/SCOPE_WIDENING_PLAN.md decision 4; tools/make_campaign_configs.py); mixing varied (NuFIT 6.1 pairwise, templates), m_lightest 0.01 eV, mass sum < 0.12 eV (95%, half-Gaussian)",
  "name": "dp_e_pot_x1m24_neg",
  "data": {
   "surface": "icecube_mese_2025",
@@ -220,7 +220,8 @@
    "name": "sum_masses_eV",
    "type": "half_gaussian",
    "limit": 0.12,
-   "cl": 0.95
+   "cl": 0.95,
+   "quantile": "half"
   }
  ],
  "fit": {

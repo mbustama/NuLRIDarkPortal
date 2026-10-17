@@ -37,18 +37,32 @@ class GaussianPrior:
 
 @dataclass(frozen=True)
 class HalfGaussianPrior:
-    """One-sided prior for a published upper limit: chi^2 += (x / sigma)^2 for x > 0, with
-    sigma = limit / Phi^-1(cl), so the limit is the one-sided quantile at cl. Used for the
-    cosmological bound on the sum of neutrino masses (2026-10-12 decision: Sum < 0.055 eV at
-    95%, SPT-3G D1 + DESI DR2, sigma = 0.0334 eV), applied to the derived quantity."""
+    """One-sided prior for a published upper limit: chi^2 += (x / sigma)^2 for x > 0. quantile
+    'one_sided' (the default): sigma = limit / Phi^-1(cl), the limit the one-sided quantile at cl of
+    a Gaussian centred at zero (the 2026-10-12 decision: Sum < 0.055 eV at 95%, sigma = 0.0334 eV);
+    'half': sigma = limit / Phi^-1((1 + cl) / 2), the limit holding the fraction cl of the half-Gaussian
+    bounded at zero -- the faithful reading of a cosmological upper limit at cl (a posterior bounded at
+    zero), and the same threshold as the planes' Delta chi^2 = 3.84 at 95%: Table II of arXiv:2606.17132's
+    limits on the mass sum, 0.12 eV now and 0.09 eV for projections, at 95%, sigma = limit / 1.960
+    (2026-10-18). 'one_sided' at 95% puts only 90% of the half-Gaussian below the limit. Applied to the
+    derived quantity sum_masses_eV."""
     name: str
     limit: float
     cl: float = 0.95
+    quantile: str = "one_sided"
+
+    def __post_init__(self):
+        if self.quantile not in ("one_sided", "half"):
+            raise ValueError(f"half_gaussian prior on {self.name}: quantile must be 'one_sided' or 'half', got "
+                             f"{self.quantile!r}")
+        if not 0.0 < self.cl < 1.0 or not self.limit > 0.0:
+            raise ValueError(f"half_gaussian prior on {self.name}: needs 0 < cl < 1 and limit > 0")
 
     @cached_property
     def sigma(self) -> float:
         from scipy.stats import norm
-        return self.limit / norm.ppf(self.cl)
+        q = self.cl if self.quantile == "one_sided" else 0.5 * (1.0 + self.cl)
+        return self.limit / norm.ppf(q)
 
     def chi2(self, x: float) -> float:
         return 0.0 if x <= 0.0 else (x / self.sigma) ** 2
@@ -56,14 +70,16 @@ class HalfGaussianPrior:
 
 def prior_from_spec(spec: Mapping) -> object:
     """A prior from its config entry: {"name": ..., "type": "gaussian", "centre": ...,
-    "width": ...}, {"name": ..., "type": "half_gaussian", "limit": ..., "cl": ...}, or
+    "width": ...}, {"name": ..., "type": "half_gaussian", "limit": ..., "cl": ..., "quantile":
+    "one_sided" | "half"}, or
     {"type": "nufit_6.1_pairwise", "ordering": "normal" | "inverted"} (nufit.py: NuFIT 6.1's
     three pairwise tables on the six mixing quantities at once; no name)."""
     kind = str(spec.get("type", "")).lower()
     if kind == "gaussian":
         return GaussianPrior(spec["name"], float(spec["centre"]), float(spec["width"]))
     if kind in ("half_gaussian", "half-gaussian"):
-        return HalfGaussianPrior(spec["name"], float(spec["limit"]), float(spec.get("cl", 0.95)))
+        return HalfGaussianPrior(spec["name"], float(spec["limit"]), float(spec.get("cl", 0.95)),
+                                 str(spec.get("quantile", "one_sided")))
     if kind == "nufit_6.1_pairwise":
         from .nufit import NuFitPairwisePrior
         bad = set(spec) - {"type", "ordering"}

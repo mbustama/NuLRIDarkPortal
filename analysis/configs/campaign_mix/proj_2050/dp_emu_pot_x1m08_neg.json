@@ -1,5 +1,5 @@
 {
- "_comment": "dark_portal, texture emu: the potential, - sign, coupling split 1e-08 (docs/dev/SCOPE_WIDENING_PLAN.md decision 4; tools/make_campaign_configs.py); mixing varied (Table II Gaussians, templates), m_lightest 0.01 eV, mass sum < 0.09 eV (95%)",
+ "_comment": "dark_portal, texture emu: the potential, - sign, coupling split 1e-08 (docs/dev/SCOPE_WIDENING_PLAN.md decision 4; tools/make_campaign_configs.py); mixing varied (Table II Gaussians, templates), m_lightest 0.01 eV, mass sum < 0.09 eV (95%, half-Gaussian)",
  "name": "dp_emu_pot_x1m08_neg",
  "data": {
   "surface": "pion_2050_case_5",
@@ -248,7 +248,8 @@
    "name": "sum_masses_eV",
    "type": "half_gaussian",
    "limit": 0.09,
-   "cl": 0.95
+   "cl": 0.95,
+   "quantile": "half"
   }
  ],
  "fit": {

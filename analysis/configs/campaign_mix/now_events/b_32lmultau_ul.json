@@ -1,5 +1,5 @@
 {
- "_comment": "B-3/2(L_mu+L_tau): the gauge coupling g' over ul masses; mixing varied (NuFIT 6.1 pairwise, templates), m_lightest 0.01 eV, mass sum < 0.12 eV (95%)",
+ "_comment": "B-3/2(L_mu+L_tau): the gauge coupling g' over ul masses; mixing varied (NuFIT 6.1 pairwise, templates), m_lightest 0.01 eV, mass sum < 0.12 eV (95%, half-Gaussian)",
  "name": "b_32lmultau_ul",
  "data": {
   "events": {
@@ -220,7 +220,8 @@
    "name": "sum_masses_eV",
    "type": "half_gaussian",
    "limit": 0.12,
-   "cl": 0.95
+   "cl": 0.95,
+   "quantile": "half"
   }
  ],
  "fit": {

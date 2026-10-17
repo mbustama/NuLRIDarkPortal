@@ -116,6 +116,13 @@ def test_priors():
     assert h.sigma == pytest.approx(0.055 / 1.6448536269514722)
     assert h.chi2(0.055) == pytest.approx(1.6448536269514722 ** 2)
     assert h.chi2(-0.1) == 0.0
+    # Table II's limits as 90% upper limits of the half-Gaussian bounded at zero (2026-10-18)
+    from scipy.stats import norm
+    hh = HalfGaussianPrior("sum_masses_eV", 0.12, 0.90, "half")
+    assert hh.sigma == pytest.approx(0.12 / 1.6448536269514722)
+    assert 2.0 * norm.cdf(0.12 / hh.sigma) - 1.0 == pytest.approx(0.90)
+    with pytest.raises(ValueError):
+        HalfGaussianPrior("sum_masses_eV", 0.12, 0.90, "both")
 
 
 # ---------------------------------------------------------------------------------------

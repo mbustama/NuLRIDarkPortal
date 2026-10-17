@@ -16,8 +16,18 @@ splitting widths as Table II's numbers (0.5%).
 - **Projections** (`proj_2050`, `proj_future`): Table II's Gaussians (normal ordering): sin^2 th12 0.3088 +-
   0.0016416, sin^2 th13 0.02248 +- 0.00059, sin^2 th23 0.470 +- 0.00418, delta_CP 212 +- 6.687 deg, Delta m^2_21
   7.537e-5 +- 3.7685e-7 eV^2, Delta m^2_31 2.511e-3 +- 1.2555e-5 eV^2.
-- **Mass sum**: half-Gaussian on the sum (`sum_masses_eV`), limits pending (recommended: Table II's 0.12 eV now,
-  0.09 eV for projections).
+- **Mass sum** (Mauricio, 2026-10-18: "Use Table II's limits: 0.12 eV now, 0.09 eV for projections"): the paper's
+  "half-Gaussian bounded at Sum_nu = 0", chi^2 += (Sum_nu / sigma)^2. Table II quotes both limits at 95% C.L., as do
+  its sources: [16] PDG 2024 (Planck 2018 + BAO, 0.12 eV), [150] Palanque-Delabrouille et al. 2020 (Ly-alpha +
+  Planck + lensing + BAO, 0.09 eV) and [151] Di Valentino, Gariazzo & Mena 2021 (0.09 eV); the 'projection' is a
+  2020-21 bound. The paper gives no sigma. Correct translation (Mauricio: "If the paper says 95% C.L., inspect
+  what's correct"): the limit holds 95% of the half-Gaussian, sigma = limit / Phi^-1(0.975) = limit / 1.960 --
+  what a posterior bounded at zero with that 95% quantile is, and the same threshold (Delta chi^2 = 3.84 at the
+  limit) as the planes are read at: 0.0612 eV now, 0.0459 eV for projections (`HalfGaussianPrior`, quantile
+  'half', cl 0.95). The 'one_sided' convention, limit / 1.645 (GeoneutrinoDecay's), leaves 10% of the
+  half-Gaussian above a 95% limit: it is a 90% limit's translation, 20% wider. Consequences (normal ordering,
+  Delta chi^2 = 3.84 above m_lightest = 0): m_lightest up to 0.036 eV now and 0.025 eV for projections (0.044 and
+  0.031 with limit / 1.645).
 
 ## Templates (`analysis/templates.py`)
 
@@ -54,4 +64,3 @@ runs.
 - Template schemes per data kind (accuracy scan over the 3-sigma ranges at campaign resolution).
 - The lightest mass: where it matters (MeV absorption, the coupling-split potential planes' screening) and how
   finely to profile it (`tools/mlightest_study.py` on the earlier campaign's limit contours).
-- The mass-sum limits (Mauricio).

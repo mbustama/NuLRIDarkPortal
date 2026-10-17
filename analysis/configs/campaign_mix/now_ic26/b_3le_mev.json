@@ -1,5 +1,5 @@
 {
- "_comment": "B-3L_e: the gauge coupling g' over mev masses; mixing varied (NuFIT 6.1 pairwise, templates), m_lightest 0.01 eV, mass sum < 0.12 eV (95%)",
+ "_comment": "B-3L_e: the gauge coupling g' over mev masses; mixing varied (NuFIT 6.1 pairwise, templates), m_lightest 0.01 eV, mass sum < 0.12 eV (95%, half-Gaussian)",
  "name": "b_3le_mev",
  "data": {
   "surface": "icecube_mese_2025",
@@ -218,7 +218,8 @@
    "name": "sum_masses_eV",
    "type": "half_gaussian",
    "limit": 0.12,
-   "cl": 0.95
+   "cl": 0.95,
+   "quantile": "half"
   }
  ],
  "fit": {

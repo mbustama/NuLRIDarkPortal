@@ -89,8 +89,10 @@ SPECTRA = {"pl": ("campaign", DATASETS), "bpl": ("campaign_bpl", DATASETS_BPL)}
 # arXiv:2606.17132, normal ordering only. Present-day data under NuFIT 6.1's pairwise chi^2, projections under Table
 # II's Gaussians (central value, width); every fit at Table II's central values (theta0) varies the six through
 # templates (analysis/templates.py; the schemes per data kind technical, from the accuracy scans); the mass sum under
-# a half-Gaussian (MASS_SUM, eV at 95%: Table II's, recommended 2026-10-18, pending Mauricio). Configurations under
-# analysis/configs/campaign_mix/.
+# the paper's half-Gaussian bounded at zero with Table II's limits, 0.12 eV now and 0.09 eV for projections (Mauricio,
+# 2026-10-18), which are 95% C.L. there and in its sources (PDG 2024's Planck 2018 + BAO; Palanque-Delabrouille et al.
+# 2020 and Di Valentino et al. 2021): the limit holds 95% of the half-Gaussian, sigma = limit / 1.960 ("inspect what's
+# correct", 2026-10-18; docs/dev/MIXING_VARIATION.md). Configurations under analysis/configs/campaign_mix/.
 TABLE2 = dict(s12sq=(0.3088, 0.0016416), s13sq=(0.02248, 0.00059), s23sq=(0.470, 0.00418), d_cp_deg=(212.0, 6.687),
               dm21_sq=(7.537e-5, 3.7685e-7), dm31_sq=(2.511e-3, 1.2555e-5))
 MIX_KIND = {"now_ic26": "now", "now_events": "now", "proj_2050": "proj", "proj_future": "proj"}
@@ -123,9 +125,11 @@ def apply_mixing(cfg: dict, dataset: str, m_lightest: float = M_LIGHTEST) -> dic
         cfg["priors"].append({"type": "nufit_6.1_pairwise", "ordering": "normal"})
     else:
         cfg["priors"].extend({"name": n, "type": "gaussian", "centre": c, "width": w} for n, (c, w) in TABLE2.items())
-    cfg["priors"].append({"name": "sum_masses_eV", "type": "half_gaussian", "limit": MASS_SUM[kind], "cl": 0.95})
+    cfg["priors"].append({"name": "sum_masses_eV", "type": "half_gaussian", "limit": MASS_SUM[kind], "cl": 0.95,
+                          "quantile": "half"})
     cfg["_comment"] += (f"; mixing varied ({'NuFIT 6.1 pairwise' if kind == 'now' else 'Table II Gaussians'}, "
-                        f"templates), m_lightest {m_lightest:g} eV, mass sum < {MASS_SUM[kind]:g} eV (95%)")
+                        f"templates), m_lightest {m_lightest:g} eV, mass sum < {MASS_SUM[kind]:g} eV (95%, "
+                        f"half-Gaussian)")
     return cfg
 TEXTURES = {"e": (1, 0, 0), "mu": (0, 1, 0), "tau": (0, 0, 1), "emu": (1, 1, 0), "etau": (1, 0, 1),
             "mutau": (0, 1, 1), "emutau": (1, 1, 1)}

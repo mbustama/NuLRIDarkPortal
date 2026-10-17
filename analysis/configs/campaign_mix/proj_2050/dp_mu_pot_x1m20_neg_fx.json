@@ -1,5 +1,5 @@
 {
- "_comment": "dark_portal, texture mu: the potential, - sign, coupling split 1e-20 (docs/dev/SCOPE_WIDENING_PLAN.md decision 4; tools/make_campaign_configs.py); mixing varied (Table II Gaussians, templates), m_lightest 0.01 eV, mass sum < 0.09 eV (95%); the sources' flavor compositions fitted (extragalactic and Galactic, independently)",
+ "_comment": "dark_portal, texture mu: the potential, - sign, coupling split 1e-20 (docs/dev/SCOPE_WIDENING_PLAN.md decision 4; tools/make_campaign_configs.py); mixing varied (Table II Gaussians, templates), m_lightest 0.01 eV, mass sum < 0.09 eV (95%, half-Gaussian); the sources' flavor compositions fitted (extragalactic and Galactic, independently)",
  "name": "dp_mu_pot_x1m20_neg_fx",
  "data": {
   "surface": "pion_2050_case_5",
@@ -264,7 +264,8 @@
    "name": "sum_masses_eV",
    "type": "half_gaussian",
    "limit": 0.09,
-   "cl": 0.95
+   "cl": 0.95,
+   "quantile": "half"
   }
  ],
  "fit": {

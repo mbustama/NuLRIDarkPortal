@@ -159,7 +159,8 @@ def test_exact_gradient_with_templates_and_priors():
     raw = _raw()
     raw["parameters"]["dm31_sq"] = {"start": 2.511e-3, "bounds": [2.4e-3, 2.6e-3], "template": {"step": 2e-5}}
     raw["priors"] = raw["priors"] + [{"name": "s12sq", "type": "gaussian", "centre": 0.3088, "width": 0.0016},
-                                     {"name": "sum_masses_eV", "type": "half_gaussian", "limit": 0.09}]
+                                     {"name": "sum_masses_eV", "type": "half_gaussian", "limit": 0.09, "cl": 0.90,
+                                      "quantile": "half"}]
     c = config_mod.from_dict(raw)
     obj = c.objective(c.model(), data_centre=(1.0 / 3.0, 2.0 / 3.0))
     names = ["norm_astro", "p_index", "s12sq", "d_cp_deg", "dm31_sq"]
