@@ -271,7 +271,10 @@ def _build_default_config() -> Dict:
             # (dp_core.default_n_cores; cpu_count() would report a whole Tycho node)
             "n_cores": default_n_cores(),
             "verbose": 1,
-            "use_gpu": False
+            "use_gpu": False,
+            # when the Earth crossing's responses are reused (dp_spatial.propagate_earth_spatial): 'repeat' or
+            # 'always' (the analysis)
+            "earth_transfer": "repeat"
         }
     }
 

@@ -121,7 +121,7 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                        arrival_flavor=None, arrival_basis: str = "flavor", matter_charge=None,
                        absorption_model: str = "lagrangian", G_coupling=None, Gamma_vis=None,
                        si_cosmology: bool = False, si_settings=None, potential_product=None,
-                       inj_window=(0.0, np.inf)):
+                       inj_window=(0.0, np.inf), earth_transfer: str = "repeat"):
     """
     Executes the complete spectrum integration, driving the underlying JIT kernels.
     Neutrinos and antineutrinos are evolved together through the cosmological phase (an
@@ -149,6 +149,8 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         2026-10-13 this was a single-species flag and each call propagated one kind alone.
       p_index, rho_evol, Phi_0: source spectrum E^-p, redshift evolution, normalization.
       inj_window: (E_min, E_max) in eV (2026-10-15): the sources emit only neutrinos whose energy today,
+      earth_transfer: when the Earth crossing's responses are reused (dp_spatial.propagate_earth_spatial):
+        'repeat' or 'always'.
         E_source / (1+z), lies in [E_min, E_max) -- one piece of a broken power law (analysis/model.py); the
         default emits the whole power law.
       eta_bg: (3,) CnuB flavor asymmetries.
@@ -476,7 +478,7 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                                           sun_path_cos=sun_path_cos, arrival=arrival,
                                           matter_charge=matter_charge,
                                           debye_sq_z0=(debye_sq(T_nu0) if lagrangian else None),
-                                          potential_product=pp)
+                                          potential_product=pp, earth_transfer=earth_transfer)
         if earth_band_costh is not None:
             F_earth, F_bands = F_earth
             if not np.isfinite(F_bands).all():
@@ -737,7 +739,8 @@ def _flux_from_setup(E_bins: np.ndarray, params: Dict, setup: Dict, injection,
         si_settings=dict(z_substeps=params.get('si', {}).get('z_substeps', 1),
                          E_extension=params.get('si', {}).get('E_extension', 10.0)),
         potential_product=params.get('potential_product', None),
-        inj_window=params.get('inj_window_eV', (0.0, np.inf))
+        inj_window=params.get('inj_window_eV', (0.0, np.inf)),
+        earth_transfer=params.get('earth_transfer', 'repeat')
     )
 
 
@@ -1498,6 +1501,7 @@ def build_solver_params(config: Dict) -> Tuple[np.ndarray, Dict]:
     # Optional CUDA spatial handover (requires cupy + a CUDA device; silently falls back
     # to the CPU path with a warning when unavailable -- see gpu_spatial.py).
     params['use_gpu'] = bool(config['execution']['use_gpu'])
+    params['earth_transfer'] = str(config['execution'].get('earth_transfer', 'repeat'))
     params['show_progress'] = True
     params['verbose'] = int(config['execution']['verbose'])
     return E_bins, params

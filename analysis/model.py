@@ -304,7 +304,9 @@ class FlavorModel:
             raise ValueError("dark_portal.potential_sign must be +1 or -1")
         self.coupling_split = parse_coupling_split(own.get("coupling_split", "fixed"))
         base = merge_config_with_defaults(sc)
-        base["execution"].update(n_cores=1, verbose=0, use_gpu=False)
+        # the Earth crossing's responses reused from a point's first run on (dp_spatial): every run's result is then
+        # independent of the order of the runs, whichever process computes it (prefetch)
+        base["execution"].update(n_cores=1, verbose=0, use_gpu=False, earth_transfer="always")
         self.base = base
         self.sky = bool(sky)
         # detectors away from the South Pole (the future detectors, 2026-10-15): their latitudes (deg); a site within
@@ -380,6 +382,10 @@ class FlavorModel:
         self.n_disk_hits = 0
         # a solver-run cache on disk shared by every process (2026-10-14): NULRI_FLUX_CACHE names its directory
         self.disk_cache = os.environ.get(DISK_CACHE_ENV) or None
+        # runs of one evaluation computed in parallel (prefetch, 2026-10-18): a callable mapping a list of
+        # (kind, cfg, with_galactic) tasks to their runs, in order -- e.g. a pool of worker processes
+        # (scans.global_fit); None computes them one by one, in this process
+        self.executor = None
 
     # ------------------------------------------------------------------
     def _overrides(self, values: Mapping) -> Dict[Tuple[str, str], object]:
@@ -508,6 +514,72 @@ class FlavorModel:
             except OSError:
                 pass
 
+    def _run_cfg(self, ov: Mapping) -> dict:
+        """The full solver configuration of one run: the base with the overrides, and with the pure-flavor basis any
+        valid composition (the basis fluxes ignore it; it passes the solver's checks)."""
+        cfg = copy.deepcopy(self.base)
+        for (section, k), v in ov.items():
+            cfg[section][k] = v
+        if self.basis is not None:
+            cfg["source"].update(f_e_S=1.0, f_mu_S=0.0, f_tau_S=0.0)
+        return cfg
+
+    # ------------------------------------------------------------------ runs in parallel (2026-10-18)
+    def _evaluation_values(self, values: Mapping) -> list:
+        """The values of every solver run one evaluation at `values` makes (each index node of each piece), in the
+        order fluxes() and band_fluxes() visit them."""
+        if self.E_break is None:
+            pieces = [(dict(values), self.p_nodes)]
+        else:
+            _, p1 = self._index_values(values)
+            pieces = [(dict(values, injection_E_min_GeV=self.E_break), self.p_nodes),
+                      (dict(values, injection_E_max_GeV=self.E_break, p_index=p1), self.p1_nodes)]
+        out = []
+        for v, nodes in pieces:
+            out.extend([v] if nodes is None else [dict(v, p_index=float(pk)) for pk in nodes])
+        return out
+
+    def prefetch(self, values_list) -> int:
+        """Computes the solver runs of these values that are neither cached nor on disk in parallel, through
+        self.executor, and keeps them as _fluxes_exact or _sky_exact would: the calls that follow find them cached.
+        The same arithmetic in another process: the runs are bit for bit those of the calls one by one. The Galactic
+        part, which depends on neither the index nor the window, is computed once per point (by its first run that
+        lacks it). Returns the number of runs computed; nothing without an executor or with fewer than two to do."""
+        if self.executor is None:
+            return 0
+        cache = self._sky_cache if self.sky else self._cache
+        todo, seen = [], set()
+        for v in values_list:
+            ov = self._overrides(v)
+            key = tuple(sorted((s, k, x if isinstance(x, str) else float(x)) for (s, k), x in ov.items()))
+            if key in cache or key in seen:
+                continue
+            seen.add(key)
+            cfg = self._run_cfg(ov)
+            disk = self._disk_path(cfg)
+            if disk is not None and os.path.exists(disk):
+                continue                                  # read back by the call itself
+            todo.append((key, cfg, disk))
+        if len(todo) < 2:
+            return 0
+        firsts = set()
+        tasks = []
+        for key, cfg, _ in todo:
+            point = self._without_index(key)
+            need = self.galactic and point not in firsts and self._gal_get(key) is None
+            if need:
+                firsts.add(point)
+            tasks.append(("sky" if self.sky else "flux", cfg, need))
+        results = self.executor(tasks)
+        order = [i for i, t in enumerate(tasks) if t[2]] + [i for i, t in enumerate(tasks) if not t[2]]
+        for i in order:                                   # the runs carrying a point's Galactic part first
+            key, _, disk = todo[i]
+            if self.sky:
+                self._sky_store(key, results[i], disk)
+            else:
+                self._fluxes_store(key, results[i], disk)
+        return len(todo)
+
     # ------------------------------------------------------------------ the broken power law
     def _index_values(self, values: Mapping) -> Tuple[float, float]:
         return (float(values.get("p_index", self.base["source"]["p_index"])),
@@ -546,6 +618,8 @@ class FlavorModel:
         """As _fluxes_exact; with p_nodes, interpolated in p_index between the solver runs at the nodes (cubic
         spline in log flux, and in log K for the extragalactic scale). With a broken power law (module docstring):
         the two pieces joined in physical units (gal K = 1)."""
+        if self.executor is not None:
+            self.prefetch(self._evaluation_values(values))
         if self.E_break is None:
             return self._fluxes_index(values, self.p_nodes)
         p2, p1 = self._index_values(values)
@@ -602,12 +676,7 @@ class FlavorModel:
             if len(self._cache) > self._cache_size:
                 self._cache.popitem(last=False)
             return out
-        cfg = copy.deepcopy(self.base)
-        for (section, k), v in ov.items():
-            cfg[section][k] = v
-        if self.basis is not None:
-            # any valid composition passes the solver's checks; the basis fluxes ignore it
-            cfg["source"].update(f_e_S=1.0, f_mu_S=0.0, f_tau_S=0.0)
+        cfg = self._run_cfg(ov)
         disk = self._disk_path(cfg)
         if disk is not None:
             out = self._disk_read(disk)
@@ -619,6 +688,14 @@ class FlavorModel:
                 if len(self._cache) > self._cache_size:
                     self._cache.popitem(last=False)
                 return out
+        G = self._gal_get(key) if self.galactic else None
+        out = self._fluxes_compute(cfg, with_galactic=G is None)
+        return self._fluxes_store(key, out, disk)
+
+    def _fluxes_compute(self, cfg: Mapping, with_galactic: bool = True):
+        """The solver run of _fluxes_exact for the full solver configuration cfg (_run_cfg): (E, F_a, F_b, gal), gal's
+        G the Galactic flux only with_galactic, else None (another run of the same point carries it; _fluxes_store).
+        No caching: a worker process computes these for prefetch."""
         E, params = dps.build_solver_params(cfg)
         params["show_progress"] = False
         sources = None if self.basis is None else [np.eye(3)[i] for i in self.basis]
@@ -628,14 +705,25 @@ class FlavorModel:
             F_a, F_b = dps.propagate_weighted(E, params, sources=sources), None
         gal = None
         if self.galactic:
-            G = self._gal_get(key)
-            if G is None:
-                G = dps.galactic_allsky(E, params)
-                self._gal_put(key, G)
-            gal = dict(G=G, K=dps.extragalactic_scale(params, params["sky"]["extragalactic_norm"],
-                                                      params["sky"]["extragalactic_norm_E_GeV"]))
+            gal = dict(G=dps.galactic_allsky(E, params) if with_galactic else None,
+                       K=dps.extragalactic_scale(params, params["sky"]["extragalactic_norm"],
+                                                 params["sky"]["extragalactic_norm_E_GeV"]))
+        return E, F_a, F_b, gal
+
+    def _fluxes_store(self, key: tuple, out, disk: Optional[str]):
+        """Completes a computed run with its point's Galactic flux (computed by it, or cached), counts it, writes it
+        to the disk cache and keeps it."""
+        E, F_a, F_b, gal = out
+        if gal is not None:
+            if gal["G"] is not None:
+                self._gal_put(key, gal["G"])
+            else:
+                G = self._gal_get(key)
+                if G is None:
+                    raise RuntimeError("a run without its Galactic flux, and none cached for its point")
+                gal = dict(G=G, K=gal["K"])
+            out = (E, F_a, F_b, gal)
         self.n_solver_calls += 1
-        out = (E, F_a, F_b, gal)
         if disk is not None:
             self._disk_write(disk, out)
         self._cache[key] = out
@@ -667,13 +755,7 @@ class FlavorModel:
         if hit is not None:
             self._sky_cache.move_to_end(key)
             return hit
-        cfg = copy.deepcopy(self.base)
-        for (section, k), v in ov.items():
-            cfg[section][k] = v
-        sources = None
-        if self.basis is not None:
-            cfg["source"].update(f_e_S=1.0, f_mu_S=0.0, f_tau_S=0.0)
-            sources = [np.eye(3)[i] for i in self.basis]
+        cfg = self._run_cfg(ov)
         disk = self._disk_path(cfg)
         run = self._sky_read(disk) if disk is not None else None
         if run is not None:
@@ -681,36 +763,57 @@ class FlavorModel:
             if run["gal_nu"] is not None:
                 self._gal_put(key, dict(gal_nu=run["gal_nu"], gal_nb=run["gal_nb"], share=run["share"],
                                         site_gal=run.get("site_gal", {})))
-        else:
-            E, params = dps.build_solver_params(cfg)
-            params["show_progress"] = False
-            if sources is None:
-                sources = [np.array([params["f_e_S"], params["f_mu_S"], params["f_tau_S"]], dtype=np.float64)]
-            K = dps.extragalactic_scale(params, params["sky"]["extragalactic_norm"],
-                                        params["sky"]["extragalactic_norm_E_GeV"])
-            raw = dict(params)
-            raw["sky"] = dict(params["sky"], extragalactic_norm=None)     # solver units; K kept apart
-            g_hit = self._gal_get(key) if self.galactic else None
-            out = dps.propagate_sky_basis(E, raw, sources=sources, galactic=g_hit is None,
-                                          site_latitudes_deg=self.site_lats if g_hit is None else ())
+            self._sky_cache[key] = run
+            if len(self._sky_cache) > self._cache_size:
+                self._sky_cache.popitem(last=False)
+            return run
+        g_hit = self._gal_get(key) if self.galactic else None
+        return self._sky_store(key, self._sky_compute(cfg, with_galactic=g_hit is None), disk)
 
-            def r32(a):
-                return np.asarray(a, dtype=np.float32).astype(np.float64)
-            run = dict(E=np.asarray(E, dtype=np.float64), band_edges=np.asarray(out["dec_band_edges"], dtype=np.float64),
-                       omega=np.asarray(out["band_omega"], dtype=np.float64), bands_nu=r32(out["bands_nu"]),
-                       bands_nb=r32(out["bands_nubar"]), K=float(K), gal_nu=None, gal_nb=None, share=None)
-            if "galactic_bands_nu" in out:
-                run.update(gal_nu=r32(out["galactic_bands_nu"]), gal_nb=r32(out["galactic_bands_nubar"]),
-                           share=np.asarray(out["galactic_band_share"], dtype=np.float64),
-                           site_gal={lat: (r32(out["site_galactic_bands_nu"][lat]),
-                                           r32(out["site_galactic_bands_nubar"][lat])) for lat in self.site_lats})
-                self._gal_put(key, dict(gal_nu=run["gal_nu"], gal_nb=run["gal_nb"], share=run["share"],
-                                        site_gal=run["site_gal"]))
-            elif g_hit is not None:
-                run.update(g_hit)                   # every run (and its disk file) carries the Galactic bands
-            self.n_solver_calls += 1
-            if disk is not None:
-                self._sky_write(disk, run)
+    def _sky_compute(self, cfg: Mapping, with_galactic: bool = True) -> dict:
+        """The propagate_sky_basis run of _sky_exact for the full solver configuration cfg (_run_cfg), with the
+        point's Galactic bands only with_galactic (else another run of the point carries them; _sky_store). No
+        caching: a worker process computes these for prefetch."""
+        E, params = dps.build_solver_params(cfg)
+        params["show_progress"] = False
+        if self.basis is not None:
+            sources = [np.eye(3)[i] for i in self.basis]
+        else:
+            sources = [np.array([params["f_e_S"], params["f_mu_S"], params["f_tau_S"]], dtype=np.float64)]
+        K = dps.extragalactic_scale(params, params["sky"]["extragalactic_norm"],
+                                    params["sky"]["extragalactic_norm_E_GeV"])
+        raw = dict(params)
+        raw["sky"] = dict(params["sky"], extragalactic_norm=None)     # solver units; K kept apart
+        gal = self.galactic and with_galactic
+        out = dps.propagate_sky_basis(E, raw, sources=sources, galactic=gal,
+                                      site_latitudes_deg=self.site_lats if gal else ())
+
+        def r32(a):
+            return np.asarray(a, dtype=np.float32).astype(np.float64)
+        run = dict(E=np.asarray(E, dtype=np.float64), band_edges=np.asarray(out["dec_band_edges"], dtype=np.float64),
+                   omega=np.asarray(out["band_omega"], dtype=np.float64), bands_nu=r32(out["bands_nu"]),
+                   bands_nb=r32(out["bands_nubar"]), K=float(K), gal_nu=None, gal_nb=None, share=None)
+        if "galactic_bands_nu" in out:
+            run.update(gal_nu=r32(out["galactic_bands_nu"]), gal_nb=r32(out["galactic_bands_nubar"]),
+                       share=np.asarray(out["galactic_band_share"], dtype=np.float64),
+                       site_gal={lat: (r32(out["site_galactic_bands_nu"][lat]),
+                                       r32(out["site_galactic_bands_nubar"][lat])) for lat in self.site_lats})
+        return run
+
+    def _sky_store(self, key: tuple, run: dict, disk: Optional[str]) -> dict:
+        """Completes a computed sky run with its point's Galactic bands (computed by it, or cached: every run and its
+        disk file carries them), counts it, writes it to the disk cache and keeps it."""
+        if run["gal_nu"] is not None:
+            self._gal_put(key, dict(gal_nu=run["gal_nu"], gal_nb=run["gal_nb"], share=run["share"],
+                                    site_gal=run["site_gal"]))
+        elif self.galactic:
+            g_hit = self._gal_get(key)
+            if g_hit is None:
+                raise RuntimeError("a sky run without its Galactic bands, and none cached for its point")
+            run.update(g_hit)
+        self.n_solver_calls += 1
+        if disk is not None:
+            self._sky_write(disk, run)
         self._sky_cache[key] = run
         if len(self._sky_cache) > self._cache_size:
             self._sky_cache.popitem(last=False)
@@ -769,6 +872,8 @@ class FlavorModel:
         p_index as fluxes() is (cubic spline in log flux, and in log K)."""
         if not self.sky:
             raise ValueError("band_fluxes needs the model in sky mode (the event likelihoods)")
+        if self.executor is not None:
+            self.prefetch(self._evaluation_values(values))
         if self.E_break is None:
             b_nu, b_nb, K, run = self._bands_index(values, self.p_nodes)
         else:

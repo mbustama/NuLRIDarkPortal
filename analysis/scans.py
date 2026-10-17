@@ -96,6 +96,44 @@ def _run_repair(task) -> Optional[dict]:
     return None
 
 
+def _init_runner(raw: dict, path: str):
+    """A worker that computes solver runs for another process's model (FlavorModel.prefetch): the model alone, without
+    the likelihood or its Asimov data."""
+    _W["runner"] = from_dict(raw, path).model()
+
+
+def _remote_run(task):
+    """One run of FlavorModel.prefetch: (kind, cfg, with_galactic) -> the run as the model computes it."""
+    kind, cfg, with_galactic = task
+    m = _W["runner"]
+    return m._sky_compute(cfg, with_galactic) if kind == "sky" else m._fluxes_compute(cfg, with_galactic)
+
+
+class _Runners:
+    """For a fit in this process: its objective, built here, with the model's runs of each new point computed in
+    parallel by `workers` spawned processes (FlavorModel.prefetch; 2026-10-18). A global fit from one start used one
+    core of the plane's allocation while the others waited, for 10-90 minutes per plane in the October campaign."""
+
+    def __init__(self, cfg: AnalysisConfig, data_centre, workers: int):
+        self.cfg, self.data_centre, self.workers = cfg, data_centre, int(workers)
+        self.pool = None
+
+    def __enter__(self):
+        ctx = mp.get_context("spawn")
+        self.pool = ctx.Pool(self.workers, initializer=_init_runner, initargs=(self.cfg.raw, self.cfg.path))
+        model = self.cfg.model()
+        pool = self.pool
+        model.executor = lambda tasks: pool.map(_remote_run, tasks, chunksize=1)
+        _W["cfg"] = self.cfg
+        _W["objective"] = self.cfg.objective(model=model, data_centre=self.data_centre)
+        return self
+
+    def __exit__(self, *exc):
+        _W["objective"].model.executor = None
+        self.pool.close()
+        self.pool.join()
+
+
 def _run_start(task) -> dict:
     """One start of the global fit (no polish)."""
     start, settings = task
@@ -197,8 +235,13 @@ def global_fit(cfg: AnalysisConfig, data_centre=None, workers: int = 1, checkpoi
     todo = [s for s in starts if json.dumps(s, sort_keys=True) not in done_starts]
     settings = {**asdict(cfg.fit), "polish": False, "n_random": 0}
     results = [r for r in done if "start" in r]
-    with _Pool(cfg, data_centre, min(workers, max(1, len(todo)))) as pool:
-        for r in pool.imap(_run_start, [(s, settings) for s in todo]):
+    # one start left (n_random = 0): fitted in this process with the solver runs in parallel (_Runners); several:
+    # one start per worker, as before
+    serial = len(todo) <= 1 and workers > 1
+    with (_Runners(cfg, data_centre, workers) if serial else
+          _Pool(cfg, data_centre, min(workers, max(1, len(todo))))) as pool:
+        run = (lambda tasks: map(_run_start, tasks)) if serial else (lambda tasks: pool.imap(_run_start, tasks))
+        for r in run([(s, settings) for s in todo]):
             r["id"] = ident
             results.append(r)
             if checkpoint:
@@ -206,7 +249,7 @@ def global_fit(cfg: AnalysisConfig, data_centre=None, workers: int = 1, checkpoi
             log(f"  start {len(results)}/{len(starts)}: chi2 = {r['chi2']:.6g} ({r['nfev']} evaluations)")
         best = min(results, key=lambda r: r["chi2"])
         polish_settings = {**asdict(cfg.fit), "n_random": 0}
-        polished = list(pool.imap(_run_start, [(best["values"], polish_settings)]))[0]
+        polished = list(run([(best["values"], polish_settings)]))[0]
     final = polished if polished["chi2"] <= best["chi2"] else best
     out = dict(values=final["values"], chi2=final["chi2"],
                nfev=int(sum(r["nfev"] for r in results) + polished["nfev"]),
