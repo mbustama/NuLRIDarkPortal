@@ -20,8 +20,8 @@ from typing import Mapping, Sequence
 import numpy as np
 
 from . import spectra, surfaces
-from .model import ALIASES, FlavorModel, sum_of_masses
-from .parameters import ParameterSet
+from .model import ALIASES, FlavorModel, sum_of_masses, sum_of_masses_grad
+from .parameters import GaussianPrior, HalfGaussianPrior, ParameterSet
 
 WALL = 1e9
 UNITARITY_SLOPE = 1e4
@@ -121,18 +121,17 @@ class Objective:
     def supports_gradient(self, names: Sequence[str]) -> bool:
         """Whether chi2_and_grad can give the exact gradient in `names`: the future detectors' events alone (their
         profiled chi^2 is differentiable with the nuisances at their optimum; FutureEventLikelihood.chi2_and_grad),
-        every name one whose derivative the model gives in closed form (model.GRADIENT_NAMES), and every prior on
-        them Gaussian. Anything else -- a surface, a spectrum, HESE or DR2, a mass or a coupling free -- keeps the
+        every name one whose derivative the model gives in closed form (model.gradient_names(): GRADIENT_NAMES and
+        the templated mixing parameters), and every prior on them Gaussian or half-Gaussian (on a parameter or on the
+        sum of the masses, which depends on the splittings). Anything else -- a surface, a spectrum, HESE or DR2, a mass or a coupling free -- keeps the
         finite differences."""
         from .future_events import FutureEventLikelihood
-        from .model import GRADIENT_NAMES
-        from .parameters import GaussianPrior
         if self.surface is not None or self.spectrum is not None or not isinstance(self.events, FutureEventLikelihood):
             return False
-        if not names or not set(names) <= set(GRADIENT_NAMES):
+        if not names or not set(names) <= set(self.model.gradient_names()):
             return False
-        return all(isinstance(p, GaussianPrior) or not ({p.name, *getattr(p, "quantities", ())} & set(names))
-                   for p in self.priors)
+        return all(isinstance(p, (GaussianPrior, HalfGaussianPrior))
+                   or not ({p.name, *getattr(p, "quantities", ())} & set(names)) for p in self.priors)
 
     def chi2_and_grad(self, values: Mapping, names: Sequence[str]):
         """(chi2(values), its gradient in `names`) where supports_gradient(names): the same value as chi2."""
@@ -154,9 +153,19 @@ class Objective:
         if not np.isfinite(data) or not np.all(np.isfinite(g)):
             data, g = WALL, np.zeros(len(names))
         g = np.array(g, dtype=np.float64)
-        for p in self.priors:
-            if p.name in names:                         # Gaussian (supports_gradient)
-                g[names.index(p.name)] += 2.0 * (self._quantity(p.name, values) - p.centre) / p.width ** 2
+        for p in self.priors:                           # Gaussian or half-Gaussian (supports_gradient)
+            if isinstance(p, GaussianPrior):
+                if p.name in names:
+                    g[names.index(p.name)] += 2.0 * (self._quantity(p.name, values) - p.centre) / p.width ** 2
+            elif isinstance(p, HalfGaussianPrior):
+                x = self._quantity(p.name, values)
+                if x <= 0.0:
+                    continue
+                if p.name in names:
+                    g[names.index(p.name)] += 2.0 * x / p.sigma ** 2
+                elif p.name == "sum_masses_eV":
+                    for n, d in sum_of_masses_grad(values, self.model.base, names).items():
+                        g[names.index(n)] += 2.0 * x / p.sigma ** 2 * d
         self.time_s += time.perf_counter() - t0
         return data + excess + self.prior_chi2(values), g
 

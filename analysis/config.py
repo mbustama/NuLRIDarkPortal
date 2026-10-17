@@ -109,6 +109,7 @@ class AnalysisConfig:
     events: Optional[dict] = None
     flavor_band: Optional[Tuple[float, float]] = None
     flux_basis: str = "auto"
+    templates: dict = field(default_factory=dict)        # name -> its "template" spec (templates.py)
 
     @property
     def free_names(self) -> List[str]:
@@ -149,9 +150,28 @@ class AnalysisConfig:
         if self.events is not None and "future" in self.events:
             from .future_events import config_sites
             sites = config_sites((self.events["future"] or {}).get("config", "All8_base"))
+        n *= 1 + sum(len(t.points) for t in self.mixing_templates())
         return FlavorModel(self.solver, self.free_names, cache_size=cache_size * n, p_nodes=self.p_nodes(),
                            sky=self.events is not None, flavor_band_eV=self.flavor_band,
-                           pure_flavor_basis=self.flux_basis == "pure_flavors", sites=sites, p1_nodes=self.p1_nodes())
+                           pure_flavor_basis=self.flux_basis == "pure_flavors", sites=sites, p1_nodes=self.p1_nodes(),
+                           templates=self.mixing_templates())
+
+    def mixing_templates(self) -> list:
+        """The templates.MixingTemplate of every parameter with a "template", around the solver configuration's
+        value (merged with the solver's defaults), in the parameters' order."""
+        if not self.templates:
+            return []
+        from dp_config import merge_config_with_defaults
+        from .model import split_analysis_keys, solver_key, ALIASES
+        from .templates import from_spec
+        base = merge_config_with_defaults(split_analysis_keys(self.solver)[0])
+        out = []
+        for name, spec in self.templates.items():
+            section, key = solver_key(name)
+            v = float(base[section][key])
+            theta0 = float(np.sin(np.radians(v)) ** 2) if name in ALIASES else v
+            out.append(from_spec(name, spec, theta0))
+        return out
 
     def asimov_values(self) -> Dict[str, float]:
         """The values of the Asimov data set: the configuration's 'asimov' values, the free parameters' starts
@@ -206,6 +226,7 @@ class AnalysisConfig:
                  **({} if self.p1_nodes() is None else dict(p1_nodes=self.p1_nodes())),
                  solver=solver, code=dp_core._source_digest(),
                  parameters=[[p.name, p.space, list(p.bounds)] for p in self.parameters],
+                 **({} if not self.templates else dict(templates=self.templates)),
                  priors=[[type(p).__name__, sorted(dataclasses.asdict(p).items())] for p in self.priors], extra=extra)
         return hashlib.sha256(json.dumps(d, sort_keys=True, default=str).encode()).hexdigest()[:16]
 
@@ -285,12 +306,17 @@ def from_dict(raw: Mapping, path: str = "") -> AnalysisConfig:
             raise ValueError(f"data.flavor_band_eV must be [lo, hi] with 0 < lo < hi, got {flavor_band}")
     params = []
     nodes_n = {}
+    templates = {}
     for name, spec in d["parameters"].items():
         spec = dict(spec)
+        from .templates import NAMES as TEMPLATE_NAMES
         bad = set(spec) - {"start", "bounds", "space", "scale"} - ({"nodes"} if name in ("p_index", "p_index_low")
-                                                                   else set())
+                                                                   else set()) \
+            - ({"template"} if name in TEMPLATE_NAMES else set())
         if bad:
             raise ValueError(f"Parameter {name}: unknown keys {sorted(bad)}")
+        if "template" in spec:
+            templates[name] = dict(spec.pop("template"))
         if "nodes" in spec:
             nodes_n[name] = int(spec.pop("nodes"))
             if nodes_n[name] < 2:
@@ -302,7 +328,7 @@ def from_dict(raw: Mapping, path: str = "") -> AnalysisConfig:
         priors=[prior_from_spec(p) for p in d.get("priors", [])],
         fit=FitSettings.from_dict(d.get("fit")), asimov=dict(d.get("asimov", {})),
         raw=dict(raw), path=path, spectrum=spectrum, p_nodes_n=nodes_n.get("p_index"),
-        p1_nodes_n=nodes_n.get("p_index_low"), events=events, flavor_band=flavor_band,
+        p1_nodes_n=nodes_n.get("p_index_low"), events=events, flavor_band=flavor_band, templates=templates,
         flux_basis=str(d.get("flux_basis", "auto")))
     if cfg.flux_basis not in ("auto", "pure_flavors"):
         raise ValueError(f"flux_basis must be 'auto' or 'pure_flavors', got {cfg.flux_basis!r}")

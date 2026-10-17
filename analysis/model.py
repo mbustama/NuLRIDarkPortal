@@ -282,6 +282,22 @@ def sum_of_masses(values: Mapping, base: Mapping) -> float:
     return float(np.sum(m))
 
 
+def sum_of_masses_grad(values: Mapping, base: Mapping, names: Sequence[str]) -> Dict[str, float]:
+    """d(sum of the masses)/d(name), eV per unit of the name, for names among m_lightest_eV, dm21_sq and dm31_sq (=
+    |Delta m^2_3l|), in closed form from dp_core.get_mass_eigenvalues: normal m = (l, sqrt(l^2 + dm21),
+    sqrt(l^2 + dm31)); inverted m = (sqrt(l^2 + dm31 - dm21), sqrt(l^2 + dm31), l)."""
+    def get(name, section):
+        return float(values.get(name, base[section][name]))
+    l, d21, d31 = get("m_lightest_eV", "cosmology"), get("dm21_sq", "standard_mixing"), get("dm31_sq", "standard_mixing")
+    inverted = str(values.get("mass_ordering", base["cosmology"]["mass_ordering"])).lower().strip() == "inverted"
+    m = dp_core.get_mass_eigenvalues(l, d21, d31, "inverted" if inverted else "normal")
+    if inverted:
+        d = {"m_lightest_eV": 1.0 + l / m[1] + l / m[0], "dm21_sq": -0.5 / m[0], "dm31_sq": 0.5 / m[1] + 0.5 / m[0]}
+    else:
+        d = {"m_lightest_eV": 1.0 + l / m[1] + l / m[2], "dm21_sq": 0.5 / m[1], "dm31_sq": 0.5 / m[2]}
+    return {n: float(d[n]) for n in names if n in d}
+
+
 class FlavorModel:
     """Energy-averaged flavor fractions at the detector.
 
@@ -297,7 +313,7 @@ class FlavorModel:
     def __init__(self, solver_config: Mapping, free_names: Sequence[str] = (), cache_size: int = 512,
                  p_nodes: Optional[Sequence[float]] = None, sky: bool = False,
                  flavor_band_eV: Optional[Sequence[float]] = None, pure_flavor_basis: bool = False,
-                 sites: Sequence[float] = (), p1_nodes: Optional[Sequence[float]] = None):
+                 sites: Sequence[float] = (), p1_nodes: Optional[Sequence[float]] = None, templates: Sequence = ()):
         sc, own = split_analysis_keys(solver_config)
         self.potential_sign = float(own.get("potential_sign", 1.0))
         if self.potential_sign not in (1.0, -1.0):
@@ -386,15 +402,23 @@ class FlavorModel:
         # (kind, cfg, with_galactic) tasks to their runs, in order -- e.g. a pool of worker processes
         # (scans.global_fit); None computes them one by one, in this process
         self.executor = None
+        # the mixing parameters varied through templates (templates.py, 2026-10-18): never passed to the solver but in
+        # the template runs; their ratios to the theta0 run, per point and piece, kept in _tmpl_memo
+        self.templates = {t.name: t for t in templates}
+        self._tmpl_memo: "OrderedDict[tuple, dict]" = _BoundedCache(64, budget)
 
     # ------------------------------------------------------------------
-    def _overrides(self, values: Mapping) -> Dict[Tuple[str, str], object]:
+    def _overrides(self, values: Mapping, templated: bool = False) -> Dict[Tuple[str, str], object]:
+        """The solver configuration entries the values set; a parameter with a template only for a template's own run
+        (templated)."""
         out = {}
         products = [n for n in PRODUCTS if n in values]
         if len(products) > 1 or (products and "g_D" in values):
             raise ValueError(f"Set g_D through at most one of g_D, {PRODUCTS}; got {sorted(values)}")
         for name, v in values.items():
             if name in LINEAR_KEYS or name in PRODUCTS or name in ANALYSIS_SPECTRAL:
+                continue
+            if name in self.templates and not templated:
                 continue
             section, key = solver_key(name)
             if name in ALIASES:
@@ -525,19 +549,123 @@ class FlavorModel:
         return cfg
 
     # ------------------------------------------------------------------ runs in parallel (2026-10-18)
-    def _evaluation_values(self, values: Mapping) -> list:
-        """The values of every solver run one evaluation at `values` makes (each index node of each piece), in the
-        order fluxes() and band_fluxes() visit them."""
+    def _pieces(self, values: Mapping) -> list:
+        """(values, nodes) of each piece: the one power law, or the broken power law's upper and lower pieces."""
         if self.E_break is None:
-            pieces = [(dict(values), self.p_nodes)]
-        else:
-            _, p1 = self._index_values(values)
-            pieces = [(dict(values, injection_E_min_GeV=self.E_break), self.p_nodes),
-                      (dict(values, injection_E_max_GeV=self.E_break, p_index=p1), self.p1_nodes)]
+            return [(dict(values), self.p_nodes)]
+        _, p1 = self._index_values(values)
+        return [(dict(values, injection_E_min_GeV=self.E_break), self.p_nodes),
+                (dict(values, injection_E_max_GeV=self.E_break, p_index=p1), self.p1_nodes)]
+
+    def _evaluation_values(self, values: Mapping) -> list:
+        """(values, templated) of every solver run one evaluation at `values` makes: each index node of each piece,
+        then each piece's template runs, in the order fluxes() and band_fluxes() visit them."""
         out = []
-        for v, nodes in pieces:
-            out.extend([v] if nodes is None else [dict(v, p_index=float(pk)) for pk in nodes])
+        for v, nodes in self._pieces(values):
+            out.extend((x, False) for x in ([v] if nodes is None else [dict(v, p_index=float(pk)) for pk in nodes]))
+            out.extend(self._template_runs(v, nodes))
         return out
+
+    # ------------------------------------------------------------------ mixing templates (templates.py, 2026-10-18)
+    def _template_central(self, values: Mapping, nodes) -> dict:
+        """A piece's run at its central index node (at its own index without nodes), every template's parameter at
+        theta0."""
+        c = {k: v for k, v in values.items() if k not in self.templates}
+        if nodes is not None:
+            c["p_index"] = float(nodes[len(nodes) // 2])
+        return c
+
+    def _template_runs(self, values: Mapping, nodes) -> list:
+        """(values, True) of a piece's template runs: one parameter at one of its points, at the central node."""
+        c = self._template_central(values, nodes)
+        return [(dict(c, **{t.name: float(pt)}), True) for t in self.templates.values() for pt in t.points]
+
+    def _template_stack(self, values: Mapping, nodes, kind: str) -> dict:
+        """For a piece: the runs' relative differences to the theta0 run at the central node, stacked over every
+        template point (in _template_runs' order): {'bands_nu', 'bands_nb'} (sky) or {'F_a', 'F_b'} (flux), each
+        (n_points, ...), F_r / F_0 - 1 (0 where F_0 = 0); and the Galactic differences G_r - G_0: {'gal_nu',
+        'gal_nb', 'site_gal'} (sky) or {'G'} (flux), or None. Kept per point and piece."""
+        c = self._template_central(values, nodes)
+        key = (kind, tuple(sorted((s, k, v if isinstance(v, str) else float(v))
+                                  for (s, k), v in self._overrides(c).items())))
+        hit = self._tmpl_memo.get(key)
+        if hit is not None:
+            self._tmpl_memo.move_to_end(key)
+            return hit
+        if kind == "sky":
+            r0 = self._sky_exact(c)
+            rs = [self._sky_exact(v, True) for v, _ in self._template_runs(values, nodes)]
+            arrays = {"bands_nu": (r0["bands_nu"], [r["bands_nu"] for r in rs]),
+                      "bands_nb": (r0["bands_nb"], [r["bands_nb"] for r in rs])}
+        else:
+            r0 = self._fluxes_exact(c)
+            rs = [self._fluxes_exact(v, True) for v, _ in self._template_runs(values, nodes)]
+            arrays = {"F_a": (r0[1], [r[1] for r in rs])}
+            if r0[2] is not None:
+                arrays["F_b"] = (r0[2], [r[2] for r in rs])
+        out = {}
+        for name, (a0, ar) in arrays.items():
+            pos = a0 > 0.0
+            safe = np.where(pos, a0, 1.0)
+            out[name] = np.stack([np.where(pos, a / safe - 1.0, 0.0) for a in ar])
+        if kind == "sky" and r0["gal_nu"] is not None:
+            out["gal_nu"] = np.stack([r["gal_nu"] - r0["gal_nu"] for r in rs])
+            out["gal_nb"] = np.stack([r["gal_nb"] - r0["gal_nb"] for r in rs])
+            out["site_gal"] = {lat: (np.stack([r["site_gal"][lat][0] - r0["site_gal"][lat][0] for r in rs]),
+                                     np.stack([r["site_gal"][lat][1] - r0["site_gal"][lat][1] for r in rs]))
+                               for lat in (r0.get("site_gal") or {})}
+        elif kind == "flux" and r0[3] is not None:
+            out["G"] = np.stack([r[3]["G"] - r0[3]["G"] for r in rs])
+        self._tmpl_memo[key] = out
+        return out
+
+    def _template_weights(self, values: Mapping):
+        """(w, {name: dw}) over the stacked template points at the values: each point's interpolation weight, and
+        its derivative in its own template's parameter (zero at the other templates' points)."""
+        w, dws, n = [], {}, 0
+        total = sum(len(t.points) for t in self.templates.values())
+        for t in self.templates.values():
+            a, da = t.weights(float(values.get(t.name, t.theta0)))
+            w.extend(a[1:])
+            d = np.zeros(total)
+            d[n:n + len(t.points)] = da[1:]
+            dws[t.name] = d
+            n += len(t.points)
+        return np.array(w), dws
+
+    def _template_factor(self, values: Mapping, nodes, kind: str, names: Sequence[str] = ()):
+        """For a piece: the factors 1 + sum_r w_r (F_r / F_0 - 1) of its arrays at the values, and their derivatives
+        in the templated `names`: ({array: factor}, {name: {array: d factor}})."""
+        st = self._template_stack(values, nodes, kind)
+        w, dws = self._template_weights(values)
+        keys = ("bands_nu", "bands_nb") if kind == "sky" else tuple(k for k in ("F_a", "F_b") if k in st)
+        fac = {k: 1.0 + np.tensordot(w, st[k], axes=(0, 0)) for k in keys}
+        der = {n: {k: np.tensordot(dws[n], st[k], axes=(0, 0)) for k in keys} for n in names if n in self.templates}
+        return fac, der
+
+    def _template_galactic(self, values: Mapping, run: dict, names: Sequence[str] = ()):
+        """The upper piece's Galactic bands at the values: run's (at theta0) plus sum_r w_r (G_r - G_0); with their
+        derivatives in the templated `names`. Returns (gal_nu, gal_nb, site_gal, {name: (d_nu, d_nb, d_site)})."""
+        v, nodes = self._pieces(values)[0]
+        st = self._template_stack(v, nodes, "sky")
+        w, dws = self._template_weights(values)
+        g_nu = run["gal_nu"] + np.tensordot(w, st["gal_nu"], axes=(0, 0))
+        g_nb = run["gal_nb"] + np.tensordot(w, st["gal_nb"], axes=(0, 0))
+        site = {lat: (run["site_gal"][lat][0] + np.tensordot(w, d[0], axes=(0, 0)),
+                      run["site_gal"][lat][1] + np.tensordot(w, d[1], axes=(0, 0))) for lat, d in st["site_gal"].items()}
+        der = {}
+        for n in names:
+            if n in self.templates:
+                d = dws[n]
+                der[n] = (np.tensordot(d, st["gal_nu"], axes=(0, 0)), np.tensordot(d, st["gal_nb"], axes=(0, 0)),
+                          {lat: (np.tensordot(d, x[0], axes=(0, 0)), np.tensordot(d, x[1], axes=(0, 0)))
+                           for lat, x in st["site_gal"].items()})
+        return g_nu, g_nb, site, der
+
+    def gradient_names(self) -> tuple:
+        """The names whose derivatives extragalactic_band_jacobian gives in closed form: GRADIENT_NAMES and the
+        templated mixing parameters."""
+        return tuple(GRADIENT_NAMES) + tuple(self.templates)
 
     def prefetch(self, values_list) -> int:
         """Computes the solver runs of these values that are neither cached nor on disk in parallel, through
@@ -549,8 +677,9 @@ class FlavorModel:
             return 0
         cache = self._sky_cache if self.sky else self._cache
         todo, seen = [], set()
-        for v in values_list:
-            ov = self._overrides(v)
+        for item in values_list:
+            v, templated = item if isinstance(item, tuple) else (item, False)
+            ov = self._overrides(v, templated)
             key = tuple(sorted((s, k, x if isinstance(x, str) else float(x)) for (s, k), x in ov.items()))
             if key in cache or key in seen:
                 continue
@@ -635,27 +764,40 @@ class FlavorModel:
                                                                Optional[dict]]:
         """_fluxes_exact at values' p_index, or interpolated in it between the runs at `nodes`."""
         if nodes is None:
-            return self._fluxes_exact(values)
-        p = float(values.get("p_index", self.base["source"]["p_index"]))
-        if not nodes[0] - 1e-12 <= p <= nodes[-1] + 1e-12:
-            raise ValueError(f"p_index = {p} lies outside the interpolation nodes {nodes.tolist()}")
-        runs = [self._fluxes_exact(dict(values, p_index=float(pk))) for pk in nodes]
-        F_a = spline_log_interp(nodes, p, [r[1] for r in runs])
-        F_b = None if runs[0][2] is None else spline_log_interp(nodes, p, [r[2] for r in runs])
-        gal = None
-        if runs[0][3] is not None:
-            K = float(spline_log_interp(nodes, p, [np.float64(r[3]["K"]) for r in runs]))
-            gal = dict(G=runs[0][3]["G"], K=K)
-        return runs[0][0], F_a, F_b, gal
+            out = self._fluxes_exact(values)
+        else:
+            p = float(values.get("p_index", self.base["source"]["p_index"]))
+            if not nodes[0] - 1e-12 <= p <= nodes[-1] + 1e-12:
+                raise ValueError(f"p_index = {p} lies outside the interpolation nodes {nodes.tolist()}")
+            runs = [self._fluxes_exact(dict(values, p_index=float(pk))) for pk in nodes]
+            F_a = spline_log_interp(nodes, p, [r[1] for r in runs])
+            F_b = None if runs[0][2] is None else spline_log_interp(nodes, p, [r[2] for r in runs])
+            gal = None
+            if runs[0][3] is not None:
+                K = float(spline_log_interp(nodes, p, [np.float64(r[3]["K"]) for r in runs]))
+                gal = dict(G=runs[0][3]["G"], K=K)
+            out = (runs[0][0], F_a, F_b, gal)
+        if not self.templates:
+            return out
+        E, F_a, F_b, gal = out
+        fac, _ = self._template_factor(values, nodes, "flux")
+        st = self._template_stack(values, nodes, "flux")
+        F_a = F_a * fac["F_a"]
+        F_b = None if F_b is None else F_b * fac["F_b"]
+        if gal is not None:
+            w, _ = self._template_weights(values)
+            gal = dict(G=gal["G"] + np.tensordot(w, st["G"], axes=(0, 0)), K=gal["K"])
+        return E, F_a, F_b, gal
 
-    def _fluxes_exact(self, values: Mapping) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray], Optional[dict]]:
+    def _fluxes_exact(self, values: Mapping, templated: bool = False) -> Tuple[np.ndarray, np.ndarray,
+                                                                                Optional[np.ndarray], Optional[dict]]:
         """For the propagation parameters in `values`: (E_bins, F, None, gal) with F the flux at the
         detector for the configured sources, or, when the nubar/nu ratio floats,
         (E_bins, F_from_nu, F_from_nb, gal), the responses to unit neutrino and antineutrino
         sources. With the pure-flavor basis the fluxes have a leading source axis. gal is None, or with the
         Galactic component dict(G=(2, N_E, 3) its sky-averaged flux for pure nu_e and pure nu_mu sources at the
         base norm_gal, K=the factor putting the extragalactic flux in physical units)."""
-        ov = self._overrides(values)
+        ov = self._overrides(values, templated)
         key = tuple(sorted((s, k, v if isinstance(v, str) else float(v)) for (s, k), v in ov.items()))
         hit = self._cache.get(key)
         if hit is not None:
@@ -743,13 +885,13 @@ class FlavorModel:
         return np.asarray(E, dtype=np.float64), (dp_sky.default_dec_band_edges() if edges is None
                                                  else np.asarray(edges, dtype=np.float64))
 
-    def _sky_exact(self, values: Mapping) -> dict:
+    def _sky_exact(self, values: Mapping, templated: bool = False) -> dict:
         """One propagate_sky_basis run for the propagation parameters in `values`: dict E (eV), band_edges (rad),
         omega (sr per band), bands_nu, bands_nb (n_src, N_b, N_E, 3) in solver units for the basis sources (or the
         configured composition), K (the extragalactic scale), gal_nu, gal_nb (2, N_b, N_E, 3) for pure nu_e and
         nu_mu Galactic sources at the base norm_gal and share (N_b,) the bands' pixel shares, or None; the band arrays
         rounded to single precision (as the disk cache keeps them)."""
-        ov = self._overrides(values)
+        ov = self._overrides(values, templated)
         key = tuple(sorted((s, k, v if isinstance(v, str) else float(v)) for (s, k), v in ov.items()))
         hit = self._sky_cache.get(key)
         if hit is not None:
@@ -896,29 +1038,42 @@ class FlavorModel:
             if not 0.0 <= x <= 1.0:
                 raise ValueError(f"f_e_S_gal must lie in [0, 1], got {x}")
             g = float(values.get("norm_gal", self.default("norm_gal"))) / self.default("norm_gal")
-            F_nu = F_nu + g * (x * run["gal_nu"][0] + (1.0 - x) * run["gal_nu"][1])
-            F_nb = F_nb + g * (x * run["gal_nb"][0] + (1.0 - x) * run["gal_nb"][1])
+            G_nu, G_nb = run["gal_nu"], run["gal_nb"]
+            if self.templates:
+                G_nu, G_nb, _, _ = self._template_galactic(values, run)
+            F_nu = F_nu + g * (x * G_nu[0] + (1.0 - x) * G_nu[1])
+            F_nb = F_nb + g * (x * G_nb[0] + (1.0 - x) * G_nb[1])
         return run["E"], F_nu, F_nb
 
-    def _bands_index_jac(self, values: Mapping, nodes):
+    def _bands_index_jac(self, values: Mapping, nodes, names: Sequence[str] = ()):
         """_bands_index (the same arithmetic) with the derivatives in p_index of log(bands), element by element, and
-        of log K: (bands_nu, bands_nb, K, the first run, dlog_nu, dlog_nb, dlogK); the derivatives None without
-        nodes (the index fixed)."""
+        of log K: (bands_nu, bands_nb, K, the first run, dlog_nu, dlog_nb, dlogK, dt); the derivatives None without
+        nodes (the index fixed); dt the derivatives of the bands in the templated `names`, {name: (d_nu, d_nb)} (the
+        templates' factor does not depend on the index)."""
         if nodes is None:
-            b_nu, b_nb, K, run = self._bands_index(values, nodes)
-            return b_nu, b_nb, K, run, None, None, None
-        p = float(values.get("p_index", self.base["source"]["p_index"]))
-        if not nodes[0] - 1e-12 <= p <= nodes[-1] + 1e-12:
-            raise ValueError(f"p_index = {p} lies outside the interpolation nodes {nodes.tolist()}")
-        runs = [self._sky_exact(dict(values, p_index=float(pk))) for pk in nodes]
-        w, w1 = spline_weights(nodes, p), spline_weight_derivatives(nodes, p)
-        lK = np.log(np.maximum(np.stack([np.float64(r["K"]) for r in runs]), 1e-300))
-        K = float(np.exp(np.tensordot(w, lK, axes=(0, 0))))
-        out = []
-        for key in ("bands_nu", "bands_nb"):
-            L = np.log(np.maximum(np.stack([r[key] for r in runs]), 1e-300))
-            out.append((np.exp(np.tensordot(w, L, axes=(0, 0))), np.tensordot(w1, L, axes=(0, 0))))
-        return out[0][0], out[1][0], K, runs[0], out[0][1], out[1][1], float(np.dot(w1, lK))
+            run = self._sky_exact(values)
+            b_nu, b_nb, K = run["bands_nu"], run["bands_nb"], run["K"]
+            dl_nu = dl_nb = dlK = None
+        else:
+            p = float(values.get("p_index", self.base["source"]["p_index"]))
+            if not nodes[0] - 1e-12 <= p <= nodes[-1] + 1e-12:
+                raise ValueError(f"p_index = {p} lies outside the interpolation nodes {nodes.tolist()}")
+            runs = [self._sky_exact(dict(values, p_index=float(pk))) for pk in nodes]
+            w, w1 = spline_weights(nodes, p), spline_weight_derivatives(nodes, p)
+            lK = np.log(np.maximum(np.stack([np.float64(r["K"]) for r in runs]), 1e-300))
+            K = float(np.exp(np.tensordot(w, lK, axes=(0, 0))))
+            out = []
+            for key in ("bands_nu", "bands_nb"):
+                L = np.log(np.maximum(np.stack([r[key] for r in runs]), 1e-300))
+                out.append((np.exp(np.tensordot(w, L, axes=(0, 0))), np.tensordot(w1, L, axes=(0, 0))))
+            b_nu, b_nb, run = out[0][0], out[1][0], runs[0]
+            dl_nu, dl_nb, dlK = out[0][1], out[1][1], float(np.dot(w1, lK))
+        dt = {}
+        if self.templates:
+            fac, der = self._template_factor(values, nodes, "sky", names)
+            dt = {n: (b_nu * d["bands_nu"], b_nb * d["bands_nb"]) for n, d in der.items()}
+            b_nu, b_nb = b_nu * fac["bands_nu"], b_nb * fac["bands_nb"]
+        return b_nu, b_nb, K, run, dl_nu, dl_nb, dlK, dt
 
     def _piece_scale_dlog(self, p: float, nodes) -> float:
         """d log(_piece_scale(p, nodes)) / dp: the spline of log K through the nodes (as _piece_scale)."""
@@ -939,15 +1094,19 @@ class FlavorModel:
         p2, p1 = self._index_values(values)
         db = {}                                            # d(bands per source)/d(index): (nu, nb)
         if self.E_break is None:
-            b_nu, b_nb, K, run, dl_nu, dl_nb, dlK = self._bands_index_jac(values, self.p_nodes)
+            b_nu, b_nb, K, run, dl_nu, dl_nb, dlK, dt = self._bands_index_jac(values, self.p_nodes, names)
             if "p_index" in names and dl_nu is not None:
                 db["p_index"] = (b_nu * (dl_nu + dlK), b_nb * (dl_nb + dlK))
+            db.update(dt)
         else:
-            up = self._bands_index_jac(dict(values, injection_E_min_GeV=self.E_break), self.p_nodes)
-            lo = self._bands_index_jac(dict(values, injection_E_max_GeV=self.E_break, p_index=p1), self.p1_nodes)
+            up = self._bands_index_jac(dict(values, injection_E_min_GeV=self.E_break), self.p_nodes, names)
+            lo = self._bands_index_jac(dict(values, injection_E_max_GeV=self.E_break, p_index=p1), self.p1_nodes,
+                                       names)
             k2, k1 = self._join(p2, p1)
             b_nu, b_nb, K = k2 * up[0] + k1 * lo[0], k2 * up[1] + k1 * lo[1], 1.0
             run = up[3]
+            for n in up[7]:
+                db[n] = (k2 * up[7][n][0] + k1 * lo[7][n][0], k2 * up[7][n][1] + k1 * lo[7][n][1])
             lnr = float(np.log(self.E_break / self.E_ref))
             if "p_index" in names and up[4] is not None:
                 dk2 = self._piece_scale_dlog(p2, self.p_nodes)
@@ -999,35 +1158,49 @@ class FlavorModel:
             raise ValueError(f"f_e_S_gal must lie in [0, 1], got {x}")
         ng0 = self.default("norm_gal")
         g = float(values.get("norm_gal", ng0)) / ng0
+        a_nu, a_nb, site_gal, tder = run["gal_nu"], run["gal_nb"], run.get("site_gal", {}), {}
+        if self.templates:
+            a_nu, a_nb, site_gal, tder = self._template_galactic(values, run, names)
         lat = float(lat)
         if abs(lat) >= SITE_POLE_DEG:
             if lat > 0:
                 raise ValueError("a site at the North Pole needs its own bands")
-            G_nu, G_nb = run["gal_nu"][:, ::-1], run["gal_nb"][:, ::-1]
+            G_nu, G_nb = a_nu[:, ::-1], a_nb[:, ::-1]
+            dG = {n: (d[0][:, ::-1], d[1][:, ::-1]) for n, d in tder.items()}
         else:
-            if lat not in run.get("site_gal", {}):
+            if lat not in site_gal:
                 raise ValueError(f"the model was not built for a site at latitude {lat} (sites={self.site_lats})")
-            G_nu, G_nb = run["site_gal"][lat]
+            G_nu, G_nb = site_gal[lat]
+            dG = {n: d[2][lat] for n, d in tder.items()}
         gal_nu, gal_nb = x * G_nu[0] + (1.0 - x) * G_nu[1], x * G_nb[0] + (1.0 - x) * G_nb[1]
         if "norm_gal" in names:
             dF["norm_gal"] = (gal_nu / ng0, gal_nb / ng0)
         if "f_e_S_gal" in names:
             dF["f_e_S_gal"] = (g * (G_nu[0] - G_nu[1]), g * (G_nb[0] - G_nb[1]))
+        for n, (d_nu, d_nb) in dG.items():
+            dF[n] = (dF[n][0] + g * (x * d_nu[0] + (1.0 - x) * d_nu[1]),
+                     dF[n][1] + g * (x * d_nb[0] + (1.0 - x) * d_nb[1]))
         return E, F_nu + g * gal_nu, F_nb + g * gal_nb, dF
 
     def _bands_index(self, values: Mapping, nodes):
         """(bands_nu, bands_nb, K, the first run) at values' p_index: one sky run, or interpolated in p_index between
-        the runs at `nodes` (cubic spline in log flux, and in log K)."""
+        the runs at `nodes` (cubic spline in log flux, and in log K); times the mixing templates' factor."""
         if nodes is None:
             run = self._sky_exact(values)
-            return run["bands_nu"], run["bands_nb"], run["K"], run
-        p = float(values.get("p_index", self.base["source"]["p_index"]))
-        if not nodes[0] - 1e-12 <= p <= nodes[-1] + 1e-12:
-            raise ValueError(f"p_index = {p} lies outside the interpolation nodes {nodes.tolist()}")
-        runs = [self._sky_exact(dict(values, p_index=float(pk))) for pk in nodes]
-        K = float(spline_log_interp(nodes, p, [np.float64(r["K"]) for r in runs]))
-        return (spline_log_interp(nodes, p, [r["bands_nu"] for r in runs]),
-                spline_log_interp(nodes, p, [r["bands_nb"] for r in runs]), K, runs[0])
+            b_nu, b_nb, K = run["bands_nu"], run["bands_nb"], run["K"]
+        else:
+            p = float(values.get("p_index", self.base["source"]["p_index"]))
+            if not nodes[0] - 1e-12 <= p <= nodes[-1] + 1e-12:
+                raise ValueError(f"p_index = {p} lies outside the interpolation nodes {nodes.tolist()}")
+            runs = [self._sky_exact(dict(values, p_index=float(pk))) for pk in nodes]
+            K = float(spline_log_interp(nodes, p, [np.float64(r["K"]) for r in runs]))
+            b_nu = spline_log_interp(nodes, p, [r["bands_nu"] for r in runs])
+            b_nb = spline_log_interp(nodes, p, [r["bands_nb"] for r in runs])
+            run = runs[0]
+        if self.templates:
+            fac, _ = self._template_factor(values, nodes, "sky")
+            b_nu, b_nb = b_nu * fac["bands_nu"], b_nb * fac["bands_nb"]
+        return b_nu, b_nb, K, run
 
     def _galactic_run(self, values: Mapping) -> dict:
         """A sky run of this point that carries its Galactic bands (they depend on neither the index nor the
@@ -1061,15 +1234,18 @@ class FlavorModel:
         if not 0.0 <= x <= 1.0:
             raise ValueError(f"f_e_S_gal must lie in [0, 1], got {x}")
         g = float(values.get("norm_gal", self.default("norm_gal"))) / self.default("norm_gal")
+        gal_nu, gal_nb, site_gal = run["gal_nu"], run["gal_nb"], run.get("site_gal", {})
+        if self.templates:
+            gal_nu, gal_nb, site_gal, _ = self._template_galactic(values, run)
         lat = float(lat)
         if abs(lat) >= SITE_POLE_DEG:
             if lat > 0:
                 raise ValueError("a site at the North Pole needs its own bands")
-            G_nu, G_nb = run["gal_nu"][:, ::-1], run["gal_nb"][:, ::-1]
+            G_nu, G_nb = gal_nu[:, ::-1], gal_nb[:, ::-1]
         else:
-            if lat not in run.get("site_gal", {}):
+            if lat not in site_gal:
                 raise ValueError(f"the model was not built for a site at latitude {lat} (sites={self.site_lats})")
-            G_nu, G_nb = run["site_gal"][lat]
+            G_nu, G_nb = site_gal[lat]
         return E, F_nu + g * (x * G_nu[0] + (1.0 - x) * G_nu[1]), F_nb + g * (x * G_nb[0] + (1.0 - x) * G_nb[1])
 
     def flux(self, values: Mapping) -> Tuple[np.ndarray, np.ndarray]:
