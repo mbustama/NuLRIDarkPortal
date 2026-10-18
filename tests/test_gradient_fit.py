@@ -136,8 +136,9 @@ def test_gradient_in_the_fitters_coordinates(setup):
 
 
 def test_gradient_only_where_it_is_exact(setup, tmp_path):
-    """The gradient path is taken only for the future detectors' events alone with every free name in
-    GRADIENT_NAMES: a free mass or coupling, a flavor surface, HESE and DR2 keep the finite differences."""
+    """The gradient path is taken only for the event likelihoods alone (the future detectors'; HESE and DR2's since
+    2026-10-18) with every free name in GRADIENT_NAMES: a free mass or coupling, a flavor surface keep the finite
+    differences."""
     from analysis import config as config_mod
     from analysis.objective import Objective
     c, obj = setup
@@ -148,7 +149,7 @@ def test_gradient_only_where_it_is_exact(setup, tmp_path):
     assert not surf.supports_gradient(["norm_astro"])
     from test_event_likelihood import _event_model
     m_ev, ev = _event_model(tmp_path)
-    assert not Objective(m_ev, None, (), events=ev).supports_gradient(["norm_astro", "p_index"])
+    assert Objective(m_ev, None, (), events=ev).supports_gradient(["norm_astro", "p_index"])
 
 
 @pytest.mark.slow

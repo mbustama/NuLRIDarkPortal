@@ -89,6 +89,7 @@ import numpy as np
 from . import surfaces  # noqa: F401  (ensures the src/ path is set)
 import dark_portal_solver as dps
 import dp_core
+import dp_si
 from dp_config import DEFAULT_CONFIG, merge_config_with_defaults
 from flux_postprocessing import compute_energy_averaged_ratios, compute_dE_geometric
 
@@ -250,6 +251,8 @@ def spline_weight_derivatives(nodes, p: float) -> np.ndarray:
 # spline between the solver runs at the index nodes)
 GRADIENT_NAMES = ("norm_astro", "norm_gal", "f_e_S", "f_mu_S", "f_tau_S", "f_e_S_gal", "p_index", "p_index_low")
 LOG_RATIO_CLIP = 30.0     # |log(F_r / F_0)| kept below this in the mixing templates (a bin absorbed away in one run)
+LOG_FACTOR_CLIP = 60.0    # and the templates' total exponent (an extrapolation far beyond the points)
+SPLIT_TOP_ROUNDING = 1e-12  # a coupling product this far (relative) above a fixed split's x is x (rounding)
 
 
 def solver_key(name: str) -> Tuple[str, str]:
@@ -407,6 +410,9 @@ class FlavorModel:
         # the template runs; their ratios to the theta0 run, per point and piece, kept in _tmpl_memo
         self.templates = {t.name: t for t in templates}
         self._tmpl_memo: "OrderedDict[tuple, dict]" = _BoundedCache(64, budget)
+        # added to the template stacks while set (exact_profile's forward certificates, 2026-10-18): {(kind, piece):
+        # {array: (n_points, ...)}}, piece 0 the upper (or only) piece, 1 the lower; never memoized
+        self.stack_shift = None
 
     # ------------------------------------------------------------------
     def _overrides(self, values: Mapping, templated: bool = False) -> Dict[Tuple[str, str], object]:
@@ -440,6 +446,11 @@ class FlavorModel:
             if "eps" in name and self.coupling_split != "fixed":
                 P = float(values[name])
                 x = np.sqrt(P) if self.coupling_split == "balanced" else self.coupling_split
+                if x > 0.0 and x < P <= x * (1.0 + SPLIT_TOP_ROUNDING):
+                    # the plane's top coupling P = x, as a log-spaced grid computes it, is a rounding above x
+                    # (10^-20 -> 1.0000000000000001e-20): the 35 WALL points of the October campaign's x = 1e-20
+                    # planes (2026-10-18); P = x is epsilon' = 1, allowed
+                    P = x
                 if u2 == 0.0 or P < 0.0 or (x > 0.0 and P > x):
                     raise ValueError(f"{name} = {P:g} with coupling_split {self.coupling_split!r}: needs a nonzero "
                                      "mixing, P >= 0, and P <= x (epsilon' <= 1)")
@@ -560,14 +571,49 @@ class FlavorModel:
 
     def _evaluation_values(self, values: Mapping) -> list:
         """(values, templated) of every solver run one evaluation at `values` makes: each index node of each piece,
-        then each piece's template runs, in the order fluxes() and band_fluxes() visit them."""
+        then each piece's template runs (none at theta0), in the order fluxes() and band_fluxes() visit them."""
         out = []
+        at0 = self._at_theta0(values)
         for v, nodes in self._pieces(values):
             out.extend((x, False) for x in ([v] if nodes is None else [dict(v, p_index=float(pk)) for pk in nodes]))
-            out.extend(self._template_runs(v, nodes))
+            if not at0:
+                out.extend(self._template_runs(v, nodes))
         return out
 
     # ------------------------------------------------------------------ mixing templates (templates.py, 2026-10-18)
+    def _at_theta0(self, values: Mapping) -> bool:
+        """Whether every templated parameter sits at its theta0 (or is not set): the templates' factor is then exactly
+        1 and the Galactic correction exactly 0, so the evaluation needs none of the template runs -- the model is
+        then the exact model at theta0 (exact_profile.py's centres)."""
+        return all(float(values.get(n, t.theta0)) == t.theta0 for n, t in self.templates.items())
+
+    def _hint_columns(self, values: Mapping, templated: bool) -> list:
+        """The (spectral index, emission window in eV) of every run that shares the physics of the run at `values`
+        (dp_si.batch_hint, 2026-10-18): for a run at an index node, every node of both pieces; for a template run,
+        both pieces' central nodes. The MeV transport (dp_si) then computes them in one sweep -- their collision
+        operator is the same -- and keeps them for the calls that follow; elsewhere the hint is never read."""
+        def window(v):
+            lo, hi = v.get("injection_E_min_GeV"), v.get("injection_E_max_GeV")
+            return (0.0 if lo is None else float(lo) * 1e9, np.inf if hi is None else float(hi) * 1e9)
+        base = {k: x for k, x in values.items() if k not in ("p_index", "injection_E_min_GeV", "injection_E_max_GeV")}
+        if self.E_break is not None:
+            _, p1 = self._index_values(values)
+            pieces = [(dict(base, injection_E_min_GeV=self.E_break), self.p_nodes),
+                      (dict(base, injection_E_max_GeV=self.E_break), self.p1_nodes)]
+        else:
+            pieces = [(dict(base), self.p_nodes)]
+        out = []
+        for v, nodes in pieces:
+            if nodes is None:
+                continue
+            ps = [float(nodes[len(nodes) // 2])] if templated else [float(pk) for pk in nodes]
+            out.extend((pk, window(v)) for pk in ps)
+        return out
+
+    def _need_templates(self, values: Mapping, names: Sequence[str] = ()) -> bool:
+        """Whether an evaluation (with derivatives in `names`) needs the template runs: off theta0, or a derivative
+        in a templated parameter."""
+        return bool(self.templates) and (not self._at_theta0(values) or any(n in self.templates for n in names))
     def _template_central(self, values: Mapping, nodes) -> dict:
         """A piece's run at its central index node (at its own index without nodes), every template's parameter at
         theta0."""
@@ -592,7 +638,7 @@ class FlavorModel:
         hit = self._tmpl_memo.get(key)
         if hit is not None:
             self._tmpl_memo.move_to_end(key)
-            return hit
+            return self._shifted_stack(hit, nodes, kind)
         if kind == "sky":
             r0 = self._sky_exact(c)
             rs = [self._sky_exact(v, True) for v, _ in self._template_runs(values, nodes)]
@@ -620,6 +666,23 @@ class FlavorModel:
         elif kind == "flux" and r0[3] is not None:
             out["G"] = np.stack([r[3]["G"] - r0[3]["G"] for r in rs])
         self._tmpl_memo[key] = out
+        return self._shifted_stack(out, nodes, kind)
+
+    def _shifted_stack(self, st: dict, nodes, kind: str) -> dict:
+        """st plus stack_shift's arrays for this kind and piece (a new dict; st itself stays as memoized)."""
+        if self.stack_shift is None:
+            return st
+        sh = self.stack_shift.get((kind, 0 if nodes is self.p_nodes else 1))
+        if not sh:
+            return st
+        out = dict(st)
+        for k, v in sh.items():
+            if k not in st:
+                continue
+            if k == "site_gal":
+                out[k] = {lat: tuple(a + b for a, b in zip(st[k][lat], v[lat])) for lat in st[k]}
+            else:
+                out[k] = st[k] + v
         return out
 
     def _template_weights(self, values: Mapping):
@@ -644,8 +707,12 @@ class FlavorModel:
         st = self._template_stack(values, nodes, kind)
         w, dws = self._template_weights(values)
         keys = ("bands_nu", "bands_nb") if kind == "sky" else tuple(k for k in ("F_a", "F_b") if k in st)
-        fac = {k: np.exp(np.tensordot(w, st[k], axes=(0, 0))) for k in keys}
-        der = {n: {k: fac[k] * np.tensordot(dws[n], st[k], axes=(0, 0)) for k in keys}
+        # the exponent capped at +-LOG_FACTOR_CLIP (2026-10-18): a surrogate extrapolated far beyond its points (a
+        # trust region's edge) overflowed; within it nothing changes
+        expo = {k: np.tensordot(w, st[k], axes=(0, 0)) for k in keys}
+        fac = {k: np.exp(np.clip(e, -LOG_FACTOR_CLIP, LOG_FACTOR_CLIP)) for k, e in expo.items()}
+        der = {n: {k: np.where(np.abs(expo[k]) < LOG_FACTOR_CLIP, fac[k] * np.tensordot(dws[n], st[k], axes=(0, 0)),
+                               0.0) for k in keys}
                for n in names if n in self.templates}
         return fac, der
 
@@ -783,7 +850,7 @@ class FlavorModel:
                 K = float(spline_log_interp(nodes, p, [np.float64(r[3]["K"]) for r in runs]))
                 gal = dict(G=runs[0][3]["G"], K=K)
             out = (runs[0][0], F_a, F_b, gal)
-        if not self.templates:
+        if not self._need_templates(values):
             return out
         E, F_a, F_b, gal = out
         fac, _ = self._template_factor(values, nodes, "flux")
@@ -837,7 +904,8 @@ class FlavorModel:
                     self._cache.popitem(last=False)
                 return out
         G = self._gal_get(key) if self.galactic else None
-        out = self._fluxes_compute(cfg, with_galactic=G is None)
+        with dp_si.batch_hint(self._hint_columns(values, templated)):
+            out = self._fluxes_compute(cfg, with_galactic=G is None)
         return self._fluxes_store(key, out, disk)
 
     def _fluxes_compute(self, cfg: Mapping, with_galactic: bool = True):
@@ -916,7 +984,9 @@ class FlavorModel:
                 self._sky_cache.popitem(last=False)
             return run
         g_hit = self._gal_get(key) if self.galactic else None
-        return self._sky_store(key, self._sky_compute(cfg, with_galactic=g_hit is None), disk)
+        with dp_si.batch_hint(self._hint_columns(values, templated)):
+            run = self._sky_compute(cfg, with_galactic=g_hit is None)
+        return self._sky_store(key, run, disk)
 
     def _sky_compute(self, cfg: Mapping, with_galactic: bool = True) -> dict:
         """The propagate_sky_basis run of _sky_exact for the full solver configuration cfg (_run_cfg), with the
@@ -1045,7 +1115,7 @@ class FlavorModel:
                 raise ValueError(f"f_e_S_gal must lie in [0, 1], got {x}")
             g = float(values.get("norm_gal", self.default("norm_gal"))) / self.default("norm_gal")
             G_nu, G_nb = run["gal_nu"], run["gal_nb"]
-            if self.templates:
+            if self._need_templates(values):
                 G_nu, G_nb, _, _ = self._template_galactic(values, run)
             F_nu = F_nu + g * (x * G_nu[0] + (1.0 - x) * G_nu[1])
             F_nb = F_nb + g * (x * G_nb[0] + (1.0 - x) * G_nb[1])
@@ -1075,7 +1145,7 @@ class FlavorModel:
             b_nu, b_nb, run = out[0][0], out[1][0], runs[0]
             dl_nu, dl_nb, dlK = out[0][1], out[1][1], float(np.dot(w1, lK))
         dt = {}
-        if self.templates:
+        if self._need_templates(values, names):
             fac, der = self._template_factor(values, nodes, "sky", names)
             dt = {n: (b_nu * d["bands_nu"], b_nb * d["bands_nb"]) for n, d in der.items()}
             b_nu, b_nb = b_nu * fac["bands_nu"], b_nb * fac["bands_nb"]
@@ -1148,6 +1218,34 @@ class FlavorModel:
         self._eg_jac = (key, out)
         return out
 
+    def band_flux_jacobian(self, values: Mapping, names: Sequence[str]):
+        """(E, F_nu, F_nb, dF): band_fluxes (the same arithmetic, so the same values) per declination band, and the
+        derivatives in each of `names` (gradient_names()), {name: (dF_nu, dF_nb)} (2026-10-18: the HESE and DR2
+        likelihood's exact gradient)."""
+        names = list(names)
+        E, F_nu, F_nb, dF = self.extragalactic_band_jacobian(values, names)
+        dF = dict(dF)
+        if not self.galactic:
+            return E, F_nu.copy(), F_nb.copy(), dF
+        run = self._galactic_run(values)
+        x = float(values.get("f_e_S_gal", self.default("f_e_S_gal")))
+        if not 0.0 <= x <= 1.0:
+            raise ValueError(f"f_e_S_gal must lie in [0, 1], got {x}")
+        ng0 = self.default("norm_gal")
+        g = float(values.get("norm_gal", ng0)) / ng0
+        G_nu, G_nb, tder = run["gal_nu"], run["gal_nb"], {}
+        if self._need_templates(values, names):
+            G_nu, G_nb, _, tder = self._template_galactic(values, run, names)
+        gal_nu, gal_nb = x * G_nu[0] + (1.0 - x) * G_nu[1], x * G_nb[0] + (1.0 - x) * G_nb[1]
+        if "norm_gal" in names:
+            dF["norm_gal"] = (gal_nu / ng0, gal_nb / ng0)
+        if "f_e_S_gal" in names:
+            dF["f_e_S_gal"] = (g * (G_nu[0] - G_nu[1]), g * (G_nb[0] - G_nb[1]))
+        for n, d in tder.items():
+            dF[n] = (dF[n][0] + g * (x * d[0][0] + (1.0 - x) * d[0][1]),
+                     dF[n][1] + g * (x * d[1][0] + (1.0 - x) * d[1][1]))
+        return E, F_nu + g * gal_nu, F_nb + g * gal_nb, dF
+
     def site_band_flux_jacobian(self, values: Mapping, lat: float, names: Sequence[str]):
         """(E, F_nu, F_nb, dF) at a site of latitude lat (deg): site_band_fluxes (the same arithmetic, so the same
         values) and the derivatives in each of `names` (GRADIENT_NAMES), {name: (dF_nu, dF_nb)}, per local cos-zenith
@@ -1165,7 +1263,7 @@ class FlavorModel:
         ng0 = self.default("norm_gal")
         g = float(values.get("norm_gal", ng0)) / ng0
         a_nu, a_nb, site_gal, tder = run["gal_nu"], run["gal_nb"], run.get("site_gal", {}), {}
-        if self.templates:
+        if self._need_templates(values, names):
             a_nu, a_nb, site_gal, tder = self._template_galactic(values, run, names)
         lat = float(lat)
         if abs(lat) >= SITE_POLE_DEG:
@@ -1203,7 +1301,7 @@ class FlavorModel:
             b_nu = spline_log_interp(nodes, p, [r["bands_nu"] for r in runs])
             b_nb = spline_log_interp(nodes, p, [r["bands_nb"] for r in runs])
             run = runs[0]
-        if self.templates:
+        if self._need_templates(values):
             fac, _ = self._template_factor(values, nodes, "sky")
             b_nu, b_nb = b_nu * fac["bands_nu"], b_nb * fac["bands_nb"]
         return b_nu, b_nb, K, run
@@ -1241,7 +1339,7 @@ class FlavorModel:
             raise ValueError(f"f_e_S_gal must lie in [0, 1], got {x}")
         g = float(values.get("norm_gal", self.default("norm_gal"))) / self.default("norm_gal")
         gal_nu, gal_nb, site_gal = run["gal_nu"], run["gal_nb"], run.get("site_gal", {})
-        if self.templates:
+        if self._need_templates(values):
             gal_nu, gal_nb, site_gal, _ = self._template_galactic(values, run)
         lat = float(lat)
         if abs(lat) >= SITE_POLE_DEG:

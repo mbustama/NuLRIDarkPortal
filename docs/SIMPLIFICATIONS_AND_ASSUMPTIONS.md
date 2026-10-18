@@ -55,7 +55,7 @@ small, not yet measured), **open** (decided to remove or change, not yet done).
 11. **Mixing parameters fixed in the likelihood**, at Table II's central values (arXiv:2606.17132), normal
     ordering, for every data set. *Accepted.* (Mauricio, 2026-10-18: "Fix mixing parameters. Make a note that we will
     simply estimate the effect of them differently, but not vary them in the likelihood.") Their effect on the limits
-    is estimated separately, outside the likelihood; the method is not yet chosen (a first look: item 11e). History:
+    is estimated separately, outside the likelihood; the method is not yet chosen (a first look: item 11g). History:
     2026-10-12 decided to vary them; 2026-10-18 the fixed-mixing campaign was cancelled to vary them (present-day data
     under NuFIT 6.1's pairwise chi^2, item 11a; projections under Table II's Gaussians), templates (11d) and then an
     exact profile at every point (branch agent/exact-profile-v2) were built and piloted, and dropped the same day: too
@@ -83,7 +83,29 @@ small, not yet measured), **open** (decided to remove or change, not yet done).
     configuration: the index transfer below 1e-6 of each bin's flux, s12 linear 1e-5, delta_CP over a whole turn 1e-4
     with 7 runs; the validation at the campaign's resolution (chi^2 against exact runs) is running.
 
-11e. **The size of the mixing's effect: a first look.** *To quantify* (method open, item 11). From the exact
+11e. **The exact profile over m_lightest** (`analysis/exact_profile.py`, docs/dev/EXACT_PROFILE.md; 2026-10-18).
+    *Accepted, with two stated limits.* Built for the mixing and m_lightest together; since the mixing is fixed
+    (item 11) it runs over m_lightest alone (its parameters are those of the seven left free), so NuFIT's octant
+    probe below no longer applies. Every reported chi^2 is the solver's at the reported values, with
+    a per-point certificate of local optimality (`stop` = 1e-3 since 2026-10-18, 1e-4 before: Tycho 66462115 moved
+    the final chi^2 by at most 5.9e-4 between the two). Its global part rests on two choices: NuFIT's other octant of
+    theta23 is probed by one exact evaluation and profiled when within 1.0 of the best; at the MeV planes m_lightest
+    is scanned on 1e-6 eV and 1e-4 ... 0.1 eV (three per decade since 2026-10-18, five before) before the local
+    profiles (a basin narrower than ~0.3 decade could be missed; none is expected: an absorption feature spans a
+    factor 5 in energy). m_lightest >= 1e-6 eV (the MeV transport treats an exactly massless relic as inert; the
+    mass sum changes by 1e-6 eV). Since 2026-10-18 (v2): (i) a point whose solver runs at its chain's anchor equal the
+    anchor's to 1e-6 per element takes the anchor's certificate after one evaluation (the error is second order in
+    that difference, below 1e-6 in chi^2; checked by `inherit_check`); at the MeV planes only once a scan of
+    m_lightest at a coupling at least the point's equals the no-new-physics scan to 1e-6 at every mass (absorption
+    grows with the coupling: assumed monotonic); (ii) a certificate may use forward differences (step 0.05 widths)
+    when the curvature measured at the chain's last central certificate, doubled, bounds their truncation (both
+    surrogates predict no decrease beyond `stop`, and differ by at most 1e-4): it assumes the curvature of log F
+    changes by less than a factor 2 between neighbouring points within 1 width.
+
+11f. **Relativistic relics** (m_lightest below ~1e-3 eV, where T_nu (1 + z) is comparable): the transport's thermal
+    treatment there (dp_si._thermal_resonance_terms) is unverified. *Open.* The MeV planes' profile can land there.
+
+11g. **The size of the mixing's effect: a first look.** *To quantify* (method open, item 11). From the exact
     profile's validation runs of 2026-10-18 (branch agent/exact-profile-v2; logs and fits on Tycho under
     nulri_v2/output/validation, cancelled after ~20 min): points on the earlier campaign's limit contours, chi^2 with
     the mixing at Table II's centre against chi^2 with the six mixing parameters and m_lightest profiled. At the 18

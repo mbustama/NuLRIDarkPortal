@@ -27,7 +27,11 @@ from .parameters import ParameterSet
 class FitSettings:
     """Knobs of a fit. fd_step: finite-difference step in internal units (a thousandth of a
     decade for log10 parameters); max_evals: evaluation budget per start; n_random: random
-    starts added to the given ones; seed: their seed; polish: run the Powell stage."""
+    starts added to the given ones; seed: their seed; polish: run the Powell stage; fd_central:
+    central differences (step fd_central_step) instead of L-BFGS-B's forward ones -- 2026-10-18: a forward step of
+    1e-3 decade in norm_astro is biased by ~1.25 chi^2 per decade by the curvature that IceCube's 2026 spectrum puts
+    there, more than the slope near the minimum, so the line search failed and the fits stopped ~1e-4 to 1e-3 above
+    it (the exact profile's fits use central ones)."""
     fd_step: float = 1e-3
     max_evals: int = 400
     ftol: float = 1e-9
@@ -35,6 +39,8 @@ class FitSettings:
     n_random: int = 0
     seed: int = 12345
     polish: bool = True
+    fd_central: bool = False
+    fd_central_step: float = 1e-5
 
     @classmethod
     def from_dict(cls, d: Optional[Mapping]) -> "FitSettings":
@@ -69,6 +75,26 @@ def _counted(f):
     return g, n
 
 
+def _central(f, lo, hi, h):
+    """(f(u), its gradient by central differences of step h in each internal coordinate, one-sided of the same order
+    -- three points -- where a bound is within h): for L-BFGS-B with jac=True."""
+    def fg(u):
+        u = np.asarray(u, dtype=np.float64)
+        f0 = f(u)
+        g = np.empty(len(u))
+        for i in range(len(u)):
+            e = np.zeros(len(u))
+            e[i] = h
+            if u[i] - h >= lo[i] and u[i] + h <= hi[i]:
+                g[i] = (f(u + e) - f(u - e)) / (2.0 * h)
+            elif u[i] + 2.0 * h <= hi[i]:
+                g[i] = (-3.0 * f0 + 4.0 * f(u + e) - f(u + 2.0 * e)) / (2.0 * h)
+            else:
+                g[i] = (3.0 * f0 - 4.0 * f(u - e) + f(u - 2.0 * e)) / (2.0 * h)
+        return f0, g
+    return fg
+
+
 def fit(objective: Objective, pset: ParameterSet, starts: Optional[Sequence[Mapping]] = None,
         settings: Optional[FitSettings] = None, gradient: Optional[bool] = None) -> FitResult:
     """Minimize chi^2 over the free parameters of pset.
@@ -99,12 +125,16 @@ def fit(objective: Objective, pset: ParameterSet, starts: Optional[Sequence[Mapp
         u0s += [lo + (hi - lo) * rng.random(len(lo)) for _ in range(st.n_random)]
     best_u, best_f, trace = None, np.inf, []
     for u0 in u0s:
-        r = minimize(f, u0, method="L-BFGS-B", bounds=bounds,
-                     options=dict(eps=st.fd_step, ftol=st.ftol, gtol=1e-8, maxfun=st.max_evals))
+        if st.fd_central:
+            r = minimize(_central(f, lo, hi, st.fd_central_step), u0, jac=True, method="L-BFGS-B", bounds=bounds,
+                         options=dict(ftol=st.ftol, gtol=1e-8, maxfun=max(1, st.max_evals // (2 * len(u0) + 1))))
+        else:
+            r = minimize(f, u0, method="L-BFGS-B", bounds=bounds,
+                         options=dict(eps=st.fd_step, ftol=st.ftol, gtol=1e-8, maxfun=st.max_evals))
         trace.append(float(r.fun))
         if r.fun < best_f:
             best_u, best_f = np.array(r.x), float(r.fun)
-    msg = "lbfgsb"
+    msg = "lbfgsb" + ("(central)" if st.fd_central else "")
     if st.polish:
         r = minimize(f, best_u, method="Powell", bounds=bounds,
                      options=dict(xtol=st.xtol, ftol=st.ftol, maxfev=st.max_evals))

@@ -108,28 +108,49 @@ MASS_SUM = {"now": 0.12, "proj": 0.09}
 M_LIGHTEST = 0.01                # eV, every plane until the lightest-mass study decides (tools/mlightest_study.py)
 
 
-def apply_mixing(cfg: dict, dataset: str, m_lightest: float = M_LIGHTEST) -> dict:
+def apply_mixing(cfg: dict, dataset: str, m_lightest: float = M_LIGHTEST, exact: bool = False) -> dict:
     """cfg with the mixing varied (the module's notes on --mixing vary): the solver at Table II's central values and
     the given lightest mass in the normal ordering, the six mixing parameters free with their templates, and the
-    data kind's penalties."""
+    data kind's penalties. exact (--mixing exact, 2026-10-18): no templates, the lightest mass free from the mass sum's
+    minimum, and the exact profile (analysis/exact_profile.py) -- both octants under NuFIT, the lightest mass's scan at
+    the MeV planes."""
     kind = MIX_KIND[dataset]
+    if exact:
+        from analysis.exact_profile import M_LIGHTEST_MIN, ML_SCAN
+        m_lightest = M_LIGHTEST_MIN
     deg = lambda s2: float(np.degrees(np.arcsin(np.sqrt(s2))))
     sm = cfg["solver"].setdefault("standard_mixing", {})
     sm.update(th12_deg=deg(TABLE2["s12sq"][0]), th13_deg=deg(TABLE2["s13sq"][0]), th23_deg=deg(TABLE2["s23sq"][0]),
               d_cp_deg=TABLE2["d_cp_deg"][0], dm21_sq=TABLE2["dm21_sq"][0], dm31_sq=TABLE2["dm31_sq"][0])
     cfg["solver"].setdefault("cosmology", {}).update(mass_ordering="normal", m_lightest_eV=float(m_lightest))
     for n, (c, _) in TABLE2.items():
-        cfg["parameters"][n] = {"start": c, "bounds": list(MIX_BOUNDS[kind][n]), "space": "linear",
-                                "template": dict(MIX_TEMPLATES[kind][n])}
+        cfg["parameters"][n] = {"start": c, "bounds": list(MIX_BOUNDS[kind][n]), "space": "linear"}
+        if not exact:
+            cfg["parameters"][n]["template"] = dict(MIX_TEMPLATES[kind][n])
+    if exact:
+        cfg["parameters"]["m_lightest_eV"] = {"start": M_LIGHTEST_MIN, "bounds": [M_LIGHTEST_MIN, 0.1],
+                                              "space": "linear"}
+        ex = {}
+        if kind == "now":
+            ex["octants"] = True
+        if cfg["name"].endswith("_mev"):
+            ex["ml_scan"] = list(ML_SCAN)
+            ex["scan_mixing"] = {n: c for n, (c, _) in TABLE2.items()}     # shared by every data set's scan
+        cfg["exact_profile"] = ex
     if kind == "now":
         cfg["priors"].append({"type": "nufit_6.1_pairwise", "ordering": "normal"})
     else:
         cfg["priors"].extend({"name": n, "type": "gaussian", "centre": c, "width": w} for n, (c, w) in TABLE2.items())
     cfg["priors"].append({"name": "sum_masses_eV", "type": "half_gaussian", "limit": MASS_SUM[kind], "cl": 0.95,
                           "quantile": "half"})
-    cfg["_comment"] += (f"; mixing varied ({'NuFIT 6.1 pairwise' if kind == 'now' else 'Table II Gaussians'}, "
-                        f"templates), m_lightest {m_lightest:g} eV, mass sum < {MASS_SUM[kind]:g} eV (95%, "
-                        f"half-Gaussian)")
+    if exact:
+        pen = "NuFIT 6.1 pairwise" if kind == "now" else "Table II Gaussians"
+        cfg["_comment"] += (f"; mixing and m_lightest profiled exactly ({pen}; analysis/exact_profile.py), mass sum "
+                            f"< {MASS_SUM[kind]:g} eV (95%, half-Gaussian)")
+    else:
+        cfg["_comment"] += (f"; mixing varied ({'NuFIT 6.1 pairwise' if kind == 'now' else 'Table II Gaussians'}, "
+                            f"templates), m_lightest {m_lightest:g} eV, mass sum < {MASS_SUM[kind]:g} eV (95%, "
+                            f"half-Gaussian)")
     return cfg
 TEXTURES = {"e": (1, 0, 0), "mu": (0, 1, 0), "tau": (0, 0, 1), "emu": (1, 1, 0), "etau": (1, 0, 1),
             "mutau": (0, 1, 1), "emutau": (1, 1, 1)}
@@ -201,9 +222,10 @@ def planes_for(dataset, spectrum="pl", mixing="fixed"):
 
     def add(name, comment, solver, params, plane, asimov):
         cfg = _config(dataset, spectrum, name, comment, solver, params, priors, plane, asimov)
-        if mixing == "vary":
-            cfg = apply_mixing(cfg, dataset)
-            cfg["output_dir"] = cfg["output_dir"].replace("/campaign_bpl/", "/campaign_mix/")
+        if mixing in ("vary", "exact"):
+            cfg = apply_mixing(cfg, dataset, exact=mixing == "exact")
+            tree = "/campaign_mix/" if mixing == "vary" else "/campaign_exact/"
+            cfg["output_dir"] = cfg["output_dir"].replace("/campaign_bpl/", tree)
         out.append((name, cfg, plane["nx"] * plane["ny"]))
         fx = copy.deepcopy(cfg)
         fx["name"] = name + "_fx"
@@ -298,15 +320,16 @@ def main(argv=None):
     ap.add_argument("--spectrum", choices=sorted(SPECTRA), default="bpl")
     ap.add_argument("--datasets", nargs="+", default=None, help="default: every data set of the spectrum")
     ap.add_argument("--check", action="store_true", help="load every configuration and evaluate its model once")
-    ap.add_argument("--mixing", choices=("fixed", "vary"), default="fixed",
-                    help="'vary': the mixing and the lightest mass varied (needs --spectrum bpl; campaign_mix)")
+    ap.add_argument("--mixing", choices=("fixed", "vary", "exact"), default="fixed",
+                    help="'vary': the mixing varied through templates (needs --spectrum bpl; campaign_mix); 'exact': "
+                         "the mixing and the lightest mass profiled exactly (analysis/exact_profile.py; campaign_exact)")
     a = ap.parse_args(argv)
     from analysis import config as config_mod
     tree, sets = SPECTRA[a.spectrum]
-    if a.mixing == "vary":
+    if a.mixing in ("vary", "exact"):
         if a.spectrum != "bpl":
-            raise SystemExit("--mixing vary needs --spectrum bpl")
-        tree = "campaign_mix"
+            raise SystemExit(f"--mixing {a.mixing} needs --spectrum bpl")
+        tree = "campaign_mix" if a.mixing == "vary" else "campaign_exact"
     for ds in a.datasets or list(sets):
         if ds not in sets:
             raise SystemExit(f"data set {ds!r} does not exist with --spectrum {a.spectrum}; known: {sorted(sets)}")

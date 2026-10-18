@@ -1172,7 +1172,66 @@ def _filon_J(z: np.ndarray):
     return J0, J1
 
 
+@njit(fastmath=False, error_model="numpy", cache=True)
+def _filon_intervals_nb(c_fine, node_index, phase):
+    """_zenith_filon_weights_intervals in one compiled loop (2026-10-18; the same rule and sums, to rounding):
+    W[j, 0] and W[j, 1], the interval [c_j, c_j+1]'s contributions to nodes j and j + 1."""
+    K = len(node_index)
+    W = np.zeros((K - 1, 2), dtype=np.complex128)
+    for j in range(K - 1):
+        i0 = node_index[j]
+        i1 = node_index[j + 1]
+        span = c_fine[i1] - c_fine[i0]
+        ph0 = phase[i0]
+        ph1 = phase[i1]
+        acc0 = 0.0 + 0.0j
+        acc1 = 0.0 + 0.0j
+        for i in range(i0, i1):
+            dc = c_fine[i + 1] - c_fine[i]
+            up_a = (c_fine[i] - c_fine[i0]) / span
+            up_b = (c_fine[i + 1] - c_fine[i0]) / span
+            z = -1j * (phase[i + 1] - phase[i])
+            if abs(z) < 0.1:
+                J0 = 0.0 + 0.0j
+                J1 = 0.0 + 0.0j
+                term = 1.0 + 0.0j
+                for k in range(12):
+                    J0 += term / (k + 1)
+                    J1 += term / (k + 2)
+                    term = term * z / (k + 1)
+            else:
+                ez = np.exp(z)
+                J0 = (ez - 1.0) / z
+                J1 = (ez * (z - 1.0) + 1.0) / (z * z)
+            # node j: hat_dn = 1 - hat_up, ref = phase at c_j; node j + 1: hat_up, ref = phase at c_j+1
+            dn_a = 1.0 - up_a
+            dn_b = 1.0 - up_b
+            acc0 += dc * np.exp(-1j * (phase[i] - ph0)) * (dn_a * J0 + (dn_b - dn_a) * J1)
+            acc1 += dc * np.exp(-1j * (phase[i] - ph1)) * (up_a * J0 + (up_b - up_a) * J1)
+        W[j, 0] = acc0
+        W[j, 1] = acc1
+    return W
+
+
 def _zenith_filon_weights(c_fine: np.ndarray, node_index: np.ndarray, phase: np.ndarray) -> np.ndarray:
+    """_zenith_filon_weights_ref (its docstring), from the compiled intervals (_filon_intervals_nb, 2026-10-18)."""
+    W = _filon_intervals_nb(np.ascontiguousarray(c_fine, dtype=np.float64),
+                            np.ascontiguousarray(node_index, dtype=np.int64),
+                            np.ascontiguousarray(phase, dtype=np.float64))
+    w = np.zeros(len(node_index), dtype=np.complex128)
+    w[:-1] += W[:, 0]
+    w[1:] += W[:, 1]
+    return w
+
+
+def _zenith_filon_weights_intervals(c_fine: np.ndarray, node_index: np.ndarray, phase: np.ndarray) -> np.ndarray:
+    """_zenith_filon_weights_intervals_ref (its docstring), compiled (_filon_intervals_nb, 2026-10-18)."""
+    return _filon_intervals_nb(np.ascontiguousarray(c_fine, dtype=np.float64),
+                               np.ascontiguousarray(node_index, dtype=np.int64),
+                               np.ascontiguousarray(phase, dtype=np.float64))
+
+
+def _zenith_filon_weights_ref(c_fine: np.ndarray, node_index: np.ndarray, phase: np.ndarray) -> np.ndarray:
     """Per-chord weights w_k = int hat_k(c) exp(-i [phase(c) - phase(c_k)]) dc over the
     node range, with hat_k the linear interpolation basis on the chord nodes and the phase
     linear on each fine sub-interval (exact for it). Arguments: c_fine, node_index -- from
@@ -1194,7 +1253,7 @@ def _zenith_filon_weights(c_fine: np.ndarray, node_index: np.ndarray, phase: np.
     return w
 
 
-def _zenith_filon_weights_intervals(c_fine: np.ndarray, node_index: np.ndarray, phase: np.ndarray) -> np.ndarray:
+def _zenith_filon_weights_intervals_ref(c_fine: np.ndarray, node_index: np.ndarray, phase: np.ndarray) -> np.ndarray:
     """The contributions of each node interval to _zenith_filon_weights: W[j, 0] to node j and
     W[j, 1] to node j + 1 from the interval [c_j, c_{j+1}] (same rule, same sums). Summed over the
     intervals inside a declination band they give that band's weights; over all intervals, the
@@ -2248,8 +2307,10 @@ def _earth_transfer_columns(a: dict) -> list:
     for c in range(len(earth_costh)):
         for b, (b0, b1) in enumerate(blocks):
             U[c, b0:b1] = res[c * len(blocks) + b]
-    Uc = np.conjugate(U)
-    rho = np.concatenate([np.einsum("cnab,nbd,cned->cnae", U, surf[k], Uc) for k in range(3)], axis=1)
+    # rho_k = U surf_k U^dagger per chord and bin: two batched products (2026-10-18; the three-operand einsum's
+    # single loop took ~6% of a potential point) -- the same sums, equal to rounding
+    UcT = np.conjugate(np.swapaxes(U, -1, -2))
+    rho = np.concatenate([np.matmul(np.matmul(U, surf[k][None]), UcT) for k in range(3)], axis=1)
     rho = 0.5 * (rho + np.conjugate(np.swapaxes(rho, -1, -2)))              # Hermitian, as each step keeps it
     whole = average_earth_chords(rho, earth_costh, Coef, S, a["detector_depth_km"], n_amb, m_eff, earth_yk,
                                  a["earth_zenith_average"])

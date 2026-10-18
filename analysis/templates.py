@@ -17,28 +17,38 @@ central node and theta0 the formula is exact; elsewhere it neglects how the para
 the index (and the parameters' cross terms). The Galactic flux, which depends on neither the index nor the window, is
 interpolated directly: G(x) = G0 + sum w_kn (G_kn - G0).
 
+At theta0 itself the model skips the template runs altogether (the factor is exactly 1 there), so a model centred at
+some value is also that value's exact model: the exact profile (exact_profile.py, 2026-10-18) builds one such model per
+centre of its trust region, with a "step" template per parameter as the forward differences of its local surrogate.
+
 Template specs (a parameter's "template" in the configuration), in the parameter's own units (sin^2 for s12sq,
-s13sq, s23sq; degrees for d_cp_deg; eV^2 for dm21_sq and dm31_sq, the latter |Delta m^2_3l|):
+s13sq, s23sq; degrees for d_cp_deg; eV^2 for dm21_sq and dm31_sq, the latter |Delta m^2_3l|; eV for m_lightest_eV):
   {"step": h}            one run at theta0 + h: linear;
   {"points": [a, ...]}   runs at these values (theta0 is always one): Lagrange through all of them;
   {"turn": n}            d_cp_deg only: n (odd) runs equally spaced over 360 deg, theta0 one of them: the
                          trigonometric polynomial of degree (n - 1) / 2 through them.
 """
 from dataclasses import dataclass
-from typing import Mapping, Tuple
+from typing import Mapping, Optional, Tuple
 
 import numpy as np
 
-NAMES = ("s12sq", "s13sq", "s23sq", "d_cp_deg", "dm21_sq", "dm31_sq")
+NAMES = ("s12sq", "s13sq", "s23sq", "d_cp_deg", "dm21_sq", "dm31_sq", "m_lightest_eV")
 
 
 @dataclass(frozen=True)
 class MixingTemplate:
-    """One parameter's template: its runs at `points` besides theta0 (module docstring)."""
+    """One parameter's template: its runs at `points` besides theta0 (module docstring). With `slope` (exact_profile's
+    local surrogates, 2026-10-18) the log of the flux is linear in the parameter with the slope of a difference
+    formula instead of the Lagrange polynomial through the points: log F(x) = log F_0 + t sum_k slope_k
+    (log F_k - log F_0), t = (x - theta0) / h, h = points[0] - theta0 -- slope (1,) a forward difference, (1/2, -1/2)
+    at points (theta0 + h, theta0 - h) a central one, (2, -1/2) at (theta0 + h, theta0 + 2h) the one-sided
+    second-order one."""
     name: str
     theta0: float
     points: Tuple[float, ...]
     turn: bool = False
+    slope: Optional[Tuple[float, ...]] = None
 
     def __post_init__(self):
         if self.name not in NAMES:
@@ -52,6 +62,8 @@ class MixingTemplate:
         elif len(set(np.round(nodes, 15))) != len(nodes):
             raise ValueError(f"{self.name}: template points must differ from each other and from theta0 = "
                              f"{self.theta0}")
+        if self.slope is not None and (self.turn or len(self.slope) != len(self.points)):
+            raise ValueError(f"{self.name}: a slope template takes one coefficient per point (and no turn)")
 
     def nodes(self) -> np.ndarray:
         """theta0 first, then the points."""
@@ -62,6 +74,13 @@ class MixingTemplate:
         t = self.nodes()
         n = len(t)
         x = float(x)
+        if self.slope is not None:
+            h = float(self.points[0]) - float(self.theta0)
+            c = np.array(self.slope, dtype=np.float64)
+            u = (x - float(self.theta0)) / h
+            if x == self.theta0:
+                return np.eye(n)[0], np.concatenate([[-np.sum(c)], c]) / h
+            return np.concatenate([[1.0 - u * np.sum(c)], u * c]), np.concatenate([[-np.sum(c)], c]) / h
         if self.turn:
             m = (n - 1) // 2
             d = np.radians(x - t)
