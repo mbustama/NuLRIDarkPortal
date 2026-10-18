@@ -34,14 +34,6 @@
    "points": 1681
   },
   {
-   "name": "lmu_ltau_mev",
-   "points": 1681
-  },
-  {
-   "name": "lmu_ltau_mev_fx",
-   "points": 1681
-  },
-  {
    "name": "le_lmu_ul",
    "points": 2135
   },
@@ -72,39 +64,7 @@
   {
    "name": "le_ltau_mev_fx",
    "points": 1681
-  },
-  {
-   "name": "b_3le_mev",
-   "points": 1681
-  },
-  {
-   "name": "b_3le_mev_fx",
-   "points": 1681
-  },
-  {
-   "name": "b_3lmu_mev",
-   "points": 1681
-  },
-  {
-   "name": "b_3lmu_mev_fx",
-   "points": 1681
-  },
-  {
-   "name": "b_3ltau_mev",
-   "points": 1681
-  },
-  {
-   "name": "b_3ltau_mev_fx",
-   "points": 1681
-  },
-  {
-   "name": "b_32lmultau_mev",
-   "points": 1681
-  },
-  {
-   "name": "b_32lmultau_mev_fx",
-   "points": 1681
   }
  ],
- "total_points": 45522
+ "total_points": 28712
 }

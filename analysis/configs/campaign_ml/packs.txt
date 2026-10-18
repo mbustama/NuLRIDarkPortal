@@ -1,44 +1,24 @@
-analysis/configs/campaign_ml/now_events/lmu_ltau_mev.json analysis/configs/campaign_ml/now_events/le_ltau_ul.json
-analysis/configs/campaign_ml/now_events/le_ltau_mev.json analysis/configs/campaign_ml/now_events/le_lmu_ul.json
-analysis/configs/campaign_ml/now_events/le_lmu_mev.json analysis/configs/campaign_ml/proj_future/le_ltau_ul.json
-analysis/configs/campaign_ml/now_events/dp_tau_mev.json analysis/configs/campaign_ml/proj_future/le_lmu_ul.json
-analysis/configs/campaign_ml/now_events/dp_mu_mev.json analysis/configs/campaign_ml/now_ic26/le_ltau_ul.json
-analysis/configs/campaign_ml/now_events/dp_emutau_mev.json analysis/configs/campaign_ml/now_ic26/le_lmu_ul.json
-analysis/configs/campaign_ml/now_events/dp_e_mev.json
-analysis/configs/campaign_ml/now_events/b_3ltau_mev.json
-analysis/configs/campaign_ml/now_events/b_3lmu_mev.json
-analysis/configs/campaign_ml/now_events/b_3le_mev.json
-analysis/configs/campaign_ml/now_events/b_32lmultau_mev.json
-analysis/configs/campaign_ml/proj_future/lmu_ltau_mev.json analysis/configs/campaign_ml/now_ic26/lmu_ltau_mev.json
+analysis/configs/campaign_ml/now_events/le_ltau_mev.json analysis/configs/campaign_ml/now_events/le_ltau_ul.json
+analysis/configs/campaign_ml/now_events/le_lmu_mev.json analysis/configs/campaign_ml/now_events/le_lmu_ul.json
+analysis/configs/campaign_ml/now_events/dp_tau_mev.json analysis/configs/campaign_ml/proj_future/le_ltau_ul.json
+analysis/configs/campaign_ml/now_events/dp_mu_mev.json analysis/configs/campaign_ml/proj_future/le_lmu_ul.json
+analysis/configs/campaign_ml/now_events/dp_emutau_mev.json analysis/configs/campaign_ml/now_ic26/le_ltau_ul.json
+analysis/configs/campaign_ml/now_events/dp_e_mev.json analysis/configs/campaign_ml/now_ic26/le_lmu_ul.json
 analysis/configs/campaign_ml/proj_future/le_ltau_mev.json analysis/configs/campaign_ml/now_ic26/le_ltau_mev.json
 analysis/configs/campaign_ml/proj_future/le_lmu_mev.json analysis/configs/campaign_ml/now_ic26/le_lmu_mev.json
 analysis/configs/campaign_ml/proj_future/dp_tau_mev.json analysis/configs/campaign_ml/now_ic26/dp_tau_mev.json
 analysis/configs/campaign_ml/proj_future/dp_mu_mev.json analysis/configs/campaign_ml/now_ic26/dp_mu_mev.json
 analysis/configs/campaign_ml/proj_future/dp_emutau_mev.json analysis/configs/campaign_ml/now_ic26/dp_emutau_mev.json
 analysis/configs/campaign_ml/proj_future/dp_e_mev.json analysis/configs/campaign_ml/now_ic26/dp_e_mev.json
-analysis/configs/campaign_ml/proj_future/b_3ltau_mev.json analysis/configs/campaign_ml/now_ic26/b_3ltau_mev.json
-analysis/configs/campaign_ml/proj_future/b_3lmu_mev.json analysis/configs/campaign_ml/now_ic26/b_3lmu_mev.json
-analysis/configs/campaign_ml/proj_future/b_3le_mev.json analysis/configs/campaign_ml/now_ic26/b_3le_mev.json
-analysis/configs/campaign_ml/proj_future/b_32lmultau_mev.json analysis/configs/campaign_ml/now_ic26/b_32lmultau_mev.json
-analysis/configs/campaign_ml/now_events/lmu_ltau_mev_fx.json analysis/configs/campaign_ml/now_events/le_ltau_ul_fx.json
-analysis/configs/campaign_ml/now_events/le_ltau_mev_fx.json analysis/configs/campaign_ml/now_events/le_lmu_ul_fx.json
-analysis/configs/campaign_ml/now_events/le_lmu_mev_fx.json analysis/configs/campaign_ml/proj_future/le_ltau_ul_fx.json
-analysis/configs/campaign_ml/now_events/dp_tau_mev_fx.json analysis/configs/campaign_ml/proj_future/le_lmu_ul_fx.json
-analysis/configs/campaign_ml/now_events/dp_mu_mev_fx.json analysis/configs/campaign_ml/now_ic26/le_ltau_ul_fx.json
-analysis/configs/campaign_ml/now_events/dp_emutau_mev_fx.json analysis/configs/campaign_ml/now_ic26/le_lmu_ul_fx.json
-analysis/configs/campaign_ml/now_events/dp_e_mev_fx.json
-analysis/configs/campaign_ml/now_events/b_3ltau_mev_fx.json
-analysis/configs/campaign_ml/now_events/b_3lmu_mev_fx.json
-analysis/configs/campaign_ml/now_events/b_3le_mev_fx.json
-analysis/configs/campaign_ml/now_events/b_32lmultau_mev_fx.json
-analysis/configs/campaign_ml/proj_future/lmu_ltau_mev_fx.json analysis/configs/campaign_ml/now_ic26/lmu_ltau_mev_fx.json
+analysis/configs/campaign_ml/now_events/le_ltau_mev_fx.json analysis/configs/campaign_ml/now_events/le_ltau_ul_fx.json
+analysis/configs/campaign_ml/now_events/le_lmu_mev_fx.json analysis/configs/campaign_ml/now_events/le_lmu_ul_fx.json
+analysis/configs/campaign_ml/now_events/dp_tau_mev_fx.json analysis/configs/campaign_ml/proj_future/le_ltau_ul_fx.json
+analysis/configs/campaign_ml/now_events/dp_mu_mev_fx.json analysis/configs/campaign_ml/proj_future/le_lmu_ul_fx.json
+analysis/configs/campaign_ml/now_events/dp_emutau_mev_fx.json analysis/configs/campaign_ml/now_ic26/le_ltau_ul_fx.json
+analysis/configs/campaign_ml/now_events/dp_e_mev_fx.json analysis/configs/campaign_ml/now_ic26/le_lmu_ul_fx.json
 analysis/configs/campaign_ml/proj_future/le_ltau_mev_fx.json analysis/configs/campaign_ml/now_ic26/le_ltau_mev_fx.json
 analysis/configs/campaign_ml/proj_future/le_lmu_mev_fx.json analysis/configs/campaign_ml/now_ic26/le_lmu_mev_fx.json
 analysis/configs/campaign_ml/proj_future/dp_tau_mev_fx.json analysis/configs/campaign_ml/now_ic26/dp_tau_mev_fx.json
 analysis/configs/campaign_ml/proj_future/dp_mu_mev_fx.json analysis/configs/campaign_ml/now_ic26/dp_mu_mev_fx.json
 analysis/configs/campaign_ml/proj_future/dp_emutau_mev_fx.json analysis/configs/campaign_ml/now_ic26/dp_emutau_mev_fx.json
 analysis/configs/campaign_ml/proj_future/dp_e_mev_fx.json analysis/configs/campaign_ml/now_ic26/dp_e_mev_fx.json
-analysis/configs/campaign_ml/proj_future/b_3ltau_mev_fx.json analysis/configs/campaign_ml/now_ic26/b_3ltau_mev_fx.json
-analysis/configs/campaign_ml/proj_future/b_3lmu_mev_fx.json analysis/configs/campaign_ml/now_ic26/b_3lmu_mev_fx.json
-analysis/configs/campaign_ml/proj_future/b_3le_mev_fx.json analysis/configs/campaign_ml/now_ic26/b_3le_mev_fx.json
-analysis/configs/campaign_ml/proj_future/b_32lmultau_mev_fx.json analysis/configs/campaign_ml/now_ic26/b_32lmultau_mev_fx.json
