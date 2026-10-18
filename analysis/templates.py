@@ -7,13 +7,15 @@ A parameter with a template is not passed to the solver. At each point of the pr
 the solver at the configuration's value theta0 and at the template's points (one parameter moved at a time), at the
 central index node of each piece, and builds the flux at any value x as
 
-    F(x, p) = F(theta0, p) * [1 + sum_k sum_n w_kn(x_k) (F_kn / F_0 - 1)],
+    F(x, p) = F(theta0, p) * exp[sum_k sum_n w_kn(x_k) log(F_kn / F_0)],
 
 element by element (flavor, energy, band, source), F_kn / F_0 the ratio of the run at parameter k's n-th point to the
 run at theta0, both at the central node; w_kn the interpolation weights through theta0 and k's points (Lagrange; for
-delta_CP over a whole turn, trigonometric). At the central node and theta0 the formula is exact; elsewhere it neglects
-how the parameter's relative effect changes with the index (and the parameters' cross terms). The Galactic flux, which
-depends on neither the index nor the window, is interpolated directly: G(x) = G0 + sum w_kn (G_kn - G0).
+delta_CP over a whole turn, trigonometric). The log of the flux is interpolated because absorption is exponential in
+the mixing (interpolating the ratio itself left chi^2 errors up to 2 at the MeV planes' limits, 2026-10-18). At the
+central node and theta0 the formula is exact; elsewhere it neglects how the parameter's relative effect changes with
+the index (and the parameters' cross terms). The Galactic flux, which depends on neither the index nor the window, is
+interpolated directly: G(x) = G0 + sum w_kn (G_kn - G0).
 
 Template specs (a parameter's "template" in the configuration), in the parameter's own units (sin^2 for s12sq,
 s13sq, s23sq; degrees for d_cp_deg; eV^2 for dm21_sq and dm31_sq, the latter |Delta m^2_3l|):

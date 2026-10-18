@@ -249,6 +249,7 @@ def spline_weight_derivatives(nodes, p: float) -> np.ndarray:
 # extragalactic and Galactic normalizations and compositions (linear) and the spectral indices (through the cubic
 # spline between the solver runs at the index nodes)
 GRADIENT_NAMES = ("norm_astro", "norm_gal", "f_e_S", "f_mu_S", "f_tau_S", "f_e_S_gal", "p_index", "p_index_low")
+LOG_RATIO_CLIP = 30.0     # |log(F_r / F_0)| kept below this in the mixing templates (a bin absorbed away in one run)
 
 
 def solver_key(name: str) -> Tuple[str, str]:
@@ -581,10 +582,10 @@ class FlavorModel:
         return [(dict(c, **{t.name: float(pt)}), True) for t in self.templates.values() for pt in t.points]
 
     def _template_stack(self, values: Mapping, nodes, kind: str) -> dict:
-        """For a piece: the runs' relative differences to the theta0 run at the central node, stacked over every
-        template point (in _template_runs' order): {'bands_nu', 'bands_nb'} (sky) or {'F_a', 'F_b'} (flux), each
-        (n_points, ...), F_r / F_0 - 1 (0 where F_0 = 0); and the Galactic differences G_r - G_0: {'gal_nu',
-        'gal_nb', 'site_gal'} (sky) or {'G'} (flux), or None. Kept per point and piece."""
+        """For a piece: the runs' log ratios to the theta0 run at the central node, stacked over every template point
+        (in _template_runs' order): {'bands_nu', 'bands_nb'} (sky) or {'F_a', 'F_b'} (flux), each (n_points, ...),
+        log(F_r / F_0) clipped to +-LOG_RATIO_CLIP (0 where F_0 = 0); and the Galactic differences G_r - G_0:
+        {'gal_nu', 'gal_nb', 'site_gal'} (sky) or {'G'} (flux), or None. Kept per point and piece."""
         c = self._template_central(values, nodes)
         key = (kind, tuple(sorted((s, k, v if isinstance(v, str) else float(v))
                                   for (s, k), v in self._overrides(c).items())))
@@ -607,7 +608,9 @@ class FlavorModel:
         for name, (a0, ar) in arrays.items():
             pos = a0 > 0.0
             safe = np.where(pos, a0, 1.0)
-            out[name] = np.stack([np.where(pos, a / safe - 1.0, 0.0) for a in ar])
+            with np.errstate(divide="ignore"):
+                out[name] = np.stack([np.where(pos, np.clip(np.log(np.maximum(a, 0.0) / safe), -LOG_RATIO_CLIP,
+                                                            LOG_RATIO_CLIP), 0.0) for a in ar])
         if kind == "sky" and r0["gal_nu"] is not None:
             out["gal_nu"] = np.stack([r["gal_nu"] - r0["gal_nu"] for r in rs])
             out["gal_nb"] = np.stack([r["gal_nb"] - r0["gal_nb"] for r in rs])
@@ -634,13 +637,16 @@ class FlavorModel:
         return np.array(w), dws
 
     def _template_factor(self, values: Mapping, nodes, kind: str, names: Sequence[str] = ()):
-        """For a piece: the factors 1 + sum_r w_r (F_r / F_0 - 1) of its arrays at the values, and their derivatives
-        in the templated `names`: ({array: factor}, {name: {array: d factor}})."""
+        """For a piece: the factors exp(sum_r w_r log(F_r / F_0)) of its arrays at the values -- interpolated in the
+        log of the flux (2026-10-18: absorption is exponential in the mixing; interpolating F_r / F_0 itself left
+        errors of up to 2 in chi^2 at the MeV planes' limits) -- and their derivatives in the templated `names`:
+        ({array: factor}, {name: {array: d factor}})."""
         st = self._template_stack(values, nodes, kind)
         w, dws = self._template_weights(values)
         keys = ("bands_nu", "bands_nb") if kind == "sky" else tuple(k for k in ("F_a", "F_b") if k in st)
-        fac = {k: 1.0 + np.tensordot(w, st[k], axes=(0, 0)) for k in keys}
-        der = {n: {k: np.tensordot(dws[n], st[k], axes=(0, 0)) for k in keys} for n in names if n in self.templates}
+        fac = {k: np.exp(np.tensordot(w, st[k], axes=(0, 0))) for k in keys}
+        der = {n: {k: fac[k] * np.tensordot(dws[n], st[k], axes=(0, 0)) for k in keys}
+               for n in names if n in self.templates}
         return fac, der
 
     def _template_galactic(self, values: Mapping, run: dict, names: Sequence[str] = ()):

@@ -81,8 +81,10 @@ def test_galactic_components_match_the_neutron_model():
         e = stars * K * 0.80 + cold * K * 0.858 + hot
         assert abs(SP.calc_MW_neutron_density(r, th, ph) / n - 1.0) < 1e-13
         assert abs(SP.calc_MW_electron_density(r, th, ph) / e - 1.0) < 1e-13
-        assert SP.calc_MW_species_density(r, th, ph, 0) == SP.calc_MW_neutron_density(r, th, ph)
-        assert SP.calc_MW_species_density(r, th, ph, 1) == SP.calc_MW_electron_density(r, th, ph)
+        # to rounding: the two compiled functions contract their sums differently on some CPUs (fastmath: Tycho's
+        # Zen 4 differed in the last bit on 2026-10-18)
+        assert abs(SP.calc_MW_species_density(r, th, ph, 0) / SP.calc_MW_neutron_density(r, th, ph) - 1.0) < 1e-14
+        assert abs(SP.calc_MW_species_density(r, th, ph, 1) / SP.calc_MW_electron_density(r, th, ph) - 1.0) < 1e-14
 
 
 def test_electron_sky_density_table_is_current():
