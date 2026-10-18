@@ -496,7 +496,16 @@ def yk_charged(yk) -> bool:
     return len(par) > 4 and par[4] != 0.0
 
 
-@njit(fastmath=True, error_model="numpy", cache=True)
+# NO FASTMATH IN THE YUKAWA EVALUATIONS (2026-10-18). Compiled with fastmath for Tycho's AMD
+# EPYC 9554 (Zen 4) -- and for the AVX2 targets znver3 and x86-64-v3 on it -- the direct-mode
+# density through earth_neutron_density_cm3 came out as 1e49-1e58 cm^-3 near the Earth's
+# centre at ultralight masses (r = 0 at 1e-28 eV, r = 1 km at 3e-26 eV), while _yk_direct
+# called alone, generic-CPU code and pure Python all gave the exact value; the 2026-10-13
+# ZeroDivisionError at the surface (dp_core's note) was likely the same miscompilation. These
+# kernels span m from 1e-30 to 1e-11 eV, with 1/m^2 factors in the heavy branch, so they are
+# compiled without fastmath; their callers keep it.
+
+@njit(error_model="numpy", cache=True)
 def _yk_shell(r: float, edges: np.ndarray) -> int:
     """Index s of the shell (edges[s], edges[s+1]] holding r, with calc_earth_density's
     convention that a boundary radius belongs to the shell below it."""
@@ -507,7 +516,7 @@ def _yk_shell(r: float, edges: np.ndarray) -> int:
     return S - 1
 
 
-@njit(fastmath=True, error_model="numpy", cache=True)
+@njit(error_model="numpy", cache=True)
 def _yk_delta_heavy(r: float, yk) -> float:
     """Heavy-mode n_eff(r) - n(r) (cm^-3) for 0 <= r <= R: the polynomial correction plus the
     boundary layers E(r) of the section notes. Arguments: r -- radius (km); yk -- a table."""
@@ -525,7 +534,7 @@ def _yk_delta_heavy(r: float, yk) -> float:
     return (f2 + f4 * im2) * im2 / rr + (m / rr) * E
 
 
-@njit(fastmath=True, error_model="numpy", cache=True)
+@njit(error_model="numpy", cache=True)
 def _yk_direct(r: float, yk) -> float:
     """Direct-mode n_eff(r) (cm^-3) for 0 <= r <= R: P and Q at the node below and above r,
     plus Gauss-Legendre over the partial sub-interval. Arguments: r (km); yk -- a table."""
@@ -562,7 +571,7 @@ def _yk_direct(r: float, yk) -> float:
     return (m / rr) * (P - 0.5 * np.expm1(-2.0 * m * rr) * Q)
 
 
-@njit(fastmath=True, error_model="numpy", cache=True)
+@njit(error_model="numpy", cache=True)
 def _yk_extra_cm3(r: float, yk) -> float:
     """The part of n_eff (cm^-3) that the contact density n(r) leaves out: zero for the
     contact table, n_eff - n in heavy mode, all of n_eff in direct mode, and the exterior
@@ -580,7 +589,7 @@ def _yk_extra_cm3(r: float, yk) -> float:
     return _yk_delta_heavy(r, yk)
 
 
-@njit(fastmath=True, error_model="numpy", cache=True)
+@njit(error_model="numpy", cache=True)
 def yukawa_profile_density(r: float, yk) -> float:
     """n_eff(r) (cm^-3) of the profile a table was built from, its local density taken from the
     table's own polynomials. Arguments: r -- radius (km); yk -- a yukawa_profile_table."""
@@ -597,7 +606,7 @@ def yukawa_profile_density(r: float, yk) -> float:
     return n
 
 
-@njit(fastmath=True, error_model="numpy", cache=True)
+@njit(error_model="numpy", cache=True)
 def earth_neutron_density_cm3(r_km: float, yk) -> float:
     """The Earth's effective neutron density n_eff (cm^-3) at geocentric radius r_km: the
     density whose contact potential Coef * n_eff equals the Yukawa potential of all of PREM's
@@ -614,7 +623,7 @@ def earth_neutron_density_cm3(r_km: float, yk) -> float:
     return n
 
 
-@njit(fastmath=True, error_model="numpy", cache=True)
+@njit(error_model="numpy", cache=True)
 def earth_total_density(l_km: float, baseline_km: float, costh: float,
                         detector_depth_km: float, n_n_amb_eV3: float, yk) -> float:
     """spatial_total_density_earth with the Earth's own neutrons entering through their

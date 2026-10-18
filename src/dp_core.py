@@ -134,6 +134,36 @@ try:
 except ImportError:
     HAS_NUMBA = False
     numba = None
+
+# CACHE ENTRIES NAMED BY THEIR SIGNATURE (2026-10-18). numba names a new cache entry's data
+# file by the first number free in the index as ITS process last read it, so two processes
+# compiling different signatures of one function at once (pool workers, pytest-xdist) both
+# write <function>.1.nbc, and the index can end up pointing one signature at the other's
+# machine code: run on the wrong argument types it returned garbage (the Earth's Yukawa
+# density ~1e58 cm^-3 on Tycho). Named by a hash of the key (signature, CPU, bytecode), a
+# data file only ever holds its own signature's code, and it is written before the index
+# points at it; a concurrent index update can at worst drop an entry, which recompiles.
+if HAS_NUMBA:
+    from numba.core import caching as _nb_caching
+
+    def _save_by_key(self, key, data):
+        import hashlib
+        data_name = "%s.%s.nbc" % (self._index_name[:-len(".nbi")],
+                                   hashlib.sha256(repr(key).encode()).hexdigest()[:16])
+        self._save_data(data_name, data)
+        overloads = self._load_index()
+        if overloads.get(key) != data_name:
+            overloads[key] = data_name
+            self._save_index(overloads)
+
+    _nb_caching.IndexDataCacheFile.save = _save_by_key
+
+try:
+    if not HAS_NUMBA:
+        raise ImportError
+except ImportError:
+    HAS_NUMBA = False
+    numba = None
     print("Warning: 'numba' not found. Falling back to pure Python (will be significantly slower).")
     def njit(*args, **kwargs):
         """Dummy decorator if numba is unavailable or string signatures are passed."""
