@@ -4,7 +4,7 @@ exact_campaign_cost.py -- the exact-profile campaign's cost from a pilot (2026-1
 Reads the pilot's plane checkpoints (output/analysis/pilot_exact/<set>/<plane>/{data,asimov}/plane_*.jsonl: per point
 the fit's seconds on one core, its solver runs, and whether it inherited its chain's certificate), the mean cost of an
 inherited and of a fully profiled point per data set and plane kind (potential balanced, potential split, ultralight,
-MeV), and extrapolates to the campaign (analysis/configs/campaign_exact/<set>/campaign.json) with the fraction of
+MeV), and extrapolates to the campaign (analysis/configs/campaign_ml/<set>/campaign.json) with the fraction of
 inherited points either the pilot's own or, with --negligible, the fraction of points whose chi^2 the earlier
 campaign found within 1e-4 of their column's smallest coupling (tools: np_fraction in the validation notes).
 
@@ -64,7 +64,7 @@ def main(argv=None):
               f"{sum(st['runs']) / max(n_i + n_f, 1):6.0f}")
     total = 0.0
     for ds in ("now_ic26", "now_events", "proj_2050", "proj_future"):
-        path = os.path.join(REPO, "analysis", "configs", "campaign_exact", ds, "campaign.json")
+        path = os.path.join(REPO, "analysis", "configs", "campaign_ml", ds, "campaign.json")
         if not os.path.exists(path):
             continue
         camp = json.load(open(path))

@@ -9,7 +9,7 @@ Reads every plane checkpoint (plane_*.jsonl) and global fit (fit.jsonl) under a 
 
 The projection: per data set and plane kind (balanced potential, coupling-split potential, ultralight gauge, MeV), the
 mean seconds per point (each point's fit in one single-threaded worker, its repairs included), times that group's
-points in the whole campaign (analysis/configs/campaign_exact: every plane of every data set, the _fx twins included),
+points in the whole campaign (analysis/configs/campaign_ml, campaign_exact until the mixing was fixed: every plane of every data set, the _fx twins included),
 plus each plane's global fit, over the cores. An MeV point's scan of the lightest mass is shared through the disk
 cache by the configurations with the same energy grid (now_ic26, proj_2050 and their twins: 4; now_events and
 proj_future with theirs: 2): its share counts 1/n of its seconds. Groups not measured yet take the mean of their kind
@@ -42,7 +42,7 @@ def kind_of(name: str) -> str:
 
 def campaign_counts(root: str = None):
     """{(data set, kind): (points, planes)} of the whole exact campaign."""
-    root = root or os.path.join(REPO, "analysis", "configs", "campaign_exact")
+    root = root or os.path.join(REPO, "analysis", "configs", "campaign_ml")
     out = defaultdict(lambda: [0, 0])
     for ds in SETS:
         for f in glob.glob(os.path.join(root, ds, "*.json")):

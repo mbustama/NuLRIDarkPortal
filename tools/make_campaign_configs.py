@@ -152,6 +152,30 @@ def apply_mixing(cfg: dict, dataset: str, m_lightest: float = M_LIGHTEST, exact:
                             f"templates), m_lightest {m_lightest:g} eV, mass sum < {MASS_SUM[kind]:g} eV (95%, "
                             f"half-Gaussian)")
     return cfg
+
+
+def apply_lightest(cfg: dict, dataset: str) -> dict:
+    """cfg with the mixing fixed and the lightest mass varied (--mixing lightest, 2026-10-18: Mauricio fixed the mixing
+    in the likelihood, its effect to be estimated outside it; docs/SIMPLIFICATIONS_AND_ASSUMPTIONS.md item 11): the
+    solver at Table II's central values in the normal ordering for every data set, m_lightest free from the mass sum's
+    minimum under the data kind's half-Gaussian penalty, profiled exactly (analysis/exact_profile.py, over m_lightest
+    alone; its scan of m_lightest at the MeV planes)."""
+    from analysis.exact_profile import M_LIGHTEST_MIN, ML_SCAN
+    kind = MIX_KIND[dataset]
+    deg = lambda s2: float(np.degrees(np.arcsin(np.sqrt(s2))))
+    sm = cfg["solver"].setdefault("standard_mixing", {})
+    sm.update(th12_deg=deg(TABLE2["s12sq"][0]), th13_deg=deg(TABLE2["s13sq"][0]), th23_deg=deg(TABLE2["s23sq"][0]),
+              d_cp_deg=TABLE2["d_cp_deg"][0], dm21_sq=TABLE2["dm21_sq"][0], dm31_sq=TABLE2["dm31_sq"][0])
+    cfg["solver"].setdefault("cosmology", {}).update(mass_ordering="normal", m_lightest_eV=M_LIGHTEST_MIN)
+    cfg["parameters"]["m_lightest_eV"] = {"start": M_LIGHTEST_MIN, "bounds": [M_LIGHTEST_MIN, 0.1], "space": "linear"}
+    cfg["exact_profile"] = {"ml_scan": list(ML_SCAN)} if cfg["name"].endswith("_mev") else {}
+    cfg["priors"].append({"name": "sum_masses_eV", "type": "half_gaussian", "limit": MASS_SUM[kind], "cl": 0.95,
+                          "quantile": "half"})
+    cfg["_comment"] += (f"; mixing fixed at Table II's centre, m_lightest profiled exactly (analysis/exact_profile.py), "
+                        f"mass sum < {MASS_SUM[kind]:g} eV (95%, half-Gaussian)")
+    return cfg
+
+
 TEXTURES = {"e": (1, 0, 0), "mu": (0, 1, 0), "tau": (0, 0, 1), "emu": (1, 1, 0), "etau": (1, 0, 1),
             "mutau": (0, 1, 1), "emutau": (1, 1, 1)}
 SUM_U2 = 0.5
@@ -222,7 +246,10 @@ def planes_for(dataset, spectrum="pl", mixing="fixed"):
 
     def add(name, comment, solver, params, plane, asimov):
         cfg = _config(dataset, spectrum, name, comment, solver, params, priors, plane, asimov)
-        if mixing in ("vary", "exact"):
+        if mixing == "lightest":
+            cfg = apply_lightest(cfg, dataset)
+            cfg["output_dir"] = cfg["output_dir"].replace("/campaign_bpl/", "/campaign_ml/")
+        elif mixing in ("vary", "exact"):
             cfg = apply_mixing(cfg, dataset, exact=mixing == "exact")
             tree = "/campaign_mix/" if mixing == "vary" else "/campaign_exact/"
             cfg["output_dir"] = cfg["output_dir"].replace("/campaign_bpl/", tree)
@@ -320,16 +347,18 @@ def main(argv=None):
     ap.add_argument("--spectrum", choices=sorted(SPECTRA), default="bpl")
     ap.add_argument("--datasets", nargs="+", default=None, help="default: every data set of the spectrum")
     ap.add_argument("--check", action="store_true", help="load every configuration and evaluate its model once")
-    ap.add_argument("--mixing", choices=("fixed", "vary", "exact"), default="fixed",
+    ap.add_argument("--mixing", choices=("fixed", "vary", "exact", "lightest"), default="fixed",
                     help="'vary': the mixing varied through templates (needs --spectrum bpl; campaign_mix); 'exact': "
-                         "the mixing and the lightest mass profiled exactly (analysis/exact_profile.py; campaign_exact)")
+                         "the mixing and the lightest mass profiled exactly (analysis/exact_profile.py; campaign_exact); "
+                         "'lightest': the mixing fixed at Table II's centre, the lightest mass profiled exactly "
+                         "(campaign_ml)")
     a = ap.parse_args(argv)
     from analysis import config as config_mod
     tree, sets = SPECTRA[a.spectrum]
-    if a.mixing in ("vary", "exact"):
+    if a.mixing in ("vary", "exact", "lightest"):
         if a.spectrum != "bpl":
             raise SystemExit(f"--mixing {a.mixing} needs --spectrum bpl")
-        tree = "campaign_mix" if a.mixing == "vary" else "campaign_exact"
+        tree = {"vary": "campaign_mix", "exact": "campaign_exact", "lightest": "campaign_ml"}[a.mixing]
     for ds in a.datasets or list(sets):
         if ds not in sets:
             raise SystemExit(f"data set {ds!r} does not exist with --spectrum {a.spectrum}; known: {sorted(sets)}")
