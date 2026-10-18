@@ -142,8 +142,8 @@ def test_plane_with_the_exact_profile(tmp_path):
     from analysis import scans
     raw = _raw()
     raw["exact_profile"] = {}
-    raw["planes"] = [{"x": "m_Zd_eV", "y": "g_D_eps_trace", "x_range": [1e-13, 1e-12], "y_range": [1e-55, 1e-30],
-                      "nx": 2, "ny": 3, "raster": "m_Zd_eV"}]
+    raw["planes"] = [{"x": "m_Zd_eV", "y": "g_D_eps_trace", "x_range": [1e-13, 1e-12], "y_range": [1e-61, 1e-30],
+                      "nx": 2, "ny": 4, "raster": "m_Zd_eV"}]
     cfg = config_mod.from_dict(raw)
     centre = (1.0 / 3.0, 2.0 / 3.0)
     best = scans.global_fit(cfg, centre, workers=1, checkpoint=str(tmp_path / "fit.jsonl"), log=print)
@@ -151,10 +151,11 @@ def test_plane_with_the_exact_profile(tmp_path):
     assert best["values"][s.y] == s.y_grid[0]
     r = scans.plane(cfg, s.x, s.y, s.x_grid, s.y_grid, best["values"], centre, workers=1,
                     checkpoint=str(tmp_path / "plane.jsonl"), max_passes=1, log=print)
+    lines = [f"{p['index']} {p['chi2']:.6f} {p.get('solver_runs')} {p['message'][:120]}" for p in r.points]
     for p in r.points:
-        print(p["index"], p["chi2"], p["message"][:80], p.get("solver_runs"))
-        assert p["certified"] and "solver_runs" in p
-    assert any(p["message"].startswith("inherited") for p in r.points)
+        assert p["certified"] and "solver_runs" in p, lines
+    # 1e-61 is the anchor, 1e-50.7 below the reach of new physics (inherited); 1e-30 profiled in full
+    assert sum(p["message"].startswith("inherited") for p in r.points) >= 2, lines
 
 
 @pytest.mark.slow

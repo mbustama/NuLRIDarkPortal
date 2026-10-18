@@ -11,30 +11,33 @@ potential point, 17-28 s for an MeV point), and a fit with finite differences tr
 The method: a trust-region Gauss-Newton iteration in eta whose iterates (centres) are evaluated exactly.
 
   Surrogate. At a centre c the model is templates.py's model centred there: the exact runs at c (every index node), and
-  one forward-difference run per parameter of eta (a step h_i of a twentieth of the prior's width, at each piece's
-  central index node), combined element by element (energy, flavor, band, source) as
-      F(eta, p) = F(c, p) exp[sum_i (eta_i - c_i) / h_i log(F_i / F_c)].
-  It is the exact model at eta = c, for every nu (templates.py skips the template runs there: the factor is exactly 1),
-  and its gradient in eta there is the forward difference's. The surrogate chi^2 -- this flux in the analysis' own
-  likelihood, the priors exact -- costs no solver run.
+  per parameter of eta runs at c + h_i (h_i a quarter of the prior's width; each piece's central index node only),
+  combined element by element (energy, flavor, band, source) as
+      F(eta, p) = F(c, p) exp[sum_i (eta_i - c_i) / h_i log(F_i / F_c)]
+  (forward differences, during the search), or with runs at c - h_i too, the parabola in log F through the three
+  (central differences, for the certificate; one-sided three-point at a bound). It is the exact model at eta = c for
+  every nu (templates.py skips the template runs there: the factor is exactly 1), and its gradient in eta there is the
+  differences'. The surrogate chi^2 -- this flux in the analysis' own likelihood, the priors exact -- costs no solver
+  run. Its fits (and the centres' nu fits) take central-difference gradients (fitting.FitSettings.fd_central).
 
   Step. The surrogate is minimized over (eta, nu) with eta in the box |eta_i - c_i| <= Delta w_i (w_i the prior's
   width, Delta the trust radius). If its best value lies less than `stop` below the centre's exact value within a box
-  of at least `cert_radius` widths, the centre is the profile (certified, below). Otherwise the step's end is
-  evaluated exactly -- it becomes a candidate centre -- and the step accepted when the exact chi^2 decreased: the radius
-  doubles when the surrogate predicted the decrease well (rho > 0.75) at the box's edge and halves when it did not
-  (rho < 0.25); a rise is rejected and the radius cut to a quarter of the step. The accepted centre's forward
-  differences are computed when its surrogate is first needed.
+  of at least `cert_radius` widths, with central differences, the centre is the profile (certified, below); with
+  forward ones the centre is first upgraded to central (its runs reused). Otherwise the step's end is evaluated exactly
+  -- it becomes a candidate centre -- and the step accepted when the exact chi^2 decreased: the radius doubles when
+  the surrogate predicted the decrease well (rho > 0.75) at the box's edge and halves when it did not (rho < 0.25); a
+  rise is rejected and the radius cut to a quarter of the step (a short failed step upgrades the centre to central
+  differences: its slope was suspect).
 
 Why the result is exact. (i) Every chi^2 reported is the exact model's at the reported values: the solver at the
 reported eta, every index node, nu fitted on those runs. (ii) The certificate: at the reported centre the surrogate
-equals the exact chi^2 for every nu and has the exact gradient in eta up to the forward difference's truncation e (of
-order h times the flux's curvature: below 1e-3 chi^2 per prior width at h = w / 20, measured), and no point of the
-surrogate within cert_radius widths lies `stop` below. The exact chi^2's own minimum near the centre can then lie
-below the reported value by at most stop plus e^2 / (2 lambda) (lambda the curvature, at least the prior's ~2 per
-width^2): ~1e-6 beyond `stop`. (iii) Separate basins -- the two octants of theta23 under NuFIT, the lightest mass at
-MeV absorption -- are the caller's to start in (each start is its own trust-region run; the lowest certified one is
-the profile).
+equals the exact chi^2 for every nu and has its gradient in eta up to the central differences' truncation (h^2 / 6
+times the third derivative: ~1% of the slope at h = w / 4), and no point of the surrogate within cert_radius widths
+lies `stop` below. With the exact chi^2 convex near the centre (the surrogate's curvature along each parameter is the
+second difference's), its minimum there lies below the reported value by at most stop plus e^2 / (2 lambda) (e the
+gradient's error, lambda the curvature, at least the prior's): ~1e-6 beyond `stop`. (iii) Separate basins -- the two
+octants of theta23 under NuFIT, the lightest mass at MeV absorption -- are searched by profile_global (each start its
+own trust-region run; the lowest result is the profile).
 
 m_lightest. Bounded below by M_LIGHTEST_MIN (1e-6 eV), not 0: the MeV transport treats an exactly massless relic as
 not interacting at all (dp_si: s = 2 E m = 0), while any m > 0 gets the thermal (relativistic) treatment, continuous
