@@ -438,7 +438,8 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                                     eta_mass, rho_src, p_index, rho_evol, Phi_0 * w_tot, m_Zd, g_mass,
                                     majorana=True, channels="full", mediator="vector",
                                     z_substeps=int(st["z_substeps"]), E_extension=float(st["E_extension"]),
-                                    Gamma_vis=ab[0].Gamma_vis, thermal=True, inj_window=(inj_lo, inj_hi))
+                                    Gamma_vis=ab[0].Gamma_vis, inj_window=(inj_lo, inj_hi),
+                                    thermal="full" if st.get("thermal_products") else True)
         # dp_si carries both kinds of each mass state together (exact for their sum, the interaction conserving CP
         # to O(Gamma/M)); split in the injection's proportions; the arrival's eigenstates are the mass states
         # (no potential) in ascending order of the vacuum term
@@ -737,7 +738,8 @@ def _flux_from_setup(E_bins: np.ndarray, params: Dict, setup: Dict, injection,
         G_coupling=params.get('G_coupling', None), Gamma_vis=params.get('Gamma_vis', None),
         si_cosmology=setup.get('si_cosmology', False),
         si_settings=dict(z_substeps=params.get('si', {}).get('z_substeps', 1),
-                         E_extension=params.get('si', {}).get('E_extension', 10.0)),
+                         E_extension=params.get('si', {}).get('E_extension', 10.0),
+                         thermal_products=params.get('thermal_products', False)),
         potential_product=params.get('potential_product', None),
         inj_window=params.get('inj_window_eV', (0.0, np.inf)),
         earth_transfer=params.get('earth_transfer', 'off')
@@ -1306,6 +1308,9 @@ def build_solver_params(config: Dict) -> Tuple[np.ndarray, Dict]:
     params['use_debye_screening'] = config['dark_portal']['use_debye_screening']
     params['cosmo_transport'] = str(config['dark_portal']['cosmo_transport']).strip().lower()
     params['absorption_model'] = str(config['dark_portal']['absorption_model']).strip().lower()
+    # the MeV transport's relics thermal in every collision term (dp_si thermal="full", 2026-10-18), not only in the
+    # resonance: off by default
+    params['thermal_products'] = bool(config['dark_portal'].get('thermal_products', False))
     if params['absorption_model'] not in ('lagrangian', 'theory_notes'):
         raise ValueError(f"dark_portal.absorption_model must be 'lagrangian' or 'theory_notes', got "
                          f"{config['dark_portal']['absorption_model']!r}")

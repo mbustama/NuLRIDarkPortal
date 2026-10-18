@@ -1942,6 +1942,324 @@ def model_spec(g_mass, mediator="scalar", majorana=True, phiphi="coherent", chan
     raise ValueError(f"secret interactions: mediator must be 'scalar' or 'vector', got {mediator!r}")
 
 
+# ------------------------------------------------------------------------------------------------------------------
+# Thermal relics in every collision term (2026-10-18: propagate_si thermal="full"; notes, "Relic motion in the
+# collision transport"; docs/SIMPLIFICATIONS_AND_ASSUMPTIONS.md 6a, 6b). A relic of mass m at temperature T meets a
+# neutrino of energy E at s = 2 E sigma, sigma = E_p (1 - v cos theta) distributed (with the flux factor) as
+# rho(sigma); every at-rest quantity depends on the relic only through s, so each product of a rate kernel with a
+# profile total, in-bin complement, drift or produced spectrum is its rho-average over at-rest relics of mass sigma.
+# The at-rest products live on one lattice in mu = M^2 / s, ln mu_n = -n Delta, whose spectra depend on nothing else;
+# rho enters through the weights of cubic interpolation between every s-th node, so a parent bin's products are sums
+# of a few lattice products. The resonant kernels are not smooth on the lattice: s/BW and (s - M^2)/BW are the exact
+# thermal averages (dp_thermal.relic_state_rates_analytic) and the interference's profiles enter as
+# X(1) <(s - M^2)/BW> + lattice[(s - M^2)/BW (X(mu) - X(1))] (the s channel's profiles do not depend on mu).
+
+@njit(cache=True)
+def _sigma_density(sig, m, T):
+    """rho(sigma) of a relic of mass m at temperature T, normalized (tools/thermal_reference.rho):
+    sigma / (3 zeta(3) T^3) int_{p_X}^inf p f(p/T) / E_p dp, X = max(sigma, m^2/sigma), p_X = (X^2 - m^2) / 2X; the
+    inner integral by Gauss-Legendre on panels split at 2m, 20m, 200m and 2000m, then up to p_X + 4T and p_X + 44T."""
+    X = max(sig, m * m / sig)
+    pX = (X * X - m * m) / (2.0 * X)
+    edges = np.empty(7)
+    edges[0] = pX
+    ne = 1
+    for f in (2.0, 20.0, 200.0, 2000.0):
+        v = f * m
+        if pX < v < pX + 4.0 * T:
+            edges[ne] = v
+            ne += 1
+    edges[ne] = pX + 4.0 * T
+    edges[ne + 1] = pX + 44.0 * T
+    ne += 2
+    acc = 0.0
+    for e in range(ne - 1):
+        a = edges[e]
+        h = edges[e + 1] - a
+        if h <= 0.0:
+            continue
+        for i in range(16):
+            p = a + h * _GL16_X[i]
+            x = p / T
+            if x < 700.0:
+                acc += h * _GL16_W[i] * p / (np.exp(x) + 1.0) / np.sqrt(p * p + m * m)
+    return sig * acc / (3.0 * _ZETA3 * T * T * T)
+
+
+@njit(cache=True)
+def _thermal_weights(m, T, c0, Delta, W):
+    """One relic state and step: a parent at lattice coordinate nu = j q + c0 + ln(sigma) / Delta has the products
+    sum_w W[w] G[j q + i0 + s w], G interpolated cubically (4-point Lagrange) between every s-th node and integrated
+    against rho over its support (rho sigma above 1e-9 of its maximum); the stride s, 1 to 8 nodes, is a sixteenth
+    of the support. Fills W; returns (i0, s, number of weights), the number -1 if W is too short."""
+    pm = 40.0 * T
+    epm = np.sqrt(pm * pm + m * m)
+    lo = np.log(m * m / (epm + pm))
+    hi = np.log(epm + pm)
+    ng = 192
+    y = np.empty(ng)
+    ymax = 0.0
+    for g in range(ng):
+        sg = np.exp(lo + (hi - lo) * g / (ng - 1))
+        y[g] = _sigma_density(sg, m, T) * sg
+        ymax = max(ymax, y[g])
+    g0 = 0
+    while g0 < ng - 1 and y[g0] <= 1e-9 * ymax:
+        g0 += 1
+    g1 = ng - 1
+    while g1 > 0 and y[g1] <= 1e-9 * ymax:
+        g1 -= 1
+    a_lo = lo + (hi - lo) * max(g0 - 1, 0) / (ng - 1)
+    a_hi = lo + (hi - lo) * min(g1 + 1, ng - 1) / (ng - 1)
+    s = max(1, min(8, int((a_hi - a_lo) / Delta / 16.0)))
+    i0 = int(np.floor(c0 + a_lo / Delta)) - s
+    k_lo = int(np.floor((c0 + a_lo / Delta - i0) / s))
+    k_hi = int(np.floor((c0 + a_hi / Delta - i0) / s))
+    nw = k_hi + 3
+    if nw > len(W):
+        return i0, s, -1
+    for w in range(nw):
+        W[w] = 0.0
+    hmax = min(1.0, (a_hi - a_lo) / 12.0) / 8.0          # sub-panels: an eighth of rho's scale
+    for k in range(k_lo, k_hi + 1):
+        x0 = max(a_lo, (i0 + s * k - c0) * Delta)
+        x1 = min(a_hi, (i0 + s * (k + 1) - c0) * Delta)
+        if x1 <= x0:
+            continue
+        nsub = int(np.ceil((x1 - x0) / hmax))
+        h = (x1 - x0) / nsub
+        for u in range(nsub):
+            for g in range(8):
+                x = x0 + h * (u + _GL8_X[g])
+                sg = np.exp(x)
+                wt = h * _GL8_W[g] * sg * _sigma_density(sg, m, T)
+                f = (c0 + x / Delta - i0) / s - k
+                W[k - 1] += wt * (-f * (f - 1.0) * (f - 2.0) / 6.0)
+                W[k] += wt * ((f + 1.0) * (f - 1.0) * (f - 2.0) / 2.0)
+                W[k + 1] += wt * (-(f + 1.0) * f * (f - 2.0) / 2.0)
+                W[k + 2] += wt * ((f + 1.0) * f * (f - 1.0) / 6.0)
+    return i0, s, nw
+
+
+@njit(cache=True, parallel=True)
+def _thermal_weights_all(masses, Tm, c0, Delta, live, W, i0, st, nw):
+    """_thermal_weights for every step m (temperatures Tm[m, r], offsets c0[m]) and live relic state r."""
+    for t in prange(Tm.shape[0] * 3):
+        m = t // 3
+        r = t % 3
+        if live[r]:
+            a, b, c = _thermal_weights(masses[r], Tm[m, r], c0[m], Delta, W[m, r])
+            i0[m, r] = a
+            st[m, r] = b
+            nw[m, r] = c
+
+
+@njit(cache=True, parallel=True)
+def _resonance_grid(lna, zp1, M, sumG_eq, masses, T_nu0, eta, tglx, tglw, tglx10, tglw10, tfd16, f0, f1):
+    """The exact thermal averages of s/BW and (s - M^2)/BW over 2 pi (dp_thermal.relic_state_rates_analytic, modes 0
+    and 1, relics at 1+z = zp1) per relic state, at s-scale a = 2 E (1+z) = exp(lna[g])."""
+    for g in prange(len(lna)):
+        E0 = np.exp(lna[g]) / (2.0 * zp1)
+        st0 = relic_state_rates_analytic(E0, zp1 - 1.0, sumG_eq, M, masses, T_nu0, eta, tglx, tglw, tglx10, tglw10,
+                                         tfd16, True, 0)
+        st1 = relic_state_rates_analytic(E0, zp1 - 1.0, sumG_eq, M, masses, T_nu0, eta, tglx, tglw, tglx10, tglw10,
+                                         tfd16, True, 1)
+        for r in range(3):
+            f0[g, r] = st0[r] / (2.0 * np.pi)
+            f1[g, r] = st1[r] / (2.0 * np.pi)
+
+
+@njit(cache=True)
+def _interp4(xg, yg, r, x, i):
+    """4-point Lagrange interpolation of yg[:, r] (on the sorted xg) at x in cell i."""
+    a = min(max(i - 1, 0), len(xg) - 4)
+    acc = 0.0
+    for p in range(4):
+        lp = 1.0
+        for k in range(4):
+            if k != p:
+                lp *= (x - xg[a + k]) / (xg[a + p] - xg[a + k])
+        acc += lp * yg[a + p, r]
+    return acc
+
+
+@njit(cache=True, parallel=True)
+def _resonance_step(E, L_lo, L_hi, L_mid, H0, Om, OL, lna, f0, f1, log0, JT0, JT1):
+    """JT[j, r] = int_{L_lo}^{L_hi} dL f(ln 2E_j + L) e^{3 (L - L_mid)} / H(L) for both kernels (the grid's relic
+    density is the step middle's): Gauss-Legendre (4 nodes) between the grid points, 4-point Lagrange of f1 and of f0
+    (of its logarithm where log0)."""
+    N = len(E)
+    G = len(lna)
+    for j in prange(N):
+        b = np.log(2.0 * E[j])
+        x1 = b + L_hi
+        for r in range(3):
+            JT0[j, r] = 0.0
+            JT1[j, r] = 0.0
+        a = b + L_lo
+        i = min(max(np.searchsorted(lna, a) - 1, 0), G - 2)
+        while a < x1:
+            e = min(x1, lna[i + 1]) if i + 1 < G - 1 else x1
+            h = e - a
+            if h > 0.0:
+                for g in range(4):
+                    x = a + h * _GL4_X[g]
+                    L = x - b
+                    zp1 = np.exp(L)
+                    wt = h * _GL4_W[g] * np.exp(3.0 * (L - L_mid)) / (H0 * np.sqrt(Om * zp1 ** 3 + OL))
+                    for r in range(3):
+                        v0 = _interp4(lna, f0, r, x, i)
+                        JT0[j, r] += wt * (np.exp(v0) if log0[r] else v0)
+                        JT1[j, r] += wt * _interp4(lna, f1, r, x, i)
+            a = e
+            i = min(i + 1, G - 2)
+
+
+@njit(cache=True, parallel=True)
+def _thermal_products(q, jt, W, i0, st, nw, n0, n_first, Jn, Nn, Ln, Dn, Bn, JT0, JT1, Nab, Lab, Dab, R, offs):
+    """One step's absolute products (the sweep's inputs with J = 1): for parent j and relic state r the lattice sums
+    sum_w W[r, w] n0[r] Jn[n, jt[q]] X[n, q] at n = j q + i0[r] + st[r] w of the profile totals Nn, in-bin complements
+    Ln, drifts Dn and produced spectra Bn[n, d, q] (d <= j; R[r, offs[j] + d, q]); the s channel (jt 0) and the
+    interference's pole term from the exact thermal kernels JT0, JT1 times the profiles at mu = 1 (node 0)."""
+    N = Nab.shape[0]
+    P = len(jt)
+    one = -n_first
+    for t in prange((N + 1) // 2):
+        c = np.empty(P)
+        sc = np.empty(P)
+        for side in range(2):
+            j = np.int64(t) if side == 0 else N - 1 - np.int64(t)
+            if side == 1 and j == t:
+                continue
+            o = offs[j]
+            for r in range(3):
+                for qq in range(P):
+                    Nab[j, r, qq] = 0.0
+                    Lab[j, r, qq] = 0.0
+                    Dab[j, r, qq] = 0.0
+                    sc[qq] = 0.0
+                for d in range(j + 1):
+                    for qq in range(P):
+                        R[r, o + d, qq] = 0.0
+                if n0[r] <= 0.0 or nw[r] <= 0:
+                    continue
+                for w in range(nw[r]):
+                    if W[r, w] == 0.0:
+                        continue
+                    n = j * q + i0[r] + st[r] * w - n_first
+                    for qq in range(P):
+                        c[qq] = 0.0 if jt[qq] == 0 else W[r, w] * n0[r] * Jn[n, jt[qq]]
+                        Nab[j, r, qq] += c[qq] * Nn[n, qq]
+                        Lab[j, r, qq] += c[qq] * Ln[n, qq]
+                        Dab[j, r, qq] += c[qq] * Dn[n, qq]
+                        sc[qq] += c[qq]
+                    for d in range(j + 1):
+                        for qq in range(P):
+                            R[r, o + d, qq] += c[qq] * Bn[n, d, qq]
+                for qq in range(P):
+                    if jt[qq] == 0:
+                        a = JT0[j, r]
+                    elif jt[qq] == 1:
+                        a = JT1[j, r] - sc[qq]
+                    else:
+                        continue
+                    Nab[j, r, qq] += a * Nn[one, qq]
+                    Lab[j, r, qq] += a * Ln[one, qq]
+                    Dab[j, r, qq] += a * Dn[one, qq]
+                    for d in range(j + 1):
+                        R[r, o + d, qq] += a * Bn[one, d, qq]
+
+
+_THERMAL_TABLE = {}
+
+
+def _thermal_table(dlnE, Delta, N, n_u, n_lo, n_hi):
+    """The vector's produced spectra, full rows d = 0..N-1, on the lattice mu_n = exp(-n Delta) for n_lo <= n <= n_hi
+    (they depend on mu, the bin width and N only): (n_first, B (nodes, N, 10)), kept per grid and widened as needed."""
+    key = (float(dlnE), float(Delta), int(N), int(n_u))
+    hit = _THERMAL_TABLE.get(key)
+    if hit is not None:
+        if hit[0] <= n_lo and hit[0] + hit[1].shape[0] - 1 >= n_hi:
+            return hit
+        n_lo = min(n_lo, hit[0])
+        n_hi = max(n_hi, hit[0] + hit[1].shape[0] - 1)
+    n_lo -= 32
+    n_hi += 32
+    nodes = np.arange(n_lo, n_hi + 1)
+    Bt, _ = build_vector_table_tri(np.ascontiguousarray(np.exp(-nodes * Delta)),
+                                   np.full(len(nodes), N - 1, dtype=np.int64), dlnE, n_u)
+    out = (int(n_lo), np.ascontiguousarray(Bt.reshape(len(nodes), N, Bt.shape[1])))
+    _THERMAL_TABLE.clear()
+    _THERMAL_TABLE[key] = out
+    return out
+
+
+def _thermal_terms(E, L_edges, q, Delta, dlnE, masses, n0, T_nu0, eta, M, MG, H0, Om, OL, hbin, n_u):
+    """Everything _thermal_products needs but the bins' rows: per step m the relic states' weights (W, i0, st, nw),
+    the at-rest kernels on the lattice (Jn) and the exact thermal resonant kernels per bin (JT0, JT1); the lattice's
+    profile totals (Nn, Ln, Dn) and produced spectra (n_first, Bn)."""
+    N = len(E)
+    K = len(L_edges) - 1
+    M2 = M * M
+    L_mid = 0.5 * (L_edges[:-1] + L_edges[1:])
+    eta = np.asarray(eta, dtype=np.float64)
+    live = (masses > 0.0) & (n0 > 0.0)
+    Tm = np.ascontiguousarray(T_nu0 * np.exp(L_mid)[:, None] * np.cbrt(eta)[None, :])
+    c0 = (np.log(2.0 * E[0]) + L_mid - np.log(M2)) / Delta
+    W = np.zeros((K, 3, 512))
+    i0 = np.zeros((K, 3), dtype=np.int64)
+    st = np.ones((K, 3), dtype=np.int64)
+    nw = np.zeros((K, 3), dtype=np.int64)
+    _thermal_weights_all(masses, Tm, c0, Delta, live, W, i0, st, nw)
+    if np.any(nw[:, live] < 0):
+        raise ValueError("thermal products: a relic's distribution is wider than the weights' storage")
+    sel = np.zeros((K, 3), dtype=np.bool_)
+    sel[:, live] = True
+    n_lo = min(0, int(i0[sel].min())) if sel.any() else 0
+    n_hi = max(0, (N - 1) * q + int((i0 + st * (nw - 1))[sel].max())) if sel.any() else 0
+    n_first, Bn = _thermal_table(dlnE, Delta, N, n_u, n_lo, n_hi)
+    nodes = n_first + np.arange(Bn.shape[0])
+    nn = len(nodes)
+    P = Bn.shape[2]
+    one = np.array([1.0, 0.0, 0.0])
+    Jf = np.zeros((nn, 3, 4))
+    Nf, Lf, Df = (np.zeros((nn, 3, P)) for _ in range(3))
+    Jn = np.zeros((K, nn, 4))
+    JT0 = np.zeros((K, N, 3))
+    JT1 = np.zeros((K, N, 3))
+    sumG_eq = 12.0 * np.pi * MG / M2
+    for m in range(K):
+        zlo, zhi, zmid = np.exp(L_edges[m]), np.exp(L_edges[m + 1]), np.exp(L_mid[m])
+        # the lattice's at-rest kernels: a relic of 1 eV at the step's energy that puts the step's middle at mu_n
+        _step_integrals(M2 * np.exp(nodes * Delta) / (2.0 * zmid), zlo, zhi, zmid, one, one, M2, MG, H0, Om, OL,
+                        False, 1, hbin, Jf, Nf, Lf, Df)
+        Jn[m] = Jf[:, 0, :]
+        # the resonant kernels' grid in ln a, a = 2 E (1+z): every Delta, finer (a sixth of the speed) where a slow
+        # relic state's distribution is narrower than eight steps
+        x_lo = np.log(2.0 * E[0]) + L_edges[m] - 3.0 * Delta
+        x_hi = np.log(2.0 * E[-1]) + L_edges[m + 1] + 3.0 * Delta
+        pts = [np.arange(x_lo, x_hi + Delta, Delta)]
+        for r in range(3):
+            if not live[r]:
+                continue
+            pt = 3.15 * Tm[m, r]
+            v = pt / np.hypot(masses[r], pt)
+            if 2.0 * v < 8.0 * Delta:
+                cen = np.log(M2 / masses[r])
+                pts.append(np.arange(max(cen - np.log1p(10.0 * v), x_lo), min(cen - np.log1p(-min(10.0 * v, 0.9)), x_hi),
+                                     v / 6.0))
+        lna = np.unique(np.concatenate(pts))
+        f0 = np.zeros((len(lna), 3))
+        f1 = np.zeros((len(lna), 3))
+        _resonance_grid(lna, zmid, M, sumG_eq, masses, T_nu0, eta, _TGL16_X, _TGL16_W, _TGL10_X, _TGL10_W, _TFD16,
+                        f0, f1)
+        log0 = np.all(f0 > 0.0, axis=0)
+        f0[:, log0] = np.log(f0[:, log0])
+        _resonance_step(E, L_edges[m], L_edges[m + 1], L_mid[m], H0, Om, OL, lna, f0, f1, log0, JT0[m], JT1[m])
+    return dict(W=W, i0=i0, st=st, nw=nw, n_first=n_first, Bn=Bn, Nn=np.ascontiguousarray(Nf[:, 0, :]),
+                Ln=np.ascontiguousarray(Lf[:, 0, :]), Dn=np.ascontiguousarray(Df[:, 0, :]), Jn=Jn, JT0=JT0, JT1=JT1)
+
+
 _STEP_TERMS = {}                        # one physics point's step terms (propagate_si)
 _STEP_TERMS_MAX_BYTES = 1.5e9
 
@@ -1953,7 +2271,7 @@ def _step_key(E, L_edges, masses, n0, M2, MG, H0, Om, OL, delta_mode, prof, hbin
     for a in (E, L_edges, masses, n0, eta, jt):
         h.update(np.ascontiguousarray(a).tobytes())
     h.update(repr((float(M2), float(MG), float(H0), float(Om), float(OL), bool(delta_mode), int(prof), float(hbin),
-                   bool(thermal), float(M), float(T_nu0))).encode())
+                   thermal if thermal == "full" else bool(thermal), float(M), float(T_nu0))).encode())
     return h.hexdigest()
 
 
@@ -1983,7 +2301,8 @@ def propagate_si(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta
     to electrons): it widens the resonance and the s-channel events into it are absorbed without secondaries (vector
     only); thermal -- the s-channel terms averaged over the relics' thermal momenta where that matters
     (_thermal_resonance_terms; the dark portal's MeV regime, 2026-10-14); False keeps the relics at rest, as both
-    papers and the secret-interaction planes.
+    papers and the secret-interaction planes; "full" (vector, 2026-10-18) averages every collision term -- rates,
+    in-bin terms and produced spectra -- over the relics' thermal momenta (_thermal_products).
 
     Returns the (N_E, 3) mass-state fluxes at z = 0 of the visible neutrinos (both helicities), on
     E_bins; with return_diagnostics also a dict of the number and energy bookkeeping (of the first
@@ -2051,7 +2370,8 @@ def _physics_key(E_bins, z_max, H0, Omega_m, Omega_L, masses, T_nu0, eta_mass, r
         h.update(np.ascontiguousarray(a).tobytes())
     h.update(repr((float(z_max), float(H0), float(Omega_m), float(Omega_L), float(T_nu0), float(rho_evol), float(M),
                    bool(majorana), str(channels), str(phiphi), int(z_substeps), float(E_extension), int(n_u),
-                   bool(regeneration), str(mediator), str(dirac_sterile), float(Gamma_vis), bool(thermal))).encode())
+                   bool(regeneration), str(mediator), str(dirac_sterile), float(Gamma_vis),
+                   thermal if thermal == "full" else bool(thermal))).encode())
     return h.hexdigest()
 
 
@@ -2143,7 +2463,11 @@ def _transport_columns(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu
     delta_mode = str(channels).strip().lower() == "delta"
     n0 = relic_density_per_helicity(T_nu0) * np.asarray(eta_mass, dtype=np.float64)
 
-    (lat_B, lat_O), top = _profile_tables(prof, M, masses, E[0], N, dlnE, q, K, top_full, L_top_mid, n_u)
+    full = thermal == "full"
+    if full and (prof != 1 or delta_mode):
+        raise ValueError("secret interactions: thermal='full' is implemented for the vector's full channels")
+    if not full:
+        (lat_B, lat_O), top = _profile_tables(prof, M, masses, E[0], N, dlnE, q, K, top_full, L_top_mid, n_u)
 
     C = len(columns)
     runs = spec["runs"]
@@ -2170,9 +2494,25 @@ def _transport_columns(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu
     # row, and the terms were half of each run)
     skey = _step_key(E, L_edges, masses, n0, M2, MG, H0, Omega_m, Omega_L, delta_mode, prof, hbin, thermal, M,
                      T_nu0, eta_arr, spec["jt"])
-    steps = _STEP_TERMS.get(skey)
+    if full:
+        # thermal relics in every collision term (2026-10-18): the steps' products from the lattice
+        # (_thermal_products), fed to the sweep as absolute products with J = 1 and per-bin rows
+        skey = skey + "/full/%d" % n_u
+        th = _STEP_TERMS.get(skey)
+        if th is None:
+            th = _thermal_terms(E, L_edges, q, Delta, dlnE, masses, n0, T_nu0, eta_arr, M, MG, H0, Omega_m, Omega_L,
+                                hbin, n_u)
+            _STEP_TERMS.clear()
+            _STEP_TERMS[skey] = th
+        offs = np.zeros(N + 1, dtype=np.int64)
+        offs[1:] = np.cumsum(jj + 1)
+        Rth = np.zeros((3, int(offs[-1]), P))
+        Oth = np.ascontiguousarray(np.tile(offs, (3, 1)))
+        node_th = np.ascontiguousarray(np.tile(jj[:, None], (1, 3)))
+        Jone = np.ones((N, 3, 4))
+    steps = None if full else _STEP_TERMS.get(skey)
     store = None
-    if steps is None and K * J.nbytes + 3 * K * Nq.nbytes <= _STEP_TERMS_MAX_BYTES:
+    if not full and steps is None and K * J.nbytes + 3 * K * Nq.nbytes <= _STEP_TERMS_MAX_BYTES:
         store = []
     S0 = np.zeros((N, 3, C))
     for m in range(K - 1, -1, -1):
@@ -2180,6 +2520,14 @@ def _transport_columns(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu
         for k, (P_c, p_c, w_c, phi_c, rho_c) in enumerate(columns):
             dt, T_inj = _step_time_and_injection(L_lo, L_hi, H0, Omega_m, Omega_L, p_c, rho_evol, phi_c)
             S0[:, :, k] = np.outer(Eps[k] * (T_inj / dt), np.asarray(P_c, dtype=np.float64))
+        if full:
+            _thermal_products(q, spec["jt"], th["W"][m], th["i0"][m], th["st"][m], th["nw"][m], n0, th["n_first"],
+                              th["Jn"][m], th["Nn"], th["Ln"], th["Dn"], th["Bn"], th["JT0"][m], th["JT1"][m], Nq, Lq,
+                              Dq, Rth, offs)
+            for k in range(len(runs)):
+                _si_sweep_cols(Fs[k], E, dE, S0, Jone, Nq, Lq, Dq, spec["jt"], spec["w"], spec["qe"], spec["Ctau"],
+                               Cregs[k], Rth, Oth, node_th, dt, reg, diags[k], True)
+            continue
         if steps is not None:
             J, Nq, Lq, Dq = steps[K - 1 - m]
         else:

@@ -35,7 +35,7 @@ import dp_si  # noqa: E402
 _step_integrals = njit(cache=False)(dp_si._step_integrals.py_func)
 
 ZETA3 = 1.2020569031595942
-OPTIONS = dict(kernel="thermal", n_sub=2, ng=24)
+OPTIONS = dict(kernel="thermal", n_sub=1, ng=8)
 CACHE_DIR = os.path.join(REPO, "output", "cache", "thermal_reference")
 
 
@@ -85,20 +85,24 @@ def rho(sig, m, T):
 @njit(cache=True)
 def sigma_nodes(m, T, extra, glx, glw, sig_out, w_out):
     """Nodes and weights of int d sigma rho(sigma) g(sigma): Gauss-Legendre (glx, glw on [0, 1]) in ln sigma on panels between
-    the kernel's ends (momenta up to 40 T), split at m, m +- 3T, m +- 10T, 0.1T, T, 3T, 10T, (0.05, 0.5, 5) m^2/T and the
-    extra points inside; each panel as two halves with the nodes clustered toward its ends. Returns the
+    the kernel's ends (momenta up to 40 T), split at m, at T, 10T and m^2/2T (relativistic, m < 3T) or m +- 3T and m +- 10T
+    (slow), and at the extra points inside; each panel as two halves with the nodes clustered toward its ends. Returns the
     number of nodes."""
     pm = 40.0 * T
     epm = np.sqrt(pm * pm + m * m)
     lo = m * m / (epm + pm)
     hi = epm + pm
-    pts = np.empty(14 + len(extra))
+    pts = np.empty(8 + len(extra))
     n = 0
     pts[n] = lo
     n += 1
-    mm_T = m * m / T
-    for v in (m, 0.1 * T, T, 3.0 * T, 10.0 * T, m - 10.0 * T, m - 3.0 * T, m + 3.0 * T, m + 10.0 * T,
-              0.05 * mm_T, 0.5 * mm_T, 5.0 * mm_T):
+    pts[n] = m
+    n += 1
+    if m < 3.0 * T:                       # relativistic: the thermal scale, and the cut-off of forward collisions
+        cand = (T, 10.0 * T, 0.5 * m * m / T, 0.0, 0.0)
+    else:                                 # slow: the bump around m
+        cand = (m - 3.0 * T, m + 3.0 * T, m - 10.0 * T, m + 10.0 * T, 0.0)
+    for v in cand:
         if lo < v < hi:
             pts[n] = v
             n += 1
@@ -180,8 +184,8 @@ def mixture_step(E, zlo, zhi, zmid, m, n0r, T, M2, MG, H0, Om, OL, delta_mode, p
     N1 = np.zeros((1, 3, P))
     L1 = np.zeros((1, 3, P))
     D1 = np.zeros((1, 3, P))
-    sig = np.empty(40 * len(glx))
-    wts = np.empty(40 * len(glx))
+    sig = np.empty(24 * len(glx))
+    wts = np.empty(24 * len(glx))
     extra = np.empty(4)
     rows = np.empty((N, P))
     for j in range(N):
@@ -212,13 +216,14 @@ def mixture_step(E, zlo, zhi, zmid, m, n0r, T, M2, MG, H0, Om, OL, delta_mode, p
 
 
 def extended_table(prof, M, E, z_max, sig_lo, sig_hi, n_u, dlnE):
-    """The produced spectra at mu = mu_top exp(-n dl), dl = dlnE / 2, over every mu = M^2 / (2 E' sigma) the kernels
-    reach (mu capped at 1e6: above, every product is below 1e-12 of the rest), full rows d = 0..N-1:
+    """The produced spectra at mu = mu_top exp(-n dl), dl = dlnE / 2, from mu = 1e6 (above, every product is below 1e-12
+    of the rest) down to the smallest mu any relic up to sigma = 0.3 eV reaches, full rows d = 0..N-1 (one table per
+    mediator mass, whatever the relic masses):
     (ln mu_top, dl, B (n_nodes, N, P)). Cached on disk."""
     N = len(E)
     dl = 0.5 * dlnE
-    mu_top = min(M * M / (2.0 * E[0] * sig_lo), 1e6)
-    mu_bot = M * M / (2.0 * E[-1] * (1.0 + z_max) * sig_hi)
+    mu_top = 1e6
+    mu_bot = M * M / (2.0 * E[-1] * (1.0 + z_max) * max(sig_hi, 0.3))
     n_nodes = int(np.ceil(np.log(mu_top / mu_bot) / dl)) + 3
     key = hashlib.sha256(repr((prof, M, float(E[0]), float(E[-1]), N, round(np.log(mu_top), 9), n_nodes, n_u,
                                float(dlnE))).encode()).hexdigest()[:16]
@@ -398,7 +403,7 @@ def transport_columns_ref(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T
     return outs
 
 
-def install(kernel="thermal", n_sub=2, ng=24):
+def install(kernel="thermal", n_sub=1, ng=8):
     """In this process, dp_si's batched transport becomes the reference (the analysis then uses it)."""
     OPTIONS.update(kernel=kernel, n_sub=n_sub, ng=ng)
     if not hasattr(dp_si, "_transport_columns_orig"):

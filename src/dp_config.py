@@ -143,6 +143,10 @@ def _build_default_config() -> Dict:
             # potential is negligible (the MeV regime), the dark-portal phase elsewhere; 'si', 'dark_portal'
             # force one.
             "cosmo_transport": "auto",
+            # The relics' motion in dp_si's transport (2026-10-18): False -- their thermal momenta in the s channel's
+            # kernels only (dp_si thermal=True); True -- in every collision term: rates, in-bin terms and produced
+            # spectra (thermal="full"; docs/SIMPLIFICATIONS_AND_ASSUMPTIONS.md 6a).
+            "thermal_products": False,
             "U_LRI_struct": None
         },
         "secret_interactions": {
