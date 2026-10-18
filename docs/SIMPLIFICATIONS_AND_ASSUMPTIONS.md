@@ -135,6 +135,15 @@ small, not yet measured), **open** (decided to remove or change, not yet done).
     published numbers, not the detectors' own tables), its systematics, no self-veto, each detector at full size for
     10 years. Projections use Asimov data. *Accepted.* (2026-10-14/15)
 
+16a. **The 2050 flavor projection dropped from the campaign** (data set proj_2050: the projected 2050 flavor
+    composition with IceCube's 2026 spectrum). *Removed* (Mauricio, 2026-10-18: "Remove 2050, document in case we want
+    to revive later"). The future detectors' event forecasts (item 16) replaced it as the projection on 2026-10-14;
+    it had stayed in the campaign by inertia (232 of its 928 planes). To revive it: regenerate its configurations
+    with `python tools/make_campaign_configs.py --mixing lightest --datasets proj_2050` (the generator still defines
+    it), and add it to the packs (`tools/campaign_packs.py --tree campaign_ml --sets ... proj_2050`). Its planes
+    reuse IceCube 2026's solver runs (the same physics), so its added cost is the fits (~700 core-hours in the
+    pilot's pricing).
+
 ## Numerics
 
 17. **The solver's redshift grid** (200 steps in the campaign): the flux normalization is accurate to a few 1e-3
