@@ -259,6 +259,22 @@ def test_event_term_profile_and_asimov(tmp_path):
     assert np.max(np.abs(ev._z0 - z_before)) > 1e-4 and ev.last["profile_converged"]
 
 
+def test_event_term_exact_gradient(tmp_path):
+    """EventLikelihood.chi2_and_grad (2026-10-18): the value is chi2's, the gradient the central difference of chi2
+    with the nuisances re-profiled -- the exact evaluation's derivative in the expectations plus the nuisances'
+    response through the per-bin profile -- away from the Asimov truth (residuals and detector pulls nonzero)."""
+    m, ev = _event_model(tmp_path)
+    ev.set_asimov({"norm_astro": 1.4, "p_index": 2.6})
+    names = ["norm_astro", "p_index"]
+    for v in ({"norm_astro": 1.1, "p_index": 2.45}, {"norm_astro": 1.9, "p_index": 2.7}):
+        f, g = ev.chi2_and_grad(v, names)
+        assert abs(f - ev.chi2(v)) < 1e-9 * max(1.0, f)
+        for j, n in enumerate(names):
+            h = 1e-5 * max(1.0, abs(v[n]))
+            fd = (ev.chi2(dict(v, **{n: v[n] + h})) - ev.chi2(dict(v, **{n: v[n] - h}))) / (2 * h)
+            assert abs(g[j] - fd) < 1e-4 * max(1.0, abs(fd)), (v, n, g[j], fd)
+
+
 def test_events_configuration(tmp_path):
     """data.events and data.spectrum exclude each other; the events need the flux in physical units; the identity
     changes with the events; the model is in sky mode with the flavor band."""

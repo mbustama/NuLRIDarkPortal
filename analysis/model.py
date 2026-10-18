@@ -1198,6 +1198,34 @@ class FlavorModel:
         self._eg_jac = (key, out)
         return out
 
+    def band_flux_jacobian(self, values: Mapping, names: Sequence[str]):
+        """(E, F_nu, F_nb, dF): band_fluxes (the same arithmetic, so the same values) per declination band, and the
+        derivatives in each of `names` (gradient_names()), {name: (dF_nu, dF_nb)} (2026-10-18: the HESE and DR2
+        likelihood's exact gradient)."""
+        names = list(names)
+        E, F_nu, F_nb, dF = self.extragalactic_band_jacobian(values, names)
+        dF = dict(dF)
+        if not self.galactic:
+            return E, F_nu.copy(), F_nb.copy(), dF
+        run = self._galactic_run(values)
+        x = float(values.get("f_e_S_gal", self.default("f_e_S_gal")))
+        if not 0.0 <= x <= 1.0:
+            raise ValueError(f"f_e_S_gal must lie in [0, 1], got {x}")
+        ng0 = self.default("norm_gal")
+        g = float(values.get("norm_gal", ng0)) / ng0
+        G_nu, G_nb, tder = run["gal_nu"], run["gal_nb"], {}
+        if self._need_templates(values, names):
+            G_nu, G_nb, _, tder = self._template_galactic(values, run, names)
+        gal_nu, gal_nb = x * G_nu[0] + (1.0 - x) * G_nu[1], x * G_nb[0] + (1.0 - x) * G_nb[1]
+        if "norm_gal" in names:
+            dF["norm_gal"] = (gal_nu / ng0, gal_nb / ng0)
+        if "f_e_S_gal" in names:
+            dF["f_e_S_gal"] = (g * (G_nu[0] - G_nu[1]), g * (G_nb[0] - G_nb[1]))
+        for n, d in tder.items():
+            dF[n] = (dF[n][0] + g * (x * d[0][0] + (1.0 - x) * d[0][1]),
+                     dF[n][1] + g * (x * d[1][0] + (1.0 - x) * d[1][1]))
+        return E, F_nu + g * gal_nu, F_nb + g * gal_nb, dF
+
     def site_band_flux_jacobian(self, values: Mapping, lat: float, names: Sequence[str]):
         """(E, F_nu, F_nb, dF) at a site of latitude lat (deg): site_band_fluxes (the same arithmetic, so the same
         values) and the derivatives in each of `names` (GRADIENT_NAMES), {name: (dF_nu, dF_nb)}, per local cos-zenith

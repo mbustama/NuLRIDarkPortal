@@ -125,8 +125,11 @@ class Objective:
         the templated mixing parameters), and every prior on them Gaussian or half-Gaussian (on a parameter or on the
         sum of the masses, which depends on the splittings). Anything else -- a surface, a spectrum, HESE or DR2, a mass or a coupling free -- keeps the
         finite differences."""
+        from .events import EventLikelihood
         from .future_events import FutureEventLikelihood
-        if self.surface is not None or self.spectrum is not None or not isinstance(self.events, FutureEventLikelihood):
+        # the future detectors' events, or HESE and DR2's (2026-10-18: EventLikelihood.chi2_and_grad)
+        if self.surface is not None or self.spectrum is not None or \
+                not isinstance(self.events, (FutureEventLikelihood, EventLikelihood)):
             return False
         if not names or not set(names) <= set(self.model.gradient_names()):
             return False

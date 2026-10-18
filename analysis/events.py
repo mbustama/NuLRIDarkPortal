@@ -523,6 +523,159 @@ class EventLikelihood:
                          profile_message=str(r.message))
         return ex["total"]
 
+    # ------------------------------------------------------------------ the exact gradient (2026-10-18)
+    def _astro_from(self, F_nu, F_nb) -> dict:
+        """astro() from given band fluxes (linear in them)."""
+        out = {}
+        if self.hese is not None:
+            per_event = self.hese.lin.per_event(F_nu, F_nb)
+            out["hese_events"] = per_event
+            out["hese"] = np.bincount(self.hese.bin, weights=per_event, minlength=self.hese.n_bins)
+        if self.dr2 is not None:
+            Fmu = F_nu[:, :, 1] + F_nb[:, :, 1]
+            out["dr2"] = {c: self.dr2.fold[c](Fmu) for c in self.dr2.configs}
+        return out
+
+    def _exact_grads(self, x, A):
+        """At nuisances x: d(exact)/d(HESE per-event astro), d(exact)/d(DR2 astro per configuration) and d(exact)/dx
+        -- exact() differentiated (the per-event detector factors through lagrange4's derivatives)."""
+        v = self._unpack(x)
+        idx = {n: i for i, n in enumerate(self.names)}
+        theta = np.array([v[p] for p in self.atm_params])
+        gx = np.zeros(len(x))
+        g_ev, g_dr2 = None, {}
+        if self.hese is not None:
+            H = self.hese
+            det = {s: v[s] for s in H.names}
+            co = H.coefficients(det)
+            f = H.factors(det)
+            atm = H.conv + theta @ H.deriv
+            per = A["hese_events"] * f["Astro"] + (1.0 + v["hese_conv_norm"]) * atm * f["Conv"] \
+                + (1.0 + v["prompt"]) * H.prompt * f["Prompt"]
+            mu = np.bincount(H.bin, weights=per, minlength=H.n_bins) + v["hese_muon_norm"] * H.muons
+            _, r = _poisson(mu, H.data, grad=True)
+            re = r[H.bin]                                         # per event
+            g_ev = re * f["Astro"]
+            gx[idx["hese_conv_norm"]] += re @ (atm * f["Conv"])
+            for k, p in enumerate(self.atm_params):
+                gx[idx[p]] += (1.0 + v["hese_conv_norm"]) * (re @ (H.deriv[k] * f["Conv"]))
+            gx[idx["prompt"]] += re @ (H.prompt * f["Prompt"])
+            gx[idx["hese_muon_norm"]] += r @ H.muons
+            ln10 = np.log(10.0)
+            for s in H.names:
+                i, c, dc = co[s]
+                dlog = {comp: ln10 * (dc.astype(np.float32) @ H.L[comp][s][i:i + 4]).astype(np.float64)
+                        for comp in ("Astro", "Conv", "Prompt")}
+                dper = A["hese_events"] * f["Astro"] * dlog["Astro"] \
+                    + (1.0 + v["hese_conv_norm"]) * atm * f["Conv"] * dlog["Conv"] \
+                    + (1.0 + v["prompt"]) * H.prompt * f["Prompt"] * dlog["Prompt"]
+                gx[idx[s]] += re @ dper
+        if self.dr2 is not None:
+            D = self.dr2
+            for c in D.configs:
+                nc = v[f"dr2_norm_{c}"]
+                B = D.nom[c] + theta @ D.deriv[c] + v["prompt"] * D.prompt[c]
+                mu = A["dr2"][c] + (1.0 + nc) * B
+                _, r = _poisson(mu, D.data[c], grad=True)
+                g_dr2[c] = r
+                gx[idx[f"dr2_norm_{c}"]] += r @ B
+                gx[[idx[p] for p in self.atm_params]] += (1.0 + nc) * (D.deriv[c] @ r)
+                gx[idx["prompt"]] += (1.0 + nc) * (r @ D.prompt[c])
+        gx += 2.0 * (x - self.centre) / self.sigma ** 2
+        return g_ev, g_dr2, gx
+
+    def _profile_shift(self, x, A, gx):
+        """The nuisances follow the astrophysical expectation (the profile is the per-bin model's minimum, at which the
+        exact evaluation's gradient gx is not zero): by the implicit function theorem the exact value's derivative in
+        the expectation gains -(d grad_x f_bin / dA)^T H^-1 gx (H the per-bin model's Gauss-Newton Hessian, the
+        nuisances held at a bound left out). Returns that term per HESE bin (per-bin expectation) and per DR2 bin."""
+        lo = np.array([-np.inf if b[0] is None else b[0] for b in self.bounds])
+        hi = np.array([np.inf if b[1] is None else b[1] for b in self.bounds])
+        f, g, Hm = self._gn_terms(x, A)
+        span = 1e-12 * np.maximum(1.0, np.abs(x))
+        free = ~(((x <= lo + span) & (g > 0.0)) | ((x >= hi - span) & (g < 0.0)))
+        vv = np.zeros(len(x))
+        try:
+            vv[free] = np.linalg.solve(Hm[np.ix_(free, free)], gx[free])
+        except np.linalg.LinAlgError:
+            return None, {}
+        v = self._unpack(x)
+        idx = {n: i for i, n in enumerate(self.names)}
+        theta = np.array([v[p] for p in self.atm_params])
+        vt = np.array([vv[idx[p]] for p in self.atm_params])
+        c_hese, c_dr2 = None, {}
+        if self.hese is not None:
+            H = self.hese
+            det = {s: v[s] for s in H.names}
+            cn, mn, pr = v["hese_conv_norm"], v["hese_muon_norm"], v["prompt"]
+            co = H.coefficients(det)
+            rA, dA = H.rho(H.bd_astro_ref, det, True, co)
+            rC, dC = H.rho(H.bd_conv, det, True, co)
+            rP, dP = H.rho(H.bd_prompt, det, True, co)
+            rD = [H.rho(bd, det, True, co) for bd in H.bd_deriv]
+            a = A["hese"] * rA
+            c = H.bd_conv.H0 * rC
+            dk = [bd.H0 * rr for bd, (rr, _) in zip(H.bd_deriv, rD)]
+            dsum = sum(t * d for t, d in zip(theta, dk))
+            p = H.bd_prompt.H0 * rP
+            mu = a + (1.0 + cn) * (c + dsum) + (1.0 + pr) * p + mn * H.muons
+            _, r = _poisson(mu, H.data, grad=True)
+            pos = H.data > 0
+            m = np.where(pos, np.maximum(mu, MU_FLOOR * H.data), 1.0)
+            h = np.where(pos, 2.0 * H.data / (m * m), np.where(mu < 0.0, 2.0 * NEG_PENALTY, 0.0))
+            Jv = (1.0 + cn) * sum(vt[k] * dk[k] for k in range(len(dk))) + vv[idx["prompt"]] * p \
+                + vv[idx["hese_conv_norm"]] * (c + dsum) + vv[idx["hese_muon_norm"]] * H.muons
+            dA_v = np.zeros(H.n_bins)
+            for s in H.names:
+                dmu = a * dA[s] + (1.0 + cn) * (c * dC[s] + sum(t * d * rd[1][s] for t, d, rd in zip(theta, dk, rD))) \
+                    + (1.0 + pr) * p * dP[s]
+                Jv += vv[idx[s]] * dmu
+                dA_v += vv[idx[s]] * rA * dA[s]
+            c_hese = -(h * rA * Jv + r * dA_v)
+        if self.dr2 is not None:
+            D = self.dr2
+            pr = v["prompt"]
+            for c_ in D.configs:
+                nc = v[f"dr2_norm_{c_}"]
+                B = D.nom[c_] + theta @ D.deriv[c_] + pr * D.prompt[c_]
+                mu = A["dr2"][c_] + (1.0 + nc) * B
+                pos = D.data[c_] > 0
+                m = np.where(pos, np.maximum(mu, MU_FLOOR * D.data[c_]), 1.0)
+                h = np.where(pos, 2.0 * D.data[c_] / (m * m), np.where(mu < 0.0, 2.0 * NEG_PENALTY, 0.0))
+                Jv = (1.0 + nc) * (vt @ D.deriv[c_] + vv[idx["prompt"]] * D.prompt[c_]) + vv[idx[f"dr2_norm_{c_}"]] * B
+                c_dr2[c_] = -h * Jv
+        return c_hese, c_dr2
+
+    def chi2_and_grad(self, values: Mapping, names):
+        """chi2(values) (the same value) and its gradient in `names` (the model's gradient_names()): the exact
+        evaluation's derivative in the astrophysical expectations at the profiled nuisances, plus the nuisances'
+        response through the per-bin profile (_profile_shift), through the linear maps from the band fluxes to the
+        expectations (HESE per event, DR2 per bin) to the model's closed-form flux derivatives
+        (FlavorModel.band_flux_jacobian)."""
+        self.n_calls += 1
+        names = list(names)
+        _, F_nu, F_nb, dF = self.model.band_flux_jacobian(values, names)
+        A = self._astro_from(F_nu, F_nb)
+        x, r = self.profile(A)
+        ex = self.exact(x, A)
+        self.last = dict(nuisances=self._unpack(x), hese=ex["hese"], dr2=ex["dr2"], priors=ex["priors"],
+                         profile_value=float(r.fun), profile_converged=bool(r.converged), profile_nit=int(r.nit),
+                         profile_message=str(r.message))
+        g_ev, g_dr2, gx = self._exact_grads(x, A)
+        c_hese, c_dr2 = self._profile_shift(x, A, gx)
+        if self.hese is not None:
+            G_ev = g_ev + (0.0 if c_hese is None else c_hese[self.hese.bin])
+        grad = np.zeros(len(names))
+        for j, n in enumerate(names):
+            d_nu, d_nb = dF[n]
+            if self.hese is not None:
+                grad[j] += G_ev @ self.hese.lin.per_event(d_nu, d_nb)
+            if self.dr2 is not None:
+                dmu = d_nu[:, :, 1] + d_nb[:, :, 1]
+                for c in self.dr2.configs:
+                    grad[j] += (g_dr2[c] + c_dr2.get(c, 0.0)) @ self.dr2.fold[c](dmu)
+        return float(ex["total"]), grad
+
     # ------------------------------------------------------------------ Asimov data
     def set_asimov(self, values: Mapping, nuisances: Optional[Mapping] = None) -> None:
         """Replace the data by the expectation at the model's values and the nuisances (default: their centres), with
