@@ -142,8 +142,12 @@ def relic_state_rates_analytic(E0: float, z: float, sum_G: float, m_Zd: float,
                                eta_mass: np.ndarray, glx: np.ndarray,
                                glw: np.ndarray, glx10: np.ndarray,
                                glw10: np.ndarray, fd16: np.ndarray, moller: bool,
-                               mode: int = 0) -> np.ndarray:
-    """mode 1 (with moller): the same thermal average of (s - M^2)/BW instead of s/BW -- the kinematic
+                               mode: int = 0, fine_m: bool = False) -> np.ndarray:
+    """fine_m (2026-10-18; dp_si thermal="full"): momentum panels at 2m, 20m, 200m, 2000m, where p / E_p turns over
+    (without them, ~m/T errors where the resonance sits at sigma ~ m: 1e-2 at m/T ~ 0.03); False keeps the earlier
+    quadrature.
+
+    mode 1 (with moller): the same thermal average of (s - M^2)/BW instead of s/BW -- the kinematic
     factor of the s-t interference (dp_si's thermal step integrals), closed form
         [(K/2) L + v (2B - MG T)] / B^2.
 
@@ -219,7 +223,7 @@ def relic_state_rates_analytic(E0: float, z: float, sum_G: float, m_Zd: float,
         # crossing capture each decade of the atan/log transition; the innermost
         # +-3-width core gets the exact moments when narrow. Cells with no structure
         # in range keep the single [0, p_max] panel. ---
-        brk = np.empty(14, dtype=np.float64)
+        brk = np.empty(18, dtype=np.float64)
         nb = 0
         brk[nb] = 0.0
         nb += 1
@@ -239,7 +243,15 @@ def relic_state_rates_analytic(E0: float, z: float, sum_G: float, m_Zd: float,
             if pe_inside:
                 brk[nb] = p_edge
                 nb += 1
-        # insertion sort (nb <= 13)
+        if fine_m:
+            # p / E_p turns over at p ~ m: panels at 2m, 20m, 200m, 2000m for a relativistic relic (2026-10-18; the
+            # single [0, p_max] panel left ~m/T errors where the resonance sits at sigma ~ m, 1e-2 at m/T ~ 0.03)
+            for f in (2.0, 20.0, 200.0, 2000.0):
+                c = f * m
+                if 0.0 < c < p_max:
+                    brk[nb] = c
+                    nb += 1
+        # insertion sort (nb <= 17)
         for ii in range(1, nb):
             key = brk[ii]
             jj = ii - 1

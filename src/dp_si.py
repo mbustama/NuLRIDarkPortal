@@ -2062,9 +2062,9 @@ def _resonance_grid(lna, zp1, M, sumG_eq, masses, T_nu0, eta, tglx, tglw, tglx10
     for g in prange(len(lna)):
         E0 = np.exp(lna[g]) / (2.0 * zp1)
         st0 = relic_state_rates_analytic(E0, zp1 - 1.0, sumG_eq, M, masses, T_nu0, eta, tglx, tglw, tglx10, tglw10,
-                                         tfd16, True, 0)
+                                         tfd16, True, 0, True)
         st1 = relic_state_rates_analytic(E0, zp1 - 1.0, sumG_eq, M, masses, T_nu0, eta, tglx, tglw, tglx10, tglw10,
-                                         tfd16, True, 1)
+                                         tfd16, True, 1, True)
         for r in range(3):
             f0[g, r] = st0[r] / (2.0 * np.pi)
             f1[g, r] = st1[r] / (2.0 * np.pi)

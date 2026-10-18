@@ -53,3 +53,27 @@ def test_transport_matches_reference(M, g, monkeypatch):
     dp_si._COLUMNS.clear()
     assert np.max(np.abs(full - ref) / F0) < 2e-4
     assert np.max(np.abs(res - ref) / F0) > 3e-3
+
+
+@pytest.mark.parametrize("m", [1e-6, 1e-5, 1e-4])
+def test_resonant_kernel_resolves_the_relic_mass(m):
+    """relic_state_rates_analytic with fine_m: the thermal s/BW with the resonance at sigma = m (a relativistic relic)
+    against direct quadrature over rho (with one [0, p_max] momentum panel it was 1e-2 off at m = 1e-5)."""
+    from scipy import integrate
+    import dp_thermal
+    M, gam, T0, z = 3.16e4, 1e-7, 1.6765e-4, 1.0
+    T = T0 * (1 + z)
+    a = M * M / m
+    st = dp_thermal.relic_state_rates_analytic(a / (2 * (1 + z)), z, 12 * np.pi * gam, M, np.array([m, 0.0, 0.0]), T0,
+                                               np.array([1.0, 0.0, 0.0]), dp_si._TGL16_X, dp_si._TGL16_W,
+                                               dp_si._TGL10_X, dp_si._TGL10_W, dp_si._TFD16, True, 0, True)[0]
+    n = dp_si.relic_density_per_helicity(T0) * (1 + z) ** 3
+
+    def f(u):
+        s = a * np.exp(u)
+        return tr.rho(np.exp(u), m, T) * np.exp(u) * s / ((s - M * M) ** 2 + (M * M * gam) ** 2)
+    u0 = np.log(m)
+    cuts = sorted({np.log(m * m / (80 * T)), np.log(80 * T)} | {u0 + sg * gam * 10.0 ** k for k in range(9)
+                                                                   for sg in (-1, 1)})
+    ref = sum(integrate.quad(f, p, q, limit=400, epsabs=0, epsrel=1e-10)[0] for p, q in zip(cuts[:-1], cuts[1:]))
+    assert abs(st / (2 * np.pi * n) / ref - 1.0) < 1e-6
