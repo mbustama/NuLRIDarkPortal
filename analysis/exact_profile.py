@@ -1,0 +1,334 @@
+"""
+exact_profile.py -- the profile over the neutrino mixing and the lightest neutrino mass, exact at every point
+(2026-10-18; docs/dev/EXACT_PROFILE.md).
+
+The problem. At a point of a plane (mediator mass and coupling held) chi^2 is minimized over the cheap nuisances nu
+(normalizations, compositions, spectral indices: they need no new solver runs) and over the parameters eta that change
+the propagation -- sin^2 th12, sin^2 th13, sin^2 th23, delta_CP, Delta m^2_21, Delta m^2_31 and m_lightest. Each new
+value of eta needs the solver at every spectral-index node of both pieces of the broken power law (on Tycho ~3 s for a
+potential point, 17-28 s for an MeV point), and a fit with finite differences tries hundreds of them.
+
+The method: a trust-region Gauss-Newton iteration in eta whose iterates (centres) are evaluated exactly.
+
+  Surrogate. At a centre c the model is templates.py's model centred there: the exact runs at c (every index node), and
+  one forward-difference run per parameter of eta (a step h_i of a twentieth of the prior's width, at each piece's
+  central index node), combined element by element (energy, flavor, band, source) as
+      F(eta, p) = F(c, p) exp[sum_i (eta_i - c_i) / h_i log(F_i / F_c)].
+  It is the exact model at eta = c, for every nu (templates.py skips the template runs there: the factor is exactly 1),
+  and its gradient in eta there is the forward difference's. The surrogate chi^2 -- this flux in the analysis' own
+  likelihood, the priors exact -- costs no solver run.
+
+  Step. The surrogate is minimized over (eta, nu) with eta in the box |eta_i - c_i| <= Delta w_i (w_i the prior's
+  width, Delta the trust radius). If its best value lies less than `stop` below the centre's exact value within a box
+  of at least `cert_radius` widths, the centre is the profile (certified, below). Otherwise the step's end is
+  evaluated exactly -- it becomes a candidate centre -- and the step accepted when the exact chi^2 decreased: the radius
+  doubles when the surrogate predicted the decrease well (rho > 0.75) at the box's edge and halves when it did not
+  (rho < 0.25); a rise is rejected and the radius cut to a quarter of the step. The accepted centre's forward
+  differences are computed when its surrogate is first needed.
+
+Why the result is exact. (i) Every chi^2 reported is the exact model's at the reported values: the solver at the
+reported eta, every index node, nu fitted on those runs. (ii) The certificate: at the reported centre the surrogate
+equals the exact chi^2 for every nu and has the exact gradient in eta up to the forward difference's truncation e (of
+order h times the flux's curvature: below 1e-3 chi^2 per prior width at h = w / 20, measured), and no point of the
+surrogate within cert_radius widths lies `stop` below. The exact chi^2's own minimum near the centre can then lie
+below the reported value by at most stop plus e^2 / (2 lambda) (lambda the curvature, at least the prior's ~2 per
+width^2): ~1e-6 beyond `stop`. (iii) Separate basins -- the two octants of theta23 under NuFIT, the lightest mass at
+MeV absorption -- are the caller's to start in (each start is its own trust-region run; the lowest certified one is
+the profile).
+
+m_lightest. Bounded below by M_LIGHTEST_MIN (1e-6 eV), not 0: the MeV transport treats an exactly massless relic as
+not interacting at all (dp_si: s = 2 E m = 0), while any m > 0 gets the thermal (relativistic) treatment, continuous
+as m -> 0; the bound changes the mass-sum penalty by 3e-5.
+"""
+import copy
+import time
+from dataclasses import dataclass, field
+from typing import Dict, List, Mapping, Optional, Sequence
+
+import numpy as np
+
+from .fitting import FitSettings, fit
+from .model import ALIASES, sin2_to_deg
+from .parameters import GaussianPrior, Parameter, ParameterSet
+from .templates import MixingTemplate
+
+ETA = ("s12sq", "s13sq", "s23sq", "d_cp_deg", "dm21_sq", "dm31_sq", "m_lightest_eV")
+SOLVER_KEYS = {"s12sq": ("standard_mixing", "th12_deg"), "s13sq": ("standard_mixing", "th13_deg"),
+               "s23sq": ("standard_mixing", "th23_deg"), "d_cp_deg": ("standard_mixing", "d_cp_deg"),
+               "dm21_sq": ("standard_mixing", "dm21_sq"), "dm31_sq": ("standard_mixing", "dm31_sq"),
+               "m_lightest_eV": ("cosmology", "m_lightest_eV")}
+# NuFIT 6.1 (normal ordering, with SK's atmospheric data): approximate 1-sigma widths -- the trust region's units and
+# the forward differences' steps only, never the penalty (nufit.py)
+NUFIT_WIDTHS = dict(s12sq=0.012, s13sq=0.00057, s23sq=0.018, d_cp_deg=30.0, dm21_sq=2.0e-6, dm31_sq=2.5e-5)
+M_LIGHTEST_WIDTH = 0.01           # eV: the trust region's unit for m_lightest
+M_LIGHTEST_MIN = 1e-6             # eV (module docstring)
+M_LIGHTEST_FD_FLOOR = 1e-3        # eV: m_lightest's forward step is fd_rel_ml * max(m, this)
+
+
+@dataclass
+class ExactSettings:
+    """Knobs of the exact profile (module docstring). radius, radius_max, cert_radius: trust radii in prior widths;
+    fd_rel: forward-difference step in prior widths (fd_rel_ml: m_lightest's, relative); stop: the certified
+    predicted decrease; max_centres: exact centres per start; accept: the smallest exact decrease accepted."""
+    radius: float = 1.0
+    radius_max: float = 4.0
+    radius_min: float = 1e-3
+    cert_radius: float = 0.5
+    fd_rel: float = 0.05
+    fd_rel_ml: float = 0.01
+    stop: float = 1e-4
+    max_centres: int = 12
+    accept: float = 1e-9
+
+    @classmethod
+    def from_dict(cls, d: Optional[Mapping]) -> "ExactSettings":
+        d = dict(d or {})
+        unknown = set(d) - set(cls.__dataclass_fields__)
+        if unknown:
+            raise ValueError(f"Unknown exact-profile settings {sorted(unknown)}; known: {sorted(cls.__dataclass_fields__)}")
+        return cls(**d)
+
+
+@dataclass
+class ExactResult:
+    """The profile at one point: values (every parameter, held ones included), chi2 (the exact model's there), the
+    certificate (certified, the last predicted decrease and its box), the centres visited (eta, exact chi^2, accepted)
+    and the cost (solver runs, seconds)."""
+    values: Dict[str, float]
+    chi2: float
+    certified: bool
+    message: str
+    pred: float
+    pred_radius: float
+    centres: List[dict] = field(default_factory=list)
+    solver_runs: int = 0
+    seconds: float = 0.0
+    nfev: int = 0
+
+    def as_dict(self) -> dict:
+        return dict(values=self.values, chi2=self.chi2, certified=self.certified, message=self.message, pred=self.pred,
+                    pred_radius=self.pred_radius, centres=self.centres, solver_runs=self.solver_runs,
+                    seconds=self.seconds, nfev=self.nfev)
+
+
+def widths(cfg, names: Sequence[str]) -> Dict[str, float]:
+    """The prior's width of each parameter of eta: a Gaussian prior's, NuFIT 6.1's approximate 1 sigma under the
+    pairwise prior, M_LIGHTEST_WIDTH for m_lightest."""
+    gauss = {p.name: float(p.width) for p in cfg.priors if isinstance(p, GaussianPrior)}
+    out = {}
+    for n in names:
+        if n in gauss:
+            out[n] = gauss[n]
+        elif n == "m_lightest_eV":
+            out[n] = M_LIGHTEST_WIDTH
+        else:
+            out[n] = NUFIT_WIDTHS[n]
+    return out
+
+
+class ExactProfiler:
+    """The exact profile over eta (module docstring) for one analysis configuration.
+
+    Arguments: cfg -- an AnalysisConfig whose eta parameters are free and carry no template (exact_config gives one
+    from any campaign configuration); objective -- its Objective (built here when None; with data_centre for Asimov
+    data); settings -- ExactSettings.
+    """
+
+    def __init__(self, cfg, objective=None, data_centre=None, settings: Optional[ExactSettings] = None):
+        if cfg.templates:
+            raise ValueError("the exact profile builds its own local templates: give it a configuration without "
+                             "'template' entries (exact_config)")
+        self.cfg = cfg
+        self.settings = settings or ExactSettings()
+        self.obj = objective if objective is not None else cfg.objective(data_centre=data_centre)
+        self.exact_model = self.obj.model
+        self.eta = [n for n in ETA if n in cfg.free_names]
+        self.w = widths(cfg, self.eta)
+        self.bounds = {p.name: tuple(p.bounds) for p in cfg.parameters}
+        fs = dict(vars(cfg.fit))
+        fs.update(polish=False, n_random=0)
+        self.fit_settings = FitSettings(**fs)
+        self.solver_runs = 0
+
+    # ------------------------------------------------------------------ models
+    def _fd_step(self, name: str, c: float) -> float:
+        s = self.settings
+        h = s.fd_rel_ml * max(c, M_LIGHTEST_FD_FLOOR) if name == "m_lightest_eV" else s.fd_rel * self.w[name]
+        lo, hi = self.bounds[name]
+        return -h if c + h > hi else h
+
+    def centre_model(self, centre: Mapping[str, float]):
+        """The model centred at eta = centre: the solver configuration there, and a forward-difference ("step")
+        template per parameter of eta."""
+        solver = copy.deepcopy(self.cfg.solver)
+        templates = []
+        for n in self.eta:
+            c = float(centre[n])
+            section, key = SOLVER_KEYS[n]
+            solver.setdefault(section, {})[key] = sin2_to_deg(c) if n in ALIASES else c
+            templates.append(MixingTemplate(n, c, (c + self._fd_step(n, c),)))
+        return self.cfg.model(solver=solver, templates=templates)
+
+    def use(self, model) -> None:
+        """Puts `model` into the objective and its event likelihoods (the data stay)."""
+        self.obj.model = model
+        ev = self.obj.events
+        if ev is not None:
+            for t in getattr(ev, "terms", [ev]):
+                t.model = model
+
+    def _runs(self, model) -> int:
+        return int(getattr(model, "n_solver_calls", 0))
+
+    # ------------------------------------------------------------------ fits
+    def _nu_names(self, held: Mapping) -> List[str]:
+        return [p.name for p in self.cfg.parameters if p.name not in held and p.name not in self.eta]
+
+    def _centre_value(self, held: Mapping, centre: Mapping, start: Mapping):
+        """min over nu of the (exact) chi^2 at eta = centre: (chi2, values, nfev)."""
+        pset = self.cfg.parameter_set().holding({**held, **{n: float(centre[n]) for n in self.eta}})
+        if not pset.free:
+            v = dict(pset.held)
+            return float(self.obj.chi2(v)), v, 1
+        r = fit(self.obj, pset, starts=[{k: v for k, v in start.items() if k in pset.names}],
+                settings=self.fit_settings)
+        return float(r.chi2), dict(r.values), int(r.nfev)
+
+    def _box_pset(self, held: Mapping, centre: Mapping, radius: float) -> ParameterSet:
+        free = []
+        for p in self.cfg.parameters:
+            if p.name in held:
+                continue
+            if p.name in self.eta:
+                c, w = float(centre[p.name]), self.w[p.name]
+                lo, hi = max(p.bounds[0], c - radius * w), min(p.bounds[1], c + radius * w)
+                if not lo < hi:
+                    lo, hi = min(lo, c) - 1e-12 * max(1.0, abs(c)), max(hi, c) + 1e-12 * max(1.0, abs(c))
+                free.append(Parameter(p.name, min(max(c, lo), hi), (lo, hi), "linear"))
+            else:
+                free.append(p)
+        return ParameterSet(free, dict(held))
+
+    def _surrogate_step(self, held: Mapping, centre: Mapping, values_c: Mapping, radius: float):
+        """min of the surrogate centred at `centre` over (eta in the box of `radius` widths, nu), from the centre's
+        own solution: FitResult."""
+        pset = self._box_pset(held, centre, radius)
+        start = {k: v for k, v in values_c.items() if k in pset.names}
+        start.update({n: float(centre[n]) for n in self.eta})
+        return fit(self.obj, pset, starts=[start], settings=self.fit_settings)
+
+    # ------------------------------------------------------------------ the profile
+    def profile(self, held: Mapping, start: Mapping, log=None) -> ExactResult:
+        """The exact profile at the held values from one start (values of eta and nu; missing ones take the
+        parameters' starts)."""
+        s = self.settings
+        t0 = time.perf_counter()
+        held = {k: float(v) for k, v in held.items()}
+        st = {p.name: p.start for p in self.cfg.parameters}
+        st.update({k: float(v) for k, v in start.items()})
+        centre = {}
+        for n in self.eta:
+            lo, hi = self.bounds[n]
+            centre[n] = float(min(max(st[n], lo), hi))
+        nfev = 0
+        runs = 0                                      # solver runs of the models dropped so far
+        model_c = model_t = self.centre_model(centre)
+        self.use(model_c)
+        certified, message, pred, pred_radius = False, "", np.inf, 0.0
+        try:
+            f_c, vals_c, k = self._centre_value(held, centre, st)
+            nfev += k
+            centres = [dict(eta=dict(centre), chi2=f_c, accepted=True)]
+            radius = s.radius
+            while True:
+                big = max(radius, s.cert_radius)
+                r = self._surrogate_step(held, centre, vals_c, big)
+                nfev += r.nfev
+                pred, pred_radius = f_c - float(r.chi2), big
+                if pred <= s.stop:
+                    certified, message = True, f"certified: surrogate decrease {pred:.2g} within {big:.3g} widths"
+                    break
+                if radius < s.cert_radius:
+                    r = self._surrogate_step(held, centre, vals_c, radius)
+                    nfev += r.nfev
+                    if f_c - float(r.chi2) <= 0.0:
+                        message = f"stalled: no surrogate decrease within {radius:.3g} widths (predicted {pred:.3g} within {big:.3g})"
+                        break
+                p_step = f_c - float(r.chi2)
+                trial = {n: float(r.values[n]) for n in self.eta}
+                step = max(abs(trial[n] - centre[n]) / self.w[n] for n in self.eta)
+                if len(centres) >= s.max_centres:
+                    message = f"stopped after {len(centres)} centres (predicted decrease {pred:.3g})"
+                    break
+                model_t = self.centre_model(trial)
+                self.use(model_t)
+                f_t, vals_t, k = self._centre_value(held, trial, r.values)
+                nfev += k
+                rho = (f_c - f_t) / p_step if p_step > 0 else 0.0
+                accepted = f_t < f_c - s.accept
+                centres.append(dict(eta=dict(trial), chi2=f_t, accepted=bool(accepted), predicted=f_c - p_step,
+                                    rho=rho, radius=radius, step=step))
+                if log is not None:
+                    log(f"    centre {len(centres) - 1}: chi2 {f_t:.6f} (predicted {f_c - p_step:.6f}, from {f_c:.6f}), "
+                        f"step {step:.3g} widths, rho {rho:.3g}, {'accepted' if accepted else 'rejected'}")
+                if accepted:
+                    if rho > 0.75 and step > 0.9 * radius:
+                        radius = min(2.0 * radius, s.radius_max)
+                    elif rho < 0.25:
+                        radius = max(0.5 * radius, s.radius_min)
+                    runs += self._runs(model_c)
+                    centre, f_c, vals_c, model_c = trial, f_t, vals_t, model_t
+                else:
+                    runs += self._runs(model_t)
+                    model_t = model_c
+                    self.use(model_c)
+                    radius = 0.25 * step
+                    if radius < s.radius_min:
+                        message = f"stalled: trust radius {radius:.2g} widths (predicted {pred:.3g})"
+                        break
+        finally:
+            runs += self._runs(model_c) + (self._runs(model_t) if model_t is not model_c else 0)
+            self.use(self.exact_model)
+        values = dict(vals_c)
+        values.update({n: float(centre[n]) for n in self.eta})
+        self.solver_runs += runs
+        return ExactResult(values=values, chi2=float(f_c), certified=certified, message=message, pred=float(pred),
+                           pred_radius=float(pred_radius), centres=centres, solver_runs=runs,
+                           seconds=time.perf_counter() - t0, nfev=nfev)
+
+    def profile_starts(self, held: Mapping, starts: Sequence[Mapping], log=None) -> ExactResult:
+        """profile() from each start; the lowest result, with every start's chi^2 in its message."""
+        res = [self.profile(held, st, log=log) for st in starts]
+        best = min(res, key=lambda r: (not r.certified, r.chi2))
+        lowest = min(res, key=lambda r: r.chi2)
+        if lowest.chi2 < best.chi2:
+            best = lowest
+        best.message += "; starts: " + ", ".join(f"{r.chi2:.6f}{'' if r.certified else ' (uncertified)'}" for r in res)
+        best.solver_runs = sum(r.solver_runs for r in res)
+        best.seconds = sum(r.seconds for r in res)
+        best.nfev = sum(r.nfev for r in res)
+        return best
+
+    # ------------------------------------------------------------------ validation
+    def bruteforce(self, held: Mapping, starts: Sequence[Mapping], settings: Optional[FitSettings] = None):
+        """The reference for validation: the exact model with every parameter free (the solver at every value of eta
+        a fit tries), L-BFGS-B from each start: FitResult."""
+        self.use(self.exact_model)
+        pset = self.cfg.parameter_set().holding(held)
+        st = settings or FitSettings(**{**vars(self.fit_settings), "max_evals": 2000})
+        return fit(self.obj, pset, starts=[{k: v for k, v in s.items() if k in pset.names} for s in starts],
+                   settings=st)
+
+
+def exact_config(raw: Mapping, m_lightest: Optional[Mapping] = None) -> dict:
+    """A configuration for the exact profile from any campaign configuration: the mixing templates dropped (the
+    parameters stay free, the solver at every value) and m_lightest_eV free from M_LIGHTEST_MIN (the mass-sum
+    penalty's minimum) when the configuration does not float it; m_lightest overrides its spec."""
+    out = copy.deepcopy(dict(raw))
+    params = out["parameters"]
+    for spec in params.values():
+        spec.pop("template", None)
+    if "m_lightest_eV" not in params or m_lightest:
+        params["m_lightest_eV"] = dict({"start": M_LIGHTEST_MIN, "bounds": [M_LIGHTEST_MIN, 0.1], "space": "linear"},
+                                       **(m_lightest or {}))
+    return out

@@ -17,8 +17,12 @@ central node and theta0 the formula is exact; elsewhere it neglects how the para
 the index (and the parameters' cross terms). The Galactic flux, which depends on neither the index nor the window, is
 interpolated directly: G(x) = G0 + sum w_kn (G_kn - G0).
 
+At theta0 itself the model skips the template runs altogether (the factor is exactly 1 there), so a model centred at
+some value is also that value's exact model: the exact profile (exact_profile.py, 2026-10-18) builds one such model per
+centre of its trust region, with a "step" template per parameter as the forward differences of its local surrogate.
+
 Template specs (a parameter's "template" in the configuration), in the parameter's own units (sin^2 for s12sq,
-s13sq, s23sq; degrees for d_cp_deg; eV^2 for dm21_sq and dm31_sq, the latter |Delta m^2_3l|):
+s13sq, s23sq; degrees for d_cp_deg; eV^2 for dm21_sq and dm31_sq, the latter |Delta m^2_3l|; eV for m_lightest_eV):
   {"step": h}            one run at theta0 + h: linear;
   {"points": [a, ...]}   runs at these values (theta0 is always one): Lagrange through all of them;
   {"turn": n}            d_cp_deg only: n (odd) runs equally spaced over 360 deg, theta0 one of them: the
@@ -29,7 +33,7 @@ from typing import Mapping, Tuple
 
 import numpy as np
 
-NAMES = ("s12sq", "s13sq", "s23sq", "d_cp_deg", "dm21_sq", "dm31_sq")
+NAMES = ("s12sq", "s13sq", "s23sq", "d_cp_deg", "dm21_sq", "dm31_sq", "m_lightest_eV")
 
 
 @dataclass(frozen=True)

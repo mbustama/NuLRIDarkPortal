@@ -140,7 +140,9 @@ class AnalysisConfig:
         lo, hi = self.parameter("p_index_low").bounds
         return [float(v) for v in np.linspace(lo, hi, self.p1_nodes_n or P_NODES_N)]
 
-    def model(self, cache_size: int = 512) -> FlavorModel:
+    def model(self, cache_size: int = 512, solver: Optional[Mapping] = None, templates: Optional[list] = None) -> FlavorModel:
+        """The analysis' FlavorModel; solver and templates replace the configuration's solver section and mixing
+        templates (exact_profile.py builds one model per centre of its trust region this way)."""
         # p_index interpolated between the nodes' solver runs: that many times the cache for the same points (and
         # the lower index's nodes with a broken power law: each piece is its own run)
         n = 1 if self.p_nodes() is None else len(self.p_nodes())
@@ -150,11 +152,12 @@ class AnalysisConfig:
         if self.events is not None and "future" in self.events:
             from .future_events import config_sites
             sites = config_sites((self.events["future"] or {}).get("config", "All8_base"))
-        n *= 1 + sum(len(t.points) for t in self.mixing_templates())
-        return FlavorModel(self.solver, self.free_names, cache_size=cache_size * n, p_nodes=self.p_nodes(),
-                           sky=self.events is not None, flavor_band_eV=self.flavor_band,
+        templates = self.mixing_templates() if templates is None else list(templates)
+        n *= 1 + sum(len(t.points) for t in templates)
+        return FlavorModel(self.solver if solver is None else solver, self.free_names, cache_size=cache_size * n,
+                           p_nodes=self.p_nodes(), sky=self.events is not None, flavor_band_eV=self.flavor_band,
                            pure_flavor_basis=self.flux_basis == "pure_flavors", sites=sites, p1_nodes=self.p1_nodes(),
-                           templates=self.mixing_templates())
+                           templates=templates)
 
     def mixing_templates(self) -> list:
         """The templates.MixingTemplate of every parameter with a "template", around the solver configuration's

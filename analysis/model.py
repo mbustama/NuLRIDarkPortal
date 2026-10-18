@@ -560,14 +560,26 @@ class FlavorModel:
 
     def _evaluation_values(self, values: Mapping) -> list:
         """(values, templated) of every solver run one evaluation at `values` makes: each index node of each piece,
-        then each piece's template runs, in the order fluxes() and band_fluxes() visit them."""
+        then each piece's template runs (none at theta0), in the order fluxes() and band_fluxes() visit them."""
         out = []
+        at0 = self._at_theta0(values)
         for v, nodes in self._pieces(values):
             out.extend((x, False) for x in ([v] if nodes is None else [dict(v, p_index=float(pk)) for pk in nodes]))
-            out.extend(self._template_runs(v, nodes))
+            if not at0:
+                out.extend(self._template_runs(v, nodes))
         return out
 
     # ------------------------------------------------------------------ mixing templates (templates.py, 2026-10-18)
+    def _at_theta0(self, values: Mapping) -> bool:
+        """Whether every templated parameter sits at its theta0 (or is not set): the templates' factor is then exactly
+        1 and the Galactic correction exactly 0, so the evaluation needs none of the template runs -- the model is
+        then the exact model at theta0 (exact_profile.py's centres)."""
+        return all(float(values.get(n, t.theta0)) == t.theta0 for n, t in self.templates.items())
+
+    def _need_templates(self, values: Mapping, names: Sequence[str] = ()) -> bool:
+        """Whether an evaluation (with derivatives in `names`) needs the template runs: off theta0, or a derivative
+        in a templated parameter."""
+        return bool(self.templates) and (not self._at_theta0(values) or any(n in self.templates for n in names))
     def _template_central(self, values: Mapping, nodes) -> dict:
         """A piece's run at its central index node (at its own index without nodes), every template's parameter at
         theta0."""
@@ -783,7 +795,7 @@ class FlavorModel:
                 K = float(spline_log_interp(nodes, p, [np.float64(r[3]["K"]) for r in runs]))
                 gal = dict(G=runs[0][3]["G"], K=K)
             out = (runs[0][0], F_a, F_b, gal)
-        if not self.templates:
+        if not self._need_templates(values):
             return out
         E, F_a, F_b, gal = out
         fac, _ = self._template_factor(values, nodes, "flux")
@@ -1045,7 +1057,7 @@ class FlavorModel:
                 raise ValueError(f"f_e_S_gal must lie in [0, 1], got {x}")
             g = float(values.get("norm_gal", self.default("norm_gal"))) / self.default("norm_gal")
             G_nu, G_nb = run["gal_nu"], run["gal_nb"]
-            if self.templates:
+            if self._need_templates(values):
                 G_nu, G_nb, _, _ = self._template_galactic(values, run)
             F_nu = F_nu + g * (x * G_nu[0] + (1.0 - x) * G_nu[1])
             F_nb = F_nb + g * (x * G_nb[0] + (1.0 - x) * G_nb[1])
@@ -1075,7 +1087,7 @@ class FlavorModel:
             b_nu, b_nb, run = out[0][0], out[1][0], runs[0]
             dl_nu, dl_nb, dlK = out[0][1], out[1][1], float(np.dot(w1, lK))
         dt = {}
-        if self.templates:
+        if self._need_templates(values, names):
             fac, der = self._template_factor(values, nodes, "sky", names)
             dt = {n: (b_nu * d["bands_nu"], b_nb * d["bands_nb"]) for n, d in der.items()}
             b_nu, b_nb = b_nu * fac["bands_nu"], b_nb * fac["bands_nb"]
@@ -1165,7 +1177,7 @@ class FlavorModel:
         ng0 = self.default("norm_gal")
         g = float(values.get("norm_gal", ng0)) / ng0
         a_nu, a_nb, site_gal, tder = run["gal_nu"], run["gal_nb"], run.get("site_gal", {}), {}
-        if self.templates:
+        if self._need_templates(values, names):
             a_nu, a_nb, site_gal, tder = self._template_galactic(values, run, names)
         lat = float(lat)
         if abs(lat) >= SITE_POLE_DEG:
@@ -1203,7 +1215,7 @@ class FlavorModel:
             b_nu = spline_log_interp(nodes, p, [r["bands_nu"] for r in runs])
             b_nb = spline_log_interp(nodes, p, [r["bands_nb"] for r in runs])
             run = runs[0]
-        if self.templates:
+        if self._need_templates(values):
             fac, _ = self._template_factor(values, nodes, "sky")
             b_nu, b_nb = b_nu * fac["bands_nu"], b_nb * fac["bands_nb"]
         return b_nu, b_nb, K, run
@@ -1241,7 +1253,7 @@ class FlavorModel:
             raise ValueError(f"f_e_S_gal must lie in [0, 1], got {x}")
         g = float(values.get("norm_gal", self.default("norm_gal"))) / self.default("norm_gal")
         gal_nu, gal_nb, site_gal = run["gal_nu"], run["gal_nb"], run.get("site_gal", {})
-        if self.templates:
+        if self._need_templates(values):
             gal_nu, gal_nb, site_gal, _ = self._template_galactic(values, run)
         lat = float(lat)
         if abs(lat) >= SITE_POLE_DEG:
