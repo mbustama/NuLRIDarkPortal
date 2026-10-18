@@ -1793,7 +1793,7 @@ a kinematic factor $K_q(s)$ times a shape $G_q(\mu)$, $\mu = M^2/s$: the absorpt
 shape's integral, the regeneration its integrals over the lower energy bins. Since 2026-10-14 the
 factors of the resonance, $s/{\rm BW}$ and $(s-M^2)/{\rm BW}$, are averaged over the relics'
 thermal momenta; the shapes, and the other two factors ($1/s$ and the pair cross section), take
-the relic at rest, $s = 2E(1+z)m$.
+the relic at rest, $s = 2E(1+z)m$. Since 2026-10-18 a switch averages every product (below).
 
 \textit{Kinematics.}---A neutrino of energy $E'$ meeting a relic of energy $E_p$ at angle $\theta$
 has $s = m^2 + 2E'E_p(1 - v\cos\theta)$. Every product is boosted along the incoming neutrino by
@@ -1827,18 +1827,39 @@ $m_{\rm lightest}$ varies.
 
 \textit{Where it matters.}---Taking the relic at rest understates its mean energy, and so $s$, by
 factors of 500, 1000 and 2000 at $z = 0$, 1 and 3 for $m = 10^{-6}$~eV, and by more than 10\% below
-$m \approx 3\times10^{-3}$~eV: the range into which the mass-sum penalty pulls the fits. We expect
-little change for MeV mediators, where the $s$-channel resonance dominates and its shapes do not
-depend on $s$, and a large one for mediators below $\sim\!100$~keV with
-$m_{\rm lightest} \lesssim 10^{-4}$~eV, where the relic at rest even closes the pair channel
+$m \approx 3\times10^{-3}$~eV: the range into which the mass-sum penalty pulls the fits. We
+expected little change for MeV mediators, where the $s$-channel resonance dominates and its shapes
+do not depend on $s$; the validation below finds it large there too. Below $\sim\!100$~keV with
+$m_{\rm lightest} \lesssim 10^{-4}$~eV, the relic at rest even closes the pair channel
 ($s < 4M^2$) that thermal relics open.
 
-\textit{Plan.}---We measure the effect before building the fast version. A reference
-implementation averages every product as a mixture of relics at rest with masses $\sigma$ and
-weights $\rho$, each exact in time within a redshift step, checked against brute-force integrals
-over momentum and angle; it computes the limits, profiled over $m_{\rm lightest}$, at five mediator
-masses for MESE with IceCube's 2026 spectrum and for the future detectors. A fast implementation
-follows only if the limits move.
+\textit{Implementation.}---With \texttt{dark\_portal.thermal\_products} on (\file{src/dp\_si.py},
+\texttt{thermal="full"}; off by default, on in the campaign), every product is averaged. The
+at-rest products sit on one lattice in $\ln\mu$ with the energy bins' spacing; its spectra depend
+on neither the relic nor the mediator mass, so one table serves every run. Per relic state and
+redshift step, $\rho$ becomes weights on every $s$-th node (cubic interpolation in $\ln\mu$, $s$
+from 1 to 8 nodes as $\rho$ widens), and a bin's products are short sums over the table. The
+resonance factors are not smooth on the lattice: $\langle s/{\rm BW}\rangle$ and
+$\langle (s-M^2)/{\rm BW}\rangle$ are the semi-analytic kernel's exact thermal averages, the
+interference shapes enter as $G_q(1)\langle (s-M^2)/{\rm BW}\rangle$ plus the lattice average of
+the smooth $(s-M^2)/{\rm BW}\,[G_q(\mu) - G_q(1)]$, and the $s$-channel shapes do not depend on
+$\mu$. There are no switches between treatments.
+
+\textit{Validation.}---A reference implementation averages every product as a mixture of relics at
+rest with masses $\sigma$ and weights $\rho$ by direct quadrature, each exact in time within a
+redshift step (\file{tools/thermal\_reference.py}; checked against brute-force integrals over
+momentum and angle, converged to $2\times10^{-5}$). At the analysis grid, at 31.6~keV and 4.22~MeV
+and $m_{\rm lightest} = 10^{-6}$, $10^{-3}$ and $0.03$~eV, the fluxes agree with it to
+$2\times10^{-4}$ between 10~TeV and 10~PeV; the resonance-only averaging is off by 1--17\%, and by
+a factor $\sim\!100$ inside one absorption dip (4.22~MeV, 0.03~eV). Along the way, the
+semi-analytic kernel's momentum integral proved too coarse where the resonance sits at
+$\sigma \approx m$ for a light relic ($1.3\%$ off at $m/T \sim 0.03$, $0.2\%$ at $10^{-6}$~eV);
+panels at $2m$, $20m$, $200m$ and $2000m$ bring it to $3\times10^{-9}$ of direct quadrature (used
+by the new treatment only).
+
+\textit{Cost.}---A transport takes 1.1 ($m_{\rm lightest} = 10^{-6}$~eV) to 2 ($0.03$~eV) times as
+long. The campaign's MeV planes cost 1.5 to 2.5 times as much per point (pilot of 2026-10-18), and
+the campaign $\sim$12~h on 176 cores instead of $\sim$6.
 
 %==============================================================================
 \section{Open items}
