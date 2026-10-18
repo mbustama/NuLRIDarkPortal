@@ -140,7 +140,7 @@ def test_newton_profile_equals_lbfgsb():
         x_l, r_l = ev.profile_lbfgsb(S, ev.data)
         assert r_n.fun <= r_l.fun + 1e-9 * max(1.0, r_l.fun), (v, r_n.fun, r_l.fun)
         assert abs(r_n.fun - r_l.fun) < 1e-6 * max(1.0, r_l.fun), (v, r_n.fun, r_l.fun)
-    assert ev.n_fallback == 0 and ev.n_newton >= 4
+    assert ev.n_fallback == 0 and ev.n_newton >= 4, getattr(ev, "newton_fail", None)
     A = ev._design(S)
     rng = np.random.default_rng(3)
     x = x_n + 0.2 * ev.sigma * rng.normal(size=len(x_n))

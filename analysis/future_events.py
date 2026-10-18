@@ -328,6 +328,10 @@ class FutureEventLikelihood:
                     break
                 t *= 0.5
                 if t < 1e-12:
+                    if dec < 1e-6:
+                        # converged to the rounding of f: the predicted decrease (dec / 2 < 5e-7 in chi^2) is below
+                        # what f resolves, so no step can show it (machine-dependent: GitHub's runners, 2026-10-18)
+                        return x, f, it
                     self.newton_fail = f"line search failed (decrement {dec:g})"
                     return None
             x = xn
