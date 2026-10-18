@@ -156,9 +156,9 @@ def apply_mixing(cfg: dict, dataset: str, m_lightest: float = M_LIGHTEST, exact:
 
 
 # The campaign_ml selection (Mauricio, 2026-10-18): L_e-L_mu and L_e-L_tau over ultralight masses (their long-range
-# potentials) and MeV masses, and the dark portal's MeV planes for textures e, mu, tau and e-mu-tau; nothing else is
+# potentials) and MeV masses, and the dark portal's MeV planes for textures e, mu and tau; nothing else is
 # generated (docs/SIMPLIFICATIONS_AND_ASSUMPTIONS.md item 16b lists what was dropped and how to revive it).
-ML_KEEP = re.compile(r"^(le_lmu_ul|le_ltau_ul|le_lmu_mev|le_ltau_mev|dp_(e|mu|tau|emutau)_mev)$")
+ML_KEEP = re.compile(r"^(le_lmu_ul|le_ltau_ul|le_lmu_mev|le_ltau_mev|dp_(e|mu|tau)_mev)$")
 
 
 def apply_lightest(cfg: dict, dataset: str) -> dict:

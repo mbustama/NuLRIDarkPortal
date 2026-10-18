@@ -146,12 +146,12 @@ small, not yet measured), **open** (decided to remove or change, not yet done).
 
 16b. **The campaign restricted to L_e-L_mu, L_e-L_tau and the dark portal's MeV regime.** *Removed* (Mauricio,
     2026-10-18, in steps: "For long-range potentials, keep only Le-Lm and Le-Lt"; the B-3L models' long-range planes
-    too; the dark portal's textures "only e, mu, tau, and all three equally"; the MeV gauge models "Only Le-Lm and
-    Le-Lt"). Kept: L_e-L_mu and L_e-L_tau over ultralight masses (1e-30-1e4 eV: their long-range potentials) and over
-    MeV masses (1e4-1e9 eV), and the dark portal's MeV planes for textures e, mu, tau and e-mu-tau: 8 per data set and
-    source composition, x 2 compositions x 3 data sets = 48 planes, 86,136 points. Not generated any more: the dark
-    portal's potential planes (7 textures x 2 signs x balanced + 5 coupling splits) and its e-mu, e-tau, mu-tau MeV
-    planes; L_mu-L_tau (potential and MeV); B-3L_e, B-3L_mu, B-3L_tau, B-(3/2)(L_mu+L_tau) (ultralight and MeV). At
+    too; the dark portal's textures "only e, mu, tau, and all three equally", then for its MeV planes "only e, m, tau";
+    the MeV gauge models "Only Le-Lm and Le-Lt"). Kept: L_e-L_mu and L_e-L_tau over ultralight masses (1e-30-1e4 eV: their long-range potentials) and over
+    MeV masses (1e4-1e9 eV), and the dark portal's MeV planes for textures e, mu and tau: 7 per data set and source
+    composition, x 2 compositions x 3 data sets = 42 planes, 76,050 points. Not generated any more: the dark
+    portal's potential planes (7 textures x 2 signs x balanced + 5 coupling splits) and its e-mu, e-tau, mu-tau and
+    e-mu-tau MeV planes; L_mu-L_tau (potential and MeV); B-3L_e, B-3L_mu, B-3L_tau, B-(3/2)(L_mu+L_tau) (ultralight and MeV). At
     MeV masses B-3L_mu and B-3L_tau couple to the neutrinos as the dark portal's pure mu and tau textures do (their
     planes the same up to the coupling's scale, below ~200 MeV where B-3L_mu's mediator gains mu+ mu- decays). The
     coupling-split planes' missing lightest-mass scan (the local fit missed a minimum lower by 1.96 in chi^2) no longer

@@ -26,14 +26,6 @@
    "points": 1681
   },
   {
-   "name": "dp_emutau_mev",
-   "points": 1681
-  },
-  {
-   "name": "dp_emutau_mev_fx",
-   "points": 1681
-  },
-  {
    "name": "le_lmu_ul",
    "points": 2135
   },
@@ -66,5 +58,5 @@
    "points": 1681
   }
  ],
- "total_points": 28712
+ "total_points": 25350
 }
