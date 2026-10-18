@@ -70,12 +70,21 @@ small, not yet measured), **open** (decided to remove or change, not yet done).
 
 11c. **Majorana phases not varied.** *Accepted.* (Mauricio, 2026-10-18: they don't matter to our observables.)
 
-11d. **The mixing parameters varied through templates, not a solver run at every value.** *To quantify.*
-    (2026-10-18; `analysis/templates.py`, docs/dev/MIXING_VARIATION.md) At each point, runs with one parameter moved
-    to a few values, at the central spectral-index node; the flux in between is interpolated parameter by parameter
-    (no cross terms) and the relative correction is taken to be the same at every index. Measured on the test
-    configuration: the index transfer below 1e-6 of each bin's flux, s12 linear 1e-5, delta_CP over a whole turn 1e-4
-    with 7 runs; the validation at the campaign's resolution (chi^2 against exact runs) is running.
+11d. **The mixing parameters varied through templates, not a solver run at every value.** *Replaced* (2026-10-18)
+    by the exact profile (11e): the templates' chi^2 was 0.1-2 off the exact runs at the projections' limits and with
+    several parameters moved together (`analysis/templates.py`, docs/dev/MIXING_VARIATION.md).
+
+11e. **The exact profile over the mixing and m_lightest** (`analysis/exact_profile.py`, docs/dev/EXACT_PROFILE.md;
+    2026-10-18). *Accepted, with two stated limits.* Every reported chi^2 is the solver's at the reported values, with
+    a per-point certificate of local optimality (central differences; `stop` = 1e-4). Its global part rests on two
+    choices: NuFIT's other octant of theta23 is probed by one exact evaluation and profiled when within 1.0 of the
+    best; at the MeV planes m_lightest is scanned on 1e-6 eV and 1e-4 ... 0.1 eV (five per decade) before the local
+    profiles (a basin narrower than ~0.3 decade could be missed; none is expected: an absorption feature spans a
+    factor 5 in energy). m_lightest >= 1e-6 eV (the MeV transport treats an exactly massless relic as inert; the
+    mass sum changes by 1e-6 eV).
+
+11f. **Relativistic relics** (m_lightest below ~1e-3 eV, where T_nu (1 + z) is comparable): the transport's thermal
+    treatment there (dp_si._thermal_resonance_terms) is unverified. *Open.* The MeV planes' profile can land there.
 
 ## Data and detectors
 
