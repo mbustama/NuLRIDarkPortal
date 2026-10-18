@@ -38,14 +38,19 @@ small, not yet measured), **open** (decided to remove or change, not yet done).
 
 6a. **MeV transport: the produced neutrinos' spectra, the profiles' totals, and the 1/s and pair factors with
    the relics at rest** (only the resonance factors averaged over the relics' thermal momenta since 2026-10-14).
-   *Open: being measured* (2026-10-18; notes Sec. "Relic motion in the collision transport"). Wrong for relativistic
-   relics (m_lightest below ~3e-3 eV, which the fits reach): s understated up to 500-2000 times at 1e-6 eV. Phase 1
-   measures the limits' shift with a reference implementation (`tools/thermal_reference.py`); a fast implementation
-   only if they move.
+   *Fixed behind a switch* (2026-10-18; notes Sec. "Relic motion in the collision transport"):
+   `dark_portal.thermal_products: true` (dp_si `thermal="full"`) averages every collision term -- rates, in-bin
+   terms, produced spectra -- over the relics' thermal momenta. Off by default; the campaign configs do not set it
+   yet. Against the reference (`tools/thermal_reference.py`, converged to 2e-5) at the analysis grid, two MeV
+   points and lightest masses 1e-6, 1e-3, 0.03 eV: within 2e-4 in the flux, where the resonance-only treatment is
+   1-17% off (a factor ~100 inside one absorption dip). A transport costs 1.1-2 times one without it.
 
 6b. **MeV transport: the resonance's thermal averaging switches on and off abruptly** (thermal width against two
    redshift steps; a bin within the broadened resonance's reach), so chi^2 jumps as m_lightest varies, and its two
-   s-t interference profiles keep their at-rest totals. *Open* (2026-10-18; fixed with 6a if Phase 2 goes ahead).
+   s-t interference profiles keep their at-rest totals; its momentum quadrature is also up to 1.3e-2 off where the
+   resonance sits at sigma ~ m for a relativistic relic (m/T ~ 0.03; 2e-3 at 1e-6 eV). *Fixed with 6a's switch*
+   (2026-10-18): no switches, the interference's profiles averaged too, and momentum panels at the relic's mass
+   (`relic_state_rates_analytic(..., fine_m=True)`, within 3e-9 of direct quadrature). *Open* without the switch.
 
 ## Sources and spectrum
 

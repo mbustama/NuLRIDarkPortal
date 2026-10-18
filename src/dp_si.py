@@ -2206,7 +2206,7 @@ _THERMAL_TABLE = {}
 THERMAL_STRIDE_MAX = 8
 THERMAL_STRIDE_DIV = 16.0
 THERMAL_SUPPORT = 1e-9
-THERMAL_GRID_STEP = 2.0
+THERMAL_GRID_STEP = 1.0
 
 
 def _thermal_table(dlnE, Delta, N, n_u, n_lo, n_hi):
@@ -2272,8 +2272,9 @@ def _thermal_terms(E, L_edges, q, Delta, dlnE, masses, n0, T_nu0, eta, M, MG, H0
         _step_integrals(M2 * np.exp(nodes * Delta) / (2.0 * zmid), zlo, zhi, zmid, one, one, M2, MG, H0, Om, OL,
                         False, 1, hbin, Jf, Nf, Lf, Df)
         Jn[m] = Jf[:, 0, :]
-        # the resonant kernels' grid in ln a, a = 2 E (1+z): every THERMAL_GRID_STEP Delta, finer (a quarter of the
-        # speed, eight speeds around the resonance) where a slow relic state's distribution is narrower than eight steps
+        # the resonant kernels' grid in ln a, a = 2 E (1+z): every THERMAL_GRID_STEP Delta, finer (a sixth of the
+        # speed, ten speeds around the resonance) where a slow relic state's distribution is narrower than eight steps
+        # (every 2 Delta, a quarter, eight: 6e-4 at 4.2 MeV, for 5% of the time)
         x_lo = np.log(2.0 * E[0]) + L_edges[m] - 3.0 * Delta
         x_hi = np.log(2.0 * E[-1]) + L_edges[m + 1] + 3.0 * Delta
         pts = [np.arange(x_lo, x_hi + Delta, THERMAL_GRID_STEP * Delta)]
@@ -2284,8 +2285,8 @@ def _thermal_terms(E, L_edges, q, Delta, dlnE, masses, n0, T_nu0, eta, M, MG, H0
             v = pt / np.hypot(masses[r], pt)
             if 2.0 * v < 8.0 * Delta:
                 cen = np.log(M2 / masses[r])
-                pts.append(np.arange(max(cen - np.log1p(8.0 * v), x_lo), min(cen - np.log1p(-min(8.0 * v, 0.9)), x_hi),
-                                     v / 4.0))
+                pts.append(np.arange(max(cen - np.log1p(10.0 * v), x_lo), min(cen - np.log1p(-min(10.0 * v, 0.9)), x_hi),
+                                     v / 6.0))
         lna = np.unique(np.concatenate(pts))
         f0 = np.zeros((len(lna), 3))
         f1 = np.zeros((len(lna), 3))
