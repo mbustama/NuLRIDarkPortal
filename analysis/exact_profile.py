@@ -65,6 +65,8 @@ SOLVER_KEYS = {"s12sq": ("standard_mixing", "th12_deg"), "s13sq": ("standard_mix
 NUFIT_WIDTHS = dict(s12sq=0.012, s13sq=0.00057, s23sq=0.018, d_cp_deg=30.0, dm21_sq=2.0e-6, dm31_sq=2.5e-5)
 M_LIGHTEST_WIDTH = 2e-3           # eV: the trust region's unit for m_lightest (the relics' thermal scale, ~10 T_nu)
 M_LIGHTEST_MIN = 1e-6             # eV (module docstring)
+# the MeV planes' scan of the lightest mass (profile_global): M_LIGHTEST_MIN and 1e-4 .. 0.1 eV, five per decade
+ML_SCAN = (M_LIGHTEST_MIN,) + tuple(float(10.0 ** (-4.0 + 0.2 * k)) for k in range(16))
 
 
 @dataclass
@@ -84,8 +86,15 @@ class ExactSettings:
     # start's mixing, then the exact profile from every local minimum of the scan within ml_margin of its lowest
     ml_scan: Optional[Sequence[float]] = None
     ml_margin: float = 3.0
-    # NuFIT's two octants of theta23 (profile_global): the exact profile also from the start mirrored about 0.5
+    # the scan's mixing (the six; default: the start's): a fixed one makes the scan's solver runs the same for every
+    # configuration of a point -- shared through the disk cache (NULRI_FLUX_CACHE) by a plane's nominal and fitted-
+    # composition twins and by the data sets of one energy grid
+    scan_mixing: Optional[Mapping[str, float]] = None
+    # NuFIT's two octants of theta23 (profile_global): the best solution moved into the other octant by the shift
+    # between NuFIT's two minima of (sin^2 th23, delta_CP) is evaluated exactly (one evaluation), and profiled from
+    # there when it comes within octant_margin of the best
     octants: bool = False
+    octant_margin: float = 1.0
     # a plane's chain (analysis.scans): a point whose solver runs at the last certified point's values equal that
     # point's (relative inherit_eps per element, from each energy's largest; 2 float32 units in sky mode, whose bands
     # are single precision) takes its certificate after one evaluation (ExactProfiler.inherit); never with ml_scan
@@ -387,12 +396,13 @@ class ExactProfiler:
         held = {k: float(v) for k, v in held.items()}
         st = {p.name: p.start for p in self.cfg.parameters if p.name not in held}
         st.update({k: float(v) for k, v in start.items() if k not in held})
-        starts, scan, runs = [dict(st)], [], 0
+        starts, scan, runs, probes = [dict(st)], [], 0, []
         if s.ml_scan is not None and "m_lightest_eV" in self.eta:
             lo, hi = self.bounds["m_lightest_eV"]
             grid = sorted({float(min(max(m, lo), hi)) for m in s.ml_scan})
+            base = dict(st, **{k: float(v) for k, v in (s.scan_mixing or {}).items()})
             for m in grid:
-                f, v, k = self.value_at(held, dict(st, m_lightest_eV=m), st)
+                f, v, k = self.value_at(held, dict(base, m_lightest_eV=m), base)
                 runs += k
                 scan.append(dict(m_lightest_eV=m, chi2=f, values=v))
                 if log is not None:
@@ -401,16 +411,29 @@ class ExactProfiler:
             low = min(vals)
             cand = [i for i in range(len(grid)) if vals[i] <= low + s.ml_margin
                     and (i == 0 or vals[i] <= vals[i - 1]) and (i == len(grid) - 1 or vals[i] <= vals[i + 1])]
-            starts = [dict(scan[i]["values"]) for i in sorted(cand, key=lambda i: vals[i])]
+            # each basin from the start's mixing (a chain's predecessor's) and the scan's lightest mass and nu
+            starts = [dict(scan[i]["values"], **{n: st[n] for n in self.eta if n != "m_lightest_eV"})
+                      for i in sorted(cand, key=lambda i: vals[i])]
         res = [self.profile(held, x, log=log) for x in starts]
         if s.octants and "s23sq" in self.eta:
             b = min(res, key=lambda r: r.chi2)
-            mirror = dict(b.values)
-            mirror["s23sq"] = float(min(max(1.0 - b.values["s23sq"], self.bounds["s23sq"][0]), self.bounds["s23sq"][1]))
-            res.append(self.profile(held, {k: v for k, v in mirror.items() if k not in held}, log=log))
+            ds23, ddcp = self._octant_shift(b.values)
+            other = dict(b.values)
+            other["s23sq"] = float(min(max(b.values["s23sq"] + ds23, self.bounds["s23sq"][0]), self.bounds["s23sq"][1]))
+            if "d_cp_deg" in self.eta:
+                other["d_cp_deg"] = float(min(max(b.values["d_cp_deg"] + ddcp, self.bounds["d_cp_deg"][0]),
+                                              self.bounds["d_cp_deg"][1]))
+            other = {k: v for k, v in other.items() if k not in held}
+            f_o, v_o, k = self.value_at(held, other, other)
+            runs += k
+            probes.append(dict(octant_probe={n: other[n] for n in ("s23sq", "d_cp_deg") if n in other}, chi2=f_o))
+            if log is not None:
+                log(f"    other octant probe: chi2 {f_o:.6f} (best {b.chi2:.6f})")
+            if f_o < b.chi2 + s.octant_margin:
+                res.append(self.profile(held, {k: v for k, v in v_o.items() if k not in held}, log=log))
         best = min(res, key=lambda r: r.chi2)
         best.starts = [dict(start={n: r.centres[0]["eta"][n] for n in self.eta}, chi2=r.chi2, certified=r.certified,
-                            centres=len(r.centres), solver_runs=r.solver_runs, message=r.message) for r in res]
+                            centres=len(r.centres), solver_runs=r.solver_runs, message=r.message) for r in res] + probes
         best.scan = [dict(m_lightest_eV=x["m_lightest_eV"], chi2=x["chi2"]) for x in scan]
         best.solver_runs = runs + sum(r.solver_runs for r in res)
         best.nfev = sum(r.nfev for r in res)
@@ -419,6 +442,32 @@ class ExactProfiler:
             best.message += f"; lowest of {len(res)} starts" + (f" after a {len(scan)}-point m_lightest scan" if scan
                                                                  else "")
         return best
+
+    def _octant_shift(self, values: Mapping):
+        """(d sin^2 th23, d delta_CP) taking a solution into the other octant: the shift between the penalty's two
+        minima of (sin^2 th23, delta_CP) (NuFIT 6.1's T23_DCP table: (0.47, -150 deg) and (0.55, -175 deg) in the
+        normal ordering), or the mirror about maximal mixing without that table."""
+        from .nufit import NuFitPairwisePrior, SUFFIX, TABLES
+        pri = [p for p in self.cfg.priors if isinstance(p, NuFitPairwisePrior)]
+        s23 = float(values["s23sq"])
+        if not pri:
+            return 1.0 - 2.0 * s23, 0.0
+        key = ("T23_DCP", pri[0].ordering)
+        mins = getattr(self, "_octant_minima", {}).get(key)
+        if mins is None:
+            with np.load(TABLES) as z:
+                x, y, c = (np.array(z[f"T23_DCP_{SUFFIX[pri[0].ordering]}_{k}"]) for k in ("x", "y", "chi2"))
+            out = []
+            for sel in (x < 0.5, x > 0.5):
+                cc = np.where(sel[:, None], c, np.inf)
+                i, j = np.unravel_index(np.argmin(cc), cc.shape)
+                out.append((float(x[i]), float(y[j])))
+            mins = out
+            self._octant_minima = {**getattr(self, "_octant_minima", {}), key: mins}
+        (lo_s, lo_d), (hi_s, hi_d) = mins
+        if s23 < 0.5:
+            return hi_s - lo_s, hi_d - lo_d
+        return lo_s - hi_s, lo_d - hi_d
 
     # ------------------------------------------------------------------ a chain's anchor (analysis.scans)
     def _runs_at(self, model, held: Mapping, values: Mapping) -> list:

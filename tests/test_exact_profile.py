@@ -142,7 +142,7 @@ def test_plane_with_the_exact_profile(tmp_path):
     from analysis import scans
     raw = _raw()
     raw["exact_profile"] = {}
-    raw["planes"] = [{"x": "m_Zd_eV", "y": "g_D_eps_trace", "x_range": [1e-13, 1e-12], "y_range": [1e-61, 1e-30],
+    raw["planes"] = [{"x": "m_Zd_eV", "y": "g_D_eps_trace", "x_range": [1e-13, 1e-12], "y_range": [1e-62, 1e-59],
                       "nx": 2, "ny": 4, "raster": "m_Zd_eV"}]
     cfg = config_mod.from_dict(raw)
     centre = (1.0 / 3.0, 2.0 / 3.0)
@@ -154,8 +154,10 @@ def test_plane_with_the_exact_profile(tmp_path):
     lines = [f"{p['index']} {p['chi2']:.6f} {p.get('solver_runs')} {p['message'][:120]}" for p in r.points]
     for p in r.points:
         assert p["certified"] and "solver_runs" in p, lines
-    # 1e-61 is the anchor, 1e-50.7 below the reach of new physics (inherited); 1e-30 profiled in full
-    assert sum(p["message"].startswith("inherited") for p in r.points) >= 2, lines
+    # the global fit (at 1e-62, no new physics) anchors each column; 1e-62..1e-59 lie below the reach of new physics
+    # there (the Earth's potential at a range of ~2000 km: a phase ~1e-10 across the Earth) and inherit its
+    # certificate after one evaluation each. (At 1e-51 the phase is already ~0.05: profiled.)
+    assert all(p["message"].startswith("inherited") for p in r.points), lines
 
 
 @pytest.mark.slow

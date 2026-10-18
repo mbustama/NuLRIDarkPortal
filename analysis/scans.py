@@ -22,6 +22,7 @@ import multiprocessing as mp
 import os
 import time
 from dataclasses import asdict, dataclass, field
+from types import SimpleNamespace
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -78,6 +79,16 @@ def _run_chain(task) -> List[dict]:
     chain, best, settings = task
     out, prev, anchor = [], None, None
     prof = _W.get("exact")
+    if prof is not None and prof.settings.inherit and chain and set(chain[0][1]) <= set(best):
+        # the global fit (the exact profile without new physics, _exact_global_fit) anchors the chain's first point
+        g_held = {k: float(best[k]) for k in chain[0][1]}
+        key = json.dumps(sorted(best.items()))
+        if _W.get("global_anchor", (None,))[0] != key:
+            try:
+                _W["global_anchor"] = (key, prof.anchor(g_held, SimpleNamespace(values=dict(best), chi2=float("nan"))))
+            except ValueError:
+                _W["global_anchor"] = (key, None)
+        anchor = _W["global_anchor"][1]
     for index, held in chain:
         r = None
         if prof is not None and anchor is not None:

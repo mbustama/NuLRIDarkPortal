@@ -1,0 +1,291 @@
+{
+ "_comment": "dark_portal, texture mu: the potential, + sign, coupling split balanced (docs/dev/SCOPE_WIDENING_PLAN.md decision 4; tools/make_campaign_configs.py); mixing and m_lightest profiled exactly (Table II Gaussians; analysis/exact_profile.py), mass sum < 0.09 eV (95%, half-Gaussian); the sources' flavor compositions fitted (extragalactic and Galactic, independently)",
+ "name": "dp_mu_pot_bal_pos_fx",
+ "data": {
+  "surface": "pion_2050_case_5",
+  "spectrum": "ic26_astrophysical",
+  "flavor_band_eV": [
+   10000000000000.0,
+   3e+16
+  ]
+ },
+ "solver": {
+  "cosmology": {
+   "H0_km_s_Mpc": 67.4,
+   "Omega_m": 0.315,
+   "Omega_L": 0.685,
+   "T_nu0_eV": 0.0001676389,
+   "n_n0_cm3": 3.091e-08,
+   "m_lightest_eV": 1e-06,
+   "mass_ordering": "normal",
+   "eta_e": 1.0,
+   "eta_mu": 1.0,
+   "eta_tau": 1.0
+  },
+  "standard_mixing": {
+   "th12_deg": 33.75878818411903,
+   "th13_deg": 8.623062290036087,
+   "th23_deg": 43.280093616242404,
+   "d_cp_deg": 212.0,
+   "dm21_sq": 7.537e-05,
+   "dm31_sq": 0.002511,
+   "use_SM_potential": false,
+   "n_e_earth_cm3": 1.5e+24,
+   "detector_depth_km": 1.5
+  },
+  "dark_portal": {
+   "u_tau": 0.0,
+   "epsilon_prime": 0.1,
+   "use_debye_screening": true,
+   "u_e": 0.0,
+   "u_mu": 0.7071067811865476,
+   "coupling_split": "balanced",
+   "potential_sign": 1
+  },
+  "source": {
+   "p_index": 2.735,
+   "Phi_0": 1.0,
+   "z_max": 4.0,
+   "rho_evol": 0.0,
+   "f_e_S": 0.3333333333333333,
+   "f_mu_S": 0.6666666666666666,
+   "f_tau_S": 0.0,
+   "is_antineutrino": "sum",
+   "nubar_to_nu_ratio": 1.0,
+   "E_break_GeV": 24547.089156850285,
+   "p_index_low": 1.31
+  },
+  "grid": {
+   "E_min_eV": 4572260913255.834,
+   "E_max_eV": 3e+16,
+   "n_E_bins": 439,
+   "n_z_bins": 200,
+   "n_sun_paths": 8,
+   "transit_dtheta": 0.002,
+   "n_earth_chords": 12,
+   "N_steps_earth": 25
+  },
+  "galactic": {
+   "enabled": true,
+   "template": "cringe",
+   "emission": "3d",
+   "f_e_S_gal": 0.3333333333333333
+  },
+  "sky": {
+   "nside": 8,
+   "extragalactic_norm": 1.77e-18,
+   "extragalactic_norm_E_GeV": 100000.0
+  },
+  "model": {
+   "name": "dark_portal"
+  }
+ },
+ "parameters": {
+  "m_Zd_eV": {
+   "start": 1e-13,
+   "bounds": [
+    1e-31,
+    100000.0
+   ],
+   "space": "log10"
+  },
+  "g_D_eps_trace": {
+   "start": 1e-40,
+   "bounds": [
+    1e-62,
+    1e-06
+   ],
+   "space": "log10"
+  },
+  "norm_gal": {
+   "start": 0.91,
+   "bounds": [
+    0.0,
+    3.0
+   ],
+   "space": "linear"
+  },
+  "norm_astro": {
+   "start": 1.0,
+   "bounds": [
+    0.01,
+    1000.0
+   ],
+   "space": "log10"
+  },
+  "p_index": {
+   "start": 2.735,
+   "bounds": [
+    2.0,
+    3.0
+   ],
+   "space": "linear",
+   "nodes": 3
+  },
+  "p_index_low": {
+   "start": 1.31,
+   "bounds": [
+    0.5,
+    2.5
+   ],
+   "space": "linear",
+   "nodes": 3
+  },
+  "s12sq": {
+   "start": 0.3088,
+   "bounds": [
+    0.2956672,
+    0.3219328
+   ],
+   "space": "linear"
+  },
+  "s13sq": {
+   "start": 0.02248,
+   "bounds": [
+    0.017759999999999998,
+    0.027200000000000002
+   ],
+   "space": "linear"
+  },
+  "s23sq": {
+   "start": 0.47,
+   "bounds": [
+    0.43655999999999995,
+    0.50344
+   ],
+   "space": "linear"
+  },
+  "d_cp_deg": {
+   "start": 212.0,
+   "bounds": [
+    158.504,
+    265.496
+   ],
+   "space": "linear"
+  },
+  "dm21_sq": {
+   "start": 7.537e-05,
+   "bounds": [
+    7.235520000000001e-05,
+    7.83848e-05
+   ],
+   "space": "linear"
+  },
+  "dm31_sq": {
+   "start": 0.002511,
+   "bounds": [
+    0.0024105600000000004,
+    0.00261144
+   ],
+   "space": "linear"
+  },
+  "m_lightest_eV": {
+   "start": 1e-06,
+   "bounds": [
+    1e-06,
+    0.1
+   ],
+   "space": "linear"
+  },
+  "f_e_S": {
+   "start": 0.333333,
+   "bounds": [
+    0.0,
+    1.0
+   ],
+   "space": "linear"
+  },
+  "f_e_S_gal": {
+   "start": 0.333333,
+   "bounds": [
+    0.0,
+    1.0
+   ],
+   "space": "linear"
+  }
+ },
+ "priors": [
+  {
+   "name": "norm_gal",
+   "type": "gaussian",
+   "centre": 0.91,
+   "width": 0.18
+  },
+  {
+   "name": "s12sq",
+   "type": "gaussian",
+   "centre": 0.3088,
+   "width": 0.0016416
+  },
+  {
+   "name": "s13sq",
+   "type": "gaussian",
+   "centre": 0.02248,
+   "width": 0.00059
+  },
+  {
+   "name": "s23sq",
+   "type": "gaussian",
+   "centre": 0.47,
+   "width": 0.00418
+  },
+  {
+   "name": "d_cp_deg",
+   "type": "gaussian",
+   "centre": 212.0,
+   "width": 6.687
+  },
+  {
+   "name": "dm21_sq",
+   "type": "gaussian",
+   "centre": 7.537e-05,
+   "width": 3.7685e-07
+  },
+  {
+   "name": "dm31_sq",
+   "type": "gaussian",
+   "centre": 0.002511,
+   "width": 1.2555e-05
+  },
+  {
+   "name": "sum_masses_eV",
+   "type": "half_gaussian",
+   "limit": 0.09,
+   "cl": 0.95,
+   "quantile": "half"
+  }
+ ],
+ "fit": {
+  "n_random": 0,
+  "seed": 20261014,
+  "max_evals": 400,
+  "fd_step": 0.001,
+  "ftol": 1e-09,
+  "xtol": 0.001,
+  "polish": false
+ },
+ "profiles": {},
+ "planes": [
+  {
+   "x": "m_Zd_eV",
+   "y": "g_D_eps_trace",
+   "x_range": [
+    1e-30,
+    10000.0
+   ],
+   "y_range": [
+    1e-60,
+    1e-06
+   ],
+   "nx": 35,
+   "ny": 55,
+   "raster": "m_Zd_eV"
+  }
+ ],
+ "asimov": {
+  "g_D_eps_trace": 1e-62
+ },
+ "flux_basis": "pure_flavors",
+ "output_dir": "output/analysis/campaign_exact/proj_2050/dp_mu_pot_bal_pos_fx",
+ "exact_profile": {}
+}
