@@ -52,16 +52,21 @@ small, not yet measured), **open** (decided to remove or change, not yet done).
 
 ## Standard neutrino physics
 
-11. **Mixing parameters and the lightest neutrino mass fixed in the campaign** (NuFIT 6.0, normal ordering with SK;
-    m_lightest = 0.01 eV). *Open.* (2026-10-12: decided to vary them. 2026-10-18: that campaign cancelled; the next
-    one varies them as Table II of arXiv:2606.17132 does: present-day data under NuFIT 6.1's pairwise chi^2, item
-    11a; projections under Table II's Gaussians; m_lightest under a half-Gaussian penalty on the mass sum bounded at
-    zero, Table II's 0.12 eV now and 0.09 eV for projections at 95% C.L. as there and in its sources: sigma =
-    limit / 1.960; Mauricio, 2026-10-18.)
+11. **Mixing parameters fixed in the likelihood**, at Table II's central values (arXiv:2606.17132), normal
+    ordering, for every data set. *Accepted.* (Mauricio, 2026-10-18: "Fix mixing parameters. Make a note that we will
+    simply estimate the effect of them differently, but not vary them in the likelihood.") Their effect on the limits
+    is estimated separately, outside the likelihood; the method is not yet chosen (a first look: item 11e). History:
+    2026-10-12 decided to vary them; 2026-10-18 the fixed-mixing campaign was cancelled to vary them (present-day data
+    under NuFIT 6.1's pairwise chi^2, item 11a; projections under Table II's Gaussians), templates (11d) and then an
+    exact profile at every point (branch agent/exact-profile-v2) were built and piloted, and dropped the same day: too
+    costly for an effect expected to move the contours by a few percent in coupling.
+    The lightest neutrino mass stays varied: a half-Gaussian penalty on the mass sum bounded at zero, Table II's
+    0.12 eV now and 0.09 eV for projections at 95% C.L. as there and in its sources: sigma = limit / 1.960 (Mauricio,
+    2026-10-18).
 
 11a. **NuFIT 6.1's chi^2 as the sum of three two-dimensional projections** (sin^2 th13 x sin^2 th12, sin^2 th23 x
-    delta_CP, Delta m^2_21 x Delta m^2_31), each profiled by NuFIT over the other parameters. *Accepted.* (Mauricio,
-    2026-10-18; `analysis/nufit.py`) Summing projections drops the correlations between parameters in different
+    delta_CP, Delta m^2_21 x Delta m^2_31), each profiled by NuFIT over the other parameters. *Not used since
+    2026-10-18* (the mixing is fixed, item 11); kept in `analysis/nufit.py`. Was accepted (Mauricio, 2026-10-18). Summing projections drops the correlations between parameters in different
     tables; NuFIT publishes no full six-dimensional table. Interpolated by bicubic splines, shifted up by their
     undershoot below zero (at most 0.05 in chi^2, a constant).
 
@@ -70,12 +75,23 @@ small, not yet measured), **open** (decided to remove or change, not yet done).
 
 11c. **Majorana phases not varied.** *Accepted.* (Mauricio, 2026-10-18: they don't matter to our observables.)
 
-11d. **The mixing parameters varied through templates, not a solver run at every value.** *To quantify.*
-    (2026-10-18; `analysis/templates.py`, docs/dev/MIXING_VARIATION.md) At each point, runs with one parameter moved
+11d. **The mixing parameters varied through templates, not a solver run at every value.** *Not used since
+    2026-10-18* (the mixing is fixed, item 11; the templates' chi^2 errors reached ~2 for projections).
+    (`analysis/templates.py`, docs/dev/MIXING_VARIATION.md) At each point, runs with one parameter moved
     to a few values, at the central spectral-index node; the flux in between is interpolated parameter by parameter
     (no cross terms) and the relative correction is taken to be the same at every index. Measured on the test
     configuration: the index transfer below 1e-6 of each bin's flux, s12 linear 1e-5, delta_CP over a whole turn 1e-4
     with 7 runs; the validation at the campaign's resolution (chi^2 against exact runs) is running.
+
+11e. **The size of the mixing's effect: a first look.** *To quantify* (method open, item 11). From the exact
+    profile's validation runs of 2026-10-18 (branch agent/exact-profile-v2; logs and fits on Tycho under
+    nulri_v2/output/validation, cancelled after ~20 min): points on the earlier campaign's limit contours, chi^2 with
+    the mixing at Table II's centre against chi^2 with the six mixing parameters and m_lightest profiled. At the 18
+    points with a saved fit where m_lightest stayed at its start (so the difference is the mixing's alone), the
+    profile lowered chi^2 by at most 0.18 at 17 (every parameter within 0.3 sigma of Table II), and by 8.8 at one
+    point deep inside the excluded region (proj_2050 dp_mu_pot_x1m12_pos, chi^2 ~ 5,600). At the one point with two
+    couplings, the contour moves by ~3% in coupling. Coverage is thin for present-day data (2 such points, both 0.0).
+    The lightest mass, by contrast, moved chi^2 by 7 to 1,000 at the other 7 points: it stays varied (item 11).
 
 ## Data and detectors
 
