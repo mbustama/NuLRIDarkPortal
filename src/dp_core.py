@@ -125,6 +125,11 @@ except ImportError:
 # It failed every potential-plane job's global fit. Every fastmath kernel therefore uses
 # numpy's error model, which drops the checks (a true division by zero gives inf or nan); the
 # solver's own isfinite checks on the thermal grid and on every flux still raise loudly.
+# 2026-10-18: the check had been firing on a real miscompilation, which the numpy error model
+# then let through silently: the same kernels returned 1e49-1e58 cm^-3 near the Earth's centre
+# at ultralight masses on Zen 4 (fastmath; generic-CPU code and pure Python exact). The Yukawa
+# evaluations are now compiled without fastmath (dp_spatial, NO FASTMATH IN THE YUKAWA
+# EVALUATIONS); validated against pure Python at 48,825 radii, chords and masses on Tycho.
 try:
     import numba
     from numba import njit, prange
