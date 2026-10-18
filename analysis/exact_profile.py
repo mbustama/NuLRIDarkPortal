@@ -95,6 +95,10 @@ class ExactSettings:
     # there when it comes within octant_margin of the best
     octants: bool = False
     octant_margin: float = 1.0
+    # the fits' gradients (fitting.FitSettings): 'forward' differences of step fit_fd_step (internal units), or
+    # 'central' ones -- both small enough that the curvature's bias does not stop L-BFGS-B short
+    fit_fd: str = "forward"
+    fit_fd_step: float = 1e-5
     # a plane's chain (analysis.scans): a point whose solver runs at the last certified point's values equal that
     # point's (relative inherit_eps per element, from each energy's largest; 2 float32 units in sky mode, whose bands
     # are single precision) takes its certificate after one evaluation (ExactProfiler.inherit); never with ml_scan
@@ -170,9 +174,17 @@ class ExactProfiler:
         self.w = widths(cfg, self.eta)
         self.bounds = {p.name: tuple(p.bounds) for p in cfg.parameters}
         fs = dict(vars(cfg.fit))
-        # central differences (fitting.FitSettings.fd_central: the forward ones stop short in norm_astro), with an
-        # evaluation budget of ~150 gradients
-        fs.update(polish=False, n_random=0, fd_central=True, max_evals=max(int(cfg.fit.max_evals), 4000))
+        # the fits' differences: forward ones of step 1e-5 (internal units; the campaign's 1e-3 stops short in
+        # norm_astro, fitting.FitSettings.fd_central) or central ones; ~150 gradients each
+        s_ = self.settings
+        n = len(cfg.parameters)
+        if s_.fit_fd == "central":
+            fs.update(fd_central=True, fd_central_step=s_.fit_fd_step, max_evals=150 * (2 * n + 1))
+        elif s_.fit_fd == "forward":
+            fs.update(fd_central=False, fd_step=s_.fit_fd_step, max_evals=150 * (n + 1))
+        else:
+            raise ValueError(f"exact_profile.fit_fd must be 'forward' or 'central', got {s_.fit_fd!r}")
+        fs.update(polish=False, n_random=0)
         self.fit_settings = FitSettings(**fs)
         self.solver_runs = 0
 
