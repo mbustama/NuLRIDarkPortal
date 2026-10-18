@@ -49,12 +49,14 @@ BPL_COST = {"spectrum": {"pot": (6.3, 2.5), "mev": (37.0, 3.0)},
 
 # the campaign with the mixing fixed and m_lightest profiled exactly (2026-10-18, --tree campaign_ml): Tycho core-seconds
 # per point and per global fit from the pilot (job 66464601: two mass columns of 16 planes, every data set and kind,
-# 1,528 points, no flux reuse between planes), per data set and plane kind (tools/exact_progress.kind_of)
-ML_COST = {("now_events", "bal"): (27.2, 90), ("now_events", "mev"): (81.5, 90), ("now_events", "split"): (22.5, 137),
-           ("now_events", "ul"): (29.7, 90), ("now_ic26", "bal"): (2.8, 90), ("now_ic26", "mev"): (38.8, 90),
+# 1,528 points, no flux reuse between planes), per data set and plane kind (tools/exact_progress.kind_of); the MeV
+# planes' from the re-pilot with the relics thermal in every collision term (job 66505900, 2026-10-18: 16 MeV planes x
+# two mass columns, 353 points in 55 min)
+ML_COST = {("now_events", "bal"): (27.2, 90), ("now_events", "mev"): (205.8, 286), ("now_events", "split"): (22.5, 137),
+           ("now_events", "ul"): (29.7, 90), ("now_ic26", "bal"): (2.8, 90), ("now_ic26", "mev"): (57.3, 286),
            ("now_ic26", "split"): (4.7, 50), ("now_ic26", "ul"): (3.4, 90), ("proj_2050", "bal"): (3.0, 90),
            ("proj_2050", "mev"): (29.0, 90), ("proj_2050", "split"): (10.7, 79), ("proj_2050", "ul"): (3.0, 90),
-           ("proj_future", "bal"): (13.6, 90), ("proj_future", "mev"): (80.3, 90),
+           ("proj_future", "bal"): (13.6, 90), ("proj_future", "mev"): (171.6, 286),
            ("proj_future", "split"): (26.9, 95), ("proj_future", "ul"): (10.8, 90)}
 
 
