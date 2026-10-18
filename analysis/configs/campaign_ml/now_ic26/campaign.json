@@ -26,30 +26,6 @@
    "points": 1681
   },
   {
-   "name": "dp_emu_mev",
-   "points": 1681
-  },
-  {
-   "name": "dp_emu_mev_fx",
-   "points": 1681
-  },
-  {
-   "name": "dp_etau_mev",
-   "points": 1681
-  },
-  {
-   "name": "dp_etau_mev_fx",
-   "points": 1681
-  },
-  {
-   "name": "dp_mutau_mev",
-   "points": 1681
-  },
-  {
-   "name": "dp_mutau_mev_fx",
-   "points": 1681
-  },
-  {
    "name": "dp_emutau_mev",
    "points": 1681
   },
@@ -130,5 +106,5 @@
    "points": 1681
   }
  ],
- "total_points": 55608
+ "total_points": 45522
 }

@@ -15,7 +15,7 @@
 #   PACKS=analysis/configs/campaign/packs.txt SLOTS=4 sbatch --array=0-<n-1>%7 --exclude=node812 slurm/campaign_array.sh
 # campaign_ml (2026-10-18): 11 tasks of 16 cores at a time = 176 (PROGRESS lines per task: slurm/common.sh):
 #   ... PACKS=analysis/configs/campaign_ml/packs.txt \
-#   SLOTS=4 sbatch --array=0-55%11 --time=08:00:00 slurm/campaign_array.sh   (56 packs of <= 4 h; 96 planes since 2026-10-18)
+#   SLOTS=4 sbatch --array=0-43%11 --time=08:00:00 slurm/campaign_array.sh   (44 packs of <= 4 h; 78 planes since 2026-10-18)
 source slurm/common.sh
 SLOTS=${SLOTS:-4}
 W=$(( ${SLURM_CPUS_PER_TASK:-1} / SLOTS ))

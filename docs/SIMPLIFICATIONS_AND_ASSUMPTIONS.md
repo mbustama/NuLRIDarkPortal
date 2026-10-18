@@ -145,11 +145,12 @@ small, not yet measured), **open** (decided to remove or change, not yet done).
     pilot's pricing).
 
 16b. **Long-range potentials only for L_e-L_mu and L_e-L_tau** (their ultralight-mass planes, 1e-30-1e4 eV);
-    every MeV plane kept (14 models). *Removed* (Mauricio, 2026-10-18: "For long-range potentials, keep only Le-Lm
+    MeV planes for the 7 gauge models and the dark portal's textures e, mu, tau and e-mu-tau (Mauricio: "do only e,
+    mu, tau, and all three equally"; its e-mu, e-tau, mu-tau MeV planes dropped). *Removed* (Mauricio, 2026-10-18: "For long-range potentials, keep only Le-Lm
     and Le-Lt"; and the B-3L models' long-range planes too: "Yes"). Not generated any more: the dark portal's
     potential planes (7 textures x 2 signs x balanced + 5 coupling splits), L_mu-L_tau's (2 signs x 6 settings), and
-    the ultralight planes of B-3L_e, B-3L_mu, B-3L_tau, B-(3/2)(L_mu+L_tau). The campaign is 96 planes (16 per data
-    set and source composition, x 2 compositions x 3 data sets), 166,824 points. The coupling-split planes' missing
+    the ultralight planes of B-3L_e, B-3L_mu, B-3L_tau, B-(3/2)(L_mu+L_tau). The campaign is 78 planes (13 per data
+    set and source composition, x 2 compositions x 3 data sets), 136,566 points. The coupling-split planes' missing
     lightest-mass scan (the local fit missed a minimum lower by 1.96 in chi^2) no longer applies. To revive any of
     them: widen tools/make_campaign_configs.ML_KEEP and regenerate (`--mixing lightest --datasets ...`); the split
     planes then need exact_profile's ml_scan, as the MeV planes have.
