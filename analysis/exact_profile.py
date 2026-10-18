@@ -220,8 +220,9 @@ class ExactProfiler:
         fs.update(polish=False, n_random=0)
         self.fit_settings = FitSettings(**fs)
         self.solver_runs = 0
-        # the chain's last central certificate: its centre and curvatures (_curvatures), for forward certificates
-        self.curv = None
+        # the chain's recent central certificates, newest first: their centres and curvatures (_curvatures), for
+        # forward certificates (one per basin: present-day points profile both octants of theta23)
+        self.curvs = []
         # models of the current point kept for reuse (scan_runs -> profile_global's scan): {(held, centre): model}
         self._pool = {}
         self._pool_held = None
@@ -446,21 +447,29 @@ class ExactProfiler:
     def _store_curvature(self, model, values, centre) -> None:
         """Keeps a central certificate's curvatures for the forward certificates after it (a chain's next points)."""
         K = self._curvatures(model, values)
-        self.curv = None if K is None else dict(centre={n: float(centre[n]) for n in self.eta}, K=K)
+        if K is None:
+            return
+        c = {n: float(centre[n]) for n in self.eta}
+        # the newest first; an older one within 0.1 widths of this centre is replaced, at most four kept
+        keep = [x for x in self.curvs if max(abs(x["centre"][n] - c[n]) / self.w[n] for n in self.eta) > 0.1]
+        self.curvs = [dict(centre=c, K=K)] + keep[:3]
 
     def _forward_certificate(self, held, centre, vals_c, radius, model, f_c, pred):
         """Whether a forward model's certificate holds (ExactSettings.trunc_tol): a forward difference of step h
         carries a truncation of (h / 2) times the curvature of log F in its slope (the Galactic flux's, likewise).
-        With the curvature K measured at the chain's last central certificate (within curv_radius widths), the
+        With the curvature K measured at the chain's nearest recent central certificate (within curv_radius widths), the
         surrogate is minimized again with every slope shifted by trunc_safety times that truncation (the stacked
         log ratios by -trunc_safety K / 2). Both surrogates -- the unshifted one is the truncation's other end --
         predicting no decrease beyond stop certifies every truncation between them (the predicted decrease is
         convex in the slopes), and the shift must change it by at most trunc_tol. Returns (ok, the shifted
         prediction, chi^2 evaluations)."""
         s = self.settings
-        c = self.curv
-        if c is None or any(abs(float(centre[n]) - c["centre"][n]) > s.curv_radius * self.w[n] for n in self.eta):
+        # the nearest recent curvature within curv_radius widths (the newest among equals)
+        dist = [max(abs(float(centre[n]) - x["centre"][n]) / self.w[n] for n in self.eta) for x in self.curvs]
+        near = [i for i, d in enumerate(dist) if d <= s.curv_radius]
+        if not near:
             return False, None, 0
+        c = self.curvs[min(near, key=lambda i: (dist[i], i))]
         m = -0.5 * s.trunc_safety
         model.stack_shift = {key: _stack_map(K, lambda a: m * a) for key, K in c["K"].items()}
         try:

@@ -105,7 +105,7 @@ def _run_chain(task) -> List[dict]:
         out.append(rec)
 
     if prof is not None:
-        prof.curv = None             # forward certificates take the curvature of this chain's own central ones
+        prof.curvs = []              # forward certificates take the curvature of this chain's own central ones
     if prof is not None and prof.settings.inherit and chain and set(chain[0][1]) <= set(best):
         # the global fit (the exact profile without new physics, _exact_global_fit) anchors the chain's first point
         g_held = {k: float(best[k]) for k in chain[0][1]}
