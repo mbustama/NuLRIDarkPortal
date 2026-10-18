@@ -87,6 +87,8 @@ def _reference(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta_m
         if thermal and not delta_mode:
             si._thermal_resonance_terms(E, L_lo, L_hi, masses, T_nu0, eta_arr, M, MG, H0, Omega_m, Omega_L, J,
                                         si._TGL16_X, si._TGL16_W, si._TGL10_X, si._TGL10_W, si._TFD16)
+            si._thermal_nonresonant_terms(E, L_lo, L_hi, masses, T_nu0, eta_arr, n0, M2, H0, Omega_m, Omega_L, prof,
+                                          J, si._FDX32, si._FDW32, si._GL12_X, si._GL12_W)
         if m == K - 1 and not top_full:
             tB, tO = top
             node[:] = jj[:, None]
