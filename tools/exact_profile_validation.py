@@ -21,7 +21,6 @@ REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, REPO)
 sys.path.insert(0, os.path.join(REPO, "src"))
 
-ML_SCAN = [1e-6] + [float(x) for x in (10.0 ** (-4.0 + 0.2 * k) for k in range(16))]    # 1e-4 .. 0.1 eV
 
 
 def main(argv=None):
@@ -38,7 +37,7 @@ def main(argv=None):
     a = ap.parse_args(argv)
     os.environ.pop("NULRI_FLUX_CACHE", None)
     from analysis import config as config_mod
-    from analysis.exact_profile import ExactProfiler, ExactSettings, exact_config
+    from analysis.exact_profile import ML_SCAN, ExactProfiler, ExactSettings, exact_config
     from analysis.fitting import FitSettings
     from analysis.run import asimov_centre, asimov_only
     raw = exact_config(json.load(open(a.config)))
@@ -47,7 +46,7 @@ def main(argv=None):
     centre = asimov_centre(cfg) if asimov_only(cfg) else None
     st = dict(json.loads(a.settings))
     if a.ml_scan:
-        st["ml_scan"] = ML_SCAN
+        st["ml_scan"] = list(ML_SCAN)
     if a.octants:
         st["octants"] = True
     prof = ExactProfiler(cfg, data_centre=centre, settings=ExactSettings.from_dict(st))
