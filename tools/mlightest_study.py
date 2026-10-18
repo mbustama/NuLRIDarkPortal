@@ -6,8 +6,8 @@ on sum of neutrino masses").
 For a plane configuration and its finished plane from an earlier campaign (the summary's Delta chi^2 grid), takes the
 points where each mass column crosses the threshold (Delta chi^2 = 3.84, the coupling interpolated in log), and refits
 the plane's free parameters there (mass and coupling held) at each lightest mass of --m-lightest, with the mixing fixed.
-Prints and writes (JSON) chi^2 - chi^2_ref per point and lightest mass, chi^2_ref the fit at the same point with the
-coupling 1e-12 times smaller (no new physics), and the mass sum per lightest mass, for any penalty to be added after.
+Prints and writes (JSON) chi^2 - chi^2_ref per point and lightest mass, chi^2_ref the fit at the same mass with the
+plane's smallest coupling (no new physics), and the mass sum per lightest mass, for any penalty to be added after.
 
   python tools/mlightest_study.py <config.json> <old plane summary .json> [--m-lightest 1e-5 1e-3 ...]
                                   [--masses 6] [--workers N] [--out results.json]
@@ -59,7 +59,9 @@ def _task(args):
     if asimov_only(cfg):
         centre = asimov_centre(cfg)
     obj = cfg.objective(data_centre=centre)
-    vals = {x: held[0], y: held[1] * (1e-12 if ref else 1.0)}
+    # the reference: the plane's smallest coupling, negligible by design (1e-12 times the point's coupling was not, for
+    # the potential planes' products at ultralight masses)
+    vals = {x: held[0], y: float(raw["planes"][0]["y_range"][0]) if ref else held[1]}
     pset = cfg.parameter_set().holding(vals)
     res = fit(obj, pset, starts=[pset.start_values()], settings=cfg.fit)
     from analysis.model import sum_of_masses
