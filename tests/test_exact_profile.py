@@ -173,3 +173,59 @@ def test_profile_certified_and_not_above_bruteforce(prof):
     bf = prof.bruteforce(POINT, [r.values, start])
     print("brute force", bf.chi2, bf.nfev)
     assert r.chi2 <= bf.chi2 + 1e-3
+
+
+def test_forward_slope_corrected_by_the_curvature(prof):
+    """The forward certificate's shift (ExactProfiler._forward_certificate): a forward model whose stacked log ratios
+    are shifted by -K/2, K the curvature measured by a central model at the same centre (_curvatures), has the
+    central model's slope in every parameter of eta; unshifted, the forward slope differs by the truncation."""
+    from analysis.exact_profile import _stack_map
+    v = dict(_start(prof), **POINT, norm_astro=1.05, s12sq=0.31, s23sq=0.475, m_lightest_eV=0.012)
+    centre = {n: v[n] for n in prof.eta}
+    mc = prof.centre_model(centre, central=True)
+    mf = prof.centre_model(centre, reuse=mc)
+
+    def slope(model, n):
+        h = 1e-3 * prof.w[n]
+        prof.use(model)
+        try:
+            return (prof.obj.chi2(dict(v, **{n: v[n] + h})) - prof.obj.chi2(dict(v, **{n: v[n] - h}))) / (2 * h) \
+                * prof.w[n]
+        finally:
+            prof.use(prof.exact_model)
+    gc = {n: slope(mc, n) for n in prof.eta}
+    K = prof._curvatures(mc, v)
+    assert K is not None
+    gf = {n: slope(mf, n) for n in prof.eta}
+    mf.stack_shift = {key: _stack_map(k, lambda a: -0.5 * a) for key, k in K.items()}
+    gs = {n: slope(mf, n) for n in prof.eta}
+    for n in prof.eta:
+        print(f"{n}: central {gc[n]:.6g}, forward {gf[n]:.6g}, forward shifted {gs[n]:.6g}")
+        assert abs(gs[n] - gc[n]) <= 1e-3 * max(abs(gc[n]), 1.0) + 1e-6, n
+        assert abs(gs[n] - gc[n]) <= abs(gf[n] - gc[n]) + 1e-9, n
+
+
+@pytest.mark.slow
+def test_plane_points_written_as_done_and_inherited(tmp_path):
+    """A small plane: every point's record reaches the checkpoint by itself (with its time and certificate kind), the
+    points below the reach of new physics inherit after one evaluation, those above are certified (forward or
+    central)."""
+    from analysis import scans
+    raw = _raw()
+    raw["exact_profile"] = {}
+    raw["planes"] = [{"x": "m_Zd_eV", "y": "g_D_eps_trace", "x_range": [1e-13, 1e-13], "y_range": [1e-60, 1e-30],
+                      "nx": 1, "ny": 4, "raster": "m_Zd_eV"}]
+    cfg = config_mod.from_dict(raw)
+    centre = (1.0 / 3.0, 2.0 / 3.0)
+    best = scans.global_fit(cfg, centre, workers=1, checkpoint=str(tmp_path / "fit.jsonl"), log=print)
+    s = cfg.planes[0]
+    scans.plane(cfg, s.x, s.y, s.x_grid, s.y_grid, best["values"], centre, workers=1,
+                checkpoint=str(tmp_path / "plane.jsonl"), max_passes=0, log=print)
+    recs = [json.loads(x) for x in open(tmp_path / "plane.jsonl")]
+    pts = [x for x in recs if "chi2" in x]
+    assert len(pts) == 4 and all("t" in x and x.get("cert") for x in pts)
+    by_y = sorted(pts, key=lambda x: x["held"][s.y])
+    print([(x["held"][s.y], x["cert"], x["solver_runs"], round(x["chi2"], 6)) for x in by_y])
+    assert by_y[0]["cert"] == "inherited"
+    assert by_y[-1]["cert"] in ("forward", "central") and by_y[-1]["certified"]
+    assert all(x["certified"] for x in pts)

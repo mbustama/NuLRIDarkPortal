@@ -410,6 +410,9 @@ class FlavorModel:
         # the template runs; their ratios to the theta0 run, per point and piece, kept in _tmpl_memo
         self.templates = {t.name: t for t in templates}
         self._tmpl_memo: "OrderedDict[tuple, dict]" = _BoundedCache(64, budget)
+        # added to the template stacks while set (exact_profile's forward certificates, 2026-10-18): {(kind, piece):
+        # {array: (n_points, ...)}}, piece 0 the upper (or only) piece, 1 the lower; never memoized
+        self.stack_shift = None
 
     # ------------------------------------------------------------------
     def _overrides(self, values: Mapping, templated: bool = False) -> Dict[Tuple[str, str], object]:
@@ -635,7 +638,7 @@ class FlavorModel:
         hit = self._tmpl_memo.get(key)
         if hit is not None:
             self._tmpl_memo.move_to_end(key)
-            return hit
+            return self._shifted_stack(hit, nodes, kind)
         if kind == "sky":
             r0 = self._sky_exact(c)
             rs = [self._sky_exact(v, True) for v, _ in self._template_runs(values, nodes)]
@@ -663,6 +666,23 @@ class FlavorModel:
         elif kind == "flux" and r0[3] is not None:
             out["G"] = np.stack([r[3]["G"] - r0[3]["G"] for r in rs])
         self._tmpl_memo[key] = out
+        return self._shifted_stack(out, nodes, kind)
+
+    def _shifted_stack(self, st: dict, nodes, kind: str) -> dict:
+        """st plus stack_shift's arrays for this kind and piece (a new dict; st itself stays as memoized)."""
+        if self.stack_shift is None:
+            return st
+        sh = self.stack_shift.get((kind, 0 if nodes is self.p_nodes else 1))
+        if not sh:
+            return st
+        out = dict(st)
+        for k, v in sh.items():
+            if k not in st:
+                continue
+            if k == "site_gal":
+                out[k] = {lat: tuple(a + b for a, b in zip(st[k][lat], v[lat])) for lat in st[k]}
+            else:
+                out[k] = st[k] + v
         return out
 
     def _template_weights(self, values: Mapping):

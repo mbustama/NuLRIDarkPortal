@@ -65,8 +65,9 @@ SOLVER_KEYS = {"s12sq": ("standard_mixing", "th12_deg"), "s13sq": ("standard_mix
 NUFIT_WIDTHS = dict(s12sq=0.012, s13sq=0.00057, s23sq=0.018, d_cp_deg=30.0, dm21_sq=2.0e-6, dm31_sq=2.5e-5)
 M_LIGHTEST_WIDTH = 2e-3           # eV: the trust region's unit for m_lightest (the relics' thermal scale, ~10 T_nu)
 M_LIGHTEST_MIN = 1e-6             # eV (module docstring)
-# the MeV planes' scan of the lightest mass (profile_global): M_LIGHTEST_MIN and 1e-4 .. 0.1 eV, five per decade
-ML_SCAN = (M_LIGHTEST_MIN,) + tuple(float(10.0 ** (-4.0 + 0.2 * k)) for k in range(16))
+# the MeV planes' scan of the lightest mass (profile_global): M_LIGHTEST_MIN and 1e-4 .. 0.1 eV, three per decade
+# (2026-10-18; five until then): a basin in m_lightest spans at least ~0.3 decade (module docstring of profile_global)
+ML_SCAN = (M_LIGHTEST_MIN,) + tuple(float(10.0 ** (-4.0 + k / 3.0)) for k in range(10))
 
 
 @dataclass
@@ -78,10 +79,22 @@ class ExactSettings:
     radius_max: float = 64.0
     radius_min: float = 1e-3
     cert_radius: float = 0.5
-    fd_rel: float = 0.25
-    stop: float = 1e-4
+    # the differences' step (2026-10-18: 0.05, 0.25 until then): small, so that a forward difference's truncation,
+    # (h / 2) times the curvature of log F, is small enough for the certificate (trunc_tol); the solver is smooth at
+    # this step (its slopes from +-0.05 and +-0.25 widths agree to 1e-6 per width)
+    fd_rel: float = 0.05
+    # the certified predicted decrease: 1e-3 since 2026-10-18 (1e-4 until then; Tycho job 66462115: the final chi^2
+    # moved by at most 5.9e-4 between the two at eight points of every kind)
+    stop: float = 1e-3
     max_centres: int = 24
     accept: float = 1e-9
+    # the certificate from forward differences (2026-10-18): taken when the curvature of log F measured at the
+    # chain's last central certificate (within curv_radius widths of the centre), times trunc_safety, shifts the
+    # surrogate's slope by the forward differences' whole truncation and the shifted surrogate still predicts no
+    # decrease beyond stop, nor more than trunc_tol beyond the unshifted one; central differences otherwise
+    trunc_tol: float = 1e-4
+    trunc_safety: float = 2.0
+    curv_radius: float = 1.0
     # the lightest mass's global search (profile_global): the exact chi^2 on this grid of m_lightest (eV) at the
     # start's mixing, then the exact profile from every local minimum of the scan within ml_margin of its lowest
     ml_scan: Optional[Sequence[float]] = None
@@ -100,11 +113,17 @@ class ExactSettings:
     fit_fd: str = "forward"
     fit_fd_step: float = 1e-5
     # a plane's chain (analysis.scans): a point whose solver runs at the last certified point's values equal that
-    # point's (relative inherit_eps per element, from each energy's largest; 2 float32 units in sky mode, whose bands
-    # are single precision) takes its certificate after one evaluation (ExactProfiler.inherit); never with ml_scan
+    # point's (relative inherit_eps per element, from each energy's largest) takes its certificate after one
+    # evaluation (ExactProfiler.inherit). 1e-6 since 2026-10-18 (1e-10 and 2.4e-7 in sky mode until then: below the
+    # solver's own differences between couplings, it never fired): the error is second order in it (inherit's
+    # docstring). With ml_scan, only below a flat scan of the lightest mass (ml_inherit; analysis.scans._run_chain)
     inherit: bool = True
-    inherit_eps: float = 1e-10
-    inherit_eps_sky: float = 2.4e-7
+    inherit_eps: float = 1e-6
+    inherit_eps_sky: float = 1e-6
+    ml_inherit: bool = True
+    # validation: at an inherited point also the central certificate from the anchor's values (its predicted
+    # decrease is the inheritance's error), recorded as inherit_check -- ~30 solver runs per point
+    inherit_check: bool = False
 
     @classmethod
     def from_dict(cls, d: Optional[Mapping]) -> "ExactSettings":
@@ -132,11 +151,25 @@ class ExactResult:
     nfev: int = 0
     scan: List[dict] = field(default_factory=list)
     starts: List[dict] = field(default_factory=list)
+    # how the point was certified: 'central' or 'forward' differences, 'inherited' (from a chain's anchor), or ''
+    cert: str = ""
+    # the lightest mass's scan (and a chain's flatness probe): its solver runs and seconds, within the totals
+    scan_runs: int = 0
+    scan_seconds: float = 0.0
+    # validation (ExactSettings.inherit_check): the central certificate's predicted decrease at an inherited point
+    inherit_check: Optional[float] = None
 
     def as_dict(self) -> dict:
         return dict(values=self.values, chi2=self.chi2, certified=self.certified, message=self.message, pred=self.pred,
                     pred_radius=self.pred_radius, centres=self.centres, solver_runs=self.solver_runs,
-                    seconds=self.seconds, nfev=self.nfev, scan=self.scan, starts=self.starts)
+                    seconds=self.seconds, nfev=self.nfev, scan=self.scan, starts=self.starts, cert=self.cert,
+                    scan_runs=self.scan_runs, scan_seconds=self.scan_seconds, inherit_check=self.inherit_check)
+
+
+def _stack_map(st: Mapping, f) -> dict:
+    """f applied to every array of a template stack (FlavorModel._template_stack), site_gal's pairs included."""
+    return {k: ({lat: tuple(f(x) for x in pair) for lat, pair in v.items()} if k == "site_gal" else f(v))
+            for k, v in st.items()}
 
 
 def widths(cfg, names: Sequence[str]) -> Dict[str, float]:
@@ -187,6 +220,11 @@ class ExactProfiler:
         fs.update(polish=False, n_random=0)
         self.fit_settings = FitSettings(**fs)
         self.solver_runs = 0
+        # the chain's last central certificate: its centre and curvatures (_curvatures), for forward certificates
+        self.curv = None
+        # models of the current point kept for reuse (scan_runs -> profile_global's scan): {(held, centre): model}
+        self._pool = {}
+        self._pool_held = None
 
     # ------------------------------------------------------------------ models
     def _fd_template(self, name: str, c: float, central: bool) -> MixingTemplate:
@@ -292,7 +330,7 @@ class ExactProfiler:
         runs = 0                                      # solver runs of the models dropped so far
         model_c = model_t = self.centre_model(centre)
         self.use(model_c)
-        certified, message, pred, pred_radius = False, "", np.inf, 0.0
+        certified, message, pred, pred_radius, cert = False, "", np.inf, 0.0, ""
         central = False                               # the current centre's differences
         try:
             f_c, vals_c, k = self._centre_value(held, centre, st)
@@ -306,15 +344,25 @@ class ExactProfiler:
                 pred, pred_radius = f_c - float(r.chi2), big
                 if pred <= s.stop:
                     if not central:
-                        # the certificate takes central differences: the forward ones' truncation (O(h)) can leave
-                        # a gradient error that matters where the data pull hard (2026-10-18: proj_2050 at chi^2 ~
-                        # 3000 stalled on it); the centre's runs are reused, the backward points added
+                        # forward differences certify when the chain's last measured curvature bounds their
+                        # truncation (_forward_certificate); otherwise central ones: the forward ones' truncation
+                        # (O(h)) can leave a gradient error that matters where the data pull hard (2026-10-18:
+                        # proj_2050 at chi^2 ~ 3000 stalled on it); the centre's runs are reused, the backward added
+                        ok, pred2, k = self._forward_certificate(held, centre, vals_c, big, model_c, f_c, pred)
+                        nfev += k
+                        if ok:
+                            certified, cert = True, "forward"
+                            message = (f"certified (forward differences): surrogate decrease {pred:.2g} within "
+                                       f"{big:.3g} widths, {pred2:.2g} with twice the chain's curvature")
+                            break
                         runs += self._runs(model_c)
                         model_c = model_t = self.centre_model(centre, central=True, reuse=model_c)
                         self.use(model_c)
                         central = True
                         continue
-                    certified, message = True, f"certified: surrogate decrease {pred:.2g} within {big:.3g} widths"
+                    certified, cert = True, "central"
+                    message = f"certified: surrogate decrease {pred:.2g} within {big:.3g} widths"
+                    self._store_curvature(model_c, {**vals_c, **held, **centre}, centre)
                     break
                 if radius < s.cert_radius:
                     r = self._surrogate_step(held, centre, vals_c, radius)
@@ -371,7 +419,56 @@ class ExactProfiler:
         self.solver_runs += runs
         return ExactResult(values=values, chi2=float(f_c), certified=certified, message=message, pred=float(pred),
                            pred_radius=float(pred_radius), centres=centres, solver_runs=runs,
-                           seconds=time.perf_counter() - t0, nfev=nfev)
+                           seconds=time.perf_counter() - t0, nfev=nfev, cert=cert)
+
+    # ------------------------------------------------------------------ forward certificates (2026-10-18)
+    def _curvatures(self, model, values) -> Optional[dict]:
+        """From a central model's template runs: h^2 times the second derivative in each parameter of eta of every
+        stacked array (the log ratios to the centre's run, the Galactic differences), {(kind, piece): {array:
+        (n_eta, ...)}} (site_gal: {lat: (nu, nb)}); None when a parameter has no second difference."""
+        offs, modes, n = [], [], 0
+        for t in model.templates.values():
+            if t.slope is not None or len(t.points) != 2:
+                return None
+            a, b = t.points
+            offs.append(n)
+            modes.append((a - t.theta0) * (b - t.theta0) < 0.0)   # (c + h, c - h); else (c +- h, c +- 2h)
+            n += 2
+
+        def second(arr):
+            return np.stack([arr[o] + arr[o + 1] if c else arr[o + 1] - 2.0 * arr[o] for o, c in zip(offs, modes)])
+        out = {}
+        for kind in (("flux", "sky") if model.sky else ("flux",)):
+            for p, (v, nodes) in enumerate(model._pieces(values)):
+                out[(kind, p)] = _stack_map(model._template_stack(v, nodes, kind), second)
+        return out
+
+    def _store_curvature(self, model, values, centre) -> None:
+        """Keeps a central certificate's curvatures for the forward certificates after it (a chain's next points)."""
+        K = self._curvatures(model, values)
+        self.curv = None if K is None else dict(centre={n: float(centre[n]) for n in self.eta}, K=K)
+
+    def _forward_certificate(self, held, centre, vals_c, radius, model, f_c, pred):
+        """Whether a forward model's certificate holds (ExactSettings.trunc_tol): a forward difference of step h
+        carries a truncation of (h / 2) times the curvature of log F in its slope (the Galactic flux's, likewise).
+        With the curvature K measured at the chain's last central certificate (within curv_radius widths), the
+        surrogate is minimized again with every slope shifted by trunc_safety times that truncation (the stacked
+        log ratios by -trunc_safety K / 2). Both surrogates -- the unshifted one is the truncation's other end --
+        predicting no decrease beyond stop certifies every truncation between them (the predicted decrease is
+        convex in the slopes), and the shift must change it by at most trunc_tol. Returns (ok, the shifted
+        prediction, chi^2 evaluations)."""
+        s = self.settings
+        c = self.curv
+        if c is None or any(abs(float(centre[n]) - c["centre"][n]) > s.curv_radius * self.w[n] for n in self.eta):
+            return False, None, 0
+        m = -0.5 * s.trunc_safety
+        model.stack_shift = {key: _stack_map(K, lambda a: m * a) for key, K in c["K"].items()}
+        try:
+            r = self._surrogate_step(held, centre, vals_c, radius)
+        finally:
+            model.stack_shift = None
+        pred2 = f_c - float(r.chi2)
+        return bool(pred2 <= s.stop and pred2 - pred <= s.trunc_tol), pred2, int(r.nfev)
 
     def profile_starts(self, held: Mapping, starts: Sequence[Mapping], log=None) -> ExactResult:
         """profile() from each start; the lowest result, with every start's chi^2 in its message."""
@@ -386,16 +483,75 @@ class ExactProfiler:
         best.nfev = sum(r.nfev for r in res)
         return best
 
+    def _pooled(self, held: Mapping, centre: Mapping):
+        """The model centred at `centre` for the point `held`: kept from scan_runs at the same point, else new."""
+        hk = tuple(sorted((k, float(v)) for k, v in held.items()))
+        if hk != self._pool_held:
+            self._pool, self._pool_held = {}, hk
+        ck = tuple(sorted((k, float(v)) for k, v in centre.items()))
+        m = self._pool.get(ck)
+        if m is None:
+            m = self._pool[ck] = self.centre_model(centre)
+        return m
+
     def value_at(self, held: Mapping, eta: Mapping, start: Mapping):
-        """The exact chi^2 at eta, minimized over nu: (chi2, values, solver runs)."""
+        """The exact chi^2 at eta, minimized over nu: (chi2, values, solver runs made)."""
         centre = {n: float(min(max(float(eta[n]), self.bounds[n][0]), self.bounds[n][1])) for n in self.eta}
-        model = self.centre_model(centre)
+        model = self._pooled(held, centre)
+        n0 = self._runs(model)
         self.use(model)
         try:
             f, v, _ = self._centre_value(held, centre, start)
         finally:
             self.use(self.exact_model)
-        return f, v, self._runs(model)
+        return f, v, self._runs(model) - n0
+
+    def _ml_grid(self) -> List[float]:
+        lo, hi = self.bounds["m_lightest_eV"]
+        return sorted({float(min(max(m, lo), hi)) for m in self.settings.ml_scan})
+
+    def scan_runs(self, held: Mapping, mixing: Mapping, start: Mapping):
+        """The solver runs of the lightest mass's scan at the point held: at `mixing` (the six) and every mass of
+        ml_scan, every index node -- ({m: runs}, solver runs made, seconds). The models stay for profile_global's
+        scan at the same point (its centres are the same when ExactSettings.scan_mixing is set)."""
+        t0 = time.perf_counter()
+        out, k = {}, 0
+        held = {kk: float(v) for kk, v in held.items()}
+        for m in self._ml_grid():
+            centre = {n: float(mixing[n]) for n in self.eta if n != "m_lightest_eV"}
+            centre["m_lightest_eV"] = m
+            model = self._pooled(held, centre)
+            n0 = self._runs(model)
+            out[m] = self._runs_at(model, held, dict(start, **centre))
+            k += self._runs(model) - n0
+        return out, k, time.perf_counter() - t0
+
+    def runs_differ(self, runs: Sequence, ref: Sequence, sky: bool) -> float:
+        """The largest difference between two sets of solver runs, per element relative to each energy's largest
+        (inf when their shapes differ)."""
+        worst = 0.0
+        if len(runs) != len(ref):
+            return np.inf
+        for a, b in zip(runs, ref):
+            if a.shape != b.shape:
+                return np.inf
+            scale = np.maximum(np.max(np.abs(b), axis=-1, keepdims=True), 1e-300)
+            worst = max(worst, float(np.max(np.abs(a - b) / scale)))
+        return worst
+
+    def scan_flat(self, runs: Mapping, ref: Mapping):
+        """Whether a point's lightest-mass scan (scan_runs) equals the reference's (the plane's point without new
+        physics) to inherit_eps at every mass: (flat, the largest difference)."""
+        s = self.settings
+        eps = s.inherit_eps_sky if self.exact_model.sky else s.inherit_eps
+        worst = 0.0
+        for m, r in ref.items():
+            if m not in runs:
+                return False, np.inf
+            worst = max(worst, self.runs_differ(runs[m], r, self.exact_model.sky))
+            if worst > eps:
+                return False, worst
+        return True, worst
 
     def profile_global(self, held: Mapping, start: Mapping, log=None) -> ExactResult:
         """The exact profile with the known separate basins searched (ExactSettings): with ml_scan, the exact chi^2
@@ -409,16 +565,19 @@ class ExactProfiler:
         st = {p.name: p.start for p in self.cfg.parameters if p.name not in held}
         st.update({k: float(v) for k, v in start.items() if k not in held})
         starts, scan, runs, probes = [dict(st)], [], 0, []
+        scan_runs, scan_sec = 0, 0.0
         if s.ml_scan is not None and "m_lightest_eV" in self.eta:
-            lo, hi = self.bounds["m_lightest_eV"]
-            grid = sorted({float(min(max(m, lo), hi)) for m in s.ml_scan})
+            t_scan = time.perf_counter()
+            grid = self._ml_grid()
             base = dict(st, **{k: float(v) for k, v in (s.scan_mixing or {}).items()})
             for m in grid:
                 f, v, k = self.value_at(held, dict(base, m_lightest_eV=m), base)
                 runs += k
+                scan_runs += k
                 scan.append(dict(m_lightest_eV=m, chi2=f, values=v))
                 if log is not None:
                     log(f"    scan m_lightest {m:.3g}: chi2 {f:.6f}")
+            scan_sec = time.perf_counter() - t_scan
             vals = [x["chi2"] for x in scan]
             low = min(vals)
             cand = [i for i in range(len(grid)) if vals[i] <= low + s.ml_margin
@@ -450,6 +609,7 @@ class ExactProfiler:
         best.solver_runs = runs + sum(r.solver_runs for r in res)
         best.nfev = sum(r.nfev for r in res)
         best.seconds = time.perf_counter() - t0
+        best.scan_runs, best.scan_seconds = scan_runs, scan_sec
         if len(res) > 1:
             best.message += f"; lowest of {len(res)} starts" + (f" after a {len(scan)}-point m_lightest scan" if scan
                                                                  else "")
@@ -513,15 +673,19 @@ class ExactProfiler:
         return dict(held=dict(held), values=dict(result.values), runs=self._runs_at(model, held, result.values),
                     chi2=float(result.chi2))
 
-    def inherit(self, held: Mapping, anchor: dict) -> Optional["ExactResult"]:
-        """The point at `held` profiled from a chain's anchor when new physics is below the solver's precision there:
+    def inherit(self, held: Mapping, anchor: dict, scan_pending: bool = False) -> Optional["ExactResult"]:
+        """The point at `held` profiled from a chain's anchor when new physics is below the solver's reach there:
         its runs at the anchor's values (one evaluation) equal the anchor's to inherit_eps (per element, relative
-        to each energy's largest), so its chi^2 is the anchor's function of every parameter up to that perturbation,
-        whose effect on the minimum is first order at the anchor's solution -- where it is evaluated exactly here,
-        nu refitted -- and second order elsewhere. Returns the result (certified by the anchor), or None (profile it:
-        new physics shows, or the lightest mass is scanned -- its other values are not compared)."""
+        to each energy's largest). Its chi^2 is then the anchor's function of every parameter plus a perturbation
+        delta whose size is O(inherit_eps) times chi^2's sensitivity to the flux: the anchor's minimum moves by
+        first order in delta's gradient, and the value there by its square over chi^2's curvature -- second order
+        (with inherit_eps = 1e-6, below 1e-6 in chi^2: ExactSettings.inherit_check measures it). The point is
+        evaluated exactly at the anchor's eta, nu refitted, so the reported chi^2 is exact there. Returns the result
+        (certified by the anchor), or None (profile it: new physics shows). With the lightest mass scanned
+        (ml_scan) only with scan_pending: the chain confirms afterwards that the scan's runs are those without new
+        physics at every mass (analysis.scans._run_chain; scan_flat)."""
         s = self.settings
-        if not s.inherit or s.ml_scan is not None:
+        if not s.inherit or (s.ml_scan is not None and not (s.ml_inherit and scan_pending)):
             return None
         t0 = time.perf_counter()
         held = {k: float(v) for k, v in held.items()}
@@ -532,14 +696,9 @@ class ExactProfiler:
         except ValueError:
             return None
         eps = s.inherit_eps_sky if model.sky else s.inherit_eps
-        worst = 0.0
-        for a, b in zip(runs, anchor["runs"]):
-            if a.shape != b.shape:
-                return None
-            scale = np.maximum(np.max(np.abs(b), axis=-1, keepdims=True), 1e-300)
-            worst = max(worst, float(np.max(np.abs(a - b) / scale)))
-            if worst > eps:
-                return None
+        worst = self.runs_differ(runs, anchor["runs"], model.sky)
+        if not worst <= eps:
+            return None
         self.use(model)
         try:
             f, vals, k = self._centre_value(held, eta, anchor["values"])
@@ -547,10 +706,34 @@ class ExactProfiler:
             self.use(self.exact_model)
         values = dict(vals)
         values.update(eta)
+        n_runs = self._runs(model)
+        check, msg = None, ""
+        if s.inherit_check:
+            if "check" not in anchor:
+                anchor["check"] = self._certificate_at(anchor["held"], eta, anchor["values"])
+            p_point, k_runs = self._certificate_at(held, eta, values)
+            check = p_point - anchor["check"][0]
+            n_runs += k_runs + anchor["check"][1]
+            anchor["check"] = (anchor["check"][0], 0)
+            msg = f"; check: central certificate {p_point:.2g} here, {anchor['check'][0]:.2g} at the anchor"
         return ExactResult(values=values, chi2=float(f), certified=True,
-                           message=f"inherited: runs within {worst:.2g} of the anchor at {anchor['held']}",
+                           message=f"inherited: runs within {worst:.2g} of the anchor at {anchor['held']}" + msg,
                            pred=0.0, pred_radius=0.0, centres=[dict(eta=eta, chi2=float(f), accepted=True)],
-                           solver_runs=self._runs(model), seconds=time.perf_counter() - t0, nfev=k)
+                           solver_runs=n_runs, seconds=time.perf_counter() - t0, nfev=k, cert="inherited",
+                           inherit_check=check)
+
+    def _certificate_at(self, held: Mapping, eta: Mapping, start: Mapping):
+        """Validation: the central certificate's predicted decrease at eta for the point `held` (the surrogate with
+        central differences minimized within max(radius, cert_radius) widths): (prediction, solver runs)."""
+        s = self.settings
+        model = self.centre_model(eta, central=True)
+        self.use(model)
+        try:
+            f, vals, _ = self._centre_value(held, eta, start)
+            r = self._surrogate_step(held, eta, vals, max(s.radius, s.cert_radius))
+        finally:
+            self.use(self.exact_model)
+        return f - float(r.chi2), self._runs(model)
 
     def within_certificate(self, own_values: Mapping, other: Mapping) -> bool:
         """Whether `other`'s mixing lies within a certified point's certificate box (cert_radius widths of its own):

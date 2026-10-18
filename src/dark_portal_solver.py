@@ -836,11 +836,29 @@ def _galactic_emission_populations(E_bins: np.ndarray, params: Dict, setup: Dict
             n_floor = dp_matter.cosmic_density(charge, params['n_n0_eV3'])
             n_emit = n_emit + n_floor * m_eff * m_eff * (yukawa_horizon_inv_m2(params['m_Zd_eV'] ** 2, R_H)
                                                          - yukawa_horizon_inv_m2(m_eff * m_eff, R_H))
-        F = dp_galactic.emission_populations(E_bins, f_S, w_gas, q_gas, q_src, n_emit, 2.0 * abs(Coef), tab)
-        if work != nside:
-            F = dp_galactic.degrade_weighted(F, dp_galactic.intensity(gal['template'], E_GeV, work), work, nside)
+        st = None
+        if work != nside and GALACTIC_EMISSION_REGROUPED:
+            # the emission's mixing-independent sums kept per density pattern (dp_galactic.emission_structure;
+            # 2026-10-18): the same result to rounding, without re-averaging the full-resolution map per run
+            import hashlib
+            n_c = np.ascontiguousarray(n_emit, dtype=np.float64)
+            key = (gal['template'], hashlib.blake2b(E_GeV.tobytes(), digest_size=16).digest(), work, int(nside),
+                   n_c.shape, hashlib.blake2b(n_c.tobytes(), digest_size=16).digest())
+            st = dp_galactic.emission_structure(key, w_gas, q_gas, q_src, n_c,
+                                                dp_galactic.intensity(gal['template'], E_GeV, work), work, nside)
+        if work != nside and GALACTIC_EMISSION_REGROUPED and st is not None:
+            F = dp_galactic.emission_populations_degraded(E_bins, f_S, n_c, 2.0 * abs(Coef), tab, st)
+        else:
+            F = dp_galactic.emission_populations(E_bins, f_S, w_gas, q_gas, q_src, n_emit, 2.0 * abs(Coef), tab)
+            if work != nside:
+                F = dp_galactic.degrade_weighted(F, dp_galactic.intensity(gal['template'], E_GeV, work), work, nside)
         out.append(F)
     return out
+
+
+# dp_galactic.emission_structure / emission_populations_degraded for the coarser maps (False: the direct path, as
+# before 2026-10-18; tests/test_speedups.py compares the two)
+GALACTIC_EMISSION_REGROUPED = True
 
 
 def injection_weights(params: Dict) -> Tuple[float, float]:

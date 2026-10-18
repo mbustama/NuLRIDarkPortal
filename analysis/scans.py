@@ -56,7 +56,10 @@ def _record(index, held, r) -> dict:
                seconds=float(r.seconds), message=r.message)
     if hasattr(r, "certified"):                  # the exact profile's (exact_profile.ExactResult)
         out.update(certified=bool(r.certified), pred=float(r.pred), solver_runs=int(r.solver_runs),
-                   centres=len(r.centres), starts=len(r.starts) or 1)
+                   centres=len(r.centres), starts=len(r.starts) or 1, cert=r.cert, scan_runs=int(r.scan_runs),
+                   scan_seconds=float(r.scan_seconds))
+        if r.inherit_check is not None:
+            out["inherit_check"] = float(r.inherit_check)
     return out
 
 
@@ -74,11 +77,35 @@ def _fit_held(held: dict, starts: Sequence[dict], settings: dict):
 def _run_chain(task) -> List[dict]:
     """Fits the points of one chain in order, each from the global best fit and from its
     predecessor's solution. With the exact profile, a point whose solver runs at the last fully certified point's
-    mixing are those of that point (exact_profile.ExactProfiler.inherit: new physics below the solver's precision)
-    takes that point's certificate after one evaluation."""
-    chain, best, settings = task
+    mixing are those of that point (exact_profile.ExactProfiler.inherit: new physics below the solver's reach)
+    takes that point's certificate after one evaluation.
+
+    With the lightest mass's scan (MeV planes, ExactSettings.ml_scan and ml_inherit; 2026-10-18), the points that
+    pass that test against the global fit (no new physics) are held back until a scan of the lightest mass at a
+    coupling at least theirs shows the solver's runs at every scanned mass equal to the global fit's (scan_flat):
+    absorption only grows with the coupling, so the new physics is then below the solver's reach at every mass
+    there and below, and those points inherit. The probe goes down from the highest held-back point; a point
+    whose scan is not flat is profiled in full (its scan's runs reused). Above the first point that fails the test
+    every point is profiled in full.
+
+    task: (chain, best, settings, sink) -- sink (checkpoint path, identity) writes each point's record as it is
+    done (2026-10-18: a whole chain's at its end left long runs without a sign of progress), or None."""
+    chain, best, settings = task[:3]
+    sink = task[3] if len(task) > 3 else None
     out, prev, anchor = [], None, None
     prof = _W.get("exact")
+
+    def emit(index, held, r):
+        rec = _record(index, held, r)
+        rec["t"] = time.time()                   # when it was done (tools/exact_progress.py: the rate)
+        if sink is not None:
+            rec["pass"] = 0
+            rec["id"] = sink[1]
+            _append_jsonl(sink[0], [rec])
+        out.append(rec)
+
+    if prof is not None:
+        prof.curv = None             # forward certificates take the curvature of this chain's own central ones
     if prof is not None and prof.settings.inherit and chain and set(chain[0][1]) <= set(best):
         # the global fit (the exact profile without new physics, _exact_global_fit) anchors the chain's first point
         g_held = {k: float(best[k]) for k in chain[0][1]}
@@ -89,16 +116,65 @@ def _run_chain(task) -> List[dict]:
             except ValueError:
                 _W["global_anchor"] = (key, None)
         anchor = _W["global_anchor"][1]
+    ml = prof is not None and prof.settings.ml_scan is not None
+    ref = mixing = None
+    if ml and anchor is not None and prof.settings.ml_inherit:
+        # the reference scan: the global fit's point (no new physics) at the scan's mixing
+        mixing = {n: float(best[n]) for n in prof.eta if n != "m_lightest_eV"}
+        mixing.update({k: float(v) for k, v in (prof.settings.scan_mixing or {}).items() if k in mixing})
+        key = (_W["global_anchor"][0], json.dumps(sorted(mixing.items())))
+        if _W.get("ml_reference", (None,))[0] != key:
+            _W["ml_reference"] = (key, prof.scan_runs(anchor["held"], mixing, best)[0])
+        ref = _W["ml_reference"][1]
+    pending, full = [], False
+
+    def resolve():
+        """The held-back points (increasing coupling): the scan probed from the top down until it is flat."""
+        for j in range(len(pending) - 1, -1, -1):
+            index, held, r_inh = pending[j]
+            runs, k, sec = prof.scan_runs(held, mixing, best)
+            flat, worst = prof.scan_flat(runs, ref)
+            if flat:
+                r_inh.message += f"; the m_lightest scan without new physics to {worst:.2g} here"
+                for x in (r_inh,):
+                    x.solver_runs += k
+                    x.seconds += sec
+                    x.scan_runs += k
+                    x.scan_seconds += sec
+                for ix, h, r in pending[:j]:
+                    r.message += f"; the m_lightest scan without new physics at {held}"
+                    emit(ix, h, r)
+                emit(index, held, r_inh)
+                break
+            r = _fit_held(held, [best, r_inh.values], settings)
+            r.message += f"; m_lightest scan with new physics ({worst:.2g})"
+            r.solver_runs += k + r_inh.solver_runs
+            r.seconds += sec + r_inh.seconds
+            r.scan_runs += k
+            r.scan_seconds += sec
+            emit(index, held, r)
+        pending.clear()
+
     for index, held in chain:
         r = None
         if prof is not None and anchor is not None:
-            r = prof.inherit(held, anchor)
+            if not ml:
+                r = prof.inherit(held, anchor)
+            elif ref is not None and not full:
+                r = prof.inherit(held, anchor, scan_pending=True)
+                if r is not None:
+                    pending.append((index, held, r))
+                    continue
+                full = True
+                resolve()
         if r is None:
             r = _fit_held(held, [best, prev], settings)
-            if prof is not None and r.certified and prof.settings.inherit:
+            if prof is not None and not ml and r.certified and prof.settings.inherit:
                 anchor = prof.anchor(held, r)
-        out.append(_record(index, held, r))
+        emit(index, held, r)
         prev = r.values
+    if pending:
+        resolve()
     return out
 
 
@@ -240,10 +316,17 @@ def _read_jsonl(path: str, identity: Optional[str] = None, log=None) -> List[dic
 
 
 def _append_jsonl(path: str, records: Iterable[dict]):
+    """Appends records, one JSON line each, in one write under an exclusive lock (the workers of a scan write their
+    points to the same checkpoint; where the file system has no locks, the single O_APPEND write remains)."""
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    text = "".join(json.dumps(r) + "\n" for r in records)
     with open(path, "a") as f:
-        for r in records:
-            f.write(json.dumps(r) + "\n")
+        try:
+            import fcntl
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        except (ImportError, OSError):
+            pass
+        f.write(text)
         f.flush()
         os.fsync(f.fileno())
 
@@ -283,7 +366,8 @@ def _exact_global_fit(cfg: AnalysisConfig, data_centre, checkpoint: Optional[str
                starts=[dict(chi2=x["chi2"], values={}) for x in r.starts], id=ident)
     if checkpoint:
         _append_jsonl(checkpoint, [dict(final=True, values=out["values"], chi2=out["chi2"], id=ident,
-                                        certified=r.certified, message=r.message)])
+                                        certified=r.certified, message=r.message, seconds=out["seconds"],
+                                        solver_runs=int(r.solver_runs))])
     return out
 
 
@@ -411,10 +495,12 @@ def _scan(cfg: AnalysisConfig, names: List[str], grids: List[np.ndarray], best: 
     result = ScanResult("1d" if len(names) == 1 else "2d", list(names), [list(map(float, g)) for g in grids])
     best_start = {k: v for k, v in best.items()}
     todo = []
+    # each point's record goes to the checkpoint as soon as it is done, from its worker (2026-10-18)
+    sink = (checkpoint, ident) if checkpoint else None
     for ch in chains:
         rest = [ix for ix in ch if ix not in done]
         if rest:
-            todo.append(([(ix, held_of(ix)) for ix in rest], best_start, settings))
+            todo.append(([(ix, held_of(ix)) for ix in rest], best_start, settings, sink))
     with _Pool(cfg, data_centre, min(workers, max(1, len(todo)))) as pool:
         n_done = len(done)
         for recs in pool.imap(_run_chain, todo):
@@ -423,8 +509,6 @@ def _scan(cfg: AnalysisConfig, names: List[str], grids: List[np.ndarray], best: 
                 r["id"] = ident
                 done[tuple(r["index"])] = r
                 result.nfev += r["nfev"]
-            if checkpoint:
-                _append_jsonl(checkpoint, recs)
             n_done += len(recs)
             log(f"  {n_done}/{n_points} points")
         # repair passes: cross-seed from the neighbours' solutions; after the first pass,

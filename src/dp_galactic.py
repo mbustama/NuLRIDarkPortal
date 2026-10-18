@@ -465,6 +465,100 @@ def emission_populations(E_eV, f_S, w_gas, q_gas, q_src, n_emit_eV3, coef2, tab)
     return w * A_gas + (1.0 - w) * A_src
 
 
+# The emission populations averaged onto a coarser map (2026-10-18): degrade_weighted(emission_populations(...)) with
+# everything that does not depend on the mixing kept per density pattern (emission_structure): the cloud-in-cell
+# weights of the emission densities on their nodes (rows sorted by output pixel), the averaging weights times the gas
+# and source shares, and their sums. Each call then makes the nodes' populations P, the two products H P (BLAS) and
+# out[o] = sum_{c in o} (I w)[c] (H_gas P)[c] + (I (1 - w))[c] (H_src P)[c], over sum_{c in o} I[c]: the same sums in
+# another order -- equal to rounding (tests/test_speedups.py) -- without np.add.at and the per-column bincounts.
+_EMIT_STRUCT = {}
+_EMIT_STRUCT_MAX = 4
+
+
+def _children(nside_in, nside_out):
+    """(order, k): the input pixels sorted (stably) by their output pixel, each of which has k children."""
+    key = ("children", int(nside_in), int(nside_out))
+    hit = _memo_get(key)
+    if hit is None:
+        th, ph = dp_sky.pix2ang_ring(nside_in, np.arange(dp_sky.nside_to_npix(nside_in)))
+        p = dp_sky.ang2pix_ring(nside_out, th, ph)
+        n_out = dp_sky.nside_to_npix(nside_out)
+        if not np.array_equal(np.sort(p), np.repeat(np.arange(n_out), len(p) // n_out)):
+            raise ValueError("degrade: the output pixels do not have equal numbers of children")
+        hit = _memo_put(key, np.argsort(p, kind="stable"))
+    return hit, dp_sky.nside_to_npix(nside_in) // dp_sky.nside_to_npix(nside_out)
+
+
+def emission_structure(key, w_gas, q_gas, q_src, n_emit_eV3, weights, nside_in, nside_out):
+    """The mixing-independent part of emission_populations_degraded (the section notes above), kept per key (the
+    caller's: everything these arrays depend on): dict(lo, used, Hg, Hs (N_pix, n_used) rows sorted by output pixel,
+    Iw, Is (N_pix, N_E) sorted likewise, den (N_out, N_E), k); lo None for one density everywhere."""
+    hit = _EMIT_STRUCT.get(key)
+    if hit is not None:
+        return hit
+    npix, ns = n_emit_eV3.shape
+    order, k = _children(nside_in, nside_out)
+    I = np.asarray(weights, dtype=np.float64)[order]
+    w = np.asarray(w_gas, dtype=np.float64)[order]
+    out = dict(lo=None, k=k, den=I.reshape(npix // k, k, -1).sum(axis=1))
+    if np.ptp(n_emit_eV3) != 0.0:
+        logn = np.log10(np.maximum(n_emit_eV3, 1e-300))
+        d = 1.0 / NEFF_NODES_PER_DECADE
+        lo = np.floor(logn.min() / d) * d
+        x = (logn - lo) / d
+        j = np.floor(x).astype(np.int64)
+        t = x - j
+        n_nodes = int(j.max()) + 2
+        rows = np.repeat(np.arange(npix), ns).reshape(npix, ns)
+        H = np.zeros((2, npix, n_nodes))
+        for c, q in enumerate((q_gas, q_src)):
+            np.add.at(H[c], (rows, j), q * (1.0 - t))
+            np.add.at(H[c], (rows, j + 1), q * t)
+        if not np.all(np.isfinite(H)):
+            raise ValueError("emission_populations: non-finite emission weights")
+        used = np.nonzero(H.sum(axis=(0, 1)) > 0)[0]
+        out.update(lo=float(lo), used=used, Hg=np.ascontiguousarray(H[0][order][:, used]),
+                   Hs=np.ascontiguousarray(H[1][order][:, used]), Iw=I * w, Is=I * (1.0 - w))
+    while len(_EMIT_STRUCT) >= _EMIT_STRUCT_MAX:
+        _EMIT_STRUCT.pop(next(iter(_EMIT_STRUCT)))
+    _EMIT_STRUCT[key] = out
+    return out
+
+
+def emission_populations_degraded(E_eV, f_S, n_emit_eV3, coef2, tab, struct):
+    """degrade_weighted(emission_populations(E_eV, f_S, w_gas, q_gas, q_src, n_emit_eV3, coef2, tab), weights,
+    nside_in, nside_out) to rounding, with struct = emission_structure(...) of the same arrays: (N_out, N_E, 3)."""
+    import dp_transit
+    E_eV = np.ascontiguousarray(E_eV, dtype=np.float64)
+    n_e = len(E_eV)
+    F_fl = np.ascontiguousarray(np.broadcast_to(np.asarray(f_S, dtype=np.float64), (n_e, 3)))
+    out = np.empty((n_e, 3))
+    den = struct["den"]
+    if struct["lo"] is None:
+        # one density everywhere: its populations, times den / den (1, or NaN where nothing is emitted, as the
+        # weighted average of the populations would give)
+        dp_transit.flavor_populations(E_eV, F_fl, coef2, float(n_emit_eV3.flat[0]), tab["Q"], tab["Mp"], tab["s"],
+                                      tab["floor"], out)
+        with np.errstate(invalid="ignore"):
+            return out[None, :, :] * (den / den)[:, :, None]
+    lo, used, k = struct["lo"], struct["used"], struct["k"]
+    d = 1.0 / NEFF_NODES_PER_DECADE
+    P = np.empty((len(used), n_e, 3))
+    for i, node in enumerate(used):
+        dp_transit.flavor_populations(E_eV, F_fl, coef2, 10.0 ** (lo + node * d), tab["Q"], tab["Mp"], tab["s"],
+                                      tab["floor"], out)
+        P[i] = out
+    P2 = P.reshape(len(used), -1)
+    npix = struct["Hg"].shape[0]
+    A = (struct["Hg"] @ P2).reshape(npix, n_e, 3)
+    A *= struct["Iw"][:, :, None]
+    B = (struct["Hs"] @ P2).reshape(npix, n_e, 3)
+    B *= struct["Is"][:, :, None]
+    A += B
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return A.reshape(npix // k, k, n_e, 3).sum(axis=1) / den[:, :, None]
+
+
 def degrade_weighted(F, w, nside_in, nside_out):
     """Average per-pixel quantities F (N_pix_in, N_E, ...) onto N_side nside_out, weighted per energy by w
     (N_pix_in, N_E) (e.g. the emitted intensity): sum_children w F / sum_children w."""

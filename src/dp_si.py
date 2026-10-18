@@ -1848,6 +1848,15 @@ _TABLE_CACHE_MAX_BYTES = 320 * 2 ** 20
 _TABLE_CACHE_ALONE_BYTES = 128 * 2 ** 20
 
 
+# one relic's lattice and top tables, per (profile set, mediator mass, relic mass, grids): _profile_tables
+_RELIC_TABLES = {}
+_RELIC_TABLES_MAX_BYTES = 384 * 2 ** 20
+
+
+def _relic_nbytes(v):
+    return v[0][0].nbytes + (0 if v[1] is None else v[1][0].nbytes)
+
+
 def _tables_nbytes(tabs):
     lat, top = tabs
     n = lat[0].nbytes + lat[1].nbytes
@@ -1876,11 +1885,26 @@ def _profile_tables(prof, M, masses, E0, N, dlnE, q, K, top_full, L_top_mid, n_u
             lat.append(dummy)
             top.append(dummy)
             continue
-        mu0 = M * M / (2.0 * E0 * masses[r])
-        lat.append(_tri_table(prof, mu0, n_lat, q, N, dlnE, Delta, n_u))
+        # each relic's tables depend on its own mass only (2026-10-18): kept per relic, so that a run moving one
+        # relic's mass (Delta m^2_21, Delta m^2_31) rebuilds only that relic's
+        rkey = key[:2] + (float(masses[r]),) + key[3:]
+        hit_r = _RELIC_TABLES.get(rkey)
+        if hit_r is None:
+            mu0 = M * M / (2.0 * E0 * masses[r])
+            t_lat = _tri_table(prof, mu0, n_lat, q, N, dlnE, Delta, n_u)
+            t_top = None
+            if not top_full:
+                mu_top = mu0 * np.exp(-np.arange(N) * dlnE - L_top_mid)
+                t_top = _tri_table(prof, mu0, N, 1, N, dlnE, Delta, n_u, mu_list=mu_top)
+            hit_r = (t_lat, t_top)
+            nb = t_lat[0].nbytes + (0 if t_top is None else t_top[0].nbytes)
+            if nb <= _RELIC_TABLES_MAX_BYTES // 3:
+                while _RELIC_TABLES and sum(_relic_nbytes(v) for v in _RELIC_TABLES.values()) + nb > _RELIC_TABLES_MAX_BYTES:
+                    _RELIC_TABLES.pop(next(iter(_RELIC_TABLES)))
+                _RELIC_TABLES[rkey] = hit_r
+        lat.append(hit_r[0])
         if not top_full:
-            mu_top = mu0 * np.exp(-np.arange(N) * dlnE - L_top_mid)
-            top.append(_tri_table(prof, mu0, N, 1, N, dlnE, Delta, n_u, mu_list=mu_top))
+            top.append(hit_r[1])
     out = (_stack_tables(lat, P), _stack_tables(top, P) if not top_full else None)
     del lat, top
     nbytes = _tables_nbytes(out)
