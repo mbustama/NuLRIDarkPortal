@@ -54,6 +54,7 @@ from functools import lru_cache
 import numpy as np
 
 from dp_core import njit, prange
+import numba  # after dp_core (it sets numba's CPU features)
 from dp_thermal import (relic_state_rates_analytic, _GL16_X as _TGL16_X, _GL16_W as _TGL16_W,
                         _GL10_X as _TGL10_X, _GL10_W as _TGL10_W, _FD16 as _TFD16)
 
@@ -2116,58 +2117,87 @@ def _resonance_step(E, L_lo, L_hi, L_mid, H0, Om, OL, lna, f0, f1, log0, JT0, JT
 
 
 @njit(cache=True, parallel=True)
-def _thermal_products(q, jt, W, i0, st, nw, n0, n_first, Jn, Nn, Ln, Dn, Bn, JT0, JT1, Nab, Lab, Dab, R, offs):
+def _thermal_products(q, jt, W, i0, st, nw, n0, n_first, Jn, Nn, Ln, Dn, BT, JT0, JT1, Nab, Lab, Dab, R, offs,
+                      tasks):
     """One step's absolute products (the sweep's inputs with J = 1): for parent j and relic state r the lattice sums
     sum_w W[r, w] n0[r] Jn[n, jt[q]] X[n, q] at n = j q + i0[r] + st[r] w of the profile totals Nn, in-bin complements
-    Ln, drifts Dn and produced spectra Bn[n, d, q] (d <= j; R[r, offs[j] + d, q]); the s channel (jt 0) and the
-    interference's pole term from the exact thermal kernels JT0, JT1 times the profiles at mu = 1 (node 0)."""
-    N = Nab.shape[0]
+    Ln, drifts Dn and produced spectra BT[n, q, d] (d <= j; R[r, offs[j] + d, q]); the s channel (jt 0) and the
+    interference's pole term from the exact thermal kernels JT0, JT1 times the profiles at mu = 1 (node 0).
+    tasks[t] = (r, j_first, nk): the parents j_first + k st[r], k < nk, of one residue class, which share nodes
+    (n = j_first q + i0 + st (k q + w)): each node's spectra are read once per task and added to every parent that
+    uses them, in a buffer along d (the sums are bound by memory traffic otherwise)."""
     P = len(jt)
     one = -n_first
-    for t in prange((N + 1) // 2):
-        c = np.empty(P)
-        sc = np.empty(P)
-        for side in range(2):
-            j = np.int64(t) if side == 0 else N - 1 - np.int64(t)
-            if side == 1 and j == t:
-                continue
-            o = offs[j]
-            for r in range(3):
-                for qq in range(P):
-                    Nab[j, r, qq] = 0.0
-                    Lab[j, r, qq] = 0.0
-                    Dab[j, r, qq] = 0.0
-                    sc[qq] = 0.0
-                for d in range(j + 1):
-                    for qq in range(P):
-                        R[r, o + d, qq] = 0.0
-                if n0[r] <= 0.0 or nw[r] <= 0:
+    for t in prange(tasks.shape[0]):
+        r = tasks[t, 0]
+        jf = tasks[t, 1]
+        nk = tasks[t, 2]
+        s = st[r]
+        buf = np.zeros((nk, P, jf + (nk - 1) * s + 1))
+        tot = np.zeros((nk, 3, P))
+        sc = np.zeros((nk, P))
+        for u in range((nk - 1) * q + nw[r]):
+            n = jf * q + i0[r] + s * u - n_first
+            for k in range(nk):
+                w = u - k * q
+                if w < 0:
+                    break
+                if w >= nw[r] or W[r, w] == 0.0:
                     continue
-                for w in range(nw[r]):
-                    if W[r, w] == 0.0:
-                        continue
-                    n = j * q + i0[r] + st[r] * w - n_first
-                    for qq in range(P):
-                        c[qq] = 0.0 if jt[qq] == 0 else W[r, w] * n0[r] * Jn[n, jt[qq]]
-                        Nab[j, r, qq] += c[qq] * Nn[n, qq]
-                        Lab[j, r, qq] += c[qq] * Ln[n, qq]
-                        Dab[j, r, qq] += c[qq] * Dn[n, qq]
-                        sc[qq] += c[qq]
-                    for d in range(j + 1):
-                        for qq in range(P):
-                            R[r, o + d, qq] += c[qq] * Bn[n, d, qq]
+                j = jf + k * s
                 for qq in range(P):
                     if jt[qq] == 0:
-                        a = JT0[j, r]
-                    elif jt[qq] == 1:
-                        a = JT1[j, r] - sc[qq]
-                    else:
                         continue
-                    Nab[j, r, qq] += a * Nn[one, qq]
-                    Lab[j, r, qq] += a * Ln[one, qq]
-                    Dab[j, r, qq] += a * Dn[one, qq]
+                    cq = W[r, w] * n0[r] * Jn[n, jt[qq]]
+                    tot[k, 0, qq] += cq * Nn[n, qq]
+                    tot[k, 1, qq] += cq * Ln[n, qq]
+                    tot[k, 2, qq] += cq * Dn[n, qq]
+                    sc[k, qq] += cq
+                    b = buf[k, qq]
+                    src = BT[n, qq]
                     for d in range(j + 1):
-                        R[r, o + d, qq] += a * Bn[one, d, qq]
+                        b[d] += cq * src[d]
+        for k in range(nk):
+            j = jf + k * s
+            for qq in range(P):
+                if jt[qq] == 0:
+                    a = JT0[j, r]
+                elif jt[qq] == 1:
+                    a = JT1[j, r] - sc[k, qq]
+                else:
+                    a = 0.0
+                if a != 0.0:
+                    tot[k, 0, qq] += a * Nn[one, qq]
+                    tot[k, 1, qq] += a * Ln[one, qq]
+                    tot[k, 2, qq] += a * Dn[one, qq]
+                    b = buf[k, qq]
+                    src = BT[one, qq]
+                    for d in range(j + 1):
+                        b[d] += a * src[d]
+                Nab[j, r, qq] = tot[k, 0, qq]
+                Lab[j, r, qq] = tot[k, 1, qq]
+                Dab[j, r, qq] = tot[k, 2, qq]
+            o = offs[j]
+            for d in range(j + 1):
+                for qq in range(P):
+                    R[r, o + d, qq] = buf[k, qq, d]
+
+
+def _thermal_tasks(N, st, nw, n0, BJ=16):
+    """_thermal_products' tasks for one step: per live relic state and residue class of the parents modulo its stride,
+    runs of BJ parents, the costliest first ((T, 3) int64)."""
+    rows = []
+    for r in range(3):
+        if nw[r] <= 0 or n0[r] <= 0.0:
+            continue
+        s = int(st[r])
+        for cls in range(s):
+            js = np.arange(cls, N, s)
+            for a in range(0, len(js), BJ):
+                b = js[a:a + BJ]
+                rows.append((int(nw[r]) * int((b + 1).sum()), r, int(b[0]), len(b)))
+    rows.sort(reverse=True)
+    return np.array([x[1:] for x in rows], dtype=np.int64).reshape(-1, 3)
 
 
 _THERMAL_TABLE = {}
@@ -2175,7 +2205,8 @@ _THERMAL_TABLE = {}
 
 def _thermal_table(dlnE, Delta, N, n_u, n_lo, n_hi):
     """The vector's produced spectra, full rows d = 0..N-1, on the lattice mu_n = exp(-n Delta) for n_lo <= n <= n_hi
-    (they depend on mu, the bin width and N only): (n_first, B (nodes, N, 10)), kept per grid and widened as needed."""
+    (they depend on mu, the bin width and N only): (n_first, BT (nodes, 10, N): profile-major, so that the products'
+    sums run along d), kept per grid and widened as needed."""
     key = (float(dlnE), float(Delta), int(N), int(n_u))
     hit = _THERMAL_TABLE.get(key)
     if hit is not None:
@@ -2188,7 +2219,7 @@ def _thermal_table(dlnE, Delta, N, n_u, n_lo, n_hi):
     nodes = np.arange(n_lo, n_hi + 1)
     Bt, _ = build_vector_table_tri(np.ascontiguousarray(np.exp(-nodes * Delta)),
                                    np.full(len(nodes), N - 1, dtype=np.int64), dlnE, n_u)
-    out = (int(n_lo), np.ascontiguousarray(Bt.reshape(len(nodes), N, Bt.shape[1])))
+    out = (int(n_lo), np.ascontiguousarray(Bt.reshape(len(nodes), N, Bt.shape[1]).transpose(0, 2, 1)))
     _THERMAL_TABLE.clear()
     _THERMAL_TABLE[key] = out
     return out
@@ -2197,7 +2228,7 @@ def _thermal_table(dlnE, Delta, N, n_u, n_lo, n_hi):
 def _thermal_terms(E, L_edges, q, Delta, dlnE, masses, n0, T_nu0, eta, M, MG, H0, Om, OL, hbin, n_u):
     """Everything _thermal_products needs but the bins' rows: per step m the relic states' weights (W, i0, st, nw),
     the at-rest kernels on the lattice (Jn) and the exact thermal resonant kernels per bin (JT0, JT1); the lattice's
-    profile totals (Nn, Ln, Dn) and produced spectra (n_first, Bn)."""
+    profile totals (Nn, Ln, Dn) and produced spectra (n_first, BT)."""
     N = len(E)
     K = len(L_edges) - 1
     M2 = M * M
@@ -2217,10 +2248,10 @@ def _thermal_terms(E, L_edges, q, Delta, dlnE, masses, n0, T_nu0, eta, M, MG, H0
     sel[:, live] = True
     n_lo = min(0, int(i0[sel].min())) if sel.any() else 0
     n_hi = max(0, (N - 1) * q + int((i0 + st * (nw - 1))[sel].max())) if sel.any() else 0
-    n_first, Bn = _thermal_table(dlnE, Delta, N, n_u, n_lo, n_hi)
-    nodes = n_first + np.arange(Bn.shape[0])
+    n_first, BT = _thermal_table(dlnE, Delta, N, n_u, n_lo, n_hi)
+    nodes = n_first + np.arange(BT.shape[0])
     nn = len(nodes)
-    P = Bn.shape[2]
+    P = BT.shape[1]
     one = np.array([1.0, 0.0, 0.0])
     Jf = np.zeros((nn, 3, 4))
     Nf, Lf, Df = (np.zeros((nn, 3, P)) for _ in range(3))
@@ -2256,7 +2287,8 @@ def _thermal_terms(E, L_edges, q, Delta, dlnE, masses, n0, T_nu0, eta, M, MG, H0
         log0 = np.all(f0 > 0.0, axis=0)
         f0[:, log0] = np.log(f0[:, log0])
         _resonance_step(E, L_edges[m], L_edges[m + 1], L_mid[m], H0, Om, OL, lna, f0, f1, log0, JT0[m], JT1[m])
-    return dict(W=W, i0=i0, st=st, nw=nw, n_first=n_first, Bn=Bn, Nn=np.ascontiguousarray(Nf[:, 0, :]),
+    tasks = [_thermal_tasks(N, st[m], nw[m], n0) for m in range(K)]
+    return dict(W=W, i0=i0, st=st, nw=nw, tasks=tasks, n_first=n_first, BT=BT, Nn=np.ascontiguousarray(Nf[:, 0, :]),
                 Ln=np.ascontiguousarray(Lf[:, 0, :]), Dn=np.ascontiguousarray(Df[:, 0, :]), Jn=Jn, JT0=JT0, JT1=JT1)
 
 
@@ -2521,9 +2553,11 @@ def _transport_columns(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu
             dt, T_inj = _step_time_and_injection(L_lo, L_hi, H0, Omega_m, Omega_L, p_c, rho_evol, phi_c)
             S0[:, :, k] = np.outer(Eps[k] * (T_inj / dt), np.asarray(P_c, dtype=np.float64))
         if full:
+            chunk = numba.set_parallel_chunksize(1)
             _thermal_products(q, spec["jt"], th["W"][m], th["i0"][m], th["st"][m], th["nw"][m], n0, th["n_first"],
-                              th["Jn"][m], th["Nn"], th["Ln"], th["Dn"], th["Bn"], th["JT0"][m], th["JT1"][m], Nq, Lq,
-                              Dq, Rth, offs)
+                              th["Jn"][m], th["Nn"], th["Ln"], th["Dn"], th["BT"], th["JT0"][m], th["JT1"][m], Nq, Lq,
+                              Dq, Rth, offs, th["tasks"][m])
+            numba.set_parallel_chunksize(chunk)
             for k in range(len(runs)):
                 _si_sweep_cols(Fs[k], E, dE, S0, Jone, Nq, Lq, Dq, spec["jt"], spec["w"], spec["qe"], spec["Ctau"],
                                Cregs[k], Rth, Oth, node_th, dt, reg, diags[k], True)

@@ -22,11 +22,11 @@ def test_galactic_emission_regrouped_equals_direct():
     import dark_portal_solver as dps
     from analysis import config as config_mod
     from analysis.exact_profile import exact_config
-    path = os.path.join(REPO, "analysis", "configs", "campaign_ml", "now_ic26", "dp_mu_pot_bal_pos.json")
+    path = os.path.join(REPO, "analysis", "configs", "campaign_ml", "now_ic26", "le_lmu_ul.json")
     cfg = config_mod.from_dict(exact_config(json.load(open(path))), path)
     m = cfg.model()
     v = {p.name: p.start for p in cfg.parameters}
-    v.update(m_Zd_eV=1e-22, g_D_eps_trace=7e-40)
+    v.update(m_Zd_eV=1e-22, g_D=1e-27)
     E, params = dps.build_solver_params(m._run_cfg(m._overrides(v)))
     setup = dps._flux_setup(E, params)
     nside = int(params["sky"]["nside"])

@@ -28,9 +28,9 @@ def flux(args):
     os.environ.pop("NULRI_FLUX_CACHE", None)
     sys.path[:0] = [os.path.join(REPO, "src"), REPO, os.path.join(REPO, "tools")]
     import numpy as np
-    if mode == "ref":
+    if mode.startswith("ref"):
         import thermal_reference
-        thermal_reference.install("thermal", 1, 8)
+        thermal_reference.install("thermal", *((2, 16) if mode == "ref_fine" else (1, 8)))
     import dark_portal_solver as dps
     from analysis import config as config_mod
 
@@ -64,6 +64,7 @@ def main(argv=None):
     a = ap.parse_args(argv)
     path = os.path.abspath(a.config)
     tasks = [(path, mode, pt, m_l, 2) for mode in ("ref", "full", "old") for pt in POINTS for m_l in MLS]
+    tasks.insert(0, (path, "ref_fine", POINTS[0], MLS[0], 2))     # the reference's convergence (2 sub-steps, 16 nodes)
     ctx = get_context("spawn")
     with ctx.Pool(a.workers, maxtasksperchild=1) as pool:
         res = pool.map(flux, tasks, chunksize=1)
@@ -87,6 +88,10 @@ def main(argv=None):
             print(f"  m_l {m_l:g}: max |full / ref - 1| = {rel(('full', p, m_l), ('ref', p, m_l)):.2e}, "
                   f"max |old / ref - 1| = {rel(('old', p, m_l), ('ref', p, m_l)):.2e}; "
                   f"ref {got[('ref', p, m_l)][0]:.0f} s")
+    p = json.dumps(POINTS[0])
+    print(f"reference convergence at {p}, m_l {MLS[0]:g}: max |ref / ref_fine - 1| = "
+          f"{rel(('ref', p, MLS[0]), ('ref_fine', p, MLS[0])):.2e}, max |full / ref_fine - 1| = "
+          f"{rel(('full', p, MLS[0]), ('ref_fine', p, MLS[0])):.2e}")
     p = json.dumps(POINTS[1])
     for m_l in (1e-6, 0.03):
         print(f"time per transport (4 threads), m_l {m_l:g}: full {got[('full_time', p, m_l)][0]:.1f} s, "
