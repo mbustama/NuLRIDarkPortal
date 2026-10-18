@@ -36,6 +36,17 @@ small, not yet measured), **open** (decided to remove or change, not yet done).
 6. **Galactic component propagated adiabatically** from its emission points to the Sun (Landau-Zener parameter
    >= 1.5e5 wherever checked; `tools/galactic_adiabaticity.py`). *Accepted.*
 
+6a. **MeV transport: the produced neutrinos' spectra, the profiles' totals, and the 1/s and pair factors with
+   the relics at rest** (only the resonance factors averaged over the relics' thermal momenta since 2026-10-14).
+   *Open: being measured* (2026-10-18; notes Sec. "Relic motion in the collision transport"). Wrong for relativistic
+   relics (m_lightest below ~3e-3 eV, which the fits reach): s understated up to 500-2000 times at 1e-6 eV. Phase 1
+   measures the limits' shift with a reference implementation (`tools/thermal_reference.py`); a fast implementation
+   only if they move.
+
+6b. **MeV transport: the resonance's thermal averaging switches on and off abruptly** (thermal width against two
+   redshift steps; a bin within the broadened resonance's reach), so chi^2 jumps as m_lightest varies, and its two
+   s-t interference profiles keep their at-rest totals. *Open* (2026-10-18; fixed with 6a if Phase 2 goes ahead).
+
 ## Sources and spectrum
 
 7. **The extragalactic spectrum is IceCube's 2026 broken power law with the break fixed** at 10^4.39 GeV, both

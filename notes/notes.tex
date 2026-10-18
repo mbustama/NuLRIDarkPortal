@@ -1784,6 +1784,62 @@ given; it now uses the core count of the whole node, so a 16-core job would star
 processes. The first job will repeat the benchmark validation of Sec.~\ref{sec:validation}
 against the laptop's results.
 
+\subsection{Relic motion in the collision transport (2026-10-18)}
+\label{sec:relic-motion}
+
+In the MeV regime, the transport splits each collision of a high-energy neutrino with a relic into
+ten profiles $q$ (the $s$ channel, the $t$ channel, their interferences, pair production). Each is
+a kinematic factor $K_q(s)$ times a shape $G_q(\mu)$, $\mu = M^2/s$: the absorption takes the
+shape's integral, the regeneration its integrals over the lower energy bins. Since 2026-10-14 the
+factors of the resonance, $s/{\rm BW}$ and $(s-M^2)/{\rm BW}$, are averaged over the relics'
+thermal momenta; the shapes, and the other two factors ($1/s$ and the pair cross section), take
+the relic at rest, $s = 2E(1+z)m$.
+
+\textit{Kinematics.}---A neutrino of energy $E'$ meeting a relic of energy $E_p$ at angle $\theta$
+has $s = m^2 + 2E'E_p(1 - v\cos\theta)$. Every product is boosted along the incoming neutrino by
+$\gamma \approx E'/\sqrt{s} \sim 10^8$, so its energy fraction in the cosmological frame equals its
+value in the relic's rest frame, $(k\cdot p_{\rm r})/(p\cdot p_{\rm r})$, to $\sim\! 1/\gamma$. The
+shapes are therefore functions of $s$ alone, and so are the spin-averaged cross sections for
+Majorana relics, which are unpolarized at rest and in motion. Relic motion enters only through the
+distribution of $s$.
+
+\textit{The distribution.}---With $\sigma \equiv s/2E'$ ($\sigma = m$ at rest), Fermi--Dirac
+momenta at $T_{\rm r} = T_{\nu 0}(1+z)\eta_{\rm r}^{1/3}$, isotropic directions and the flux factor
+$1 - v\cos\theta$ give
+\begin{equation}
+\rho(\sigma) = \frac{\sigma}{3\zeta(3)T_{\rm r}^3}\int_{p_X(\sigma)}^\infty
+\frac{p\, f(p/T_{\rm r})}{E_p}\,dp, \qquad p_X = \frac{X^2 - m^2}{2X}, \quad
+X = \max(\sigma, m^2/\sigma),
+\end{equation}
+normalized to one, with $\langle 1/\sigma\rangle = \langle 1/E_p\rangle$ and a kink at
+$\sigma = m$; it becomes $\delta(\sigma - m)$ for slow relics.
+
+\textit{The rule.}---Every rate the transport uses is a product of $K_q$ and an integral of $G_q$,
+so every product must be averaged,
+$\langle K_q G_q\rangle = \int d\sigma\, \rho(\sigma)\, K_q(2E'\sigma)\, G_q(M^2/2E'\sigma)$.
+Averaging $K_q$ alone while $G_q$ stays at rest is inconsistent wherever $G_q$ depends on $s$: the
+totals of seven of the ten vector profiles and the spectra of eight. A first change of 2026-10-18
+did exactly that for $1/s$ and the pair cross section; it produced negative fluxes (at 31.6~keV,
+$g = 7.8\times10^{-3}$, $m_{\rm lightest} = 10^{-6}$~eV) and was reverted. The resonance averaging
+of 2026-10-14 has the same inconsistency for the two $s$--$t$ interference profiles, and it
+switches between the thermal and the at-rest treatment abruptly, so that $\chi^2$ jumps as
+$m_{\rm lightest}$ varies.
+
+\textit{Where it matters.}---Taking the relic at rest understates its mean energy, and so $s$, by
+factors of 500, 1000 and 2000 at $z = 0$, 1 and 3 for $m = 10^{-6}$~eV, and by more than 10\% below
+$m \approx 3\times10^{-3}$~eV: the range into which the mass-sum penalty pulls the fits. We expect
+little change for MeV mediators, where the $s$-channel resonance dominates and its shapes do not
+depend on $s$, and a large one for mediators below $\sim\!100$~keV with
+$m_{\rm lightest} \lesssim 10^{-4}$~eV, where the relic at rest even closes the pair channel
+($s < 4M^2$) that thermal relics open.
+
+\textit{Plan.}---We measure the effect before building the fast version. A reference
+implementation averages every product as a mixture of relics at rest with masses $\sigma$ and
+weights $\rho$, each exact in time within a redshift step, checked against brute-force integrals
+over momentum and angle; it computes the limits, profiled over $m_{\rm lightest}$, at five mediator
+masses for MESE with IceCube's 2026 spectrum and for the future detectors. A fast implementation
+follows only if the limits move.
+
 %==============================================================================
 \section{Open items}
 \label{sec:open}
