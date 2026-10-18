@@ -32,6 +32,8 @@ def main(argv=None):
     ap.add_argument("--bruteforce", action="store_true")
     ap.add_argument("--bf-evals", type=int, default=80, help="brute force: L-BFGS-B iterations (central gradients)")
     ap.add_argument("--bf-ml-starts", type=float, nargs="*", default=[])
+    ap.add_argument("--bf-profile-only", action="store_true",
+                    help="brute force from the profile's solution (and --bf-ml-starts) only, not the priors' centre")
     ap.add_argument("--settings", default="{}", help="JSON ExactSettings overrides")
     ap.add_argument("--out", default=None)
     a = ap.parse_args(argv)
@@ -64,7 +66,8 @@ def main(argv=None):
         if a.bruteforce:
             t = time.perf_counter()
             n0 = prof.exact_model.n_solver_calls
-            bstarts = [r.values, start] + [dict(start, m_lightest_eV=float(m)) for m in a.bf_ml_starts]
+            bstarts = [r.values] + ([] if a.bf_profile_only else [start]) \
+                + [dict(start, m_lightest_eV=float(m)) for m in a.bf_ml_starts]
             nfree = len([p for p in cfg.parameters if p.name not in pt])
             bf = prof.bruteforce(pt, bstarts, settings=FitSettings(**{**vars(prof.fit_settings),
                                                                       "max_evals": a.bf_evals * (2 * nfree + 1)}))
