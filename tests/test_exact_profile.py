@@ -213,8 +213,8 @@ def test_plane_points_written_as_done_and_inherited(tmp_path):
     from analysis import scans
     raw = _raw()
     raw["exact_profile"] = {}
-    raw["planes"] = [{"x": "m_Zd_eV", "y": "g_D_eps_trace", "x_range": [1e-13, 1e-13], "y_range": [1e-60, 1e-30],
-                      "nx": 1, "ny": 4, "raster": "m_Zd_eV"}]
+    raw["planes"] = [{"x": "m_Zd_eV", "y": "g_D_eps_trace", "x_range": [1e-13, 1e-12], "y_range": [1e-60, 1e-30],
+                      "nx": 2, "ny": 4, "raster": "m_Zd_eV"}]
     cfg = config_mod.from_dict(raw)
     centre = (1.0 / 3.0, 2.0 / 3.0)
     best = scans.global_fit(cfg, centre, workers=1, checkpoint=str(tmp_path / "fit.jsonl"), log=print)
@@ -223,8 +223,8 @@ def test_plane_points_written_as_done_and_inherited(tmp_path):
                 checkpoint=str(tmp_path / "plane.jsonl"), max_passes=0, log=print)
     recs = [json.loads(x) for x in open(tmp_path / "plane.jsonl")]
     pts = [x for x in recs if "chi2" in x]
-    assert len(pts) == 4 and all("t" in x and x.get("cert") for x in pts)
-    by_y = sorted(pts, key=lambda x: x["held"][s.y])
+    assert len(pts) == 8 and all("t" in x and x.get("cert") for x in pts)
+    by_y = sorted([x for x in pts if x["index"][0] == 0], key=lambda x: x["held"][s.y])
     print([(x["held"][s.y], x["cert"], x["solver_runs"], round(x["chi2"], 6)) for x in by_y])
     assert by_y[0]["cert"] == "inherited"
     assert by_y[-1]["cert"] in ("forward", "central") and by_y[-1]["certified"]
