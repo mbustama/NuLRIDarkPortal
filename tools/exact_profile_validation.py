@@ -60,6 +60,9 @@ def main(argv=None):
         print(f"{raw['name']} {pt}: profile chi2 = {r.chi2:.6f}, {r.message}; {r.solver_runs} solver runs, "
               f"{r.seconds:.0f} s, {r.nfev} chi2 evaluations", flush=True)
         for x in r.starts:
+            if "start" not in x:                     # the other octant's probe (profile_global)
+                print(f"    octant probe {x.get('octant_probe')}: chi2 {x['chi2']:.6f}", flush=True)
+                continue
             print(f"    start {x['start']}: chi2 {x['chi2']:.6f}, {'certified' if x['certified'] else 'NOT certified'}, "
                   f"{x['centres']} centres, {x['solver_runs']} runs", flush=True)
         row = dict(config=raw["name"], point=pt, **r.as_dict())
