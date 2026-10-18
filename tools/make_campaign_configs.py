@@ -40,6 +40,7 @@ exists only with it. --spectrum pl: the single power law of the first campaign (
 import argparse
 import copy
 import json
+import re
 import os
 import sys
 
@@ -154,6 +155,13 @@ def apply_mixing(cfg: dict, dataset: str, m_lightest: float = M_LIGHTEST, exact:
     return cfg
 
 
+# The campaign_ml selection (Mauricio, 2026-10-18): long-range potentials only for L_e-L_mu and L_e-L_tau (their
+# ultralight-mass planes), every MeV plane; the dark portal's and L_mu-L_tau's potential planes (textures, signs,
+# coupling splits) and the B-3L models' ultralight planes are not generated (docs/SIMPLIFICATIONS_AND_ASSUMPTIONS.md
+# item 16b: how to revive them).
+ML_KEEP = re.compile(r"^(le_lmu_ul|le_ltau_ul|.+_mev)$")
+
+
 def apply_lightest(cfg: dict, dataset: str) -> dict:
     """cfg with the mixing fixed and the lightest mass varied (--mixing lightest, 2026-10-18: Mauricio fixed the mixing
     in the likelihood, its effect to be estimated outside it; docs/SIMPLIFICATIONS_AND_ASSUMPTIONS.md item 11): the
@@ -245,6 +253,8 @@ def planes_for(dataset, spectrum="pl", mixing="fixed"):
     out = []
 
     def add(name, comment, solver, params, plane, asimov):
+        if mixing == "lightest" and not ML_KEEP.match(name):
+            return
         cfg = _config(dataset, spectrum, name, comment, solver, params, priors, plane, asimov)
         if mixing == "lightest":
             cfg = apply_lightest(cfg, dataset)
