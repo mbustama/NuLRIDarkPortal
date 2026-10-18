@@ -317,7 +317,9 @@ class FutureEventLikelihood:
             if not np.isfinite(dec) or dec < 0.0:
                 self.newton_fail = f"no descent direction (decrement {dec:g})"
                 return None
-            if dec < tol or (dec < 1e-12 and it > 0 and dec >= 0.5 * prev_dec):
+            # converged: below tol, or stalled at f's rounding (the decrement no longer halving below 1e-9: chi^2
+            # within 5e-10; GitHub's runners sat at 2e-11 - 6e-11 for 100 steps, 2026-10-18)
+            if dec < tol or (dec < 1e-9 and it > 0 and dec >= 0.5 * prev_dec):
                 return x, f, it
             prev_dec = dec
             t = 1.0
