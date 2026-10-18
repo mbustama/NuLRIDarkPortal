@@ -1363,6 +1363,127 @@ def _thermal_resonance_terms(E, L_lo, L_hi, masses, T_nu0, eta_mass, M, MG, H0, 
                 J[j, r, 1] = a1[r] * dL
 
 
+def _fd_nodes(panels):
+    """Nodes x = p / T and weights of the frozen Fermi-Dirac average <g(p)> = sum_q w_q g(x_q T): Gauss-Legendre on
+    the given (a, b, n) panels of x, weights x^2 / (e^x + 1) dx normalized to one (the tail beyond x = 32 holds
+    2e-12 of the density)."""
+    xs, ws = [], []
+    for a, b, n in panels:
+        x, w = np.polynomial.legendre.leggauss(n)
+        xs.append(0.5 * (b - a) * x + 0.5 * (b + a))
+        ws.append(0.5 * (b - a) * w)
+    x = np.concatenate(xs)
+    w = np.concatenate(ws) * x * x / (np.exp(x) + 1.0)
+    return np.ascontiguousarray(x), np.ascontiguousarray(w / w.sum())
+
+
+# 1/<E_p> to ~1e-9 (the panel [0, 2] resolves the kink of p^2 / E_p at p ~ m)
+_FDX32, _FDW32 = _fd_nodes(((0.0, 2.0, 12), (2.0, 32.0, 20)))
+_GL12_X, _GL12_W = _gl01(12)
+_FD_NORM = 1.5 * 1.2020569031595942          # int x^2 / (e^x + 1) dx = 3 zeta(3) / 2
+_SQRT2 = np.sqrt(2.0)
+_THERMAL_V_MIN = 1e-3        # typical relic speed above which the non-resonant terms are averaged thermally
+
+
+@njit(cache=True, parallel=True)
+def _thermal_nonresonant_terms(E, L_lo, L_hi, masses, T_nu0, eta_mass, n0, M2, H0, Om, OL, prof, J,
+                               fdx, fdw, gx, gw):
+    """Replace J[j, r, 2] (1/s) and J[j, r, 3] (the pair cross section) of _step_integrals, there with the relics at
+    rest (s = 2 E m (1+z)), by their averages over the relics' thermal momenta (frozen Fermi-Dirac at T_r, Moller flux
+    factor 1 - v c), for relic states whose typical speed 3.15 T_r / E exceeds _THERMAL_V_MIN (2026-10-18: at rest,
+    a lightest neutrino of 1e-6 eV made the 1/s term ~400 times too large). With s = m^2 + a (1 - v c),
+    a = 2 E (1+z) E_p, c the angle's cosine, and m^2 / a < 1e-20 dropped where it only adds:
+        1/s:  <(1 - v c) / s> = <1 / E_p> / (2 E (1+z)),
+        pair: <K(s) (1 - v c)> = < int_{max(s-, 4M^2)}^{s+} K(s) (s - m^2) ds / (2 a^2 v) >,  s+- = m^2 + a (1 +- v),
+    the s-integral by Gauss-Legendre (8 nodes; in u, s = 4M^2 + (s+ - 4M^2) u^2, across the threshold), the momentum
+    averages by fdx/fdw (1/s) and, for the pair, by gx/gw on two panels from the momentum where the channel opens, and the step's time integral by Gauss-Legendre (8 nodes) in
+    L = ln(1+z), J = int dL n0 (1+z)^3 <K (1 - v c)> / H, as _thermal_resonance_terms does. Both reduce to the rest
+    values as v -> 0 (the pair integral's interval shrinks to 2 a v around s = m^2 + a)."""
+    N = len(E)
+    dL = L_hi - L_lo
+    zp1_mid = np.exp(0.5 * (L_lo + L_hi))
+    K8 = len(_GL8_X)
+    on = np.zeros(3, dtype=np.bool_)
+    wt = np.zeros((3, K8))                 # n0 (1+z)^3 / H at the time nodes, times the node weight
+    inv_e = np.zeros((3, K8))              # <1 / E_p>
+    T_k = np.zeros((3, K8))
+    for r in range(3):
+        m = masses[r]
+        if m <= 0.0 or n0[r] <= 0.0:
+            continue
+        sc = eta_mass[r] ** (1.0 / 3.0)
+        p_t = 3.15 * T_nu0 * zp1_mid * sc
+        if p_t < _THERMAL_V_MIN * np.sqrt(m * m + p_t * p_t):
+            continue
+        on[r] = True
+        for k in range(K8):
+            zp1 = np.exp(L_lo + dL * _GL8_X[k])
+            T = T_nu0 * zp1 * sc
+            T_k[r, k] = T
+            wt[r, k] = _GL8_W[k] * n0[r] * zp1 ** 3 / (H0 * np.sqrt(Om * zp1 ** 3 + OL))
+            acc = 0.0
+            for q in range(len(fdx)):
+                p = fdx[q] * T
+                acc += fdw[q] / np.sqrt(p * p + m * m)
+            inv_e[r, k] = acc
+    for j in prange(N):
+        for r in range(3):
+            if not on[r]:
+                continue
+            m = masses[r]
+            a2 = 0.0
+            a3 = 0.0
+            for k in range(K8):
+                Ez = E[j] * np.exp(L_lo + dL * _GL8_X[k])
+                a2 += wt[r, k] * inv_e[r, k] / (2.0 * Ez)
+                # the pair channel: relics whose s+ = m^2 + 2 Ez (E_p + p) exceeds 4 M^2, i.e. p above p_th
+                # (E_p + p = X); the momentum average starts there, in t^2 = x - x_th (the channel opens as a power
+                # of p - p_th), then a second panel up to x_th + 34
+                X = (4.0 * M2 - m * m) / (2.0 * Ez)
+                x_th = 0.0
+                if X > m:
+                    x_th = (X * X - m * m) / (2.0 * X) / T_k[r, k]
+                if x_th > 40.0:
+                    continue
+                pair = 0.0
+                for q in range(2 * len(gx)):
+                    if q < len(gx):
+                        t = _SQRT2 * gx[q]
+                        x = x_th + t * t
+                        jac = 2.0 * t * _SQRT2 * gw[q]
+                    else:
+                        x = x_th + 2.0 + 32.0 * gx[q - len(gx)]
+                        jac = 32.0 * gw[q - len(gx)]
+                    if x <= 0.0:
+                        continue
+                    wfd = x * x / (np.exp(x) + 1.0) * jac / _FD_NORM
+                    p = x * T_k[r, k]
+                    Ep = np.sqrt(p * p + m * m)
+                    v = p / Ep
+                    a = 2.0 * Ez * Ep
+                    sp = m * m + a * (1.0 + v)
+                    if sp <= 4.0 * M2:
+                        continue
+                    sm = m * m + a * (1.0 - v)
+                    acc = 0.0
+                    if sm >= 4.0 * M2:
+                        ds = sp - sm
+                        for i in range(K8):
+                            s = sm + ds * _GL8_X[i]
+                            acc += _GL8_W[i] * _pair_kinematic(prof, s, M2) * (s - m * m)
+                        acc *= ds
+                    else:
+                        span = sp - 4.0 * M2
+                        for i in range(K8):
+                            u = _GL8_X[i]
+                            s = 4.0 * M2 + span * u * u
+                            acc += _GL8_W[i] * _pair_kinematic(prof, s, M2) * (s - m * m) * 2.0 * span * u
+                    pair += wfd * acc / (2.0 * a * a * v)
+                a3 += wt[r, k] * pair
+            J[j, r, 2] = a2 * dL
+            J[j, r, 3] = a3 * dL
+
+
 @njit(cache=True)
 def _si_sweep(F, E, dE, S0, J, Nq, Lq, Dq, jt, w, qe, Ctau, Creg, tabB, tabO, node, dt, reg, diag, exact_bin):
     """One redshift step of the transport (module notes above). F (N, 3) is updated in place.
@@ -2188,6 +2309,8 @@ def _transport_columns(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu
             if thermal and not delta_mode:
                 _thermal_resonance_terms(E, L_lo, L_hi, masses, T_nu0, eta_arr, M, MG, H0, Omega_m, Omega_L, J,
                                          _TGL16_X, _TGL16_W, _TGL10_X, _TGL10_W, _TFD16)
+                _thermal_nonresonant_terms(E, L_lo, L_hi, masses, T_nu0, eta_arr, n0, M2, H0, Omega_m, Omega_L, prof,
+                                           J, _FDX32, _FDW32, _GL12_X, _GL12_W)
             if store is not None:
                 store.append((J.copy(), Nq.copy(), Lq.copy(), Dq.copy()))
         if m == K - 1 and not top_full:
