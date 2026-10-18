@@ -2242,7 +2242,7 @@ def _thermal_terms(E, L_edges, q, Delta, dlnE, masses, n0, T_nu0, eta, M, MG, H0
     live = (masses > 0.0) & (n0 > 0.0)
     Tm = np.ascontiguousarray(T_nu0 * np.exp(L_mid)[:, None] * np.cbrt(eta)[None, :])
     c0 = (np.log(2.0 * E[0]) + L_mid - np.log(M2)) / Delta
-    W = np.zeros((K, 3, 512))
+    W = np.zeros((K, 3, 4096))
     i0 = np.zeros((K, 3), dtype=np.int64)
     st = np.ones((K, 3), dtype=np.int64)
     nw = np.zeros((K, 3), dtype=np.int64)
