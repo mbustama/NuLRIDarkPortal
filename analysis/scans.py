@@ -80,9 +80,10 @@ def _run_chain(task) -> List[dict]:
     mixing are those of that point (exact_profile.ExactProfiler.inherit: new physics below the solver's reach)
     takes that point's certificate after one evaluation.
 
-    With the lightest mass's scan (MeV planes, ExactSettings.ml_scan and ml_inherit; 2026-10-18), the points that
-    pass that test against the global fit (no new physics) are held back until a scan of the lightest mass at a
-    coupling at least theirs shows the solver's runs at every scanned mass equal to the global fit's (scan_flat):
+    With the lightest mass's scan (MeV planes, ExactSettings.ml_scan and ml_inherit; 2026-10-18), the column's first
+    point (the plane's smallest coupling) is profiled in full and anchors it; the points that pass that test against
+    it are held back until a scan of the lightest mass at a coupling at least theirs shows the solver's runs at every
+    scanned mass equal to the first point's (scan_flat):
     absorption only grows with the coupling, so the new physics is then below the solver's reach at every mass
     there and below, and those points inherit. The probe goes down from the highest held-back point; a point
     whose scan is not flat is profiled in full (its scan's runs reused). Above the first point that fails the test
@@ -106,7 +107,9 @@ def _run_chain(task) -> List[dict]:
 
     if prof is not None:
         prof.curvs = []              # forward certificates take the curvature of this chain's own central ones
-    if prof is not None and prof.settings.inherit and chain and set(chain[0][1]) <= set(best):
+    ml = prof is not None and prof.settings.ml_scan is not None
+    ml_inherit = ml and prof.settings.inherit and prof.settings.ml_inherit
+    if prof is not None and prof.settings.inherit and not ml and chain and set(chain[0][1]) <= set(best):
         # the global fit (the exact profile without new physics, _exact_global_fit) anchors the chain's first point
         g_held = {k: float(best[k]) for k in chain[0][1]}
         key = json.dumps(sorted(best.items()))
@@ -116,16 +119,14 @@ def _run_chain(task) -> List[dict]:
             except ValueError:
                 _W["global_anchor"] = (key, None)
         anchor = _W["global_anchor"][1]
-    ml = prof is not None and prof.settings.ml_scan is not None
     ref = mixing = None
-    if ml and anchor is not None and prof.settings.ml_inherit:
-        # the reference scan: the global fit's point (no new physics) at the scan's mixing
+    if ml_inherit:
+        # MeV columns anchor on their own first point (the plane's smallest coupling, profiled in full with its
+        # scan): the transport's numerics differ between mediator masses by more than inherit_eps even where the
+        # coupling does nothing (pilot 2026-10-18), so the global fit's point cannot anchor them; its scan at the
+        # scan's mixing is the reference of the flatness probes
         mixing = {n: float(best[n]) for n in prof.eta if n != "m_lightest_eV"}
         mixing.update({k: float(v) for k, v in (prof.settings.scan_mixing or {}).items() if k in mixing})
-        key = (_W["global_anchor"][0], json.dumps(sorted(mixing.items())))
-        if _W.get("ml_reference", (None,))[0] != key:
-            _W["ml_reference"] = (key, prof.scan_runs(anchor["held"], mixing, best)[0])
-        ref = _W["ml_reference"][1]
     pending, full = [], False
 
     def resolve():
@@ -171,6 +172,11 @@ def _run_chain(task) -> List[dict]:
             r = _fit_held(held, [best, prev], settings)
             if prof is not None and not ml and r.certified and prof.settings.inherit:
                 anchor = prof.anchor(held, r)
+            if ml_inherit and anchor is None and r.certified:
+                # the column's first point: its result anchors the column, its scan (kept models: no new run) is
+                # the probes' reference
+                anchor = prof.anchor(held, r)
+                ref = prof.scan_runs(held, mixing, best)[0]
         emit(index, held, r)
         prev = r.values
     if pending:
