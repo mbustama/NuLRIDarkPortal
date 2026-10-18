@@ -251,6 +251,8 @@ def spline_weight_derivatives(nodes, p: float) -> np.ndarray:
 # spline between the solver runs at the index nodes)
 GRADIENT_NAMES = ("norm_astro", "norm_gal", "f_e_S", "f_mu_S", "f_tau_S", "f_e_S_gal", "p_index", "p_index_low")
 LOG_RATIO_CLIP = 30.0     # |log(F_r / F_0)| kept below this in the mixing templates (a bin absorbed away in one run)
+LOG_FACTOR_CLIP = 60.0    # and the templates' total exponent (an extrapolation far beyond the points)
+SPLIT_TOP_ROUNDING = 1e-12  # a coupling product this far (relative) above a fixed split's x is x (rounding)
 
 
 def solver_key(name: str) -> Tuple[str, str]:
@@ -441,6 +443,11 @@ class FlavorModel:
             if "eps" in name and self.coupling_split != "fixed":
                 P = float(values[name])
                 x = np.sqrt(P) if self.coupling_split == "balanced" else self.coupling_split
+                if x > 0.0 and x < P <= x * (1.0 + SPLIT_TOP_ROUNDING):
+                    # the plane's top coupling P = x, as a log-spaced grid computes it, is a rounding above x
+                    # (10^-20 -> 1.0000000000000001e-20): the 35 WALL points of the October campaign's x = 1e-20
+                    # planes (2026-10-18); P = x is epsilon' = 1, allowed
+                    P = x
                 if u2 == 0.0 or P < 0.0 or (x > 0.0 and P > x):
                     raise ValueError(f"{name} = {P:g} with coupling_split {self.coupling_split!r}: needs a nonzero "
                                      "mixing, P >= 0, and P <= x (epsilon' <= 1)")
@@ -680,8 +687,12 @@ class FlavorModel:
         st = self._template_stack(values, nodes, kind)
         w, dws = self._template_weights(values)
         keys = ("bands_nu", "bands_nb") if kind == "sky" else tuple(k for k in ("F_a", "F_b") if k in st)
-        fac = {k: np.exp(np.tensordot(w, st[k], axes=(0, 0))) for k in keys}
-        der = {n: {k: fac[k] * np.tensordot(dws[n], st[k], axes=(0, 0)) for k in keys}
+        # the exponent capped at +-LOG_FACTOR_CLIP (2026-10-18): a surrogate extrapolated far beyond its points (a
+        # trust region's edge) overflowed; within it nothing changes
+        expo = {k: np.tensordot(w, st[k], axes=(0, 0)) for k in keys}
+        fac = {k: np.exp(np.clip(e, -LOG_FACTOR_CLIP, LOG_FACTOR_CLIP)) for k, e in expo.items()}
+        der = {n: {k: np.where(np.abs(expo[k]) < LOG_FACTOR_CLIP, fac[k] * np.tensordot(dws[n], st[k], axes=(0, 0)),
+                               0.0) for k in keys}
                for n in names if n in self.templates}
         return fac, der
 

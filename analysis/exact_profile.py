@@ -60,25 +60,29 @@ SOLVER_KEYS = {"s12sq": ("standard_mixing", "th12_deg"), "s13sq": ("standard_mix
 # NuFIT 6.1 (normal ordering, with SK's atmospheric data): approximate 1-sigma widths -- the trust region's units and
 # the forward differences' steps only, never the penalty (nufit.py)
 NUFIT_WIDTHS = dict(s12sq=0.012, s13sq=0.00057, s23sq=0.018, d_cp_deg=30.0, dm21_sq=2.0e-6, dm31_sq=2.5e-5)
-M_LIGHTEST_WIDTH = 0.01           # eV: the trust region's unit for m_lightest
+M_LIGHTEST_WIDTH = 2e-3           # eV: the trust region's unit for m_lightest (the relics' thermal scale, ~10 T_nu)
 M_LIGHTEST_MIN = 1e-6             # eV (module docstring)
-M_LIGHTEST_FD_FLOOR = 1e-3        # eV: m_lightest's forward step is fd_rel_ml * max(m, this)
 
 
 @dataclass
 class ExactSettings:
     """Knobs of the exact profile (module docstring). radius, radius_max, cert_radius: trust radii in prior widths;
-    fd_rel: forward-difference step in prior widths (fd_rel_ml: m_lightest's, relative); stop: the certified
+    fd_rel: the differences' step in prior widths (m_lightest's: M_LIGHTEST_WIDTH); stop: the certified
     predicted decrease; max_centres: exact centres per start; accept: the smallest exact decrease accepted."""
     radius: float = 1.0
     radius_max: float = 4.0
     radius_min: float = 1e-3
     cert_radius: float = 0.5
-    fd_rel: float = 0.05
-    fd_rel_ml: float = 0.01
+    fd_rel: float = 0.25
     stop: float = 1e-4
     max_centres: int = 12
     accept: float = 1e-9
+    # the lightest mass's global search (profile_global): the exact chi^2 on this grid of m_lightest (eV) at the
+    # start's mixing, then the exact profile from every local minimum of the scan within ml_margin of its lowest
+    ml_scan: Optional[Sequence[float]] = None
+    ml_margin: float = 3.0
+    # NuFIT's two octants of theta23 (profile_global): the exact profile also from the start mirrored about 0.5
+    octants: bool = False
 
     @classmethod
     def from_dict(cls, d: Optional[Mapping]) -> "ExactSettings":
@@ -104,11 +108,13 @@ class ExactResult:
     solver_runs: int = 0
     seconds: float = 0.0
     nfev: int = 0
+    scan: List[dict] = field(default_factory=list)
+    starts: List[dict] = field(default_factory=list)
 
     def as_dict(self) -> dict:
         return dict(values=self.values, chi2=self.chi2, certified=self.certified, message=self.message, pred=self.pred,
                     pred_radius=self.pred_radius, centres=self.centres, solver_runs=self.solver_runs,
-                    seconds=self.seconds, nfev=self.nfev)
+                    seconds=self.seconds, nfev=self.nfev, scan=self.scan, starts=self.starts)
 
 
 def widths(cfg, names: Sequence[str]) -> Dict[str, float]:
@@ -151,32 +157,34 @@ class ExactProfiler:
         self.solver_runs = 0
 
     # ------------------------------------------------------------------ models
-    def _fd_points(self, name: str, c: float, central: bool) -> tuple:
-        """The difference points of one parameter around c: c + h (forward), or c - h and c + h (central; at a bound
-        the one-sided three-point stencil c + h, c + 2h inward), h a fraction fd_rel of the prior's width
-        (m_lightest: fd_rel_ml of itself, at least of M_LIGHTEST_FD_FLOOR)."""
-        s = self.settings
-        h = s.fd_rel_ml * max(c, M_LIGHTEST_FD_FLOOR) if name == "m_lightest_eV" else s.fd_rel * self.w[name]
+    def _fd_template(self, name: str, c: float, central: bool) -> MixingTemplate:
+        """The difference template of one parameter at c (templates.MixingTemplate with a slope): forward (c + h), or
+        central (c + h, c - h), or at a bound the one-sided second-order (c + h, c + 2h) inward; h = fd_rel prior
+        widths."""
+        h = self.settings.fd_rel * self.w[name]
         lo, hi = self.bounds[name]
         up, down = c + h <= hi, c - h >= lo
-        if not central:
-            return (c + h,) if up else (c - h,)
-        if up and down:
-            return (c + h, c - h)
-        return (c + h, c + 2.0 * h) if up else (c - h, c - 2.0 * h)
+        if central:
+            if up and down:
+                return MixingTemplate(name, c, (c + h, c - h), slope=(0.5, -0.5))
+            if up and c + 2.0 * h <= hi:
+                return MixingTemplate(name, c, (c + h, c + 2.0 * h), slope=(2.0, -0.5))
+            if down and c - 2.0 * h >= lo:
+                return MixingTemplate(name, c, (c - h, c - 2.0 * h), slope=(2.0, -0.5))
+        return MixingTemplate(name, c, (c + h,) if up else (c - h,), slope=(1.0,))
 
     def centre_model(self, centre: Mapping[str, float], central: bool = False, reuse=None):
-        """The model centred at eta = centre: the solver configuration there, and per parameter of eta a template
-        through the difference points (_fd_points: linear for forward differences, quadratic for central ones, in the
-        log of the flux). reuse: a model centred at the same values whose solver runs are taken over (a forward
-        model upgraded to central differences then makes only the new points' runs)."""
+        """The model centred at eta = centre: the solver configuration there, and per parameter of eta a difference
+        template (_fd_template: log-linear in the parameter, with a forward or a central difference's slope).
+        reuse: a model centred at the same values whose solver runs are taken over (a forward model upgraded to
+        central differences then makes only the new points' runs)."""
         solver = copy.deepcopy(self.cfg.solver)
         templates = []
         for n in self.eta:
             c = float(centre[n])
             section, key = SOLVER_KEYS[n]
             solver.setdefault(section, {})[key] = sin2_to_deg(c) if n in ALIASES else c
-            templates.append(MixingTemplate(n, c, self._fd_points(n, c, central)))
+            templates.append(self._fd_template(n, c, central))
         m = self.cfg.model(solver=solver, templates=templates)
         if reuse is not None:
             # the same base configuration: a run's cache key is the same in both models
@@ -342,6 +350,61 @@ class ExactProfiler:
         best.solver_runs = sum(r.solver_runs for r in res)
         best.seconds = sum(r.seconds for r in res)
         best.nfev = sum(r.nfev for r in res)
+        return best
+
+    def value_at(self, held: Mapping, eta: Mapping, start: Mapping):
+        """The exact chi^2 at eta, minimized over nu: (chi2, values, solver runs)."""
+        centre = {n: float(min(max(float(eta[n]), self.bounds[n][0]), self.bounds[n][1])) for n in self.eta}
+        model = self.centre_model(centre)
+        self.use(model)
+        try:
+            f, v, _ = self._centre_value(held, centre, start)
+        finally:
+            self.use(self.exact_model)
+        return f, v, self._runs(model)
+
+    def profile_global(self, held: Mapping, start: Mapping, log=None) -> ExactResult:
+        """The exact profile with the known separate basins searched (ExactSettings): with ml_scan, the exact chi^2
+        on that grid of the lightest mass (the start's mixing, nu fitted) and profile() from each local minimum of
+        the scan within ml_margin of its lowest (2026-10-18: at the MeV planes' points the lightest mass moves chi^2
+        by up to ~80, with minima a factor ~2 in m apart); with octants, profile() also from the best start's
+        theta23 mirrored about maximal mixing. Returns the lowest result, with every start's in `starts`."""
+        s = self.settings
+        t0 = time.perf_counter()
+        held = {k: float(v) for k, v in held.items()}
+        st = {p.name: p.start for p in self.cfg.parameters if p.name not in held}
+        st.update({k: float(v) for k, v in start.items() if k not in held})
+        starts, scan, runs = [dict(st)], [], 0
+        if s.ml_scan is not None and "m_lightest_eV" in self.eta:
+            lo, hi = self.bounds["m_lightest_eV"]
+            grid = sorted({float(min(max(m, lo), hi)) for m in s.ml_scan})
+            for m in grid:
+                f, v, k = self.value_at(held, dict(st, m_lightest_eV=m), st)
+                runs += k
+                scan.append(dict(m_lightest_eV=m, chi2=f, values=v))
+                if log is not None:
+                    log(f"    scan m_lightest {m:.3g}: chi2 {f:.6f}")
+            vals = [x["chi2"] for x in scan]
+            low = min(vals)
+            cand = [i for i in range(len(grid)) if vals[i] <= low + s.ml_margin
+                    and (i == 0 or vals[i] <= vals[i - 1]) and (i == len(grid) - 1 or vals[i] <= vals[i + 1])]
+            starts = [dict(scan[i]["values"]) for i in sorted(cand, key=lambda i: vals[i])]
+        res = [self.profile(held, x, log=log) for x in starts]
+        if s.octants and "s23sq" in self.eta:
+            b = min(res, key=lambda r: r.chi2)
+            mirror = dict(b.values)
+            mirror["s23sq"] = float(min(max(1.0 - b.values["s23sq"], self.bounds["s23sq"][0]), self.bounds["s23sq"][1]))
+            res.append(self.profile(held, {k: v for k, v in mirror.items() if k not in held}, log=log))
+        best = min(res, key=lambda r: r.chi2)
+        best.starts = [dict(start={n: r.centres[0]["eta"][n] for n in self.eta}, chi2=r.chi2, certified=r.certified,
+                            centres=len(r.centres), solver_runs=r.solver_runs, message=r.message) for r in res]
+        best.scan = [dict(m_lightest_eV=x["m_lightest_eV"], chi2=x["chi2"]) for x in scan]
+        best.solver_runs = runs + sum(r.solver_runs for r in res)
+        best.nfev = sum(r.nfev for r in res)
+        best.seconds = time.perf_counter() - t0
+        if len(res) > 1:
+            best.message += f"; lowest of {len(res)} starts" + (f" after a {len(scan)}-point m_lightest scan" if scan
+                                                                 else "")
         return best
 
     # ------------------------------------------------------------------ validation

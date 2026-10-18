@@ -4,6 +4,7 @@ some mixing is the exact model there (bit for bit, no template run), its surroga
 exact chi^2's (finite differences of the exact model), and the profile from a start is certified and not above a
 brute-force fit with the solver at every value (small grid, future detectors, Table II's Gaussians and the mass sum).
 """
+import json
 import os
 import sys
 
@@ -50,6 +51,42 @@ def prof():
 
 def _start(prof):
     return {p.name: p.start for p in prof.cfg.parameters}
+
+
+def test_slope_templates():
+    """The exact profile's difference templates: log-linear with the forward, central or one-sided second-order
+    slope -- exact for a quadratic's slope at theta0 (central, one-sided) or for a linear function (forward); the
+    identity at theta0; the derivative of the weights constant."""
+    from analysis.templates import MixingTemplate
+    f = lambda x: 0.3 - 2.0 * (x - 0.31) + 7.0 * (x - 0.31) ** 2         # its slope at 0.31: -2
+    for pts, sl, exact in (((0.32,), (1.0,), False), ((0.32, 0.30), (0.5, -0.5), True),
+                           ((0.32, 0.33), (2.0, -0.5), True), ((0.30, 0.29), (2.0, -0.5), True)):
+        t = MixingTemplate("s12sq", 0.31, pts, slope=sl)
+        w0, dw0 = t.weights(0.31)
+        assert np.array_equal(w0, np.eye(len(pts) + 1)[0])
+        slope = dw0 @ f(t.nodes())
+        if exact:
+            assert abs(slope + 2.0) < 1e-9
+        w, dw = t.weights(0.335)
+        assert abs(np.sum(w) - 1.0) < 1e-12 and np.allclose(dw, dw0)
+        assert abs(w @ f(t.nodes()) - (f(0.31) + slope * 0.025)) < 1e-12        # linear in x with that slope
+    with pytest.raises(ValueError):
+        MixingTemplate("s12sq", 0.31, (0.32, 0.30), slope=(1.0,))
+
+
+def test_split_top_coupling_is_not_a_wall():
+    """A fixed split's plane ends at P = x; Tycho's numpy computes logspace(-60, -20, 41)[-1] = 1.0000000000000001e-20,
+    a rounding above x = 1e-20: until 2026-10-18 the model refused it (the 35 WALL points of the October campaign's
+    x = 1e-20 planes). Within SPLIT_TOP_ROUNDING it is x (epsilon' = 1); clearly above it, still refused."""
+    raw = json.load(open(os.path.join(REPO, "analysis", "configs", "campaign_mix", "proj_future",
+                                      "dp_tau_pot_x1m20_pos.json")))
+    for spec in raw["parameters"].values():
+        spec.pop("template", None)
+    m = config_mod.from_dict(raw).model(cache_size=1)
+    ov = m._overrides({"m_Zd_eV": 1e-27, "g_D_eps_trace": 1.0000000000000001e-20})
+    assert ov[("dark_portal", "epsilon_prime")] == 1.0
+    with pytest.raises(ValueError):
+        m._overrides({"m_Zd_eV": 1e-27, "g_D_eps_trace": 1.001e-20})
 
 
 def test_config_frees_m_lightest():
