@@ -5,6 +5,8 @@
 # BLAS to one thread for the same reason (oversubscription); numba's pool is capped at the allocation.
 source "${CONDA_SH:-$HOME/anaconda3/etc/profile.d/conda.sh}"
 conda activate "${ENV_NAME:-/lustre/astro/mbustama/conda_envs/nulri}"
+# numba without AVX-512 from the first import on (src/dp_core.py, 2026-10-18: LLVM 14 miscompiled it on Zen 4)
+export NUMBA_CPU_FEATURES=${NUMBA_CPU_FEATURES:-$(python -c "import llvmlite.binding as ll; ll.initialize(); ll.initialize_native_target(); print(ll.get_host_cpu_features().flatten().replace('+avx512', '-avx512'))" 2>/dev/null)}
 export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 \
        NUMBA_NUM_THREADS=${SLURM_CPUS_PER_TASK:-1}
 cd "${SLURM_SUBMIT_DIR:-.}"

@@ -79,6 +79,31 @@ def _configure_numba_cache():
 _configure_numba_cache()
 
 
+# NO AVX-512 IN NUMBA'S MACHINE CODE (2026-10-18). numba 0.60's LLVM 14 predates Zen 4: on
+# Tycho's AMD EPYC 9554 it tunes for znver3 while emitting AVX-512, a combination it
+# miscompiled -- the Earth's Yukawa density came out as 1e49-1e99 cm^-3 near the centre,
+# deterministically in one build of the old (fastmath) kernels and intermittently (1 of ~6
+# test-suite runs) in builds of the new ones; with the AVX-512 features off, the old code
+# equals pure Python at every probe point. Zen 4 executes AVX-512 at half width anyway. A
+# no-op on CPUs without it (the laptop, most CI runners); NUMBA_CPU_FEATURES set by the
+# user is respected. Set before numba's import here, and on its live config below.
+def _host_features_without_avx512():
+    try:
+        import llvmlite.binding as ll
+        ll.initialize()
+        ll.initialize_native_target()
+        ll.initialize_native_asmprinter()
+        return ll.get_host_cpu_features().flatten().replace("+avx512", "-avx512")
+    except Exception:
+        return None
+
+
+if not os.environ.get("NUMBA_CPU_FEATURES"):
+    _features = _host_features_without_avx512()
+    if _features:
+        os.environ["NUMBA_CPU_FEATURES"] = _features    # inherited by pool children
+
+
 import numpy as np
 
 # =============================================================================
@@ -135,6 +160,9 @@ try:
     from numba import njit, prange
     # numba reads NUMBA_CACHE_DIR once, at its own import, which may have come first
     numba.config.CACHE_DIR = os.environ["NUMBA_CACHE_DIR"]
+    # likewise NUMBA_CPU_FEATURES (no AVX-512, above); its codegen reads it at the first compile
+    if os.environ.get("NUMBA_CPU_FEATURES"):
+        numba.config.CPU_FEATURES = os.environ["NUMBA_CPU_FEATURES"]
     HAS_NUMBA = True
 except ImportError:
     HAS_NUMBA = False

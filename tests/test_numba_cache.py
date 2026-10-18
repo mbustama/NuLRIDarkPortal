@@ -42,3 +42,11 @@ def test_entries_accumulate_and_reload(tmp_path):
     assert sorted(k[0] for k in index) == ["a", "b", "c"]
     assert len(set(index.values())) == 3
     assert all(f._load_data(n) == "code " + k[0] for k, n in index.items())
+
+
+def test_no_avx512_in_numba_code():
+    """dp_core switches AVX-512 off in numba's code generation (numba 0.60's LLVM 14 tunes Zen 4 as znver3 and
+    miscompiled the Earth's Yukawa density with AVX-512 there): no AVX-512 feature is enabled in its target machine."""
+    from numba.core.registry import cpu_target
+    features = cpu_target.target_context.codegen()._tm_features
+    assert "+avx512" not in features, features
