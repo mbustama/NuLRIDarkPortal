@@ -23,7 +23,7 @@ DELTA = 0.0228
 @pytest.mark.parametrize("m, T", [(1e-6, 3.4e-4), (1e-3, 3.4e-4), (8.6e-3, 1e-3), (0.05, 1.7e-4), (1.0, 1e-4)])
 def test_weights_carry_rho_moments(m, T):
     W = np.zeros(512)
-    i0, s, nw = dp_si._thermal_weights(m, T, 0.37, DELTA, 8, 1e-9, W)
+    i0, s, nw = dp_si._thermal_weights(m, T, 0.37, DELTA, 8, 16.0, 1e-9, W)
     assert nw > 0
     nu = i0 + s * np.arange(nw)
     glx, glw = tr._gl(0.0, 1.0, 24)

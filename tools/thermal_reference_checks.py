@@ -74,6 +74,9 @@ def main(argv=None):
         res += pool.map(flux, timing, chunksize=1)
     print("PROGRESS 100% | timing done", flush=True)
     got = {(mode, p, m): (dt, np.array(E), np.array(F)) for mode, p, m, dt, E, F in res}
+    idx = {json.dumps(pt): i for i, pt in enumerate(POINTS)}
+    np.savez(os.path.join(REPO, "output", "analysis", "thermal_checks.npz"),
+             **{f"{mode}_{idx[p]}_{m:g}": np.vstack([E, F]) for (mode, p, m), (dt, E, F) in got.items()})
 
     def rel(k1, k2):
         _, E, F1 = got[k1]

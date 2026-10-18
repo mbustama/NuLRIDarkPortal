@@ -1988,11 +1988,11 @@ def _sigma_density(sig, m, T):
 
 
 @njit(cache=True)
-def _thermal_weights(m, T, c0, Delta, smax, thr, W):
+def _thermal_weights(m, T, c0, Delta, smax, sdiv, thr, W):
     """One relic state and step: a parent at lattice coordinate nu = j q + c0 + ln(sigma) / Delta has the products
     sum_w W[w] G[j q + i0 + s w], G interpolated cubically (4-point Lagrange) between every s-th node and integrated
-    against rho over its support (rho sigma above thr times its maximum); the stride s, 1 to smax nodes, is a
-    sixteenth of the support. Fills W; returns (i0, s, number of weights), the number -1 if W is too short."""
+    against rho over its support (rho sigma above thr times its maximum); the stride s, 1 to smax nodes, is the
+    support over sdiv. Fills W; returns (i0, s, number of weights), the number -1 if W is too short."""
     pm = 40.0 * T
     epm = np.sqrt(pm * pm + m * m)
     lo = np.log(m * m / (epm + pm))
@@ -2012,7 +2012,7 @@ def _thermal_weights(m, T, c0, Delta, smax, thr, W):
         g1 -= 1
     a_lo = lo + (hi - lo) * max(g0 - 1, 0) / (ng - 1)
     a_hi = lo + (hi - lo) * min(g1 + 1, ng - 1) / (ng - 1)
-    s = max(1, min(smax, int((a_hi - a_lo) / Delta / 16.0)))
+    s = max(1, min(smax, int((a_hi - a_lo) / Delta / sdiv)))
     i0 = int(np.floor(c0 + a_lo / Delta)) - s
     k_lo = int(np.floor((c0 + a_lo / Delta - i0) / s))
     k_hi = int(np.floor((c0 + a_hi / Delta - i0) / s))
@@ -2043,13 +2043,13 @@ def _thermal_weights(m, T, c0, Delta, smax, thr, W):
 
 
 @njit(cache=True, parallel=True)
-def _thermal_weights_all(masses, Tm, c0, Delta, smax, thr, live, W, i0, st, nw):
+def _thermal_weights_all(masses, Tm, c0, Delta, smax, sdiv, thr, live, W, i0, st, nw):
     """_thermal_weights for every step m (temperatures Tm[m, r], offsets c0[m]) and live relic state r."""
     for t in prange(Tm.shape[0] * 3):
         m = t // 3
         r = t % 3
         if live[r]:
-            a, b, c = _thermal_weights(masses[r], Tm[m, r], c0[m], Delta, smax, thr, W[m, r])
+            a, b, c = _thermal_weights(masses[r], Tm[m, r], c0[m], Delta, smax, sdiv, thr, W[m, r])
             i0[m, r] = a
             st[m, r] = b
             nw[m, r] = c
@@ -2201,11 +2201,12 @@ def _thermal_tasks(N, st, nw, n0, BJ=16):
 
 
 _THERMAL_TABLE = {}
-# numerical settings of thermal="full": the weights' largest stride (nodes), rho's support (rho sigma above this
-# fraction of its maximum), the resonant kernels' grid step (in Delta)
+# numerical settings of thermal="full": the weights' largest stride (nodes) and the support's division into strides,
+# rho's support (rho sigma above this fraction of its maximum), the resonant kernels' grid step (in Delta)
 THERMAL_STRIDE_MAX = 8
+THERMAL_STRIDE_DIV = 16.0
 THERMAL_SUPPORT = 1e-9
-THERMAL_GRID_STEP = 1.0
+THERMAL_GRID_STEP = 2.0
 
 
 def _thermal_table(dlnE, Delta, N, n_u, n_lo, n_hi):
@@ -2246,7 +2247,8 @@ def _thermal_terms(E, L_edges, q, Delta, dlnE, masses, n0, T_nu0, eta, M, MG, H0
     i0 = np.zeros((K, 3), dtype=np.int64)
     st = np.ones((K, 3), dtype=np.int64)
     nw = np.zeros((K, 3), dtype=np.int64)
-    _thermal_weights_all(masses, Tm, c0, Delta, THERMAL_STRIDE_MAX, THERMAL_SUPPORT, live, W, i0, st, nw)
+    _thermal_weights_all(masses, Tm, c0, Delta, THERMAL_STRIDE_MAX, THERMAL_STRIDE_DIV, THERMAL_SUPPORT, live, W, i0,
+                         st, nw)
     if np.any(nw[:, live] < 0):
         raise ValueError("thermal products: a relic's distribution is wider than the weights' storage")
     sel = np.zeros((K, 3), dtype=np.bool_)
@@ -2270,8 +2272,8 @@ def _thermal_terms(E, L_edges, q, Delta, dlnE, masses, n0, T_nu0, eta, M, MG, H0
         _step_integrals(M2 * np.exp(nodes * Delta) / (2.0 * zmid), zlo, zhi, zmid, one, one, M2, MG, H0, Om, OL,
                         False, 1, hbin, Jf, Nf, Lf, Df)
         Jn[m] = Jf[:, 0, :]
-        # the resonant kernels' grid in ln a, a = 2 E (1+z): every Delta, finer (a sixth of the speed) where a slow
-        # relic state's distribution is narrower than eight steps
+        # the resonant kernels' grid in ln a, a = 2 E (1+z): every THERMAL_GRID_STEP Delta, finer (a quarter of the
+        # speed, eight speeds around the resonance) where a slow relic state's distribution is narrower than eight steps
         x_lo = np.log(2.0 * E[0]) + L_edges[m] - 3.0 * Delta
         x_hi = np.log(2.0 * E[-1]) + L_edges[m + 1] + 3.0 * Delta
         pts = [np.arange(x_lo, x_hi + Delta, THERMAL_GRID_STEP * Delta)]
@@ -2282,8 +2284,8 @@ def _thermal_terms(E, L_edges, q, Delta, dlnE, masses, n0, T_nu0, eta, M, MG, H0
             v = pt / np.hypot(masses[r], pt)
             if 2.0 * v < 8.0 * Delta:
                 cen = np.log(M2 / masses[r])
-                pts.append(np.arange(max(cen - np.log1p(10.0 * v), x_lo), min(cen - np.log1p(-min(10.0 * v, 0.9)), x_hi),
-                                     v / 6.0))
+                pts.append(np.arange(max(cen - np.log1p(8.0 * v), x_lo), min(cen - np.log1p(-min(8.0 * v, 0.9)), x_hi),
+                                     v / 4.0))
         lna = np.unique(np.concatenate(pts))
         f0 = np.zeros((len(lna), 3))
         f1 = np.zeros((len(lna), 3))
