@@ -44,26 +44,48 @@ def _init_worker(raw: dict, path: str, data_centre):
     cfg = from_dict(raw, path)
     _W["cfg"] = cfg
     _W["objective"] = cfg.objective(data_centre=data_centre)
+    _W["exact"] = None
+    if cfg.exact is not None:
+        from .exact_profile import ExactProfiler, ExactSettings
+        _W["exact"] = ExactProfiler(cfg, objective=_W["objective"], settings=ExactSettings.from_dict(cfg.exact))
 
 
 def _record(index, held, r) -> dict:
-    return dict(index=list(index), held=held, values=r.values, chi2=float(r.chi2), nfev=int(r.nfev),
-                seconds=float(r.seconds), message=r.message)
+    out = dict(index=list(index), held=held, values=r.values, chi2=float(r.chi2), nfev=int(r.nfev),
+               seconds=float(r.seconds), message=r.message)
+    if hasattr(r, "certified"):                  # the exact profile's (exact_profile.ExactResult)
+        out.update(certified=bool(r.certified), pred=float(r.pred), solver_runs=int(r.solver_runs),
+                   centres=len(r.centres), starts=len(r.starts) or 1)
+    return out
 
 
 def _fit_held(held: dict, starts: Sequence[dict], settings: dict):
+    """The fit at the held values from the starts; with the exact profile (cfg.exact), its global profile from the
+    first start given (the predecessor's solution in a chain, else the global best fit)."""
     cfg, obj = _W["cfg"], _W["objective"]
+    if _W.get("exact") is not None:
+        start = [s for s in starts if s][-1]
+        return _W["exact"].profile_global(held, {k: v for k, v in start.items() if k not in held})
     pset = cfg.parameter_set().holding(held)
     return fit(obj, pset, starts=[s for s in starts if s], settings=FitSettings(**settings))
 
 
 def _run_chain(task) -> List[dict]:
     """Fits the points of one chain in order, each from the global best fit and from its
-    predecessor's solution."""
+    predecessor's solution. With the exact profile, a point whose solver runs at the last fully certified point's
+    mixing are those of that point (exact_profile.ExactProfiler.inherit: new physics below the solver's precision)
+    takes that point's certificate after one evaluation."""
     chain, best, settings = task
-    out, prev = [], None
+    out, prev, anchor = [], None, None
+    prof = _W.get("exact")
     for index, held in chain:
-        r = _fit_held(held, [best, prev], settings)
+        r = None
+        if prof is not None and anchor is not None:
+            r = prof.inherit(held, anchor)
+        if r is None:
+            r = _fit_held(held, [best, prev], settings)
+            if prof is not None and r.certified and prof.settings.inherit:
+                anchor = prof.anchor(held, r)
         out.append(_record(index, held, r))
         prev = r.values
     return out
@@ -77,20 +99,31 @@ def _run_repair(task) -> Optional[dict]:
     Edge points, which lack a neighbour on one side, are refitted from their neighbours once
     (force). Returns the improved record or None. A point stuck at the bottom of a convex
     profile, below its neighbours' midpoint, passes every test."""
-    index, held, own_values, own_chi2, candidates, nb_mean, force, settings = task
+    index, held, own_values, own_chi2, candidates, nb_mean, force, settings, own_certified = task
     obj = _W["objective"]
+    prof = _W.get("exact")
     better, trials = [], []
     for c in candidates:
+        if prof is not None and own_certified and prof.within_certificate(own_values, c):
+            continue                 # the point's certificate already covers that mixing (exact_profile)
         trial = {**c, **held}
         x = obj.chi2(trial)
-        trials.append(trial)
+        trials.append((x, trial))
         if x < own_chi2 - REPAIR_TOL:
             better.append((x, trial))
     spike = force or (nb_mean is not None and own_chi2 > nb_mean + SPIKE_TOL)
-    if not better and not spike:
-        return None
-    starts = [t for _, t in sorted(better, key=lambda bt: bt[0])] + (trials if spike else []) + [own_values]
-    r = _fit_held(held, starts, settings)
+    if prof is not None:
+        if not better and not (spike and trials):
+            return None
+        # the exact profile from the most promising neighbour's solution
+        x, start = min(better or trials, key=lambda bt: bt[0])
+        r = _fit_held(held, [start], settings)
+    else:
+        if not better and not spike:
+            return None
+        starts = [t for _, t in sorted(better, key=lambda bt: bt[0])] + ([t for _, t in trials] if spike else []) \
+            + [own_values]
+        r = _fit_held(held, starts, settings)
     if r.chi2 < own_chi2 - REPAIR_TOL:
         return _record(index, held, r)
     return None
@@ -218,11 +251,42 @@ def _best_by_index(records: Iterable[dict]) -> Dict[tuple, dict]:
 # ----------------------------------------------------------------------------------------
 # Global fit
 # ----------------------------------------------------------------------------------------
+def _exact_global_fit(cfg: AnalysisConfig, data_centre, checkpoint: Optional[str], log) -> dict:
+    """global_fit for the exact profile (its docstring)."""
+    t0 = time.perf_counter()
+    ident = cfg.identity(data_centre)
+    done = [r for r in (_read_jsonl(checkpoint, ident, log) if checkpoint else []) if r.get("final")]
+    if done:
+        r = done[-1]
+        return dict(values=r["values"], chi2=r["chi2"], nfev=0, seconds=0.0, starts=[], id=ident)
+    from .exact_profile import ExactProfiler, ExactSettings
+    if not cfg.planes:
+        raise ValueError("the exact profile's global fit holds a plane's parameters: the configuration needs a plane")
+    s = cfg.planes[0]
+    held = {s.x: float(cfg.parameter(s.x).start), s.y: float(s.y_grid[0])}
+    prof = ExactProfiler(cfg, data_centre=data_centre, settings=ExactSettings.from_dict(cfg.exact))
+    r = prof.profile_global(held, {p.name: p.start for p in cfg.parameters if p.name not in held},
+                            log=lambda m: log(m))
+    log(f"  exact profile at {held}: chi2 = {r.chi2:.6g}, {r.message} ({r.solver_runs} solver runs, {r.seconds:.0f} s)")
+    out = dict(values=r.values, chi2=r.chi2, nfev=r.nfev, seconds=time.perf_counter() - t0,
+               starts=[dict(chi2=x["chi2"], values={}) for x in r.starts], id=ident)
+    if checkpoint:
+        _append_jsonl(checkpoint, [dict(final=True, values=out["values"], chi2=out["chi2"], id=ident,
+                                        certified=r.certified, message=r.message)])
+    return out
+
+
 def global_fit(cfg: AnalysisConfig, data_centre=None, workers: int = 1, checkpoint: Optional[str] = None,
                log=print) -> dict:
     """The best fit over all free parameters: L-BFGS-B from the configured starts and
     cfg.fit.n_random random starts inside the bounds (seeded), in parallel, then a Powell
-    polish of the best. Returns {"values", "chi2", "nfev", "seconds", "starts": [...]}."""
+    polish of the best. Returns {"values", "chi2", "nfev", "seconds", "starts": [...]}.
+
+    With the exact profile (cfg.exact): the exact profile (exact_profile.py) with the plane's parameters held at the
+    first plane's smallest coupling (no new physics) and the mass's start: the chains' start and the no-new-physics
+    reference."""
+    if cfg.exact is not None:
+        return _exact_global_fit(cfg, data_centre, checkpoint, log)
     t0 = time.perf_counter()
     pset = cfg.parameter_set()
     rng = np.random.default_rng(cfg.fit.seed)
@@ -312,13 +376,21 @@ def _scan(cfg: AnalysisConfig, names: List[str], grids: List[np.ndarray], best: 
 
     # chains along the first axis, for each value of the others: about two per worker
     n_points = len(indices)
-    rows = int(np.prod(shape[1:]))
-    per_row = max(2, int(np.ceil(2 * workers / rows)))
-    length = max(1, int(np.ceil(shape[0] / per_row)))
     chains = []
-    for rest in np.ndindex(*shape[1:]):
-        for c in _chains_1d(grids[0], best[names[0]], params[0].space == "log10", length):
-            chains.append([(i,) + tuple(rest) for i in c])
+    if cfg.exact is not None and len(shape) == 2:
+        # the exact profile (exact_profile.py): whole chains along the second axis (a plane's coupling), outward from
+        # the global best fit's value -- the profile's mixing changes smoothly along the coupling, and a point below
+        # the reach of new physics takes the chain's last certified point's certificate (ExactProfiler.inherit)
+        for i in range(shape[0]):
+            for c in _chains_1d(grids[1], best[names[1]], params[1].space == "log10", shape[1]):
+                chains.append([(i, j) for j in c])
+    else:
+        rows = int(np.prod(shape[1:]))
+        per_row = max(2, int(np.ceil(2 * workers / rows)))
+        length = max(1, int(np.ceil(shape[0] / per_row)))
+        for rest in np.ndindex(*shape[1:]):
+            for c in _chains_1d(grids[0], best[names[0]], params[0].space == "log10", length):
+                chains.append([(i,) + tuple(rest) for i in c])
     t0 = time.perf_counter()
     ident = scan_identity(cfg, names, grids, data_centre)
     records = _read_jsonl(checkpoint, ident, log) if checkpoint else []
@@ -373,7 +445,8 @@ def _scan(cfg: AnalysisConfig, names: List[str], grids: List[np.ndarray], best: 
                         mids.append(0.5 * (done[pair[0]]["chi2"] + done[pair[1]]["chi2"]))
                 nb_mid = max(mids) if mids else None
                 edge = k == 1 and len(mids) < len(shape) and ix not in edge_checked   # once, from the neighbours
-                tasks.append((ix, held_of(ix), own["values"], own["chi2"], cands, nb_mid, edge, settings))
+                tasks.append((ix, held_of(ix), own["values"], own["chi2"], cands, nb_mid, edge, settings,
+                              bool(own.get("certified", False))))
             improved = []
             for r in pool.imap(_run_repair, tasks):
                 if r is not None:

@@ -135,6 +135,29 @@ def test_surrogate_gradient_is_the_exact_gradient(prof):
 
 
 @pytest.mark.slow
+def test_plane_with_the_exact_profile(tmp_path):
+    """A small plane through analysis.scans with exact_profile set: the global fit at the smallest coupling, chains
+    along the coupling, every point certified, the couplings below the reach of new physics inheriting the chain's
+    anchor after one evaluation, the records carrying the certificate."""
+    from analysis import scans
+    raw = _raw()
+    raw["exact_profile"] = {}
+    raw["planes"] = [{"x": "m_Zd_eV", "y": "g_D_eps_trace", "x_range": [1e-13, 1e-12], "y_range": [1e-55, 1e-30],
+                      "nx": 2, "ny": 3, "raster": "m_Zd_eV"}]
+    cfg = config_mod.from_dict(raw)
+    centre = (1.0 / 3.0, 2.0 / 3.0)
+    best = scans.global_fit(cfg, centre, workers=1, checkpoint=str(tmp_path / "fit.jsonl"), log=print)
+    s = cfg.planes[0]
+    assert best["values"][s.y] == s.y_grid[0]
+    r = scans.plane(cfg, s.x, s.y, s.x_grid, s.y_grid, best["values"], centre, workers=1,
+                    checkpoint=str(tmp_path / "plane.jsonl"), max_passes=1, log=print)
+    for p in r.points:
+        print(p["index"], p["chi2"], p["message"][:80], p.get("solver_runs"))
+        assert p["certified"] and "solver_runs" in p
+    assert any(p["message"].startswith("inherited") for p in r.points)
+
+
+@pytest.mark.slow
 def test_profile_certified_and_not_above_bruteforce(prof):
     """From the priors' centre: certified, and a fit with the solver at every value, started at the profile and at
     the priors' centre, finds nothing more than 1e-3 lower."""

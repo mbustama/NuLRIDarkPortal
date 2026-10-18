@@ -30,6 +30,9 @@ and which fits and scans to run. Example: analysis/configs/pion_2050_case_5.json
                                          fixed (2026-10-14): a fixed-composition analysis then shares its
                                          runs with a fitted-composition one (NULRI_FLUX_CACHE); the composition
                                          is linear (to 1.6e-15)
+    "exact_profile": {ExactSettings}     the mixing and the lightest mass profiled exactly at every point
+                                         (exact_profile.py, 2026-10-18): the planes' fits, the global fit and
+                                         the repairs go through ExactProfiler; no "template" on those parameters
   }
 
 Profile and plane ranges are in physical units; a parameter fitted in log10 space is scanned
@@ -56,7 +59,7 @@ from .objective import Objective
 from .parameters import Parameter, ParameterSet, prior_from_spec
 
 TOP_KEYS = {"name", "data", "solver", "parameters", "priors", "fit", "profiles", "planes",
-            "thresholds", "asimov", "output_dir", "flux_basis"}
+            "thresholds", "asimov", "output_dir", "flux_basis", "exact_profile"}
 DEFAULT_THRESHOLDS = {
     # Delta chi^2 for two-sided intervals of 1 and 2 parameters (Wilks): 68.27%, 90%, 95%
     "1d": {"68.27%": 1.0, "90%": 2.706, "95%": 3.841},
@@ -110,6 +113,7 @@ class AnalysisConfig:
     flavor_band: Optional[Tuple[float, float]] = None
     flux_basis: str = "auto"
     templates: dict = field(default_factory=dict)        # name -> its "template" spec (templates.py)
+    exact: Optional[dict] = None                         # exact_profile.ExactSettings overrides, or None
 
     @property
     def free_names(self) -> List[str]:
@@ -230,6 +234,7 @@ class AnalysisConfig:
                  solver=solver, code=dp_core._source_digest(),
                  parameters=[[p.name, p.space, list(p.bounds)] for p in self.parameters],
                  **({} if not self.templates else dict(templates=self.templates)),
+                 **({} if self.exact is None else dict(exact_profile=True)),
                  priors=[[type(p).__name__, sorted(dataclasses.asdict(p).items())] for p in self.priors], extra=extra)
         return hashlib.sha256(json.dumps(d, sort_keys=True, default=str).encode()).hexdigest()[:16]
 
@@ -333,6 +338,13 @@ def from_dict(raw: Mapping, path: str = "") -> AnalysisConfig:
         raw=dict(raw), path=path, spectrum=spectrum, p_nodes_n=nodes_n.get("p_index"),
         p1_nodes_n=nodes_n.get("p_index_low"), events=events, flavor_band=flavor_band, templates=templates,
         flux_basis=str(d.get("flux_basis", "auto")))
+    if d.get("exact_profile") is not None:
+        from .exact_profile import ETA, ExactSettings
+        ExactSettings.from_dict(d["exact_profile"])                 # unknown settings fail here
+        cfg.exact = dict(d["exact_profile"])
+        tm = sorted(set(templates) & set(ETA))
+        if tm:
+            raise ValueError(f"exact_profile builds its own local templates: drop the 'template' of {tm}")
     if cfg.flux_basis not in ("auto", "pure_flavors"):
         raise ValueError(f"flux_basis must be 'auto' or 'pure_flavors', got {cfg.flux_basis!r}")
     if spectrum is not None and not (cfg.solver.get("galactic") or {}).get("enabled"):

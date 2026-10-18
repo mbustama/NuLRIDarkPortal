@@ -83,6 +83,12 @@ class ExactSettings:
     ml_margin: float = 3.0
     # NuFIT's two octants of theta23 (profile_global): the exact profile also from the start mirrored about 0.5
     octants: bool = False
+    # a plane's chain (analysis.scans): a point whose solver runs at the last certified point's values equal that
+    # point's (relative inherit_eps per element, from each energy's largest; 2 float32 units in sky mode, whose bands
+    # are single precision) takes its certificate after one evaluation (ExactProfiler.inherit); never with ml_scan
+    inherit: bool = True
+    inherit_eps: float = 1e-10
+    inherit_eps_sky: float = 2.4e-7
 
     @classmethod
     def from_dict(cls, d: Optional[Mapping]) -> "ExactSettings":
@@ -332,6 +338,7 @@ class ExactProfiler:
         finally:
             runs += self._runs(model_c) + (self._runs(model_t) if model_t is not model_c else 0)
             self.use(self.exact_model)
+            self.last_model = (dict(centre), model_c)  # the reported centre and its exact runs (anchor)
         values = dict(vals_c)
         values.update({n: float(centre[n]) for n in self.eta})
         self.solver_runs += runs
@@ -406,6 +413,83 @@ class ExactProfiler:
             best.message += f"; lowest of {len(res)} starts" + (f" after a {len(scan)}-point m_lightest scan" if scan
                                                                  else "")
         return best
+
+    # ------------------------------------------------------------------ a chain's anchor (analysis.scans)
+    def _runs_at(self, model, held: Mapping, values: Mapping) -> list:
+        """The raw solver runs of `model` at values (held included): every index node's arrays, in the model's
+        evaluation order (cached, or computed now)."""
+        v = {**values, **held}
+        out = []
+        for x, templated in model._evaluation_values(v):
+            if templated:
+                continue
+            if model.sky:
+                r = model._sky_exact(x)
+                out += [r["bands_nu"], r["bands_nb"]]
+                if r["gal_nu"] is not None:
+                    out += [r["gal_nu"], r["gal_nb"]]
+                    for lat in sorted(r.get("site_gal") or {}):
+                        out += list(r["site_gal"][lat])
+            else:
+                r = model._fluxes_exact(x)
+                out += [a for a in (r[1], r[2]) if a is not None]
+                if r[3] is not None and r[3].get("G") is not None:
+                    out.append(r[3]["G"])
+        return out
+
+    def anchor(self, held: Mapping, result: "ExactResult") -> dict:
+        """A certified point's anchor for the points after it in a chain: its values, its held values and its solver
+        runs there (from the reported centre's model)."""
+        eta = {n: float(result.values[n]) for n in self.eta}
+        last = getattr(self, "last_model", None)
+        model = last[1] if last is not None and last[0] == eta else self.centre_model(eta)
+        return dict(held=dict(held), values=dict(result.values), runs=self._runs_at(model, held, result.values),
+                    chi2=float(result.chi2))
+
+    def inherit(self, held: Mapping, anchor: dict) -> Optional["ExactResult"]:
+        """The point at `held` profiled from a chain's anchor when new physics is below the solver's precision there:
+        its runs at the anchor's values (one evaluation) equal the anchor's to inherit_eps (per element, relative
+        to each energy's largest), so its chi^2 is the anchor's function of every parameter up to that perturbation,
+        whose effect on the minimum is first order at the anchor's solution -- where it is evaluated exactly here,
+        nu refitted -- and second order elsewhere. Returns the result (certified by the anchor), or None (profile it:
+        new physics shows, or the lightest mass is scanned -- its other values are not compared)."""
+        s = self.settings
+        if not s.inherit or s.ml_scan is not None:
+            return None
+        t0 = time.perf_counter()
+        held = {k: float(v) for k, v in held.items()}
+        eta = {n: float(anchor["values"][n]) for n in self.eta}
+        model = self.centre_model(eta)
+        try:
+            runs = self._runs_at(model, held, anchor["values"])
+        except ValueError:
+            return None
+        eps = s.inherit_eps_sky if model.sky else s.inherit_eps
+        worst = 0.0
+        for a, b in zip(runs, anchor["runs"]):
+            if a.shape != b.shape:
+                return None
+            scale = np.maximum(np.max(np.abs(b), axis=-1, keepdims=True), 1e-300)
+            worst = max(worst, float(np.max(np.abs(a - b) / scale)))
+            if worst > eps:
+                return None
+        self.use(model)
+        try:
+            f, vals, k = self._centre_value(held, eta, anchor["values"])
+        finally:
+            self.use(self.exact_model)
+        values = dict(vals)
+        values.update(eta)
+        return ExactResult(values=values, chi2=float(f), certified=True,
+                           message=f"inherited: runs within {worst:.2g} of the anchor at {anchor['held']}",
+                           pred=0.0, pred_radius=0.0, centres=[dict(eta=eta, chi2=float(f), accepted=True)],
+                           solver_runs=self._runs(model), seconds=time.perf_counter() - t0, nfev=k)
+
+    def within_certificate(self, own_values: Mapping, other: Mapping) -> bool:
+        """Whether `other`'s mixing lies within a certified point's certificate box (cert_radius widths of its own):
+        a repair need not try it."""
+        r = self.settings.cert_radius
+        return all(abs(float(other[n]) - float(own_values[n])) <= r * self.w[n] for n in self.eta if n in other)
 
     # ------------------------------------------------------------------ validation
     def bruteforce(self, held: Mapping, starts: Sequence[Mapping], settings: Optional[FitSettings] = None):
