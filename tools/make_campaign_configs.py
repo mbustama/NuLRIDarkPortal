@@ -174,6 +174,9 @@ def apply_lightest(cfg: dict, dataset: str) -> dict:
     sm.update(th12_deg=deg(TABLE2["s12sq"][0]), th13_deg=deg(TABLE2["s13sq"][0]), th23_deg=deg(TABLE2["s23sq"][0]),
               d_cp_deg=TABLE2["d_cp_deg"][0], dm21_sq=TABLE2["dm21_sq"][0], dm31_sq=TABLE2["dm31_sq"][0])
     cfg["solver"].setdefault("cosmology", {}).update(mass_ordering="normal", m_lightest_eV=M_LIGHTEST_MIN)
+    # the MeV transport's relics thermal in every collision term (2026-10-18, Mauricio; docs item 6a; no effect on the
+    # planes whose cosmological phase is the dark portal's)
+    cfg["solver"].setdefault("dark_portal", {})["thermal_products"] = True
     cfg["parameters"]["m_lightest_eV"] = {"start": M_LIGHTEST_MIN, "bounds": [M_LIGHTEST_MIN, 0.1], "space": "linear"}
     cfg["exact_profile"] = {"ml_scan": list(ML_SCAN)} if cfg["name"].endswith("_mev") else {}
     cfg["priors"].append({"name": "sum_masses_eV", "type": "half_gaussian", "limit": MASS_SUM[kind], "cl": 0.95,

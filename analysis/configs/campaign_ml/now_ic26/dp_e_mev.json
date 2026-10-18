@@ -38,7 +38,8 @@
    "epsilon_prime": 0.0,
    "use_debye_screening": true,
    "u_e": 0.7071067811865476,
-   "u_mu": 0.0
+   "u_mu": 0.0,
+   "thermal_products": true
   },
   "source": {
    "p_index": 2.735,
