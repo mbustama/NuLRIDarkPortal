@@ -70,12 +70,12 @@ class ExactSettings:
     fd_rel: the differences' step in prior widths (m_lightest's: M_LIGHTEST_WIDTH); stop: the certified
     predicted decrease; max_centres: exact centres per start; accept: the smallest exact decrease accepted."""
     radius: float = 1.0
-    radius_max: float = 4.0
+    radius_max: float = 64.0
     radius_min: float = 1e-3
     cert_radius: float = 0.5
     fd_rel: float = 0.25
     stop: float = 1e-4
-    max_centres: int = 12
+    max_centres: int = 24
     accept: float = 1e-9
     # the lightest mass's global search (profile_global): the exact chi^2 on this grid of m_lightest (eV) at the
     # start's mixing, then the exact profile from every local minimum of the scan within ml_margin of its lowest
@@ -158,30 +158,33 @@ class ExactProfiler:
         self.w = widths(cfg, self.eta)
         self.bounds = {p.name: tuple(p.bounds) for p in cfg.parameters}
         fs = dict(vars(cfg.fit))
-        fs.update(polish=False, n_random=0)
+        # central differences (fitting.FitSettings.fd_central: the forward ones stop short in norm_astro), with an
+        # evaluation budget of ~150 gradients
+        fs.update(polish=False, n_random=0, fd_central=True, max_evals=max(int(cfg.fit.max_evals), 4000))
         self.fit_settings = FitSettings(**fs)
         self.solver_runs = 0
 
     # ------------------------------------------------------------------ models
     def _fd_template(self, name: str, c: float, central: bool) -> MixingTemplate:
-        """The difference template of one parameter at c (templates.MixingTemplate with a slope): forward (c + h), or
-        central (c + h, c - h), or at a bound the one-sided second-order (c + h, c + 2h) inward; h = fd_rel prior
-        widths."""
+        """The difference template of one parameter at c: forward, the log of the flux linear with the slope to
+        c + h (templates.MixingTemplate with a slope); central, the parabola in the log of the flux through c - h, c
+        and c + h (Lagrange: the central difference's slope and the second difference's curvature), or at a bound
+        through c, c + h and c + 2h inward (the one-sided second-order slope); h = fd_rel prior widths."""
         h = self.settings.fd_rel * self.w[name]
         lo, hi = self.bounds[name]
         up, down = c + h <= hi, c - h >= lo
         if central:
             if up and down:
-                return MixingTemplate(name, c, (c + h, c - h), slope=(0.5, -0.5))
+                return MixingTemplate(name, c, (c + h, c - h))
             if up and c + 2.0 * h <= hi:
-                return MixingTemplate(name, c, (c + h, c + 2.0 * h), slope=(2.0, -0.5))
+                return MixingTemplate(name, c, (c + h, c + 2.0 * h))
             if down and c - 2.0 * h >= lo:
-                return MixingTemplate(name, c, (c - h, c - 2.0 * h), slope=(2.0, -0.5))
+                return MixingTemplate(name, c, (c - h, c - 2.0 * h))
         return MixingTemplate(name, c, (c + h,) if up else (c - h,), slope=(1.0,))
 
     def centre_model(self, centre: Mapping[str, float], central: bool = False, reuse=None):
         """The model centred at eta = centre: the solver configuration there, and per parameter of eta a difference
-        template (_fd_template: log-linear in the parameter, with a forward or a central difference's slope).
+        template (_fd_template: log-linear with a forward difference's slope, or the central parabola).
         reuse: a model centred at the same values whose solver runs are taken over (a forward model upgraded to
         central differences then makes only the new points' runs)."""
         solver = copy.deepcopy(self.cfg.solver)

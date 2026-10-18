@@ -31,7 +31,7 @@ def main(argv=None):
     ap.add_argument("--ml-scan", action="store_true", help="the lightest mass's scan (ML_SCAN) before the profile")
     ap.add_argument("--octants", action="store_true", help="also from the mirrored octant of theta23")
     ap.add_argument("--bruteforce", action="store_true")
-    ap.add_argument("--bf-evals", type=int, default=1500)
+    ap.add_argument("--bf-evals", type=int, default=80, help="brute force: L-BFGS-B iterations (central gradients)")
     ap.add_argument("--bf-ml-starts", type=float, nargs="*", default=[])
     ap.add_argument("--settings", default="{}", help="JSON ExactSettings overrides")
     ap.add_argument("--out", default=None)
@@ -66,8 +66,9 @@ def main(argv=None):
             t = time.perf_counter()
             n0 = prof.exact_model.n_solver_calls
             bstarts = [r.values, start] + [dict(start, m_lightest_eV=float(m)) for m in a.bf_ml_starts]
+            nfree = len([p for p in cfg.parameters if p.name not in pt])
             bf = prof.bruteforce(pt, bstarts, settings=FitSettings(**{**vars(prof.fit_settings),
-                                                                      "max_evals": a.bf_evals}))
+                                                                      "max_evals": a.bf_evals * (2 * nfree + 1)}))
             row["bruteforce"] = dict(chi2=bf.chi2, values=bf.values, nfev=bf.nfev, trace=bf.trace,
                                      solver_runs=prof.exact_model.n_solver_calls - n0, seconds=time.perf_counter() - t)
             print(f"{raw['name']} {pt}: brute force chi2 = {bf.chi2:.6f} (per start: {bf.trace}), {bf.nfev} "
