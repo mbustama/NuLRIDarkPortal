@@ -63,16 +63,19 @@ def test_centred_model_is_the_exact_model(prof):
     v = dict(_start(prof), **POINT, norm_astro=1.1, p_index=2.6, s12sq=0.31, d_cp_deg=200.0, m_lightest_eV=0.01)
     centre = {n: v[n] for n in prof.eta}
     m = prof.centre_model(centre)
+    for lat in [-89.99] + list(m.site_lats):
+        a, b = m.site_band_fluxes(v, lat), prof.exact_model.site_band_fluxes(v, lat)
+        for x, y in zip(a, b):
+            assert np.array_equal(x, y)
+    n_nodes = len(m.p_nodes) + len(m.p1_nodes)
+    assert m.n_solver_calls == n_nodes                # the index nodes of both pieces, no template run
     prof.use(m)
     try:
         a = prof.obj.chi2(v)
-        n_runs = m.n_solver_calls
     finally:
         prof.use(prof.exact_model)
-    b = prof.obj.chi2(v)
-    assert a == b
-    n_nodes = len(m.p_nodes) + len(m.p1_nodes)
-    assert n_runs == n_nodes                          # the index nodes of both pieces, no template run
+    # the same up to the event likelihood's own profile, which starts from the previous call's nuisances
+    assert abs(a - prof.obj.chi2(v)) < 1e-9 * max(1.0, a)
 
 
 def test_surrogate_gradient_is_the_exact_gradient(prof):

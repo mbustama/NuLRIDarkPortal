@@ -48,6 +48,7 @@ Conventions and choices:
     antineutrinos). With real couplings the interaction is CP-symmetric, so this sum evolves
     exactly whatever the source's nubar/nu ratio; only its split is not modelled.
 """
+from collections import OrderedDict
 from functools import lru_cache
 
 import numpy as np
@@ -1568,6 +1569,226 @@ def _si_sweep(F, E, dE, S0, J, Nq, Lq, Dq, jt, w, qe, Ctau, Creg, tabB, tabO, no
         diag[1] += pushed * dt
 
 
+@njit(cache=True)
+def _phi_functions(Mx):
+    """(e^M, phi1(M), phi2(M)) of a 3 x 3 matrix M, phi1 = sum M^k/(k+1)!, phi2 = sum M^k/(k+2)!, from the
+    exponential of the augmented 9 x 9 matrix [[M, I, 0], [0, 0, I], [0, 0, 0]] (whose first block row is
+    [e^M, phi1, phi2])."""
+    A = np.zeros((9, 9))
+    for c in range(3):
+        for a in range(3):
+            A[c, a] = Mx[c, a]
+        A[c, 3 + c] = 1.0
+        A[3 + c, 6 + c] = 1.0
+    Ex = _expm_small(A)
+    return (np.ascontiguousarray(Ex[0:3, 0:3]), np.ascontiguousarray(Ex[0:3, 3:6]),
+            np.ascontiguousarray(Ex[0:3, 6:9]))
+
+
+@njit(cache=True)
+def _si_sweep_cols(F, E, dE, S0, J, Nq, Lq, Dq, jt, w, qe, Ctau, Creg, tabB, tabO, node, dt, reg, diag, exact_bin):
+    """_si_sweep for several sources at once (2026-10-18): F, S0 and reg are (N, 3, C), one column per source, diag
+    (C, 6). The collision operator of a bin does not depend on the source, so it is built once per bin for every
+    column: the absorption rates, the own-bin secondaries, and (exact_bin) e^M, phi1(M) and phi2(M) of the bin's
+    rate matrix M (the blocks of the 7 x 7 augmented exponential _si_sweep takes per source: F(dt) = e^M F + phi1 S dt,
+    <F> = phi1 F + phi2 S dt). The secondaries pushed to the bins below go through the source-independent kernel
+    K_d[a, c] = sum_r,q Wn[r, q, a, c] tabB[r, o_r + d, q] (9 numbers per child bin, then 9 products per column)
+    instead of each source's 90 per child bin. Every column's arithmetic is the same whatever the other columns, so
+    a column's result does not depend on the batch it was computed in; against _si_sweep it agrees to rounding."""
+    N = F.shape[0]
+    C = F.shape[2]
+    P = len(jt)
+    dlnE = np.log(E[1] / E[0])
+    Dm = np.zeros((3, 3))
+    for i in range(N):
+        for c in range(3):
+            for k in range(C):
+                reg[i, c, k] = 0.0
+    tau = np.empty(3)
+    Wn = np.zeros((3, P, 3, 3))
+    Q = np.empty((3, 3))
+    e_ = np.empty(3)
+    a1_ = np.empty(3)
+    g_ = np.empty(3)
+    Am = np.empty((3, 3))
+    Ainv = np.empty((3, 3))
+    Mx = np.empty((3, 3))
+    S = np.empty((3, C))
+    R = np.empty((3, C))
+    Fnew = np.empty(3)
+    rhs = np.empty(3)
+    Kd = np.empty((3, 3))
+    active = np.zeros((3, P), dtype=np.bool_)
+    oo = np.empty(3, dtype=np.int64)
+    dm = np.empty(3, dtype=np.int64)
+    for j in range(N - 1, -1, -1):
+        for a in range(3):
+            t = 0.0
+            for r in range(3):
+                for q in range(P):
+                    if w[q] == 0.0:
+                        continue
+                    Jv = J[j, r, jt[q]]
+                    if Jv == 0.0:
+                        continue
+                    if qe[q] != 0:
+                        for c in range(3):
+                            t += w[q] * Ctau[q, a, r, c] * Jv * (Lq[j, r, q] if c == a else Nq[j, r, q])
+                    else:
+                        sc = Ctau[q, a, r, 0] + Ctau[q, a, r, 1] + Ctau[q, a, r, 2]
+                        t += w[q] * sc * Jv * Nq[j, r, q]
+            tau[a] = t
+        drift = False
+        for a in range(3):
+            for c in range(3):
+                dd = 0.0
+                for r in range(3):
+                    for q in range(P):
+                        if qe[q] != 0:
+                            dd += w[q] * Creg[q, a, r, c] * J[j, r, jt[q]] * Dq[j, r, q]
+                Dm[a, c] = dd / dlnE
+                if dd > 0.0:
+                    drift = True
+                    tau[a] += Dm[a, c]
+        for r in range(3):
+            for q in range(P):
+                Jv = J[j, r, jt[q]]
+                act = False
+                for a in range(3):
+                    for c in range(3):
+                        v = Creg[q, a, r, c] * Jv / tau[a] if tau[a] != 0.0 else 0.0
+                        Wn[r, q, a, c] = v
+                        if v != 0.0:
+                            act = True
+                active[r, q] = act
+        for c in range(3):
+            for a in range(3):
+                Q[c, a] = 0.0
+        for r in range(3):
+            o = tabO[r, node[j, r]]
+            for q in range(P):
+                b0 = tabB[r, o, q]
+                for a in range(3):
+                    for c in range(3):
+                        if qe[q] != 0 and c == a:
+                            continue
+                        Q[c, a] += Wn[r, q, a, c] * b0
+        for k in range(C):
+            for a in range(3):
+                S[a, k] = S0[j, a, k] + reg[j, a, k]
+        if exact_bin:
+            for c in range(3):
+                for a in range(3):
+                    Ga = max(tau[a], 0.0)
+                    Mx[c, a] = -(Ga if c == a else 0.0) + Q[c, a] * Ga
+            Em, P1, P2 = _phi_functions(Mx)
+            for k in range(C):
+                for a in range(3):
+                    avg = 0.0
+                    for b in range(3):
+                        avg += P1[a, b] * F[j, b, k] + P2[a, b] * S[b, k] * dt
+                    R[a, k] = max(tau[a], 0.0) / dt * avg
+                for c in range(3):
+                    fn = 0.0
+                    for b in range(3):
+                        fn += Em[c, b] * F[j, b, k] + P1[c, b] * S[b, k] * dt
+                    Fnew[c] = fn
+                for c in range(3):
+                    F[j, c, k] = Fnew[c]
+                    diag[k, 5] += S0[j, c, k] * dt * dE[j]
+        else:
+            for a in range(3):
+                e_[a], a1_[a], g_[a] = _absorption_factors(max(tau[a], 0.0) / dt, dt)
+            for c in range(3):
+                for a in range(3):
+                    Am[c, a] = (dt if c == a else 0.0) - g_[c] * Q[c, a]
+            c00 = Am[1, 1] * Am[2, 2] - Am[1, 2] * Am[2, 1]
+            c01 = Am[1, 2] * Am[2, 0] - Am[1, 0] * Am[2, 2]
+            c02 = Am[1, 0] * Am[2, 1] - Am[1, 1] * Am[2, 0]
+            det = Am[0, 0] * c00 + Am[0, 1] * c01 + Am[0, 2] * c02
+            Ainv[0, 0], Ainv[1, 0], Ainv[2, 0] = c00 / det, c01 / det, c02 / det
+            Ainv[0, 1] = (Am[0, 2] * Am[2, 1] - Am[0, 1] * Am[2, 2]) / det
+            Ainv[1, 1] = (Am[0, 0] * Am[2, 2] - Am[0, 2] * Am[2, 0]) / det
+            Ainv[2, 1] = (Am[0, 1] * Am[2, 0] - Am[0, 0] * Am[2, 1]) / det
+            Ainv[0, 2] = (Am[0, 1] * Am[1, 2] - Am[0, 2] * Am[1, 1]) / det
+            Ainv[1, 2] = (Am[0, 2] * Am[1, 0] - Am[0, 0] * Am[1, 2]) / det
+            Ainv[2, 2] = (Am[0, 0] * Am[1, 1] - Am[0, 1] * Am[1, 0]) / det
+            for k in range(C):
+                for a in range(3):
+                    rhs[a] = F[j, a, k] * (1.0 - e_[a]) + S[a, k] * g_[a]
+                for a in range(3):
+                    R[a, k] = Ainv[a, 0] * rhs[0] + Ainv[a, 1] * rhs[1] + Ainv[a, 2] * rhs[2]
+                for c in range(3):
+                    sc = S[c, k]
+                    for a in range(3):
+                        sc += Q[c, a] * R[a, k]
+                    F[j, c, k] = F[j, c, k] * e_[c] + sc * a1_[c]
+                    diag[k, 5] += S0[j, c, k] * dt * dE[j]
+        for k in range(C):
+            own = 0.0
+            for c in range(3):
+                for a in range(3):
+                    own += Q[c, a] * R[a, k]
+            if drift:
+                for c in range(3):
+                    mv = 0.0
+                    for a in range(3):
+                        if tau[a] > 0.0:
+                            mv += R[a, k] * Dm[a, c] / tau[a]
+                    mv *= dE[j]
+                    diag[k, 2] += mv * dt
+                    if j > 0:
+                        reg[j - 1, c, k] += mv / dE[j - 1]
+                        diag[k, 1] += mv * dt
+                        diag[k, 4] += mv * dt * E[j - 1]
+            absorbed = R[0, k] + R[1, k] + R[2, k]
+            diag[k, 0] += absorbed * dt * dE[j]
+            diag[k, 3] += absorbed * dt * dE[j] * E[j]
+            diag[k, 1] += own * dt * dE[j]
+            diag[k, 4] += own * dt * dE[j] * E[j]
+            expected = 0.0
+            for r in range(3):
+                for q in range(P):
+                    if not active[r, q]:
+                        continue
+                    for a in range(3):
+                        for c in range(3):
+                            expected += R[a, k] * Wn[r, q, a, c] * (Lq[j, r, q] if (qe[q] != 0 and c == a)
+                                                                    else Nq[j, r, q])
+            diag[k, 2] += expected * dt * dE[j]
+        # the secondaries below the bin, through the source-independent kernel
+        dmax_all = 0
+        for r in range(3):
+            oo[r] = tabO[r, node[j, r]]
+            nrow = tabO[r, node[j, r] + 1] - oo[r]
+            dm[r] = min(j, nrow - 1)
+            dmax_all = max(dmax_all, dm[r])
+        for d in range(1, dmax_all + 1):
+            i = j - d
+            for a in range(3):
+                for c in range(3):
+                    Kd[a, c] = 0.0
+            for r in range(3):
+                if d > dm[r]:
+                    continue
+                row = oo[r] + d
+                for q in range(P):
+                    if not active[r, q]:
+                        continue
+                    tb = tabB[r, row, q]
+                    if tb == 0.0:
+                        continue
+                    for a in range(3):
+                        for c in range(3):
+                            Kd[a, c] += Wn[r, q, a, c] * tb
+            for k in range(C):
+                for c in range(3):
+                    acc = (R[0, k] * Kd[0, c] + R[1, k] * Kd[1, c] + R[2, k] * Kd[2, c]) * dE[j]
+                    reg[i, c, k] += acc / dE[i]
+                    diag[k, 1] += acc * dt
+                    diag[k, 4] += acc * dt * E[i]
+
+
 def _step_time_and_injection(L_lo, L_hi, H0, Om, OL, p_index, rho_evol, Phi_0):
     """(dt, T_inj) over the step ln(1+z) in [L_lo, L_hi]: dt = int dL / H(z) and
     T_inj = int Phi_0 (1+z)^(1-p) R(z) dL / H(z) (dt = dz / (H (1+z)) = dL / H), by Gauss-Legendre
@@ -1742,7 +1963,101 @@ def propagate_si(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta
 
     Returns the (N_E, 3) mass-state fluxes at z = 0 of the visible neutrinos (both helicities), on
     E_bins; with return_diagnostics also a dict of the number and energy bookkeeping (of the first
-    run: for Dirac 'track', visible plus sterile)."""
+    run: for Dirac 'track', visible plus sterile).
+
+    The transport is linear in the source (2026-10-18): the result is Phi_0 sum_j P_j T_j, P = |U|^2^T rho_src the
+    sources' mass-state composition and T_j the transport of a unit source in mass state j (Phi_0 = 1) with this
+    spectral index and emission window. The three T_j are computed together (one sweep, _si_sweep_cols) and kept for
+    the same physics (everything but the source: _COLUMNS), so the other source compositions of a point -- and, with
+    batch_hint, its other spectral-index nodes and emission windows -- reuse one collision operator per bin and
+    step. With return_diagnostics the source is transported as given (one column), its bookkeeping returned."""
+    E_bins = np.asarray(E_bins, dtype=np.float64)
+    g_arr = np.ascontiguousarray(g_mass, dtype=np.complex128)
+    if return_diagnostics or not np.any(g_arr):
+        P_src = (np.abs(np.asarray(U_pmns)) ** 2).T @ np.asarray(rho_src, dtype=np.float64)
+        out = _transport_columns(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta_mass, rho_evol, M,
+                                 g_arr, majorana, channels, phiphi, z_substeps, E_extension, n_u, regeneration,
+                                 mediator, dirac_sterile, Gamma_vis, thermal,
+                                 [(P_src, float(p_index), (float(inj_window[0]), float(inj_window[1])), float(Phi_0),
+                                   np.asarray(rho_src, dtype=np.float64))], return_diagnostics)
+        return out[0]
+    phys = _physics_key(E_bins, z_max, H0, Omega_m, Omega_L, masses, T_nu0, eta_mass, rho_evol, M, g_arr, majorana,
+                        channels, phiphi, z_substeps, E_extension, n_u, regeneration, mediator, dirac_sterile,
+                        Gamma_vis, thermal)
+    col = _column_key(p_index, inj_window)
+    T = _COLUMNS.get((phys, col))
+    if T is None:
+        want = [col] + [c for c in dict.fromkeys(_BATCH_HINT) if c != col and (phys, c) not in _COLUMNS]
+        unit = np.eye(3)
+        specs = [(unit[j], c[0], (c[1], c[2]), 1.0, None) for c in want for j in range(3)]
+        Fs = _transport_columns(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta_mass, rho_evol, M,
+                                g_arr, majorana, channels, phiphi, z_substeps, E_extension, n_u, regeneration,
+                                mediator, dirac_sterile, Gamma_vis, thermal, specs, False)
+        for i, c in enumerate(want):
+            _COLUMNS[(phys, c)] = np.stack(Fs[3 * i:3 * i + 3])          # (3 unit sources, N_E, 3)
+        while len(_COLUMNS) > _COLUMNS_MAX:
+            _COLUMNS.popitem(last=False)
+        T = _COLUMNS[(phys, col)]
+    else:
+        _COLUMNS.move_to_end((phys, col))
+    P_src = (np.abs(np.asarray(U_pmns)) ** 2).T @ np.asarray(rho_src, dtype=np.float64)
+    return np.ascontiguousarray(float(Phi_0) * (P_src[0] * T[0] + P_src[1] * T[1] + P_src[2] * T[2]))
+
+
+# The transports of the unit mass-state sources, per physics and (spectral index, emission window) (propagate_si):
+# {(physics key, column key): (3, N_E, 3)}, least recently used first; and the columns a transport computes along
+# with its own (batch_hint).
+_COLUMNS = OrderedDict()
+_COLUMNS_MAX = 256
+_BATCH_HINT = []
+
+
+def _column_key(p_index, inj_window):
+    return (float(p_index), float(inj_window[0]), float(inj_window[1]))
+
+
+def _physics_key(E_bins, z_max, H0, Omega_m, Omega_L, masses, T_nu0, eta_mass, rho_evol, M, g_mass, majorana,
+                 channels, phiphi, z_substeps, E_extension, n_u, regeneration, mediator, dirac_sterile, Gamma_vis,
+                 thermal):
+    """Everything a unit-source transport depends on (propagate_si's arguments but the source's composition,
+    spectral index, normalization and emission window)."""
+    import hashlib
+    h = hashlib.sha256()
+    for a in (E_bins, masses, eta_mass, g_mass):
+        h.update(np.ascontiguousarray(a).tobytes())
+    h.update(repr((float(z_max), float(H0), float(Omega_m), float(Omega_L), float(T_nu0), float(rho_evol), float(M),
+                   bool(majorana), str(channels), str(phiphi), int(z_substeps), float(E_extension), int(n_u),
+                   bool(regeneration), str(mediator), str(dirac_sterile), float(Gamma_vis), bool(thermal))).encode())
+    return h.hexdigest()
+
+
+class batch_hint:
+    """Within this context, a transport of propagate_si also computes these (spectral index, emission window (eV))
+    columns of the same physics, kept for the calls that follow (a point's other spectral-index nodes and broken
+    power-law pieces; analysis.model sets it per evaluation). Nothing else changes: each column's arithmetic does not
+    depend on the batch."""
+
+    def __init__(self, columns):
+        self.columns = [_column_key(p, w) for p, w in columns]
+
+    def __enter__(self):
+        global _BATCH_HINT
+        self._old = _BATCH_HINT
+        _BATCH_HINT = list(self.columns)
+        return self
+
+    def __exit__(self, *exc):
+        global _BATCH_HINT
+        _BATCH_HINT = self._old
+
+
+def _transport_columns(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta_mass, rho_evol, M, g_mass,
+                       majorana, channels, phiphi, z_substeps, E_extension, n_u, regeneration, mediator,
+                       dirac_sterile, Gamma_vis, thermal, columns, return_diagnostics=False):
+    """The transport (propagate_si's physics) of several sources at once: columns is a list of (P_src (3,) the
+    mass-state composition, p_index, inj_window (eV), Phi_0, rho_src (3,) or None -- the flavor composition, used only
+    without a coupling, by the free-streaming closed form). Returns the list of (N_E, 3) fluxes, or with
+    return_diagnostics the list of (flux, info) pairs (propagate_si's)."""
     from dp_core import compute_dE_geometric
     E_bins = np.asarray(E_bins, dtype=np.float64)
     N_E = len(E_bins)
@@ -1767,9 +2082,17 @@ def propagate_si(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta
     g_mass = np.ascontiguousarray(g_mass, dtype=np.complex128)
     if not np.any(g_mass):
         # no coupling: free streaming (the transport's Breit-Wigner would have zero width)
-        out = free_streaming_flux(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, rho_src, p_index, rho_evol, Phi_0,
-                                  inj_window=inj_window)
-        return (out, dict(no_coupling=True)) if return_diagnostics else out
+        outs = []
+        for P_c, p_c, w_c, phi_c, rho_c in columns:
+            if rho_c is None:
+                # a mass-state source: the closed form with U = 1 transports the composition P_c as given
+                o = free_streaming_flux(E_bins, z_max, H0, Omega_m, Omega_L, np.eye(3), P_c, p_c, rho_evol, phi_c,
+                                        inj_window=w_c)
+            else:
+                o = free_streaming_flux(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, rho_c, p_c, rho_evol, phi_c,
+                                        inj_window=w_c)
+            outs.append((o, dict(no_coupling=True)) if return_diagnostics else o)
+        return outs
     M2 = M * M
     Gam = mediator_width(M, g_mass, mediator, majorana) + float(Gamma_vis)
     MG = M * Gam
@@ -1795,26 +2118,29 @@ def propagate_si(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta
     P = len(spec["jt"])
     delta_mode = str(channels).strip().lower() == "delta"
     n0 = relic_density_per_helicity(T_nu0) * np.asarray(eta_mass, dtype=np.float64)
-    P_src = (np.abs(np.asarray(U_pmns)) ** 2).T @ np.asarray(rho_src, dtype=np.float64)
 
     (lat_B, lat_O), top = _profile_tables(prof, M, masses, E[0], N, dlnE, q, K, top_full, L_top_mid, n_u)
 
+    C = len(columns)
     runs = spec["runs"]
-    Fs = [np.zeros((N, 3)) for _ in runs]
-    diags = [np.zeros(6) for _ in runs]
-    reg = np.zeros((N, 3))
+    Fs = [np.zeros((N, 3, C)) for _ in runs]
+    diags = [np.zeros((C, 6)) for _ in runs]
+    reg = np.zeros((N, 3, C))
     J = np.zeros((N, 3, 4))
     Nq = np.zeros((N, 3, P))
     Lq = np.zeros((N, 3, P))
     Dq = np.zeros((N, 3, P))
     node = np.zeros((N, 3), dtype=np.int64)
     jj = np.arange(N, dtype=np.int64)
-    Ep = E ** (-p_index)
-    if inj_window[0] > 0.0 or np.isfinite(inj_window[1]):
-        # the sources' emission window in today's energy (2026-10-15): one piece of a broken power law
-        Ep = np.where((E >= inj_window[0]) & (E < inj_window[1]), Ep, 0.0)
+    Eps = []
+    for P_c, p_c, w_c, phi_c, rho_c in columns:
+        Ep = E ** (-p_c)
+        if w_c[0] > 0.0 or np.isfinite(w_c[1]):
+            # the sources' emission window in today's energy (2026-10-15): one piece of a broken power law
+            Ep = np.where((E >= w_c[0]) & (E < w_c[1]), Ep, 0.0)
+        Eps.append(Ep)
     hbin = float(np.exp(0.5 * dlnE))
-    Cregs = [np.ascontiguousarray(C if regeneration else np.zeros_like(C)) for C, _ in runs]
+    Cregs = [np.ascontiguousarray(Cr if regeneration else np.zeros_like(Cr)) for Cr, _ in runs]
     # the steps' collision terms do not depend on the source (spectral index, evolution, composition): kept from one
     # call to the next with the same physics (2026-10-14: an analysis runs every spectral-index node of a point in a
     # row, and the terms were half of each run)
@@ -1824,10 +2150,12 @@ def propagate_si(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta
     store = None
     if steps is None and K * J.nbytes + 3 * K * Nq.nbytes <= _STEP_TERMS_MAX_BYTES:
         store = []
+    S0 = np.zeros((N, 3, C))
     for m in range(K - 1, -1, -1):
         L_lo, L_hi = L_edges[m], L_edges[m + 1]
-        dt, T_inj = _step_time_and_injection(L_lo, L_hi, H0, Omega_m, Omega_L, p_index, rho_evol, Phi_0)
-        S0 = np.ascontiguousarray(np.outer(Ep * (T_inj / dt), P_src))
+        for k, (P_c, p_c, w_c, phi_c, rho_c) in enumerate(columns):
+            dt, T_inj = _step_time_and_injection(L_lo, L_hi, H0, Omega_m, Omega_L, p_c, rho_evol, phi_c)
+            S0[:, :, k] = np.outer(Eps[k] * (T_inj / dt), np.asarray(P_c, dtype=np.float64))
         if steps is not None:
             J, Nq, Lq, Dq = steps[K - 1 - m]
         else:
@@ -1848,23 +2176,30 @@ def propagate_si(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta
             if masses[r] <= 0.0:
                 node[:, r] = 0
         for k in range(len(runs)):
-            _si_sweep(Fs[k], E, dE, S0, J, Nq, Lq, Dq, spec["jt"], spec["w"], spec["qe"], spec["Ctau"], Cregs[k],
-                      tB, tO, node, dt, reg, diags[k], prof == 1)
+            _si_sweep_cols(Fs[k], E, dE, S0, J, Nq, Lq, Dq, spec["jt"], spec["w"], spec["qe"], spec["Ctau"],
+                           Cregs[k], tB, tO, node, dt, reg, diags[k], prof == 1)
     if store is not None:
         _STEP_TERMS.clear()
         _STEP_TERMS[skey] = store
-    F = sum(wt * Fk for (_, wt), Fk in zip(runs, Fs))
-    out = np.ascontiguousarray(F[:N_E])
-    if not return_diagnostics:
-        return out
-    diag = diags[0]
-    F0 = Fs[0]
-    info = dict(absorbed=diag[0], secondaries_in_grid=diag[1], secondaries_expected=diag[2],
-                energy_absorbed=diag[3], energy_secondaries_in_grid=diag[4], injected=diag[5],
-                final_number=float(np.sum(F0 * dE[:, None])), final_number_in_E_bins=float(np.sum(F0[:N_E] * dE[:N_E, None])),
-                final_energy=float(np.sum(F0 * (E * dE)[:, None])), width=Gam, n_steps=K, N_grid=N, top_full=top_full,
-                F_extended=F.copy(), E_extended=E.copy(), visible_number=float(np.sum(F * dE[:, None])))
-    return out, info
+    F_all = sum(wt * Fk for (_, wt), Fk in zip(runs, Fs))
+    outs = []
+    for k in range(C):
+        F = np.ascontiguousarray(F_all[:, :, k])
+        out = np.ascontiguousarray(F[:N_E])
+        if not return_diagnostics:
+            outs.append(out)
+            continue
+        diag = diags[0][k]
+        F0 = Fs[0][:, :, k]
+        info = dict(absorbed=diag[0], secondaries_in_grid=diag[1], secondaries_expected=diag[2],
+                    energy_absorbed=diag[3], energy_secondaries_in_grid=diag[4], injected=diag[5],
+                    final_number=float(np.sum(F0 * dE[:, None])),
+                    final_number_in_E_bins=float(np.sum(F0[:N_E] * dE[:N_E, None])),
+                    final_energy=float(np.sum(F0 * (E * dE)[:, None])), width=Gam, n_steps=K, N_grid=N,
+                    top_full=top_full, F_extended=F.copy(), E_extended=E.copy(),
+                    visible_number=float(np.sum(F * dE[:, None])))
+        outs.append((out, info))
+    return outs
 
 
 def free_streaming_flux(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, rho_src, p_index, rho_evol, Phi_0,

@@ -89,6 +89,7 @@ import numpy as np
 from . import surfaces  # noqa: F401  (ensures the src/ path is set)
 import dark_portal_solver as dps
 import dp_core
+import dp_si
 from dp_config import DEFAULT_CONFIG, merge_config_with_defaults
 from flux_postprocessing import compute_energy_averaged_ratios, compute_dE_geometric
 
@@ -576,6 +577,29 @@ class FlavorModel:
         then the exact model at theta0 (exact_profile.py's centres)."""
         return all(float(values.get(n, t.theta0)) == t.theta0 for n, t in self.templates.items())
 
+    def _hint_columns(self, values: Mapping, templated: bool) -> list:
+        """The (spectral index, emission window in eV) of every run that shares the physics of the run at `values`
+        (dp_si.batch_hint, 2026-10-18): for a run at an index node, every node of both pieces; for a template run,
+        both pieces' central nodes. The MeV transport (dp_si) then computes them in one sweep -- their collision
+        operator is the same -- and keeps them for the calls that follow; elsewhere the hint is never read."""
+        def window(v):
+            lo, hi = v.get("injection_E_min_GeV"), v.get("injection_E_max_GeV")
+            return (0.0 if lo is None else float(lo) * 1e9, np.inf if hi is None else float(hi) * 1e9)
+        base = {k: x for k, x in values.items() if k not in ("p_index", "injection_E_min_GeV", "injection_E_max_GeV")}
+        if self.E_break is not None:
+            _, p1 = self._index_values(values)
+            pieces = [(dict(base, injection_E_min_GeV=self.E_break), self.p_nodes),
+                      (dict(base, injection_E_max_GeV=self.E_break), self.p1_nodes)]
+        else:
+            pieces = [(dict(base), self.p_nodes)]
+        out = []
+        for v, nodes in pieces:
+            if nodes is None:
+                continue
+            ps = [float(nodes[len(nodes) // 2])] if templated else [float(pk) for pk in nodes]
+            out.extend((pk, window(v)) for pk in ps)
+        return out
+
     def _need_templates(self, values: Mapping, names: Sequence[str] = ()) -> bool:
         """Whether an evaluation (with derivatives in `names`) needs the template runs: off theta0, or a derivative
         in a templated parameter."""
@@ -849,7 +873,8 @@ class FlavorModel:
                     self._cache.popitem(last=False)
                 return out
         G = self._gal_get(key) if self.galactic else None
-        out = self._fluxes_compute(cfg, with_galactic=G is None)
+        with dp_si.batch_hint(self._hint_columns(values, templated)):
+            out = self._fluxes_compute(cfg, with_galactic=G is None)
         return self._fluxes_store(key, out, disk)
 
     def _fluxes_compute(self, cfg: Mapping, with_galactic: bool = True):
@@ -928,7 +953,9 @@ class FlavorModel:
                 self._sky_cache.popitem(last=False)
             return run
         g_hit = self._gal_get(key) if self.galactic else None
-        return self._sky_store(key, self._sky_compute(cfg, with_galactic=g_hit is None), disk)
+        with dp_si.batch_hint(self._hint_columns(values, templated)):
+            run = self._sky_compute(cfg, with_galactic=g_hit is None)
+        return self._sky_store(key, run, disk)
 
     def _sky_compute(self, cfg: Mapping, with_galactic: bool = True) -> dict:
         """The propagate_sky_basis run of _sky_exact for the full solver configuration cfg (_run_cfg), with the

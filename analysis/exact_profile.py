@@ -151,23 +151,40 @@ class ExactProfiler:
         self.solver_runs = 0
 
     # ------------------------------------------------------------------ models
-    def _fd_step(self, name: str, c: float) -> float:
+    def _fd_points(self, name: str, c: float, central: bool) -> tuple:
+        """The difference points of one parameter around c: c + h (forward), or c - h and c + h (central; at a bound
+        the one-sided three-point stencil c + h, c + 2h inward), h a fraction fd_rel of the prior's width
+        (m_lightest: fd_rel_ml of itself, at least of M_LIGHTEST_FD_FLOOR)."""
         s = self.settings
         h = s.fd_rel_ml * max(c, M_LIGHTEST_FD_FLOOR) if name == "m_lightest_eV" else s.fd_rel * self.w[name]
         lo, hi = self.bounds[name]
-        return -h if c + h > hi else h
+        up, down = c + h <= hi, c - h >= lo
+        if not central:
+            return (c + h,) if up else (c - h,)
+        if up and down:
+            return (c + h, c - h)
+        return (c + h, c + 2.0 * h) if up else (c - h, c - 2.0 * h)
 
-    def centre_model(self, centre: Mapping[str, float]):
-        """The model centred at eta = centre: the solver configuration there, and a forward-difference ("step")
-        template per parameter of eta."""
+    def centre_model(self, centre: Mapping[str, float], central: bool = False, reuse=None):
+        """The model centred at eta = centre: the solver configuration there, and per parameter of eta a template
+        through the difference points (_fd_points: linear for forward differences, quadratic for central ones, in the
+        log of the flux). reuse: a model centred at the same values whose solver runs are taken over (a forward
+        model upgraded to central differences then makes only the new points' runs)."""
         solver = copy.deepcopy(self.cfg.solver)
         templates = []
         for n in self.eta:
             c = float(centre[n])
             section, key = SOLVER_KEYS[n]
             solver.setdefault(section, {})[key] = sin2_to_deg(c) if n in ALIASES else c
-            templates.append(MixingTemplate(n, c, (c + self._fd_step(n, c),)))
-        return self.cfg.model(solver=solver, templates=templates)
+            templates.append(MixingTemplate(n, c, self._fd_points(n, c, central)))
+        m = self.cfg.model(solver=solver, templates=templates)
+        if reuse is not None:
+            # the same base configuration: a run's cache key is the same in both models
+            for name in ("_cache", "_sky_cache", "_gal_cache"):
+                dst = getattr(m, name)
+                for k, v in getattr(reuse, name).items():
+                    dst[k] = v
+        return m
 
     def use(self, model) -> None:
         """Puts `model` into the objective and its event likelihoods (the data stay)."""
@@ -235,6 +252,7 @@ class ExactProfiler:
         model_c = model_t = self.centre_model(centre)
         self.use(model_c)
         certified, message, pred, pred_radius = False, "", np.inf, 0.0
+        central = False                               # the current centre's differences
         try:
             f_c, vals_c, k = self._centre_value(held, centre, st)
             nfev += k
@@ -246,6 +264,15 @@ class ExactProfiler:
                 nfev += r.nfev
                 pred, pred_radius = f_c - float(r.chi2), big
                 if pred <= s.stop:
+                    if not central:
+                        # the certificate takes central differences: the forward ones' truncation (O(h)) can leave
+                        # a gradient error that matters where the data pull hard (2026-10-18: proj_2050 at chi^2 ~
+                        # 3000 stalled on it); the centre's runs are reused, the backward points added
+                        runs += self._runs(model_c)
+                        model_c = model_t = self.centre_model(centre, central=True, reuse=model_c)
+                        self.use(model_c)
+                        central = True
+                        continue
                     certified, message = True, f"certified: surrogate decrease {pred:.2g} within {big:.3g} widths"
                     break
                 if radius < s.cert_radius:
@@ -278,11 +305,19 @@ class ExactProfiler:
                         radius = max(0.5 * radius, s.radius_min)
                     runs += self._runs(model_c)
                     centre, f_c, vals_c, model_c = trial, f_t, vals_t, model_t
+                    central = False
                 else:
                     runs += self._runs(model_t)
                     model_t = model_c
-                    self.use(model_c)
                     radius = 0.25 * step
+                    if not central and step < s.cert_radius:
+                        # a short step that failed: the surrogate's slope is suspect -- central differences here,
+                        # and a fresh radius for the new surrogate
+                        runs += self._runs(model_c)
+                        model_c = model_t = self.centre_model(centre, central=True, reuse=model_c)
+                        central = True
+                        radius = max(radius, s.cert_radius)
+                    self.use(model_c)
                     if radius < s.radius_min:
                         message = f"stalled: trust radius {radius:.2g} widths (predicted {pred:.3g})"
                         break
