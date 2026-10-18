@@ -76,12 +76,20 @@ small, not yet measured), **open** (decided to remove or change, not yet done).
 
 11e. **The exact profile over the mixing and m_lightest** (`analysis/exact_profile.py`, docs/dev/EXACT_PROFILE.md;
     2026-10-18). *Accepted, with two stated limits.* Every reported chi^2 is the solver's at the reported values, with
-    a per-point certificate of local optimality (central differences; `stop` = 1e-4). Its global part rests on two
-    choices: NuFIT's other octant of theta23 is probed by one exact evaluation and profiled when within 1.0 of the
-    best; at the MeV planes m_lightest is scanned on 1e-6 eV and 1e-4 ... 0.1 eV (five per decade) before the local
+    a per-point certificate of local optimality (`stop` = 1e-3 since 2026-10-18, 1e-4 before: Tycho 66462115 moved
+    the final chi^2 by at most 5.9e-4 between the two). Its global part rests on two choices: NuFIT's other octant of
+    theta23 is probed by one exact evaluation and profiled when within 1.0 of the best; at the MeV planes m_lightest
+    is scanned on 1e-6 eV and 1e-4 ... 0.1 eV (three per decade since 2026-10-18, five before) before the local
     profiles (a basin narrower than ~0.3 decade could be missed; none is expected: an absorption feature spans a
     factor 5 in energy). m_lightest >= 1e-6 eV (the MeV transport treats an exactly massless relic as inert; the
-    mass sum changes by 1e-6 eV).
+    mass sum changes by 1e-6 eV). Since 2026-10-18 (v2): (i) a point whose solver runs at its chain's anchor equal the
+    anchor's to 1e-6 per element takes the anchor's certificate after one evaluation (the error is second order in
+    that difference, below 1e-6 in chi^2; checked by `inherit_check`); at the MeV planes only once a scan of
+    m_lightest at a coupling at least the point's equals the no-new-physics scan to 1e-6 at every mass (absorption
+    grows with the coupling: assumed monotonic); (ii) a certificate may use forward differences (step 0.05 widths)
+    when the curvature measured at the chain's last central certificate, doubled, bounds their truncation (both
+    surrogates predict no decrease beyond `stop`, and differ by at most 1e-4): it assumes the curvature of log F
+    changes by less than a factor 2 between neighbouring points within 1 width.
 
 11f. **Relativistic relics** (m_lightest below ~1e-3 eV, where T_nu (1 + z) is comparable): the transport's thermal
     treatment there (dp_si._thermal_resonance_terms) is unverified. *Open.* The MeV planes' profile can land there.

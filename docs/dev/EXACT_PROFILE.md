@@ -79,6 +79,39 @@ puts there, more than the slope near the minimum, so L-BFGS-B's line search fail
   P > x. Within 1e-12 it is now x (epsilon' = 1).
 - The fits' forward-difference step (above).
 
+## v2: the cost cuts (2026-10-18, branch agent/exact-profile-v2)
+
+- **Inheritance at 1e-6** (`inherit_eps`, sky mode too): the old 1e-10 lay below the solver's own differences
+  between couplings and never fired. With the point's runs at the anchor's eta within eps of the anchor's, chi^2_P =
+  chi^2_A + delta with delta = O(eps x chi^2's sensitivity to the flux); the reported value is exact at the anchor's
+  eta (nu refitted) and the minimum lies below it by ~|grad_eta delta|^2 / (2 lambda) -- second order. Measured by
+  `inherit_check` (the central certificate's predicted decrease at inherited points minus the anchor's).
+- **Forward certificates**: differences of step 0.05 widths (the solver's slopes from +-0.05 and +-0.25 widths agree
+  to ~1e-6 per width; forward ones differ from central ones by exactly (h/2) x the curvature of log F). A forward
+  model certifies when, with the curvature K measured at the chain's last central certificate (within 1 width),
+  the surrogate minimized with every slope shifted by twice the truncation (stacked log ratios minus K; the
+  model's `stack_shift`) still predicts no decrease beyond `stop` and at most 1e-4 more than unshifted (the
+  predicted decrease is convex in the slopes: every truncation between 0 and twice the measured is covered). Else
+  central differences, which refresh K.
+- **The Earth/zenith geometry** depends on the mixing only through the screening mass: its pieces (zenith weights,
+  columns) were already kept per exact argument set; the Earth transfer's products are now batched matmuls.
+- **m_lightest scan at three per decade** (11 masses): shared through the disk cache by the configurations with the
+  same energy grid (now_ic26, proj_2050 and twins; now_events and twin; proj_future and twin) -- the scan's mixing
+  is Table II's for all.
+- **MeV inheritance** (Mauricio's option B): along a mass column the points that pass the inheritance test against
+  the global fit (no new physics) are held back; the scan of m_lightest is probed at the highest of them, going
+  down: if its runs equal the global fit's at every scanned mass (1e-6), new physics is below the solver's reach at
+  every mass there and at every smaller coupling (absorption grows with the coupling), and those points inherit;
+  a point whose scan shows new physics is profiled in full (its scan's runs reused). Above the first point failing
+  the test, every point is profiled in full.
+- **Per-point checkpoints**: each point's record is written by its worker when done (with its time `t`);
+  `tools/exact_progress.py --watch` prints the PROGRESS line (rate, campaign projection) on every new point and
+  every 110 s.
+- **stop 1e-3** (Tycho 66462115: the final chi^2 moved by at most 5.9e-4 between 1e-3 and 1e-4 at eight points).
+- **Speed-ups equal to rounding** (tests/test_speedups.py): the Galactic emission's mixing-independent sums kept
+  per density pattern (dp_galactic.emission_structure: half of the emission's time), the zenith Filon weights
+  compiled (40x), the MeV profile tables kept per relic mass (a Delta m^2 difference rebuilds one relic's).
+
 ## Validation (tools/exact_profile_validation.py; Tycho)
 
 To be filled with round 3 (output/validation/exact_66461885) and the pilot (output/analysis/pilot_exact).
