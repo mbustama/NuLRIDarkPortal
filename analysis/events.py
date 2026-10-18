@@ -28,6 +28,7 @@ from typing import Mapping, Optional
 from types import SimpleNamespace
 
 import numpy as np
+from numba import njit
 from scipy.optimize import minimize
 
 from . import REPO_DIR
@@ -58,7 +59,46 @@ def _poisson(mu, n, grad=False):
     """-2 ln L / L_max = 2 sum [mu - n + n ln(n / mu)], continued smoothly (C^2) where no physical expectation goes:
     below MU_FLOOR n in bins with data by its quadratic Taylor expansion there, below 0 in empty bins with a steep
     quadratic penalty -- so a trial step into unphysical nuisances returns finite values and gradients. With grad,
-    also d/dmu per bin."""
+    also d/dmu per bin. Compiled (2026-10-18: called ~30,000 times per chi^2 evaluation by the future detectors'
+    nuisance profile, its NumPy overhead took ~40% of a proj_future point); _poisson_ref is the NumPy original, equal
+    to rounding (tests/test_speedups.py)."""
+    mu_a = np.asarray(mu, dtype=np.float64)
+    m_c = np.ascontiguousarray(mu_a).reshape(-1)
+    n_c = np.ascontiguousarray(np.broadcast_to(np.asarray(n, dtype=np.float64), mu_a.shape)).reshape(-1)
+    g = np.empty_like(m_c)
+    total = _poisson_nb(m_c, n_c, g)
+    if not grad:
+        return total
+    return total, g.reshape(mu_a.shape)
+
+
+@njit(cache=True)
+def _poisson_nb(mu, n, g):
+    """_poisson's sum over bins (its docstring), filling g with d/dmu."""
+    total = 0.0
+    for i in range(mu.shape[0]):
+        ni = n[i]
+        mi = mu[i]
+        if ni > 0.0:
+            mu0 = MU_FLOOR * ni
+            m = mu0 if mi < mu0 else mi
+            D = 2.0 * (m - ni + ni * np.log(ni / m))
+            D1 = 2.0 * (1.0 - ni / m)
+            D2 = 2.0 * ni / (m * m)
+        else:
+            mu0 = 0.0
+            m = mu0 if mi < mu0 else mi
+            D = 2.0 * m
+            D1 = 2.0
+            D2 = 2.0 * NEG_PENALTY
+        dm = mi - mu0 if mi < mu0 else 0.0
+        total += D + D1 * dm + 0.5 * D2 * dm * dm
+        g[i] = D1 + D2 * dm
+    return total
+
+
+def _poisson_ref(mu, n, grad=False):
+    """_poisson in NumPy (the original; tests compare the compiled one with it)."""
     mu = np.asarray(mu, dtype=np.float64)
     pos = n > 0
     mu0 = np.where(pos, MU_FLOOR * n, 0.0)

@@ -83,3 +83,20 @@ def test_profile_tables_per_relic_identical():
             continue
         for a, b in zip(x, y):
             assert np.array_equal(a, b)
+
+
+def test_poisson_compiled_equals_numpy():
+    """analysis.events._poisson (compiled) against its NumPy original: values and gradients equal to rounding, in every
+    branch (bins with data above and below MU_FLOOR n, empty bins above and below zero)."""
+    from analysis import events
+    rng = np.random.default_rng(5)
+    for size in (1, 7, 300):
+        n = rng.poisson(3.0, size).astype(float)
+        n[rng.random(size) < 0.3] = 0.0
+        mu = rng.normal(3.0, 3.0, size)
+        mu[rng.random(size) < 0.2] *= 1e-5
+        a, ga = events._poisson_ref(mu, n, grad=True)
+        b, gb = events._poisson(mu, n, grad=True)
+        assert abs(a - b) <= 1e-12 * max(1.0, abs(a))
+        assert np.allclose(ga, gb, rtol=1e-12, atol=1e-12)
+        assert abs(events._poisson(mu, n) - a) <= 1e-12 * max(1.0, abs(a))
