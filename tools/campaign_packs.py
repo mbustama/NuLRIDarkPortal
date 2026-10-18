@@ -22,6 +22,7 @@ laptop where marked, estimated otherwise).
 import argparse
 import json
 import os
+import sys
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 SOLVER = {"spectrum": {"pot": 8.0, "mev": 18.0}, "events": {"pot": 9.0, "mev": 20.0},
@@ -46,6 +47,25 @@ BPL_COST = {"spectrum": {"pot": (6.3, 2.5), "mev": (37.0, 3.0)},
             "future": {"pot": (18.0, 10.0), "mev": (40.0, 12.0)}}
 
 
+# the campaign with the mixing fixed and m_lightest profiled exactly (2026-10-18, --tree campaign_ml): Tycho core-seconds
+# per point and per global fit from the pilot (job 66464601: two mass columns of 16 planes, every data set and kind,
+# 1,528 points, no flux reuse between planes), per data set and plane kind (tools/exact_progress.kind_of)
+ML_COST = {("now_events", "bal"): (27.2, 90), ("now_events", "mev"): (81.5, 90), ("now_events", "split"): (22.5, 137),
+           ("now_events", "ul"): (29.7, 90), ("now_ic26", "bal"): (2.8, 90), ("now_ic26", "mev"): (38.8, 90),
+           ("now_ic26", "split"): (4.7, 50), ("now_ic26", "ul"): (3.4, 90), ("proj_2050", "bal"): (3.0, 90),
+           ("proj_2050", "mev"): (29.0, 90), ("proj_2050", "split"): (10.7, 79), ("proj_2050", "ul"): (3.0, 90),
+           ("proj_future", "bal"): (13.6, 90), ("proj_future", "mev"): (80.3, 90),
+           ("proj_future", "split"): (26.9, 95), ("proj_future", "ul"): (10.8, 90)}
+
+
+def plane_cost_ml(dataset, name, points):
+    """(core-seconds, producer?) of one campaign_ml plane: the pilot's cost, every plane priced as a producer."""
+    sys.path.insert(0, os.path.join(REPO, "tools"))
+    from exact_progress import kind_of
+    per_point, fit = ML_COST[(dataset, kind_of(name))]
+    return per_point * points + fit, PRODUCER_SETS[dataset] == dataset and not name.endswith("_fx")
+
+
 def plane_cost(dataset, name, points, bpl=True):
     """(core-seconds, producer?) of one plane."""
     kind = KIND[dataset]
@@ -63,7 +83,7 @@ def plane_cost(dataset, name, points, bpl=True):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--tree", default="campaign_bpl", choices=("campaign", "campaign_bpl"))
+    ap.add_argument("--tree", default="campaign_bpl", choices=("campaign", "campaign_bpl", "campaign_ml"))
     ap.add_argument("--sets", nargs="+", required=True)
     ap.add_argument("--hours", type=float, default=8.0)
     ap.add_argument("--cores", type=int, default=16)
@@ -75,7 +95,10 @@ def main(argv=None):
         with open(os.path.join(REPO, d, "campaign.json")) as f:
             lst = json.load(f)["planes"]
         for p in lst:
-            c, prod = plane_cost(ds, p["name"], p["points"], bpl=a.tree == "campaign_bpl")
+            if a.tree == "campaign_ml":
+                c, prod = plane_cost_ml(ds, p["name"], p["points"])
+            else:
+                c, prod = plane_cost(ds, p["name"], p["points"], bpl=a.tree == "campaign_bpl")
             waves[prod].append((c, os.path.join(d, p["name"] + ".json")))
     cap = a.hours * 3600.0 * a.cores
     packs = []                                    # [cost, [paths]], producers' packs first
@@ -98,7 +121,7 @@ def main(argv=None):
         for _, paths in packs:
             f.write(" ".join(paths) + "\n")
     tot = sum(p[0] for p in packs)
-    print(f"{len(packs)} packs; {tot / 3600:.0f} core-hours; at 7 packs at a time ~{tot / 3600 / (7 * a.cores):.0f} h "
+    print(f"{len(packs)} packs; {tot / 3600:.0f} core-hours; at {176 // a.cores} packs at a time ~{tot / 3600 / ((176 // a.cores) * a.cores):.0f} h "
           f"wall; largest pack {max(p[0] for p in packs) / 3600 / a.cores:.1f} h")
 
 
