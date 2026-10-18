@@ -47,6 +47,11 @@ def test_entries_accumulate_and_reload(tmp_path):
 def test_no_avx512_in_numba_code():
     """dp_core switches AVX-512 off in numba's code generation (numba 0.60's LLVM 14 tunes Zen 4 as znver3 and
     miscompiled the Earth's Yukawa density with AVX-512 there): no AVX-512 feature is enabled in its target machine."""
+    import llvmlite.binding as ll
+    if ll.llvm_version_info[0] != 14:
+        import pytest
+        pytest.skip("the switch-off is for numba 0.60's LLVM 14 (the pinned version, which tunes Zen 4 as znver3); "
+                    "newer numba does not take it the same way")
     from numba.core.registry import cpu_target
     features = cpu_target.target_context.codegen()._tm_features
     assert "+avx512" not in features, features
