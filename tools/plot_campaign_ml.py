@@ -16,6 +16,7 @@ import sys
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
+import matplotlib.tri as mtri  # noqa: E402
 import numpy as np  # noqa: E402
 from matplotlib.patches import Patch  # noqa: E402
 
@@ -33,15 +34,52 @@ COMPS = [("", "pion", "source compositions fixed to pion decay"), ("_fx", "fitte
 
 
 def excluded(path):
-    """(x, y, per-mass delta chi^2 with elevated columns masked, y name)."""
+    """(log10 m, log10 g, per-mass delta chi^2 for display, y name) at the plane's grid points and the ridge
+    refinement's (tools/refine_ridges.py) together. For display: elevated columns dropped; couplings below a mass
+    column's lowest allowed one not excluded (upper limits only); isolated specks -- excluded grid regions of at most
+    three points, none above delta chi^2 = 5 -- not excluded (a hair over 3.84, they flip with the sampling)."""
+    from scipy import ndimage
     s = json.load(open(path))
     x = np.array(s["grids"][0])
     y = np.array(s["grids"][1])
     chi = np.array([[np.nan if v is None else v for v in row] for row in s["chi2"]])
+    chi0 = chi.copy()
     d = chi - np.nanmin(chi, axis=1, keepdims=True)
-    for v in s.get("elevated", []):
-        d[int(np.argmin(np.abs(x - v)))] = np.nan
-    return x, y, d, s["names"][1]
+    lab, n = ndimage.label(d >= 3.84)
+    for k in range(1, n + 1):
+        sel = lab == k
+        if sel.sum() <= 3 and np.nanmax(d[sel]) < 5.0:
+            chi[sel] = np.nan                                   # dropped from the display below
+    cols = {i: [(float(y[j]), float(chi[i, j])) for j in range(len(y)) if np.isfinite(chi[i, j])] for i in range(len(x))}
+    specks = {(i, j) for i in range(len(x)) for j in range(len(y)) if np.isnan(chi[i, j]) and np.isfinite(d[i, j])}
+    for f in glob.glob(os.path.join(os.path.dirname(path), "refine_ridges.*.jsonl")):
+        for line in open(f):
+            try:
+                r = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            m, g = r["held"][s["names"][0]], r["held"][s["names"][1]]
+            cols[int(np.argmin(np.abs(np.log(x / m))))].append((g, r["chi2"]))
+    elevated = {int(np.argmin(np.abs(x - v))) for v in s.get("elevated", [])}
+    lx, ly, dd = [], [], []
+    for i, pts in cols.items():
+        if i in elevated or not pts:
+            continue
+        pts.sort()
+        g = np.array([p[0] for p in pts])
+        c = np.array([p[1] for p in pts])
+        cmin = min(c.min(), np.nanmin(chi0[i]))              # the column's minimum, refinement included
+        dc = c - cmin
+        ok = dc < 3.84
+        if ok.any():
+            dc[:int(np.argmax(ok))] = 0.0                       # below the lowest allowed coupling: not an exclusion
+        lx += [np.log10(x[i])] * len(g)
+        ly += list(np.log10(g))
+        dd += list(dc)
+        for (ii, j) in specks:                                  # the specks, displayed as allowed
+            if ii == i:
+                lx.append(np.log10(x[i])); ly.append(np.log10(y[j])); dd.append(0.0)
+    return np.array(lx), np.array(ly), np.array(dd), s["names"][1]
 
 
 def figure(suffix, comp_title, out):
@@ -52,18 +90,10 @@ def figure(suffix, comp_title, out):
             hits = glob.glob(f"{REPO}/output/analysis/campaign_ml/{ds}/{model}{suffix}/*/plane_*.json")
             if not hits:
                 continue
-            x, y, d, yname = excluded(hits[0])
-            X, Y = np.meshgrid(np.log10(x), np.log10(y), indexing="ij")
-            dd = np.where(np.isfinite(d), d, -1.0)          # masked columns never shaded
-            # excluded from above only (Mauricio, 2026-10-20): couplings below a mass column's lowest allowed one are
-            # disfavoured only because the data prefer a non-zero coupling there -- not an exclusion, not shown (this is
-            # a plot of upper limits)
-            ok = dd < 3.84
-            for i in range(len(x)):
-                if ok[i].any():
-                    dd[i, :int(np.argmax(ok[i]))] = -1.0
-            ax.contourf(X, Y, dd, levels=[3.84, 1e9], colors=[color], alpha=0.22)
-            ax.contour(X, Y, dd, levels=[3.84], colors=[color], linewidths=1.8)
+            lx, ly, dd, yname = excluded(hits[0])
+            tri = mtri.Triangulation(lx, ly)
+            ax.tricontourf(tri, dd, levels=[3.84, 1e9], colors=[color], alpha=0.22)
+            ax.tricontour(tri, dd, levels=[3.84], colors=[color], linewidths=1.8)
         if model.endswith("_mev"):
             ax.set_ylim(-6, -2)                          # nothing is excluded below ~1e-5 in the MeV planes
         ax.set_xlabel(r"$\log_{10}(m_{Z_D}$ / eV$)$")

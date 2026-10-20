@@ -34,6 +34,9 @@ def main(argv=None):
     ap.add_argument("part", type=int)
     ap.add_argument("parts", type=int)
     ap.add_argument("--workers", type=int, default=16)
+    ap.add_argument("--between", type=int, default=0,
+                    help="also this many masses between neighbouring grid masses (log-spaced), so that a ridge is "
+                         "sampled densely along its length; written to refine_ridges_between.<part>.jsonl")
     a = ap.parse_args(argv)
     from analysis import scans
     from analysis.config import from_dict
@@ -58,18 +61,24 @@ def main(argv=None):
                 best[tuple(r["index"])] = r
     settings = {**asdict(cfg.fit), "n_random": 0}
     tasks = []
+    if a.between:
+        masses = [(i, float(x[i] * (x[i + 1] / x[i]) ** (k / (a.between + 1))))
+                  for i in range(len(x) - 1) for k in range(1, a.between + 1)]
+    else:
+        masses = [(i, float(m)) for i, m in enumerate(x)]
     for ratio in t["ratios"]:
-        for i, m in enumerate(x):
+        for i, m in masses:
             for delta in np.linspace(-0.5, 0.5, 11):
                 g = float(m * 10 ** (ratio + delta))
                 if not (y[0] < g < y[-1]):
                     continue
                 jl = int(np.searchsorted(y, g) - 1)
-                starts = [best.get((i, jl), {}).get("values"), best.get((i, jl + 1), {}).get("values")]
-                tasks.append(({xn: float(m), yn: g}, [st for st in starts if st], settings))
+                cols = (i, i + 1) if a.between else (i,)
+                starts = [best.get((c, jj), {}).get("values") for c in cols for jj in (jl, jl + 1)]
+                tasks.append(({xn: m, yn: g}, [st for st in starts if st], settings))
     tasks = tasks[a.part::a.parts]
     print(f"{t['ds']}/{t['plane']}: part {a.part} of {a.parts}, {len(tasks)} fits on {a.workers} workers", flush=True)
-    path = f"{out_dir}/refine_ridges.{a.part}.jsonl"
+    path = f"{out_dir}/refine_ridges{'_between' if a.between else ''}.{a.part}.jsonl"
     with get_context("spawn").Pool(a.workers, initializer=scans._init_worker, initargs=(raw, cfgp, dc)) as pool, \
             open(path, "w") as f:
         for k, (held, chi2, values) in enumerate(pool.imap_unordered(run, tasks)):
