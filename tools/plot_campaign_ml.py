@@ -1,10 +1,12 @@
 """
-plot_campaign_ml.py -- summary of the campaign_ml planes (2026-10-20: mixing fixed, m_lightest profiled exactly, the
-relics thermal in every MeV collision term): per physics model, the 95% upper limit on the coupling at each mediator
-mass (the upper end of the mass column's lowest allowed interval at Delta chi^2 = 3.84), for each data set, with the
-source compositions fixed to pion decay (solid) and fitted (dashed). Masses where the limit is open or the scanned
-couplings never reach the no-effect limit are left out. Reads the plane summaries under output/analysis/campaign_ml/.
-  python tools/plot_campaign_ml.py output/figures/campaign_ml_limits.png
+plot_campaign_ml.py -- the campaign_ml planes (2026-10-20: mixing fixed, m_lightest profiled exactly, the relics thermal
+in every MeV collision term) as excluded regions: per physics model and data set, the couplings with a per-mass
+Delta chi^2 >= 3.84 (95%) shaded, edges drawn. Shading rather than one limit line (Mauricio, 2026-10-20): with the
+source compositions fitted, a data set can exclude a narrow band of couplings and allow larger ones again (the future
+detectors near 3e-28 in the ultralight planes). One figure with the compositions fixed to pion decay, one with them
+fitted. Mass columns where the scanned couplings never reach the no-effect limit ('elevated') are left unshaded.
+Reads the plane summaries under output/analysis/campaign_ml/.
+  python tools/plot_campaign_ml.py [output prefix, default output/figures/campaign_ml_excluded]
 """
 import glob
 import json
@@ -15,6 +17,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
+from matplotlib.patches import Patch  # noqa: E402
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 MODELS = [("le_lmu_ul", r"$L_e - L_\mu$, ultralight"), ("le_ltau_ul", r"$L_e - L_\tau$, ultralight"),
@@ -26,50 +29,61 @@ SETS = [("now_ic26", "IceCube flavor + spectrum (today)", "#2a78d6"),
         ("now_events", "HESE + DR2 events (today)", "#eb6834"),
         ("proj_future", "future detectors (projection)", "#1baf7a")]
 YLABEL = {"g_D": r"$g_D$", "g_D_trace": r"$g_D$ (texture trace)"}
+COMPS = [("", "pion", "source compositions fixed to pion decay"), ("_fx", "fitted", "source compositions fitted")]
 
 
-def limits(path):
+def excluded(path):
+    """(x, y, per-mass delta chi^2 with elevated columns masked, y name)."""
     s = json.load(open(path))
     x = np.array(s["grids"][0])
-    lim = []
-    for col in s["columns"]:
-        ivs = col["intervals"].get("95%", [])
-        bad = (not ivs) or (col["value"] in s.get("elevated", [])) or ivs[0]["hi_open"]
-        lim.append(np.nan if bad else ivs[0]["hi"])
-    return x, np.array(lim), s["names"][1]
+    y = np.array(s["grids"][1])
+    chi = np.array([[np.nan if v is None else v for v in row] for row in s["chi2"]])
+    d = chi - np.nanmin(chi, axis=1, keepdims=True)
+    for v in s.get("elevated", []):
+        d[int(np.argmin(np.abs(x - v)))] = np.nan
+    return x, y, d, s["names"][1]
 
 
-def main(out):
+def figure(suffix, comp_title, out):
     fig, axes = plt.subplots(2, 4, figsize=(17, 8.2))
     for ax, (model, title) in zip(axes.flat, MODELS):
         yname = None
         for ds, label, color in SETS:
-            for suffix, ls, comp in (("", "-", "pion sources"), ("_fx", "--", "compositions fitted")):
-                hits = glob.glob(f"{REPO}/output/analysis/campaign_ml/{ds}/{model}{suffix}/*/plane_*.json")
-                if not hits:
-                    continue
-                x, lim, yname = limits(hits[0])
-                ax.plot(x, lim, ls=ls, color=color, lw=2.0, label=f"{label}, {comp}")
-        ax.set_xscale("log")
-        ax.set_yscale("log")
-        ax.set_xlabel(r"$m_{Z_D}$ [eV]")
-        ax.set_ylabel(YLABEL.get(yname, yname or "coupling"))
+            hits = glob.glob(f"{REPO}/output/analysis/campaign_ml/{ds}/{model}{suffix}/*/plane_*.json")
+            if not hits:
+                continue
+            x, y, d, yname = excluded(hits[0])
+            X, Y = np.meshgrid(np.log10(x), np.log10(y), indexing="ij")
+            dd = np.where(np.isfinite(d), d, -1.0)          # masked columns never shaded
+            ax.contourf(X, Y, dd, levels=[3.84, 1e9], colors=[color], alpha=0.22)
+            ax.contour(X, Y, dd, levels=[3.84], colors=[color], linewidths=1.8)
+        ax.set_xlabel(r"$\log_{10}(m_{Z_D}$ / eV$)$")
+        ax.set_ylabel(r"$\log_{10}$ " + YLABEL.get(yname, yname or "coupling"))
         ax.set_title(title, fontsize=10.5)
-        ax.grid(True, which="major", color="0.9", lw=0.6)
+        ax.grid(True, color="0.9", lw=0.6)
         for side in ("top", "right"):
             ax.spines[side].set_visible(False)
-    handles, labels = axes.flat[0].get_legend_handles_labels()
     leg_ax = axes.flat[-1]
     leg_ax.axis("off")
-    leg_ax.legend(handles, labels, loc="center", fontsize=9, frameon=False,
-                  title="Excluded above each line (95%, per mass)", title_fontsize=9.5)
-    fig.suptitle("Campaign of 2026-10-20: 95% upper limits on the coupling per mediator mass "
-                 r"($\Delta\chi^2 = 3.84$); mixing fixed, lightest mass profiled, relics thermal in every collision",
-                 fontsize=11.5)
+    handles = [Patch(facecolor=c, edgecolor=c, alpha=0.5, label=lab) for _, lab, c in SETS]
+    leg_ax.legend(handles=handles, loc="center", fontsize=9.5, frameon=False,
+                  title="Excluded at 95% (shaded; per mass, " + r"$\Delta\chi^2 \geq 3.84$)", title_fontsize=9.5)
+    leg_ax.text(0.5, 0.16, "Shading that reaches the smallest couplings (IceCube, near 1 and 3 MeV):\nthe data prefer a "
+                "non-zero coupling there, and couplings too small\nto have an effect are disfavoured at 95%.\n\n"
+                "Unshaded masses inside a data set's range: the scanned\ncouplings never reach the no-effect limit there.",
+                ha="center", va="center", fontsize=8, color="0.35", transform=leg_ax.transAxes)
+    fig.suptitle(f"Campaign of 2026-10-20, {comp_title}: excluded couplings per mediator mass; mixing fixed, lightest "
+                 "mass profiled, relics thermal in every collision", fontsize=11.5)
     fig.tight_layout(rect=(0, 0, 1, 0.96))
     fig.savefig(out, dpi=110)
+    plt.close(fig)
     print("saved", out)
 
 
+def main(prefix):
+    for suffix, tag, comp_title in COMPS:
+        figure(suffix, comp_title, f"{prefix}_{tag}.png")
+
+
 if __name__ == "__main__":
-    main(sys.argv[1] if len(sys.argv) > 1 else os.path.join(REPO, "output", "figures", "campaign_ml_limits.png"))
+    main(sys.argv[1] if len(sys.argv) > 1 else os.path.join(REPO, "output", "figures", "campaign_ml_excluded"))
