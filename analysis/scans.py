@@ -530,6 +530,16 @@ def _scan(cfg: AnalysisConfig, names: List[str], grids: List[np.ndarray], best: 
             return out
 
         changed = set(indices)
+        # each repair task's outcome goes to the checkpoint as soon as it is done (2026-10-20): the improved fit and a
+        # marker {"repair_checked": k}; a restarted scan replays the passes from them and skips the points already
+        # checked in the pass it stopped in (a pass of a plane's every point takes hours: written only at its end, it
+        # was lost whole when a job reached its time limit)
+        checked, improved_in = {}, {}
+        for r in records:
+            if r.get("repair_checked"):
+                checked.setdefault(int(r["repair_checked"]), set()).add(tuple(r["index"]))
+            if "chi2" in r and int(r.get("pass", 0)) >= 1:
+                improved_in.setdefault(int(r["pass"]), set()).add(tuple(r["index"]))
         for k in range(1, max_passes + 1):
             tasks = []
             for ix in indices:
@@ -548,22 +558,28 @@ def _scan(cfg: AnalysisConfig, names: List[str], grids: List[np.ndarray], best: 
                 edge = k == 1 and len(mids) < len(shape) and ix not in edge_checked   # once, from the neighbours
                 tasks.append((ix, held_of(ix), own["values"], own["chi2"], cands, nb_mid, edge, settings,
                               bool(own.get("certified", False))))
-            improved = []
-            for r in pool.imap(_run_repair, tasks):
+            seen = checked.get(k, set())
+            todo_k = [t for t in tasks if t[0] not in seen]
+            changed = set(improved_in.get(k, set()))
+            for t, r in zip(todo_k, pool.imap(_run_repair, todo_k)):
+                recs = []
                 if r is not None:
                     r["pass"] = k
                     r["id"] = ident
-                    improved.append(r)
+                    recs.append(r)
                     done[tuple(r["index"])] = r
                     result.nfev += r["nfev"]
-            markers = [dict(index=list(t[0]), edge_checked=True, id=ident) for t in tasks if t[6]]
-            if checkpoint and (improved or markers):
-                _append_jsonl(checkpoint, improved + markers)
-            edge_checked |= {tuple(m["index"]) for m in markers}
+                    changed.add(tuple(r["index"]))
+                marker = dict(index=list(t[0]), repair_checked=k, id=ident)
+                if t[6]:
+                    marker["edge_checked"] = True
+                    edge_checked.add(t[0])
+                if checkpoint:
+                    _append_jsonl(checkpoint, recs + [marker])
             result.passes = k
-            log(f"  repair pass {k}: {len(improved)} of {len(tasks)} points improved")
-            changed = {tuple(r["index"]) for r in improved}
-            if not improved:
+            log(f"  repair pass {k}: {len(changed)} of {len(tasks)} points improved"
+                + (f" ({len(tasks) - len(todo_k)} checked before a restart)" if len(todo_k) < len(tasks) else ""))
+            if not changed:
                 break
     result.points = [done[ix] for ix in indices]
     result.seconds = time.perf_counter() - t0

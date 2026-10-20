@@ -352,6 +352,28 @@ def test_repair_pass_lifts_a_point_out_of_a_side_minimum(synthetic, tmp_path):
     np.testing.assert_allclose(res.chi2_array(), (grid - 1.0) ** 2 / 0.04, atol=1e-6)
 
 
+def test_repair_pass_resumes_where_it_stopped(synthetic, tmp_path):
+    """Each repair task's outcome is checkpointed as it finishes (2026-10-20): a scan stopped inside a repair pass
+    rechecks only the points that pass had not checked, and a finished one rechecks none."""
+    cfg, obj = synthetic
+    grid = np.linspace(-1.0, 2.5, 15)
+    ck = str(tmp_path / "profile_a.jsonl")
+    quiet = dict(workers=1, checkpoint=ck, max_passes=1, log=lambda *a: None)
+    full = scans.profile(cfg, "a", grid, {"a": 1.0, "b": 1.0}, **quiet)
+    lines = open(ck).read().splitlines()
+    marks = [i for i, line in enumerate(lines) if '"repair_checked"' in line]
+    assert len(marks) == len(grid)                     # pass 1 checked every point, once
+    n = obj.calls
+    scans.profile(cfg, "a", grid, {"a": 1.0, "b": 1.0}, **quiet)
+    assert obj.calls == n                              # finished: nothing rechecked
+    with open(ck, "w") as f:                           # stopped after the pass's fifth point
+        f.write("\n".join(lines[:marks[4] + 1]) + "\n")
+    again = scans.profile(cfg, "a", grid, {"a": 1.0, "b": 1.0}, **quiet)
+    np.testing.assert_array_equal(again.chi2_array(), full.chi2_array())
+    marks2 = [json.loads(line)["index"] for line in open(ck) if '"repair_checked"' in line]
+    assert len(marks2) == len(grid) and len({tuple(m) for m in marks2}) == len(grid)
+
+
 def test_checkpoints_of_another_configuration_are_ignored(synthetic, tmp_path):
     """Results computed under different physics must never be reused: records carry the
     configuration's identity (data, solver, parameters, priors, grid), and a scan under a

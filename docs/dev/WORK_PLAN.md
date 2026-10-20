@@ -185,6 +185,14 @@ MESE effective areas; no DR2 muon implementation exists anywhere yet (item 4 bel
    (its data term is a projected measurement), so its pseudo-experiments shift the projected
    measurement's centre by its own width -- an approximation to state with the results.
 
+## Possible speed-ups, for a rerun (not done)
+
+- Cheaper repair passes (Mauricio, 2026-10-20: keep for later, if a rerun is needed). The first repair pass
+  evaluates every point at its up to four neighbours' solutions, each a full chi^2 with the exact profile over
+  m_lightest (~11 transports, ~50 core-s): ~90 core-hours per MeV plane, 2-6 h on 16 workers even when nothing
+  improves. Instead: evaluate each neighbour's solution at its own m_lightest (one transport), and run the exact
+  profile only where that flags a possible improvement. It changes what the repair checks, so it needs his go.
+
 ## Output conventions
 
 Absolute event rates; livetime kept as a scalar applied after the fold (every response is
