@@ -75,7 +75,8 @@ no-effect chi^2 (the median over masses there, within 0.3) masked (unshaded); co
         if sel.sum() <= 3 and np.nanmax(d[sel]) < 5.0:
             chi[sel] = np.nan                                   # shown as allowed below
     cols = {i: [(float(y[j]), float(chi[i, j])) for j in range(len(y)) if np.isfinite(chi[i, j])] for i in range(len(x))}
-    for f in glob.glob(os.path.join(os.path.dirname(path), "refine_ridges.*.jsonl")):
+    for f in glob.glob(os.path.join(os.path.dirname(path), "refine_ridges.*.jsonl")) + \
+            glob.glob(os.path.join(os.path.dirname(path), "refine_edges.*.jsonl")):
         for line in open(f):
             try:
                 r = json.loads(line)
@@ -101,18 +102,22 @@ no-effect chi^2 (the median over masses there, within 0.3) masked (unshaded); co
         excl = np.interp(G, [p[0] for p in pts], [p[1] for p in pts]) >= 3.84
         S[i] = signed(G, excl)
     xs = {np.log10(x[i]): S.get(i) for i in range(len(x))}     # None: masked
-    # the ridges sampled between the grid's masses (refine_ridges.py --between): inside the sampled window, their own
-    # points (minimum from the neighbouring full columns, the no-effect minimum being the same at every mass);
-    # outside it, the neighbouring columns' field interpolated in log10 m
+    # the ridges and edges sampled between the grid's masses (refine_ridges.py --between, refine_edges.py): inside
+    # each sampled window (runs of couplings at most 0.15 decade apart), their own points (minimum from the
+    # neighbouring full columns, the no-effect minimum being the same at every mass); outside, the neighbouring
+    # columns' field interpolated in log10 m
     between = {}
-    for f in glob.glob(os.path.join(os.path.dirname(path), "refine_ridges_between.*.jsonl")):
+    for f in glob.glob(os.path.join(os.path.dirname(path), "refine_ridges_between.*.jsonl")) + \
+            glob.glob(os.path.join(os.path.dirname(path), "refine_edges_between.*.jsonl")):
         for line in open(f):
             try:
                 r = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            between.setdefault(r["held"][s["names"][0]], []).append((r["held"][s["names"][1]], r["chi2"]))
-    for m, pts in between.items():
+            between.setdefault(round(np.log10(r["held"][s["names"][0]]), 6), []).append((r["held"][s["names"][1]],
+                                                                                         r["chi2"]))
+    for lm, pts in between.items():
+        m = 10 ** lm
         i = int(np.searchsorted(x, m)) - 1
         if i < 0 or i + 1 >= len(x) or i not in S or i + 1 not in S:
             continue
@@ -122,11 +127,12 @@ no-effect chi^2 (the median over masses there, within 0.3) masked (unshaded); co
         g = np.log10([p[0] for p in pts])
         dc = np.array([p[1] for p in pts]) - cmin
         excl = (1 - t) * S[i] + t * S[i + 1] > 0
-        win = (G >= g[0]) & (G <= g[-1])
-        excl[win] = np.interp(G[win], g, dc) >= 3.84
+        for run in np.split(np.arange(len(g)), np.flatnonzero(np.diff(g) > 0.15) + 1):
+            win = (G >= g[run[0]]) & (G <= g[run[-1]])
+            excl[win] = np.interp(G[win], g[run], dc[run]) >= 3.84
         if i in low and i + 1 in low:
             excl &= G >= (1 - t) * low[i] + t * low[i + 1]
-        xs[np.log10(m)] = signed(G, excl)
+        xs[lm] = signed(G, excl)
     lx = np.array(sorted(xs))
     F = np.ma.masked_invalid(np.array([xs[v] if xs[v] is not None else np.full(len(G), np.nan) for v in lx]).T)
     return lx, G, F, s["names"][1]
