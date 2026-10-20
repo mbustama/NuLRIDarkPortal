@@ -507,7 +507,9 @@ def _scan(cfg: AnalysisConfig, names: List[str], grids: List[np.ndarray], best: 
         rest = [ix for ix in ch if ix not in done]
         if rest:
             todo.append(([(ix, held_of(ix)) for ix in rest], best_start, settings, sink))
-    with _Pool(cfg, data_centre, min(workers, max(1, len(todo)))) as pool:
+    # the repair passes use every worker too (2026-10-20: sized by the chains left, a resumed plane with all its points
+    # done ran its repair passes, ~90 core-hours, in this one process)
+    with _Pool(cfg, data_centre, workers if max_passes > 0 else min(workers, max(1, len(todo)))) as pool:
         n_done = len(done)
         for recs in pool.imap(_run_chain, todo):
             for r in recs:
