@@ -56,17 +56,12 @@ def figure(suffix, comp_title, out):
             X, Y = np.meshgrid(np.log10(x), np.log10(y), indexing="ij")
             dd = np.where(np.isfinite(d), d, -1.0)          # masked columns never shaded
             # excluded from above only (Mauricio, 2026-10-20): couplings below a mass column's lowest allowed one are
-            # disfavoured only because the data prefer a non-zero coupling there -- not an exclusion; those
-            # preferred couplings are drawn as a dotted segment instead
+            # disfavoured only because the data prefer a non-zero coupling there -- not an exclusion, not shown (this is
+            # a plot of upper limits)
             ok = dd < 3.84
             for i in range(len(x)):
-                if not ok[i].any():
-                    continue
-                j0 = int(np.argmax(ok[i]))
-                if j0 > 0:
-                    dd[i, :j0] = -1.0
-                    j1 = j0 + int(np.argmax(~ok[i, j0:])) if (~ok[i, j0:]).any() else len(y)
-                    ax.plot([X[i, 0]] * 2, [np.log10(y[j0]), np.log10(y[j1 - 1])], ls=":", color=color, lw=2.2)
+                if ok[i].any():
+                    dd[i, :int(np.argmax(ok[i]))] = -1.0
             ax.contourf(X, Y, dd, levels=[3.84, 1e9], colors=[color], alpha=0.22)
             ax.contour(X, Y, dd, levels=[3.84], colors=[color], linewidths=1.8)
         if model.endswith("_mev"):
@@ -82,9 +77,7 @@ def figure(suffix, comp_title, out):
     handles = [Patch(facecolor=c, edgecolor=c, alpha=0.5, label=lab) for _, lab, c in SETS]
     leg_ax.legend(handles=handles, loc="center", fontsize=9.5, frameon=False,
                   title="Excluded at 95% (shaded; per mass, " + r"$\Delta\chi^2 \geq 3.84$)", title_fontsize=9.5)
-    leg_ax.text(0.5, 0.16, "Dotted segment: the couplings a data set prefers at that mass\n(there, couplings too small "
-                "to have an effect are disfavoured at\n95%; not shaded: a preference, not an exclusion).\n\n"
-                "Unshaded masses inside a data set's range: the scanned\ncouplings never reach the no-effect limit there.",
+    leg_ax.text(0.5, 0.16, "Unshaded masses inside a data set's range: the scanned\ncouplings never reach the no-effect limit there.",
                 ha="center", va="center", fontsize=8, color="0.35", transform=leg_ax.transAxes)
     fig.suptitle(f"Campaign of 2026-10-20, {comp_title}: excluded couplings per mediator mass; mixing fixed, lightest "
                  "mass profiled, relics thermal in every collision", fontsize=11.5)
