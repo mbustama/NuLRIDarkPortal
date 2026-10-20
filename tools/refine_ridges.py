@@ -2,7 +2,7 @@
 refine_ridges.py -- finer sampling across the thin ridges of the ultralight planes (campaign_ml, 2026-10-20): rows of
 small excluded islands or allowed holes at one coupling-to-mass ratio g/m (one strength of the cosmological potential),
 thinner than the grid, which a coarse grid catches only at some points. For each ridge of
-analysis/configs/campaign_ml/ridges.json and each mass of the plane, 11 couplings across +-0.5 decade around
+tools/ridges.json and each mass of the plane, 11 couplings across +-0.5 decade around
 g = m 10^ratio, each fitted (the campaign's own fitting code, mass and coupling held) from the stored solutions of the
 two bracketing grid points; written to <plane output>/<data|asimov>/refine_ridges.<part>.jsonl.
   python tools/refine_ridges.py <plane number in ridges.json> <part> <parts> [--workers 16]
@@ -41,7 +41,7 @@ def main(argv=None):
     from analysis import scans
     from analysis.config import from_dict
     from analysis.run import asimov_centre
-    t = json.load(open(os.path.join(REPO, "analysis/configs/campaign_ml/ridges.json")))[a.plane]
+    t = json.load(open(os.path.join(REPO, "tools", "ridges.json")))[a.plane]
     cfgp = os.path.join(REPO, f"analysis/configs/campaign_ml/{t['ds']}/{t['plane']}.json")
     raw = json.load(open(cfgp))
     cfg = from_dict(raw, cfgp)
