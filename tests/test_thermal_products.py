@@ -193,3 +193,25 @@ def test_kernels_far_below_the_resonance(mode):
                                                        dp_si._TGL10_X, dp_si._TGL10_W, dp_si._TFD16, True, mode, True,
                                                        pol)[0]
             assert abs(st / ref - 1) < 1e-6, (E0, m, pol)
+
+
+def test_kernel_grid_thinning():
+    """The resonant kernels' grid (2026-10-21): merged grids put nodes arbitrarily close, and 4-point Lagrange of a
+    noisy log-kernel through two nearly coincident nodes overshoots without bound (an infinite kernel at 453 keV, a
+    crash; isolated bins absorbed outright otherwise). _thin_grid keeps neighbours at least the gap apart, the ends
+    kept; the interpolation through the thinned grid stays within the noise."""
+    rng = np.random.default_rng(3)
+    x = np.unique(np.r_[np.arange(0.0, 1.0, 0.02), np.arange(0.3001, 0.6, 0.0083), 0.4 + 1e-9])
+    t = dp_si._thin_grid(x, 0.5 * 0.0083)
+    assert t[0] == x[0] and t[-1] == x[-1] and np.all(np.diff(t) >= 0.5 * 0.0083 - 1e-15)
+    assert np.array_equal(dp_si._thin_grid(x, 0.0), x)
+    f = lambda u: -50.0 + 2.0 * u                                   # a smooth log-kernel, with 1% noise
+    for grid in (x, t):
+        y = (f(grid) + 0.01 * rng.standard_normal(len(grid)))[:, None]
+        q = np.linspace(0.01, 0.98, 2001)
+        err = [abs(dp_si._interp4(grid, y, 0, u, min(max(np.searchsorted(grid, u) - 1, 0), len(grid) - 2)) - f(u))
+               for u in q]
+        if grid is x:
+            assert max(err) > 100.0                                 # the overshoot through the coincident pair
+        else:
+            assert max(err) < 0.1

@@ -2321,6 +2321,27 @@ THERMAL_STRIDE_MAX = 8
 THERMAL_STRIDE_DIV = 16.0
 THERMAL_SUPPORT = 1e-9
 THERMAL_GRID_STEP = 1.0
+# the resonant kernels' grid: neighbours at least this fraction of its finest spacing apart (_thin_grid; 2026-10-21)
+THERMAL_GRID_MIN_GAP = 0.5
+
+
+def _thin_grid(x, gap):
+    """Sorted nodes x thinned so that neighbours are at least gap apart (the first and the last kept). The kernels'
+    grid merges a regular grid with finer ones around slow relics' resonances, which puts nodes arbitrarily close
+    together; deep in the thermal tail the kernel's quadrature is good to ~1%, and 4-point Lagrange (of its
+    logarithm) through two nodes eps apart overshoots by ~1% x spacing / eps -- e^66 at eps ~ 1e-6, infinity below
+    ~1e-7 (2026-10-21: a crash at 453 keV; isolated bins absorbed outright otherwise). gap <= 0 keeps x."""
+    if gap <= 0.0 or len(x) < 3:
+        return x
+    keep = [x[0]]
+    for v in x[1:-1]:
+        if v - keep[-1] >= gap:
+            keep.append(v)
+    if x[-1] - keep[-1] < gap and len(keep) > 1:
+        keep[-1] = x[-1]
+    else:
+        keep.append(x[-1])
+    return np.array(keep)
 
 
 def _thermal_table(dlnE, Delta, N, n_u, n_lo, n_hi, prof=1):
@@ -2398,6 +2419,7 @@ def _thermal_terms(E, L_edges, q, Delta, dlnE, masses, n0, T_nu0, eta, M, MG, H0
         x_lo = np.log(2.0 * E[0]) + L_edges[m] - 3.0 * Delta
         x_hi = np.log(2.0 * E[-1]) + L_edges[m + 1] + 3.0 * Delta
         pts = [np.arange(x_lo, x_hi + Delta, THERMAL_GRID_STEP * Delta)]
+        h_min = THERMAL_GRID_STEP * Delta
         for r in range(3):
             if not live[r]:
                 continue
@@ -2407,7 +2429,8 @@ def _thermal_terms(E, L_edges, q, Delta, dlnE, masses, n0, T_nu0, eta, M, MG, H0
                 cen = np.log(M2 / masses[r])
                 pts.append(np.arange(max(cen - np.log1p(10.0 * v), x_lo), min(cen - np.log1p(-min(10.0 * v, 0.9)), x_hi),
                                      v / 6.0))
-        lna = np.unique(np.concatenate(pts))
+                h_min = min(h_min, v / 6.0)
+        lna = _thin_grid(np.unique(np.concatenate(pts)), THERMAL_GRID_MIN_GAP * h_min)
         for k, pl in enumerate(pols):
             f0 = np.zeros((len(lna), 3))
             f1 = np.zeros((len(lna), 3))
