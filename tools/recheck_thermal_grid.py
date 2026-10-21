@@ -37,6 +37,8 @@ def solutions(cfgp):
     from analysis.run import asimov_only
     from check_edge_islands import load
     raw = json.load(open(cfgp))
+    if not isinstance(raw, dict) or "planes" not in raw:          # inventories and other files beside the configs
+        return []
     cfg = from_dict(raw, cfgp)
     out_dir = cfg.output_path("asimov" if asimov_only(cfg) else "data")
     if not glob.glob(os.path.join(out_dir, "plane_*.json")):
