@@ -123,6 +123,25 @@ small, not yet measured), **open** (decided to remove or change, not yet done).
     surrogates predict no decrease beyond `stop`, and differ by at most 1e-4): it assumes the curvature of log F
     changes by less than a factor 2 between neighbouring points within 1 width.
 
+6c. **Secret interactions: relics at rest; a Dirac relic's helicity.** The secret-interaction planes so far take
+   the relics at rest (as 2107.13568), and a Dirac relic as unpolarized (half of it couples to the vector; the
+   scalar sees both halves). *Fixed behind a switch* (`secret_interactions.thermal_products: true`, 2026-10-21;
+   notes Sec. "Dirac relics in motion: their helicity"). Majorana relics: as 6a (scalar within 1.3e-4 of the
+   reference at the analysis grid). Dirac relics keep their helicity, so the beam meets their left- and
+   right-chiral components in shares (1 +- pi)/2, pi = (E_p sigma - m^2) / (p sigma); carried exactly (the
+   brute force: the polarized relic is that mixture of massless chiral relics, up to m^2/s). The vector couples to
+   the left-chiral share only; the scalar's s channel needs the right-chiral one (tiny on a relativistic relic),
+   and the polarized background couples the visible and sterile neutrinos, which are then transported together.
+   At the analysis grid (two MeV points, lightest masses 1e-6, 1e-3, 0.03 eV) within 3e-4 of the free flux of
+   the reference; the helicity changes the fluxes by up to 0.9 of the free flux (scalar, 31.6 keV, 1e-6 eV) against
+   relics in motion taken as unpolarized. A Dirac scalar transport costs 3.4-3.9 times one at rest, a vector
+   1.6-2 times. Off by default; the SI campaign is to switch it on.
+
+   A numerical note: far below the resonance (s ~ 1e-4 M^2) the semi-analytic kernel's closed-form angular integral
+   cancels to 1e-3-1e-2 relative. For the Dirac shares it is taken by quadrature there; for rho (Majorana, and
+   the dark portal's thermal products) the closed form stays while the running campaign uses it. *To fix after
+   the campaign* (its effect on the fluxes is within 6a's 2e-4).
+
 11f. **Relativistic relics** (m_lightest below ~1e-3 eV, where T_nu (1 + z) is comparable): the transport's thermal
     treatment there (dp_si._thermal_resonance_terms) is unverified. *Open.* The MeV planes' profile can land there.
 

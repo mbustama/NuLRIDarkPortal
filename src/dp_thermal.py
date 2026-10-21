@@ -136,16 +136,28 @@ def _seg_moment_log(h, Qa, Qb, va, vb, at_a, at_b, lg_a, lg_b, MG):
     L1b = 0.5 * (vb * vb + MG * MG) * (lg_b - 1.0)
     return (A0 * (L0b - L0a) + A1 * (L1b - L1a)) / beta
 
+# 8-point Gauss-Legendre on [-1, 1]: relic_state_rates_analytic's angular integral far from the resonance (fine_m)
+_GL8C_X, _GL8C_W = np.polynomial.legendre.leggauss(8)
+
+
 @njit(cache=True)
 def relic_state_rates_analytic(E0: float, z: float, sum_G: float, m_Zd: float,
                                m_nu_bg_arr: np.ndarray, T_nu0: float,
                                eta_mass: np.ndarray, glx: np.ndarray,
                                glw: np.ndarray, glx10: np.ndarray,
                                glw10: np.ndarray, fd16: np.ndarray, moller: bool,
-                               mode: int = 0, fine_m: bool = False) -> np.ndarray:
+                               mode: int = 0, fine_m: bool = False, pol: int = 0) -> np.ndarray:
     """fine_m (2026-10-18; dp_si thermal="full"): momentum panels at 2m, 20m, 200m, 2000m, where p / E_p turns over
     (without them, ~m/T errors where the resonance sits at sigma ~ m: 1e-2 at m/T ~ 0.03); False keeps the earlier
-    quadrature.
+    quadrature. With pol +-1 it also takes the angular integral by quadrature where the resonance is far (B < |u| / 10:
+    the closed form's cancellation loses 1e-3 to 1e-2 at s ~ 1e-4 M^2; 2026-10-21; pol 0 keeps the closed form while
+    the dark-portal campaign that uses it runs).
+
+    pol (2026-10-21, with moller; Dirac relics, dp_si thermal="full"): +1 (-1) weighs every relic by the share of its
+    left- (right-) chiral component seen by the beam, (1 +- pi)/2, pi = (E_p sigma - m^2) / (p sigma) its spin along
+    the beam in its rest frame (helicity -1 nu, +1 nubar). Times the Moller factor that is (1 + v)(1 - cos)/2
+    ((1 - v)(1 + cos)/2): the closed form below at v = 1 (v = -1; linear in v) times (1 + v)/2 ((1 - v)/2). The two
+    add up to pol 0.
 
     mode 1 (with moller): the same thermal average of (s - M^2)/BW instead of s/BW -- the kinematic
     factor of the s-t interference (dp_si's thermal step integrals), closed form
@@ -298,15 +310,20 @@ def relic_state_rates_analytic(E0: float, z: float, sum_G: float, m_Zd: float,
                             um = 0.0
                         else:
                             up = 0.0
-                    if moller and mode == 1:
+                    if pol == 0:
                         v = p / E_bg
-                        w1 = m2 / (E_bg * (E_bg + p))
+                        w1 = m2 / (E_bg * (E_bg + p))           # 1 - v without cancellation
+                    elif pol > 0:
+                        v, w1 = 1.0, 0.0
+                        f_FD *= (E_bg + p) / (2.0 * E_bg)
+                    else:
+                        v, w1 = -1.0, 2.0
+                        f_FD *= m2 / (2.0 * E_bg * (E_bg + p))
+                    if moller and mode == 1:
                         S0v[k] = p * f_FD * v / x
                         Qlv[k] = f_FD * p * w1 / (4.0 * x) - f_FD * v * um / (8.0 * x * x)
                         Qav[k] = -f_FD * v * MG / (4.0 * x * x)
                     elif moller:
-                        v = p / E_bg
-                        w1 = m2 / (E_bg * (E_bg + p))           # 1 - v without cancellation
                         S0v[k] = p * f_FD * v / x
                         Qlv[k] = f_FD * p * w1 / (4.0 * x) + f_FD * v * (M2 - um) / (8.0 * x * x)
                         Qav[k] = (f_FD * p * w1 * M2 / (2.0 * x * MG)
@@ -352,14 +369,32 @@ def relic_state_rates_analytic(E0: float, z: float, sum_G: float, m_Zd: float,
                 B_ = 2.0 * x * p
                 u_plus = A_ - M2 + B_
                 u_minus = A_ - M2 - B_
-                if moller and mode == 1:
+                if pol == 0:
                     v = p / E_bg
+                elif pol > 0:
+                    v = 1.0
+                    f_FD *= (E_bg + p) / (2.0 * E_bg)
+                else:
+                    v = -1.0
+                    f_FD *= m2 / (2.0 * E_bg * (E_bg + p))
+                u0 = A_ - M2
+                if fine_m and pol != 0 and B_ < 0.1 * np.sqrt(u0 * u0 + MG2):
+                    # far from the resonance the closed form cancels to ~eps (u0 / B)^2 (1e-3 at s ~ 1e-4 M^2,
+                    # 2026-10-21): there the kernel is analytic across the whole angular range, and 8-point
+                    # Gauss-Legendre in cos(theta) is exact to rounding. The chiral shares only, for now: pol 0 is the
+                    # running dark-portal campaign's (thermal products), kept as it was until that campaign ends
+                    I_ang = 0.0
+                    for g in range(8):
+                        c_ = _GL8C_X[g]
+                        s_ = A_ - B_ * c_
+                        I_ang += _GL8C_W[g] * (1.0 - v * c_) * (s_ - M2 if mode == 1 else s_) / (
+                            (s_ - M2) * (s_ - M2) + MG2)
+                elif moller and mode == 1:
                     K_ = B_ - v * (A_ - M2)
                     I_ang = ((0.5 * K_ * np.log((u_plus * u_plus + MG2) / (u_minus * u_minus + MG2))
                               + v * (2.0 * B_ - MG * (np.arctan(u_plus / MG) - np.arctan(u_minus / MG))))
                              / (B_ * B_))
                 elif moller:
-                    v = p / E_bg
                     K_ = B_ - v * (A_ - M2)
                     I_ang = ((2.0 * v * B_
                               + 0.5 * (K_ + v * M2) * np.log((u_plus * u_plus + MG2) / (u_minus * u_minus + MG2))

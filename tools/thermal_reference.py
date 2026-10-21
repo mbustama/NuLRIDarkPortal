@@ -17,6 +17,11 @@ a table with one block of rows per parent bin -- so the sweep itself is the prod
 With kernel 'rest' (one node at sigma = m, one sub-step, the production tables) it reproduces the production
 transport without its thermal resonance terms.
 
+Dirac neutrinos (2026-10-21): a moving relic keeps its helicity and the beam meets its left- and right-chiral
+components in shares (1 +- pi)/2, pi = (E_p sigma - m^2) / (p sigma); the mixture then runs over the relic slots of
+dp_si.model_spec(polarized=True), weighted by rho (1 +- pi)/2 written out directly (the production code integrates
+the shares in another form).
+
   import thermal_reference; thermal_reference.install()     # in a fresh process: the analysis uses the reference
 """
 import hashlib
@@ -48,10 +53,11 @@ _GL16X, _GL16W = _gl(0.0, 1.0, 16)
 
 
 @njit(cache=True)
-def rho(sig, m, T):
+def rho(sig, m, T, pol=0):
     """rho(sigma) for a relic of mass m at temperature T (module docstring): the inner integral by Gauss-Legendre on
     panels split at 2m, 20m, 200m and 2000m (where they lie between p_X and p_X + 4T), then
-    up to p_X + 4T and p_X + 44T."""
+    up to p_X + 4T and p_X + 44T. pol +1 (-1): a Dirac relic's left- (right-) chiral share,
+    rho (1 +- pi) / 2 with pi = (E_p sigma - m^2) / (p sigma) its spin along the beam in its rest frame."""
     X = max(sig, m * m / sig)
     pX = (X * X - m * m) / (2.0 * X)
     acc = 0.0
@@ -78,12 +84,18 @@ def rho(sig, m, T):
         for i in range(len(_GL16X)):
             p = a + h * _GL16X[i]
             x = p / T
-            acc += h * _GL16W[i] * p / (np.exp(x) + 1.0) / np.sqrt(p * p + m * m) if x < 700.0 else 0.0
+            if x >= 700.0:
+                continue
+            Ep = np.sqrt(p * p + m * m)
+            share = 1.0
+            if pol != 0:
+                share = 0.5 * (1.0 + pol * (Ep * sig - m * m) / (p * sig))
+            acc += h * _GL16W[i] * p / (np.exp(x) + 1.0) / Ep * share
     return sig * acc / (3.0 * ZETA3 * T * T * T)
 
 
 @njit(cache=True)
-def sigma_nodes(m, T, extra, glx, glw, sig_out, w_out):
+def sigma_nodes(m, T, extra, glx, glw, sig_out, w_out, pol=0):
     """Nodes and weights of int d sigma rho(sigma) g(sigma): Gauss-Legendre (glx, glw on [0, 1]) in ln sigma on panels between
     the kernel's ends (momenta up to 40 T), split at m, at T, 10T and m^2/2T (relativistic, m < 3T) or m +- 3T and m +- 10T
     (slow), and at the extra points inside; each panel as two halves with the nodes clustered toward its ends. Returns the
@@ -128,7 +140,7 @@ def sigma_nodes(m, T, extra, glx, glw, sig_out, w_out):
                 x = a + h * u * u if side == 0 else b - h * u * u
                 s = np.exp(x)
                 sig_out[k] = s
-                w_out[k] = 2.0 * h * u * glw[g] * s * rho(s, m, T)
+                w_out[k] = 2.0 * h * u * glw[g] * s * rho(s, m, T, pol)
                 k += 1
     return k
 
@@ -169,8 +181,9 @@ def interp_rows(lnmu, lnmu_top, dl, B, jmax, out):
 
 @njit(cache=False)
 def mixture_step(E, zlo, zhi, zmid, m, n0r, T, M2, MG, H0, Om, OL, delta_mode, prof, hbin, jt, glx, glw,
-                 lnmu_top, dl, B, oN, oL, oD, oR, offs):
-    """Adds, for one relic state and one (sub-)step, the rho-weighted mixture of at-rest relics of mass sigma:
+                 lnmu_top, dl, B, oN, oL, oD, oR, offs, pol=0):
+    """Adds, for one relic state and one (sub-)step, the rho-weighted (pol: rho_L, rho_R) mixture of at-rest relics of
+    mass sigma:
     oN, oL, oD (N, P) += J_jt[q](sigma) times the profile total, in-bin complement and drift at the midpoint's mu;
     oR[offs[j] + d, q] += J_jt[q](sigma) times the produced spectrum of profile q at offset d (extended table).
     Per bin, the sigma panels are also split where the resonance and the pair threshold enter or leave the step."""
@@ -194,7 +207,7 @@ def mixture_step(E, zlo, zhi, zmid, m, n0r, T, M2, MG, H0, Om, OL, delta_mode, p
         extra[1] = M2 / (e2 * zlo)
         extra[2] = 4.0 * M2 / (e2 * zhi)
         extra[3] = 4.0 * M2 / (e2 * zlo)
-        nk = sigma_nodes(m, T, extra, glx, glw, sig, wts)
+        nk = sigma_nodes(m, T, extra, glx, glw, sig, wts, pol)
         E1[0] = E[j]
         for k in range(nk):
             if wts[k] == 0.0:
@@ -279,10 +292,16 @@ def transport_columns_ref(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T
     M2 = M * M
     Gam = dp_si.mediator_width(M, g_mass, mediator, majorana) + float(Gamma_vis)
     MG = M * Gam
-    spec = dp_si.model_spec(g_mass, mediator, majorana, phiphi, channels, dirac_sterile)
+    # Dirac relics in motion: their chiral shares as relic slots (dp_si.model_spec, polarized), weighted by rho_L and
+    # rho_R here
+    spec = dp_si.model_spec(g_mass, mediator, majorana, phiphi, channels, dirac_sterile,
+                            polarized=kernel == "thermal")
+    pols = spec["pols"]
+    n_st = spec["n"]
+    n_rel = 3 * len(pols)
     if Gamma_vis > 0.0:
         X = 24.0 * np.pi * float(Gamma_vis) / M
-        kap = 1.0 if majorana else 0.5
+        kap = 1.0 if (majorana or pols != (0,)) else 0.5
         Ctau = spec["Ctau"].copy()
         for a in range(3):
             for r in range(3):
@@ -309,19 +328,19 @@ def transport_columns_ref(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T
         lnmu_top, dl, Bext = extended_table(prof, M, E, z_max, sig_lo, sig_hi, n_u, dlnE)
     C = len(columns)
     runs = spec["runs"]
-    Fs = [np.zeros((N, 3, C)) for _ in runs]
+    Fs = [np.zeros((N, n_st, C)) for _ in runs]
     diags = [np.zeros((C, 6)) for _ in runs]
-    reg = np.zeros((N, 3, C))
-    Jone = np.ones((N, 3, 4))
+    reg = np.zeros((N, n_st, C))
+    Jone = np.ones((N, n_rel, 4))
     jj = np.arange(N, dtype=np.int64)
     offs = np.zeros(N + 1, dtype=np.int64)
     offs[1:] = np.cumsum(jj + 1)
-    R = np.zeros((3, int(offs[-1]), P))
-    O = np.ascontiguousarray(np.tile(offs, (3, 1)))
-    node = np.ascontiguousarray(np.tile(jj[:, None], (1, 3)))
-    Nab = np.zeros((N, 3, P))
-    Lab = np.zeros((N, 3, P))
-    Dab = np.zeros((N, 3, P))
+    R = np.zeros((n_rel, int(offs[-1]), P))
+    O = np.ascontiguousarray(np.tile(offs, (n_rel, 1)))
+    node = np.ascontiguousarray(np.tile(jj[:, None], (1, n_rel)))
+    Nab = np.zeros((N, n_rel, P))
+    Lab = np.zeros((N, n_rel, P))
+    Dab = np.zeros((N, n_rel, P))
     Eps = []
     for P_c, p_c, w_c, phi_c, rho_c in columns:
         Ep = E ** (-p_c)
@@ -329,7 +348,7 @@ def transport_columns_ref(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T
             Ep = np.where((E >= w_c[0]) & (E < w_c[1]), Ep, 0.0)
         Eps.append(Ep)
     Cregs = [np.ascontiguousarray(Cr if regeneration else np.zeros_like(Cr)) for Cr, _ in runs]
-    S0 = np.zeros((N, 3, C))
+    S0 = np.zeros((N, n_st, C))
     J = np.zeros((N, 3, 4))
     Nq = np.zeros((N, 3, P))
     Lq = np.zeros((N, 3, P))
@@ -338,7 +357,7 @@ def transport_columns_ref(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T
         L_lo, L_hi = L_edges[m], L_edges[m + 1]
         for k, (P_c, p_c, w_c, phi_c, rho_c) in enumerate(columns):
             dt, T_inj = dp_si._step_time_and_injection(L_lo, L_hi, H0, Omega_m, Omega_L, p_c, rho_evol, phi_c)
-            S0[:, :, k] = np.outer(Eps[k] * (T_inj / dt), np.asarray(P_c, dtype=np.float64))
+            S0[:, :3, k] = np.outer(Eps[k] * (T_inj / dt), np.asarray(P_c, dtype=np.float64))
         R[:] = 0.0
         Nab[:] = 0.0
         Lab[:] = 0.0
@@ -369,21 +388,22 @@ def transport_columns_ref(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T
                 a = L_lo + (L_hi - L_lo) * s / n_sub
                 b = L_lo + (L_hi - L_lo) * (s + 1) / n_sub
                 zlo, zhi, zmid = np.exp(a), np.exp(b), np.exp(0.5 * (a + b))
-                for r in range(3):
-                    if masses[r] <= 0.0:
-                        continue
-                    Tr = T_nu0 * zmid * eta_arr[r] ** (1.0 / 3.0)
-                    oN = np.zeros((N, P))
-                    oL = np.zeros((N, P))
-                    oD = np.zeros((N, P))
-                    oR = np.zeros((int(offs[-1]), P))
-                    mixture_step(E, zlo, zhi, zmid, float(masses[r]), float(n0[r]), Tr, M2, MG, H0, Omega_m,
-                                 Omega_L, delta_mode, prof, hbin, jt, glx, glw, lnmu_top, dl, Bext, oN, oL, oD, oR,
-                                 offs)
-                    Nab[:, r, :] += oN
-                    Lab[:, r, :] += oL
-                    Dab[:, r, :] += oD
-                    R[r] += oR
+                for bl, pl in enumerate(pols):
+                    for r in range(3):
+                        if masses[r] <= 0.0:
+                            continue
+                        Tr = T_nu0 * zmid * eta_arr[r] ** (1.0 / 3.0)
+                        oN = np.zeros((N, P))
+                        oL = np.zeros((N, P))
+                        oD = np.zeros((N, P))
+                        oR = np.zeros((int(offs[-1]), P))
+                        mixture_step(E, zlo, zhi, zmid, float(masses[r]), float(n0[r]), Tr, M2, MG, H0, Omega_m,
+                                     Omega_L, delta_mode, prof, hbin, jt, glx, glw, lnmu_top, dl, Bext, oN, oL, oD, oR,
+                                     offs, int(pl))
+                        Nab[:, 3 * bl + r, :] += oN
+                        Lab[:, 3 * bl + r, :] += oL
+                        Dab[:, 3 * bl + r, :] += oD
+                        R[3 * bl + r] += oR
         # the in-bin complement and drift are per event (relative to the total) only through their products: the
         # sweep uses J * L and J * D directly, so the absolute ones go in as they are
         for k in range(len(runs)):
@@ -392,7 +412,7 @@ def transport_columns_ref(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T
     F_all = sum(wt * Fk for (_, wt), Fk in zip(runs, Fs))
     outs = []
     for k in range(C):
-        F = np.ascontiguousarray(F_all[:, :, k])
+        F = np.ascontiguousarray(F_all[:, :3, k])
         out = np.ascontiguousarray(F[:N_E])
         if not return_diagnostics:
             outs.append(out)

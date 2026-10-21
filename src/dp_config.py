@@ -174,9 +174,9 @@ def _build_default_config() -> Dict:
             # printed in 2107.13568 (see dp_si)
             "phiphi_coupling": "coherent",
             # the relics' thermal momenta in every collision term (dp_si thermal="full"; 2026-10-21, as
-            # dark_portal.thermal_products): off keeps the relics at rest, as 2107.13568 and 2001.04994. Majorana
-            # neutrinos only: a Dirac relic keeps its helicity, so its coupling to the left-handed current depends on
-            # its speed ((1 + v)/2), which the transport does not model yet
+            # dark_portal.thermal_products): off keeps the relics at rest, as 2107.13568 and 2001.04994. A Dirac
+            # relic keeps its helicity, so the beam meets its left- and right-chiral components in shares that
+            # depend on its speed and direction: carried as such (dp_si.model_spec, polarized)
             "thermal_products": False,
             # scalar with Dirac neutrinos: 'track' the sterile secondaries, which scatter too and turn
             # back into visible ones (exact, by parity), or 'drop' them as 2107.13568 does

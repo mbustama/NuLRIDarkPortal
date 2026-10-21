@@ -536,6 +536,133 @@ def test_bruteforce_scalar_dirac():
         assert abs(tot / A8 - 1) < 1e-9
 
 
+_POL_PROCS = {"V_nnbar": "nubar", "V_nn": "nu", "V_pair": "nubar", "S_nn": "nu", "S_nnbar": "nubar",
+              "S_phiphi": "nubar"}
+
+
+@pytest.mark.parametrize("proc", list(_POL_PROCS))
+def test_bruteforce_polarized_relic_is_a_chiral_mixture(proc):
+    """A massive Dirac relic with spin polarization P along the beam (its rest frame; any transverse part), averaged
+    over the final azimuth about the collision axis: |M|^2 = w T_L + (1 - w) T_R with w = (1 + P)/2 for a nu
+    ((1 - P)/2 for a nubar, whose v spinor's chirality is opposite to its spin), T_L (T_R) the spin sums of its
+    left- (right-) chiral projection -- up to m^2/s (the beam's own direction in the spin's projection); and T_chi
+    equals the massless relic of that chirality at the same s and angle, again to m^2/s. The vector and double-scalar
+    production see the left-chiral component only. Every Dirac process, with complex couplings (2026-10-21)."""
+    import amplitudes_bruteforce as B
+    kind = _POL_PROCS[proc]
+    mf = 1.0 if proc in ("V_pair", "S_phiphi") else 0.0
+    c = (0.7 - 0.4j, -0.3 + 0.9j)
+    M, Gam = 1.0, 0.07
+    worst = worst_massless = 0.0
+    for m in (1e-2, 1e-3, 1e-4):
+        for s in ((5.0, 9.0) if mf else (0.8, 1.1, 5.0)):
+            for cth in (0.5, -0.3, 0.93):
+                p1, p2, _ = B.relic_cm(kind, s, m, 0.0, 0.0)
+                p3, p4 = B.finals_cm(p1, p2, cth, 0.3, mf)
+                T = {}
+                for chi, Pc in (("L", B.PL), ("R", B.PR)):
+                    T[chi] = sum(B.dirac_amp2(proc, p1, p2, p3, p4, Pc @ B.relic_cm(kind, s, m, th, 0.0)[2], c, M,
+                                              Gam) for th in (0.0, np.pi))
+                for th_s, ph_s in [(0.4, 1.1), (2.5, -0.3), (1.6, 2.0)]:
+                    w2 = B.relic_cm(kind, s, m, th_s, ph_s)[2]
+                    pol = np.mean([B.dirac_amp2(proc, p1, p2, *B.finals_cm(p1, p2, cth, f, mf), w2, c, M, Gam)
+                                   for f in 2 * np.pi * np.arange(8) / 8])
+                    wl = (1 + np.cos(th_s)) / 2 if kind == "nu" else (1 - np.cos(th_s)) / 2
+                    worst = max(worst, abs(pol - wl * T["L"] - (1 - wl) * T["R"]) / (T["L"] + T["R"]) / (m * m / s))
+                # the massless relic of each chirality, along -z: helicity -1/2 for a left-chiral nu, +1/2 for a nubar
+                rs = np.sqrt(s)
+                q1, q2 = np.array([rs / 2, 0, 0, rs / 2]), np.array([rs / 2, 0, 0, -rs / 2])
+                hl = -0.5 if kind == "nu" else 0.5
+                sp = B.u if kind == "nu" else B.v
+                for chi, hh in (("L", hl), ("R", -hl)):
+                    ml = B.dirac_amp2(proc, q1, q2, p3, p4, sp(q2, hh), c, M, Gam)
+                    worst_massless = max(worst_massless, abs(T[chi] - ml) / (T["L"] + T["R"]) / (m * m / s))
+                if proc.startswith("V") or proc == "S_phiphi":
+                    assert T["R"] <= 1e-12 * T["L"]
+    assert worst < 20.0
+    assert worst_massless < 20.0
+
+
+def test_relic_polarization_along_the_beam():
+    """A relic of helicity -1/2 and momentum p at angle theta to the beam, in its rest frame (the pure boost along its
+    momentum keeps the spin direction): its spin along the beam is pi = (E sigma - m^2) / (p sigma), sigma =
+    E - p cos(theta) (dp_si's chiral shares (1 +- pi)/2); averaged over directions with the flux factor sigma / E,
+    pi gives the speed v."""
+    from scipy import integrate
+    m = 0.05
+    for p in (1e-3, 0.03, 0.4):
+        E = np.hypot(p, m)
+        for cth in (-0.9, -0.2, 0.5, 0.97):
+            n = np.array([np.sqrt(1 - cth * cth), 0.0, cth])
+            b = p * n / E                                   # the relic's velocity: boost to its rest frame
+            g = E / m
+            beam = np.array([1.0, 0.0, 0.0, 1.0])          # the incident neutrino along +z
+            bp = b @ beam[1:]
+            q = beam[1:] + ((g - 1.0) * bp / (b @ b) - g * beam[0]) * b
+            spin = -n                                      # helicity -1/2: the spin against the momentum
+            sig = E - p * cth
+            assert abs(spin @ q / np.linalg.norm(q) - (E * sig - m * m) / (p * sig)) < 1e-12
+        avg = integrate.quad(lambda c: (E - p * c) / E * (E * (E - p * c) - m * m) / (p * (E - p * c)), -1, 1)[0] / 2
+        assert abs(avg - p / E) < 1e-12
+
+
+def test_bruteforce_scalar_dirac_by_relic_chirality():
+    """dirac_scalar_chiral_tensors: the Dirac scalar's visible and sterile secondaries on a relic's left-chiral (nu of
+    helicity -1/2, nubar of +1/2) and right-chiral components, each at unit weight, equal the brute force restricted to
+    that component (CP-averaged); an incident nu_R on one component gives the nu_L's on the other with visibility
+    swapped (parity); the mean of the two is dirac_scalar_tensors."""
+    import amplitudes_bruteforce as B
+    rng = np.random.default_rng(9)
+    M = 1.0
+    A = rng.normal(size=(3, 3)) + 1j * rng.normal(size=(3, 3))
+    HS = (-0.5, 0.5)
+
+    def bf(s, x, Gam, h, a, r, chi, h1=-0.5):
+        vis, inv = np.zeros(3), np.zeros(3)
+        h2nu = -0.5 if chi == "L" else 0.5
+        for k in range(3):
+            for l in range(3):
+                for h3 in HS:
+                    for h4 in HS:
+                        d = abs(B.dirac_nunu(s, 2 * x - 1, M, h, a, r, k, l, h1, h2nu, h3, h4)[0]) ** 2 / (16 * np.pi * s)
+                        (vis if B.visible("nu", h3) else inv)[k] += d
+                        for xx, sel, kind, hh, idx in ((2 * x - 1, 0, "nu", h3, k), (1 - 2 * x, 1, "nubar", h4, l)):
+                            d = abs(B.dirac_nunubar(s, xx, M, Gam, h, a, r, k, l, h1, -h2nu, h3, h4)[0]) ** 2 / (
+                                16 * np.pi * s)
+                            (vis if B.visible(kind, hh) else inv)[idx] += d
+        return vis, inv
+
+    def closed(Tv, Ti, s, x, Gam, a, r):
+        M2 = M * M
+        mu = M2 / s
+        bw = (s - M2) ** 2 + M2 * Gam ** 2
+        P = [1.0, (1 - x) ** 2 / ((1 - x) + mu) ** 2, x ** 2 / (x + mu) ** 2, (1 - x) / ((1 - x) + mu),
+             x * (1 - x) / ((x + mu) * (1 - x + mu)), x / (x + mu)]
+        kin = [s / bw, 1 / s, 1 / s, (s - M2) / bw, 1 / s, (s - M2) / bw]
+        return tuple(np.array([sum(T[q, a, r, c_] * kin[q] * P[q] for q in range(6)) for c_ in range(3)])
+                     for T in (Tv, Ti))
+
+    for h in (0.3 * (A.real + A.real.T), 0.3 * (A + A.conj().T)):
+        Gam = np.sum(abs(h) ** 2) * M / (8 * np.pi)
+        Lv, Li, Rv, Ri, _ = si.dirac_scalar_chiral_tensors(h)
+        Cv, Ci, _ = si.dirac_scalar_tensors(h)
+        assert np.array_equal((Lv + Rv) / 2, Cv) and np.array_equal((Li + Ri) / 2, Ci)
+        for s in [0.5, 1.03, 6.0]:
+            for x in [0.13, 0.62]:
+                for (a, r) in [(0, 0), (1, 2)]:
+                    for chi, (Tv, Ti) in (("L", (Lv, Li)), ("R", (Rv, Ri))):
+                        v1, i1 = bf(s, x, Gam, h, a, r, chi)
+                        v2, i2 = bf(s, x, Gam, h.conj(), a, r, chi)
+                        vm, im = closed(Tv, Ti, s, x, Gam, a, r)
+                        sc = max(abs(v1).max(), abs(i1).max())
+                        assert np.max(np.abs(0.5 * (v1 + v2) - vm)) < 1e-13 * sc
+                        assert np.max(np.abs(0.5 * (i1 + i2) - im)) < 1e-13 * sc
+                        w1, j1 = bf(s, x, Gam, h, a, r, "R" if chi == "L" else "L", h1=0.5)
+                        w2, j2 = bf(s, x, Gam, h.conj(), a, r, "R" if chi == "L" else "L", h1=0.5)
+                        assert np.max(np.abs(0.5 * (w1 + w2) - im)) < 1e-13 * sc
+                        assert np.max(np.abs(0.5 * (j1 + j2) - vm)) < 1e-13 * sc
+
+
 # =============================================================================
 # Dirac neutrinos and the vector mediator in the transport
 # =============================================================================

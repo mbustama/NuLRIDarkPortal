@@ -499,6 +499,34 @@ def dirac_scalar_tensors(h, channels="full"):
     return np.ascontiguousarray(Cv), np.ascontiguousarray(Ci), G2
 
 
+def dirac_scalar_chiral_tensors(h, channels="full"):
+    """dirac_scalar_tensors split by the relic component the incident visible nu_a meets (2026-10-21; derived from the
+    helicity structure and checked against the brute force, tests/test_si.py): (Lv, Li, Rv, Ri, G2), the visible and
+    sterile secondaries on a relic's left-chiral component (a nu of helicity -1/2, a nubar of +1/2: the weakly
+    interacting ones) and on its right-chiral one, each at unit weight; dirac_scalar_tensors is their mean (a relic
+    at rest presents both halves). Every scalar vertex flips chirality, so with the final neutrinos massless each
+    final helicity configuration picks one component: the left-chiral one takes part in nu nu -> nu nu through t and
+    u together (both final neutrinos sterile: the interference P5), in nu nubar -> nu nubar through t alone (both
+    sterile) and in double-scalar production; the right-chiral one in nu nu -> nu nu through t or u apart (the
+    relic's partner visible) and in nu nubar -> nu nubar through s and t (their interference P4, P6; the recoil
+    visible). The incident's own daughter (P2) is sterile on either. An incident sterile neutrino on one component
+    gives the visible one's secondaries on the other with visibility swapped (parity; checked)."""
+    Cv, Ci, G2 = dirac_scalar_tensors(h, channels)
+    Lv, Li, Rv, Ri = (np.zeros_like(Cv) for _ in range(4))
+    Li[1] = Ci[1]
+    Ri[1] = Ci[1]
+    Li[2] = 2.0 * Ci[2]
+    Rv[2] = 2.0 * Cv[2]
+    Li[4] = 2.0 * Ci[4]
+    Lv[6] = 2.0 * Cv[6]
+    Li[6] = 2.0 * Ci[6]
+    Rv[0] = 2.0 * Cv[0]
+    Ri[0] = 2.0 * Ci[0]
+    Ri[3] = 2.0 * Ci[3]
+    Rv[5] = 2.0 * Cv[5]
+    return Lv, Li, Rv, Ri, G2
+
+
 # The vector's ten regeneration profiles, in the energy fraction of the secondary itself
 # (mu = M^2/s; x: the neutrino of the incident line or of the nu nubar s channel, y: the
 # antineutrino or the recoiling relic):
@@ -1572,60 +1600,66 @@ def _si_sweep(F, E, dE, S0, J, Nq, Lq, Dq, jt, w, qe, Ctau, Creg, tabB, tabO, no
 
 @njit(cache=True)
 def _phi_functions(Mx):
-    """(e^M, phi1(M), phi2(M)) of a 3 x 3 matrix M, phi1 = sum M^k/(k+1)!, phi2 = sum M^k/(k+2)!, from the
-    exponential of the augmented 9 x 9 matrix [[M, I, 0], [0, 0, I], [0, 0, 0]] (whose first block row is
+    """(e^M, phi1(M), phi2(M)) of an n x n matrix M, phi1 = sum M^k/(k+1)!, phi2 = sum M^k/(k+2)!, from the
+    exponential of the augmented 3n x 3n matrix [[M, I, 0], [0, 0, I], [0, 0, 0]] (whose first block row is
     [e^M, phi1, phi2])."""
-    A = np.zeros((9, 9))
-    for c in range(3):
-        for a in range(3):
+    n = Mx.shape[0]
+    A = np.zeros((3 * n, 3 * n))
+    for c in range(n):
+        for a in range(n):
             A[c, a] = Mx[c, a]
-        A[c, 3 + c] = 1.0
-        A[3 + c, 6 + c] = 1.0
+        A[c, n + c] = 1.0
+        A[n + c, 2 * n + c] = 1.0
     Ex = _expm_small(A)
-    return (np.ascontiguousarray(Ex[0:3, 0:3]), np.ascontiguousarray(Ex[0:3, 3:6]),
-            np.ascontiguousarray(Ex[0:3, 6:9]))
+    return (np.ascontiguousarray(Ex[0:n, 0:n]), np.ascontiguousarray(Ex[0:n, n:2 * n]),
+            np.ascontiguousarray(Ex[0:n, 2 * n:3 * n]))
 
 
 @njit(cache=True)
 def _si_sweep_cols(F, E, dE, S0, J, Nq, Lq, Dq, jt, w, qe, Ctau, Creg, tabB, tabO, node, dt, reg, diag, exact_bin):
-    """_si_sweep for several sources at once (2026-10-18): F, S0 and reg are (N, 3, C), one column per source, diag
+    """_si_sweep for several sources at once (2026-10-18): F, S0 and reg are (N, n, C), one column per source, diag
     (C, 6). The collision operator of a bin does not depend on the source, so it is built once per bin for every
     column: the absorption rates, the own-bin secondaries, and (exact_bin) e^M, phi1(M) and phi2(M) of the bin's
     rate matrix M (the blocks of the 7 x 7 augmented exponential _si_sweep takes per source: F(dt) = e^M F + phi1 S dt,
     <F> = phi1 F + phi2 S dt). The secondaries pushed to the bins below go through the source-independent kernel
     K_d[a, c] = sum_r,q Wn[r, q, a, c] tabB[r, o_r + d, q] (9 numbers per child bin, then 9 products per column)
     instead of each source's 90 per child bin. Every column's arithmetic is the same whatever the other columns, so
-    a column's result does not depend on the batch it was computed in; against _si_sweep it agrees to rounding."""
+    a column's result does not depend on the batch it was computed in; against _si_sweep it agrees to rounding.
+    n transported states (F.shape[1]: the 3 mass states, or 6 for a Dirac scalar on polarized relics -- visible then
+    sterile) and nr relic slots (Nq.shape[1]: the 3 relic states, or 6 -- their left- then right-chiral shares, 2026-10-21);
+    the tensors are [q, a, r, c] over those. With n = nr = 3 the arithmetic is the earlier 3-state sweep's."""
     N = F.shape[0]
+    n = F.shape[1]
     C = F.shape[2]
+    nr = Nq.shape[1]
     P = len(jt)
     dlnE = np.log(E[1] / E[0])
-    Dm = np.zeros((3, 3))
+    Dm = np.zeros((n, n))
     for i in range(N):
-        for c in range(3):
+        for c in range(n):
             for k in range(C):
                 reg[i, c, k] = 0.0
-    tau = np.empty(3)
-    Wn = np.zeros((3, P, 3, 3))
-    Q = np.empty((3, 3))
-    e_ = np.empty(3)
-    a1_ = np.empty(3)
-    g_ = np.empty(3)
-    Am = np.empty((3, 3))
-    Ainv = np.empty((3, 3))
-    Mx = np.empty((3, 3))
-    S = np.empty((3, C))
-    R = np.empty((3, C))
-    Fnew = np.empty(3)
-    rhs = np.empty(3)
-    Kd = np.empty((3, 3))
-    active = np.zeros((3, P), dtype=np.bool_)
-    oo = np.empty(3, dtype=np.int64)
-    dm = np.empty(3, dtype=np.int64)
+    tau = np.empty(n)
+    Wn = np.zeros((nr, P, n, n))
+    Q = np.empty((n, n))
+    e_ = np.empty(n)
+    a1_ = np.empty(n)
+    g_ = np.empty(n)
+    Am = np.empty((n, n))
+    Ainv = np.empty((n, n))
+    Mx = np.empty((n, n))
+    S = np.empty((n, C))
+    R = np.empty((n, C))
+    Fnew = np.empty(n)
+    rhs = np.empty(n)
+    Kd = np.empty((n, n))
+    active = np.zeros((nr, P), dtype=np.bool_)
+    oo = np.empty(nr, dtype=np.int64)
+    dm = np.empty(nr, dtype=np.int64)
     for j in range(N - 1, -1, -1):
-        for a in range(3):
+        for a in range(n):
             t = 0.0
-            for r in range(3):
+            for r in range(nr):
                 for q in range(P):
                     if w[q] == 0.0:
                         continue
@@ -1633,17 +1667,19 @@ def _si_sweep_cols(F, E, dE, S0, J, Nq, Lq, Dq, jt, w, qe, Ctau, Creg, tabB, tab
                     if Jv == 0.0:
                         continue
                     if qe[q] != 0:
-                        for c in range(3):
+                        for c in range(n):
                             t += w[q] * Ctau[q, a, r, c] * Jv * (Lq[j, r, q] if c == a else Nq[j, r, q])
                     else:
-                        sc = Ctau[q, a, r, 0] + Ctau[q, a, r, 1] + Ctau[q, a, r, 2]
+                        sc = Ctau[q, a, r, 0]
+                        for c in range(1, n):
+                            sc += Ctau[q, a, r, c]
                         t += w[q] * sc * Jv * Nq[j, r, q]
             tau[a] = t
         drift = False
-        for a in range(3):
-            for c in range(3):
+        for a in range(n):
+            for c in range(n):
                 dd = 0.0
-                for r in range(3):
+                for r in range(nr):
                     for q in range(P):
                         if qe[q] != 0:
                             dd += w[q] * Creg[q, a, r, c] * J[j, r, jt[q]] * Dq[j, r, q]
@@ -1651,89 +1687,95 @@ def _si_sweep_cols(F, E, dE, S0, J, Nq, Lq, Dq, jt, w, qe, Ctau, Creg, tabB, tab
                 if dd > 0.0:
                     drift = True
                     tau[a] += Dm[a, c]
-        for r in range(3):
+        for r in range(nr):
             for q in range(P):
                 Jv = J[j, r, jt[q]]
                 act = False
-                for a in range(3):
-                    for c in range(3):
+                for a in range(n):
+                    for c in range(n):
                         v = Creg[q, a, r, c] * Jv / tau[a] if tau[a] != 0.0 else 0.0
                         Wn[r, q, a, c] = v
                         if v != 0.0:
                             act = True
                 active[r, q] = act
-        for c in range(3):
-            for a in range(3):
+        for c in range(n):
+            for a in range(n):
                 Q[c, a] = 0.0
-        for r in range(3):
+        for r in range(nr):
             o = tabO[r, node[j, r]]
             for q in range(P):
                 b0 = tabB[r, o, q]
-                for a in range(3):
-                    for c in range(3):
+                for a in range(n):
+                    for c in range(n):
                         if qe[q] != 0 and c == a:
                             continue
                         Q[c, a] += Wn[r, q, a, c] * b0
         for k in range(C):
-            for a in range(3):
+            for a in range(n):
                 S[a, k] = S0[j, a, k] + reg[j, a, k]
         if exact_bin:
-            for c in range(3):
-                for a in range(3):
+            for c in range(n):
+                for a in range(n):
                     Ga = max(tau[a], 0.0)
                     Mx[c, a] = -(Ga if c == a else 0.0) + Q[c, a] * Ga
             Em, P1, P2 = _phi_functions(Mx)
             for k in range(C):
-                for a in range(3):
+                for a in range(n):
                     avg = 0.0
-                    for b in range(3):
+                    for b in range(n):
                         avg += P1[a, b] * F[j, b, k] + P2[a, b] * S[b, k] * dt
                     R[a, k] = max(tau[a], 0.0) / dt * avg
-                for c in range(3):
+                for c in range(n):
                     fn = 0.0
-                    for b in range(3):
+                    for b in range(n):
                         fn += Em[c, b] * F[j, b, k] + P1[c, b] * S[b, k] * dt
                     Fnew[c] = fn
-                for c in range(3):
+                for c in range(n):
                     F[j, c, k] = Fnew[c]
                     diag[k, 5] += S0[j, c, k] * dt * dE[j]
         else:
-            for a in range(3):
+            for a in range(n):
                 e_[a], a1_[a], g_[a] = _absorption_factors(max(tau[a], 0.0) / dt, dt)
-            for c in range(3):
-                for a in range(3):
+            for c in range(n):
+                for a in range(n):
                     Am[c, a] = (dt if c == a else 0.0) - g_[c] * Q[c, a]
-            c00 = Am[1, 1] * Am[2, 2] - Am[1, 2] * Am[2, 1]
-            c01 = Am[1, 2] * Am[2, 0] - Am[1, 0] * Am[2, 2]
-            c02 = Am[1, 0] * Am[2, 1] - Am[1, 1] * Am[2, 0]
-            det = Am[0, 0] * c00 + Am[0, 1] * c01 + Am[0, 2] * c02
-            Ainv[0, 0], Ainv[1, 0], Ainv[2, 0] = c00 / det, c01 / det, c02 / det
-            Ainv[0, 1] = (Am[0, 2] * Am[2, 1] - Am[0, 1] * Am[2, 2]) / det
-            Ainv[1, 1] = (Am[0, 0] * Am[2, 2] - Am[0, 2] * Am[2, 0]) / det
-            Ainv[2, 1] = (Am[0, 1] * Am[2, 0] - Am[0, 0] * Am[2, 1]) / det
-            Ainv[0, 2] = (Am[0, 1] * Am[1, 2] - Am[0, 2] * Am[1, 1]) / det
-            Ainv[1, 2] = (Am[0, 2] * Am[1, 0] - Am[0, 0] * Am[1, 2]) / det
-            Ainv[2, 2] = (Am[0, 0] * Am[1, 1] - Am[0, 1] * Am[1, 0]) / det
+            if n == 3:
+                c00 = Am[1, 1] * Am[2, 2] - Am[1, 2] * Am[2, 1]
+                c01 = Am[1, 2] * Am[2, 0] - Am[1, 0] * Am[2, 2]
+                c02 = Am[1, 0] * Am[2, 1] - Am[1, 1] * Am[2, 0]
+                det = Am[0, 0] * c00 + Am[0, 1] * c01 + Am[0, 2] * c02
+                Ainv[0, 0], Ainv[1, 0], Ainv[2, 0] = c00 / det, c01 / det, c02 / det
+                Ainv[0, 1] = (Am[0, 2] * Am[2, 1] - Am[0, 1] * Am[2, 2]) / det
+                Ainv[1, 1] = (Am[0, 0] * Am[2, 2] - Am[0, 2] * Am[2, 0]) / det
+                Ainv[2, 1] = (Am[0, 1] * Am[2, 0] - Am[0, 0] * Am[2, 1]) / det
+                Ainv[0, 2] = (Am[0, 1] * Am[1, 2] - Am[0, 2] * Am[1, 1]) / det
+                Ainv[1, 2] = (Am[0, 2] * Am[1, 0] - Am[0, 0] * Am[1, 2]) / det
+                Ainv[2, 2] = (Am[0, 0] * Am[1, 1] - Am[0, 1] * Am[1, 0]) / det
+            else:
+                Ainv[:, :] = np.linalg.inv(Am)
             for k in range(C):
-                for a in range(3):
+                for a in range(n):
                     rhs[a] = F[j, a, k] * (1.0 - e_[a]) + S[a, k] * g_[a]
-                for a in range(3):
-                    R[a, k] = Ainv[a, 0] * rhs[0] + Ainv[a, 1] * rhs[1] + Ainv[a, 2] * rhs[2]
-                for c in range(3):
+                for a in range(n):
+                    acc = Ainv[a, 0] * rhs[0]
+                    for b in range(1, n):
+                        acc += Ainv[a, b] * rhs[b]
+                    R[a, k] = acc
+                for c in range(n):
                     sc = S[c, k]
-                    for a in range(3):
+                    for a in range(n):
                         sc += Q[c, a] * R[a, k]
                     F[j, c, k] = F[j, c, k] * e_[c] + sc * a1_[c]
                     diag[k, 5] += S0[j, c, k] * dt * dE[j]
         for k in range(C):
             own = 0.0
-            for c in range(3):
-                for a in range(3):
+            for c in range(n):
+                for a in range(n):
                     own += Q[c, a] * R[a, k]
             if drift:
-                for c in range(3):
+                for c in range(n):
                     mv = 0.0
-                    for a in range(3):
+                    for a in range(n):
                         if tau[a] > 0.0:
                             mv += R[a, k] * Dm[a, c] / tau[a]
                     mv *= dE[j]
@@ -1742,34 +1784,36 @@ def _si_sweep_cols(F, E, dE, S0, J, Nq, Lq, Dq, jt, w, qe, Ctau, Creg, tabB, tab
                         reg[j - 1, c, k] += mv / dE[j - 1]
                         diag[k, 1] += mv * dt
                         diag[k, 4] += mv * dt * E[j - 1]
-            absorbed = R[0, k] + R[1, k] + R[2, k]
+            absorbed = R[0, k]
+            for a in range(1, n):
+                absorbed += R[a, k]
             diag[k, 0] += absorbed * dt * dE[j]
             diag[k, 3] += absorbed * dt * dE[j] * E[j]
             diag[k, 1] += own * dt * dE[j]
             diag[k, 4] += own * dt * dE[j] * E[j]
             expected = 0.0
-            for r in range(3):
+            for r in range(nr):
                 for q in range(P):
                     if not active[r, q]:
                         continue
-                    for a in range(3):
-                        for c in range(3):
+                    for a in range(n):
+                        for c in range(n):
                             expected += R[a, k] * Wn[r, q, a, c] * (Lq[j, r, q] if (qe[q] != 0 and c == a)
                                                                     else Nq[j, r, q])
             diag[k, 2] += expected * dt * dE[j]
         # the secondaries below the bin, through the source-independent kernel
         dmax_all = 0
-        for r in range(3):
+        for r in range(nr):
             oo[r] = tabO[r, node[j, r]]
             nrow = tabO[r, node[j, r] + 1] - oo[r]
             dm[r] = min(j, nrow - 1)
             dmax_all = max(dmax_all, dm[r])
         for d in range(1, dmax_all + 1):
             i = j - d
-            for a in range(3):
-                for c in range(3):
+            for a in range(n):
+                for c in range(n):
                     Kd[a, c] = 0.0
-            for r in range(3):
+            for r in range(nr):
                 if d > dm[r]:
                     continue
                 row = oo[r] + d
@@ -1779,12 +1823,15 @@ def _si_sweep_cols(F, E, dE, S0, J, Nq, Lq, Dq, jt, w, qe, Ctau, Creg, tabB, tab
                     tb = tabB[r, row, q]
                     if tb == 0.0:
                         continue
-                    for a in range(3):
-                        for c in range(3):
+                    for a in range(n):
+                        for c in range(n):
                             Kd[a, c] += Wn[r, q, a, c] * tb
             for k in range(C):
-                for c in range(3):
-                    acc = (R[0, k] * Kd[0, c] + R[1, k] * Kd[1, c] + R[2, k] * Kd[2, c]) * dE[j]
+                for c in range(n):
+                    acc = R[0, k] * Kd[0, c]
+                    for a in range(1, n):
+                        acc += R[a, k] * Kd[a, c]
+                    acc *= dE[j]
                     reg[i, c, k] += acc / dE[i]
                     diag[k, 1] += acc * dt
                     diag[k, 4] += acc * dt * E[i]
@@ -1917,29 +1964,60 @@ def _profile_tables(prof, M, masses, E0, N, dlnE, q, K, top_full, L_top_mid, n_u
 
 
 def model_spec(g_mass, mediator="scalar", majorana=True, phiphi="coherent", channels="full",
-               dirac_sterile="track"):
-    """The transport's description of a model: dict(prof, jt, w, qe, Ctau, runs, G2) where runs is a
-    list of (Creg, weight), the visible flux being sum weight * F(run). Scalar and Majorana: one run;
-    scalar and Dirac: 'track' -> runs (Cvis + Cinv, 1/2) and (Cvis - Cinv, 1/2) (sum and difference
-    of visible and sterile, exact by parity), 'drop' -> (Cvis, 1) as 2107.13568; vector: one run."""
+               dirac_sterile="track", polarized=False):
+    """The transport's description of a model: dict(prof, jt, w, qe, Ctau, runs, G2, pols, n) where runs is a
+    list of (Creg, weight), the visible flux being sum weight * F(run) over the first three states. Scalar and
+    Majorana: one run; scalar and Dirac: 'track' -> runs (Cvis + Cinv, 1/2) and (Cvis - Cinv, 1/2) (sum and difference
+    of visible and sterile, exact by parity), 'drop' -> (Cvis, 1) as 2107.13568; vector: one run. pols: the relics'
+    weightings, one block of three relic slots each (0: rho); n: the states transported.
+
+    polarized (Dirac, thermal="full", 2026-10-21): a moving Dirac relic keeps its helicity, so the beam meets its
+    left- and right-chiral components in shares (1 +- pi)/2 that depend on its speed and direction (notes; tests:
+    after the average over the final azimuth the polarized relic is exactly that mixture of massless chiral relics, to
+    m^2/s). The products come weighted by rho_L (relic slots 0-2) and rho_R (3-5). Vector: Majorana's tensors on
+    rho_L alone (only the left-chiral component couples; at rest rho_L = rho/2, the earlier kappa). Scalar: the chiral
+    tensors (dirac_scalar_chiral_tensors) on both; 'track' transports the visible (states 0-2) and the sterile (3-5)
+    neutrinos together -- a polarized background breaks the parity that ran them as sum and difference -- and 'drop'
+    the visible ones."""
     med = str(mediator).strip().lower()
+    pol = bool(polarized) and not majorana
     if med == "scalar":
         if majorana:
             _, C, G2 = coupling_tensors(g_mass, phiphi, channels)
-            return dict(prof=0, jt=SCALAR_JT, w=SCALAR_W, qe=SCALAR_QE, Ctau=C, runs=[(C, 1.0)], G2=G2)
+            return dict(prof=0, jt=SCALAR_JT, w=SCALAR_W, qe=SCALAR_QE, Ctau=C, runs=[(C, 1.0)], G2=G2, pols=(0,),
+                        n=3)
+        mode = str(dirac_sterile).strip().lower()
+        if mode not in ("track", "drop"):
+            raise ValueError(f"secret interactions: dirac_sterile must be 'track' or 'drop', got {dirac_sterile!r}")
+        if pol:
+            Lv, Li, Rv, Ri, G2 = dirac_scalar_chiral_tensors(g_mass, channels)
+            if mode == "track":
+                C = np.zeros((N_PROFILES, 6, 6, 6))
+                for inc, (onL, onR) in enumerate((((Lv, Li), (Rv, Ri)), ((Ri, Rv), (Li, Lv)))):
+                    # a visible incident (inc 0) on the left share (relic slots 0-2) and the right one (3-5): its
+                    # visible (states 0-2) and sterile (3-5) secondaries; a sterile one (inc 1): the visible one's on
+                    # the other share, visibility swapped
+                    a = slice(3 * inc, 3 * inc + 3)
+                    C[:, a, 0:3, 0:3], C[:, a, 0:3, 3:6] = onL
+                    C[:, a, 3:6, 0:3], C[:, a, 3:6, 3:6] = onR
+                C = np.ascontiguousarray(C)
+                return dict(prof=0, jt=SCALAR_JT, w=SCALAR_W, qe=SCALAR_QE, Ctau=C, runs=[(C, 1.0)], G2=G2,
+                            pols=(1, -1), n=6)
+            Creg = np.ascontiguousarray(np.concatenate([Lv, Rv], axis=2))
+            Ctau = np.ascontiguousarray(np.concatenate([Lv + Li, Rv + Ri], axis=2))
+            return dict(prof=0, jt=SCALAR_JT, w=SCALAR_W, qe=SCALAR_QE, Ctau=Ctau, runs=[(Creg, 1.0)], G2=G2,
+                        pols=(1, -1), n=3)
         Cv, Ci, G2 = dirac_scalar_tensors(g_mass, channels)
         Ctau = np.ascontiguousarray(Cv + Ci)
-        mode = str(dirac_sterile).strip().lower()
         if mode == "track":
             runs = [(Ctau, 0.5), (np.ascontiguousarray(Cv - Ci), 0.5)]
-        elif mode == "drop":
-            runs = [(Cv, 1.0)]
         else:
-            raise ValueError(f"secret interactions: dirac_sterile must be 'track' or 'drop', got {dirac_sterile!r}")
-        return dict(prof=0, jt=SCALAR_JT, w=SCALAR_W, qe=SCALAR_QE, Ctau=Ctau, runs=runs, G2=G2)
+            runs = [(Cv, 1.0)]
+        return dict(prof=0, jt=SCALAR_JT, w=SCALAR_W, qe=SCALAR_QE, Ctau=Ctau, runs=runs, G2=G2, pols=(0,), n=3)
     if med == "vector":
-        C, G2 = vector_tensors(g_mass, majorana, channels)
-        return dict(prof=1, jt=VECTOR_JT, w=VECTOR_W, qe=VECTOR_QE, Ctau=C, runs=[(C, 1.0)], G2=G2)
+        C, G2 = vector_tensors(g_mass, majorana or pol, channels)
+        return dict(prof=1, jt=VECTOR_JT, w=VECTOR_W, qe=VECTOR_QE, Ctau=C, runs=[(C, 1.0)], G2=G2,
+                    pols=(1,) if pol else (0,), n=3)
     raise ValueError(f"secret interactions: mediator must be 'scalar' or 'vector', got {mediator!r}")
 
 
@@ -1956,10 +2034,13 @@ def model_spec(g_mass, mediator="scalar", majorana=True, phiphi="coherent", chan
 # X(1) <(s - M^2)/BW> + lattice[(s - M^2)/BW (X(mu) - X(1))] (the s channel's profiles do not depend on mu).
 
 @njit(cache=True)
-def _sigma_density(sig, m, T):
+def _sigma_density(sig, m, T, pol=0):
     """rho(sigma) of a relic of mass m at temperature T, normalized (tools/thermal_reference.rho):
     sigma / (3 zeta(3) T^3) int_{p_X}^inf p f(p/T) / E_p dp, X = max(sigma, m^2/sigma), p_X = (X^2 - m^2) / 2X; the
-    inner integral by Gauss-Legendre on panels split at 2m, 20m, 200m and 2000m, then up to p_X + 4T and p_X + 44T."""
+    inner integral by Gauss-Legendre on panels split at 2m, 20m, 200m and 2000m, then up to p_X + 4T and p_X + 44T.
+    pol +1 (-1): the share of a Dirac relic's left- (right-) chiral component, rho_L (rho_R) = rho (1 +- pi) / 2 with
+    pi = (E_p sigma - m^2) / (p sigma) (dp_thermal.relic_state_rates_analytic):
+    rho_L = 1 / (3 zeta(3) T^3) int f (E_p + p) (sigma - E_p + p) / 2E_p dp, rho_R the same with p -> -p."""
     X = max(sig, m * m / sig)
     pX = (X * X - m * m) / (2.0 * X)
     edges = np.empty(7)
@@ -1983,16 +2064,29 @@ def _sigma_density(sig, m, T):
             p = a + h * _GL16_X[i]
             x = p / T
             if x < 700.0:
-                acc += h * _GL16_W[i] * p / (np.exp(x) + 1.0) / np.sqrt(p * p + m * m)
+                if pol == 0:
+                    acc += h * _GL16_W[i] * p / (np.exp(x) + 1.0) / np.sqrt(p * p + m * m)
+                else:
+                    Ep = np.sqrt(p * p + m * m)
+                    lo = m * m / (Ep + p)                  # E_p - p without cancellation
+                    if pol > 0:
+                        y = (Ep + p) * (sig - lo)
+                    else:
+                        y = lo * (Ep + p - sig)
+                    acc += h * _GL16_W[i] * max(y, 0.0) / (2.0 * Ep) / (np.exp(x) + 1.0)
+    if pol != 0:
+        return acc / (3.0 * _ZETA3 * T * T * T)
     return sig * acc / (3.0 * _ZETA3 * T * T * T)
 
 
 @njit(cache=True)
-def _thermal_weights(m, T, c0, Delta, smax, sdiv, thr, W):
+def _thermal_weights(m, T, c0, Delta, smax, sdiv, thr, W, pol=0):
     """One relic state and step: a parent at lattice coordinate nu = j q + c0 + ln(sigma) / Delta has the products
     sum_w W[w] G[j q + i0 + s w], G interpolated cubically (4-point Lagrange) between every s-th node and integrated
     against rho over its support (rho sigma above thr times its maximum); the stride s, 1 to smax nodes, is the
-    support over sdiv. Fills W; returns (i0, s, number of weights), the number -1 if W is too short."""
+    support over sdiv. Fills W; returns (i0, s, number of weights), the number -1 if W is too short. pol +-1: the
+    weights of a Dirac relic's chiral shares (_sigma_density) on rho's own support, so i0, s and the number are
+    those of pol 0."""
     pm = 40.0 * T
     epm = np.sqrt(pm * pm + m * m)
     lo = np.log(m * m / (epm + pm))
@@ -2022,6 +2116,7 @@ def _thermal_weights(m, T, c0, Delta, smax, sdiv, thr, W):
     for w in range(nw):
         W[w] = 0.0
     hmax = min(1.0, (a_hi - a_lo) / 12.0) / 8.0          # sub-panels: an eighth of rho's scale
+    lm = np.log(m)
     for k in range(k_lo, k_hi + 1):
         x0 = max(a_lo, (i0 + s * k - c0) * Delta)
         x1 = min(a_hi, (i0 + s * (k + 1) - c0) * Delta)
@@ -2030,41 +2125,60 @@ def _thermal_weights(m, T, c0, Delta, smax, sdiv, thr, W):
         nsub = int(np.ceil((x1 - x0) / hmax))
         h = (x1 - x0) / nsub
         for u in range(nsub):
+            ua = x0 + h * u
+            ub = x0 + h * (u + 1)
+            if pol != 0 and ua < lm < ub:
+                # split at sigma = m (2026-10-21): the chiral shares' densities have a kink there (rho a weaker one;
+                # pol 0 unsplit, its arithmetic unchanged, while the dark-portal campaign that uses it runs)
+                for sgm in range(2):
+                    pa = ua if sgm == 0 else lm
+                    hh = (lm - ua) if sgm == 0 else (ub - lm)
+                    for g in range(8):
+                        x = pa + hh * _GL8_X[g]
+                        sg = np.exp(x)
+                        _lagrange_add(W, k, (c0 + x / Delta - i0) / s - k,
+                                      hh * _GL8_W[g] * sg * _sigma_density(sg, m, T, pol))
+                continue
             for g in range(8):
                 x = x0 + h * (u + _GL8_X[g])
                 sg = np.exp(x)
-                wt = h * _GL8_W[g] * sg * _sigma_density(sg, m, T)
-                f = (c0 + x / Delta - i0) / s - k
-                W[k - 1] += wt * (-f * (f - 1.0) * (f - 2.0) / 6.0)
-                W[k] += wt * ((f + 1.0) * (f - 1.0) * (f - 2.0) / 2.0)
-                W[k + 1] += wt * (-(f + 1.0) * f * (f - 2.0) / 2.0)
-                W[k + 2] += wt * ((f + 1.0) * f * (f - 1.0) / 6.0)
+                _lagrange_add(W, k, (c0 + x / Delta - i0) / s - k, h * _GL8_W[g] * sg * _sigma_density(sg, m, T, pol))
     return i0, s, nw
 
 
+@njit(cache=True)
+def _lagrange_add(W, k, f, wt):
+    """W[k-1..k+2] += wt times the cubic Lagrange basis at f (nodes -1, 0, 1, 2)."""
+    W[k - 1] += wt * (-f * (f - 1.0) * (f - 2.0) / 6.0)
+    W[k] += wt * ((f + 1.0) * (f - 1.0) * (f - 2.0) / 2.0)
+    W[k + 1] += wt * (-(f + 1.0) * f * (f - 2.0) / 2.0)
+    W[k + 2] += wt * ((f + 1.0) * f * (f - 1.0) / 6.0)
+
+
 @njit(cache=True, parallel=True)
-def _thermal_weights_all(masses, Tm, c0, Delta, smax, sdiv, thr, live, W, i0, st, nw):
+def _thermal_weights_all(masses, Tm, c0, Delta, smax, sdiv, thr, live, W, i0, st, nw, pol=0):
     """_thermal_weights for every step m (temperatures Tm[m, r], offsets c0[m]) and live relic state r."""
     for t in prange(Tm.shape[0] * 3):
         m = t // 3
         r = t % 3
         if live[r]:
-            a, b, c = _thermal_weights(masses[r], Tm[m, r], c0[m], Delta, smax, sdiv, thr, W[m, r])
+            a, b, c = _thermal_weights(masses[r], Tm[m, r], c0[m], Delta, smax, sdiv, thr, W[m, r], pol)
             i0[m, r] = a
             st[m, r] = b
             nw[m, r] = c
 
 
 @njit(cache=True, parallel=True)
-def _resonance_grid(lna, zp1, M, sumG_eq, masses, T_nu0, eta, tglx, tglw, tglx10, tglw10, tfd16, f0, f1):
+def _resonance_grid(lna, zp1, M, sumG_eq, masses, T_nu0, eta, tglx, tglw, tglx10, tglw10, tfd16, f0, f1, pol=0):
     """The exact thermal averages of s/BW and (s - M^2)/BW over 2 pi (dp_thermal.relic_state_rates_analytic, modes 0
-    and 1, relics at 1+z = zp1) per relic state, at s-scale a = 2 E (1+z) = exp(lna[g])."""
+    and 1, relics at 1+z = zp1; pol: a Dirac relic's chiral share) per relic state, at s-scale a = 2 E (1+z) =
+    exp(lna[g])."""
     for g in prange(len(lna)):
         E0 = np.exp(lna[g]) / (2.0 * zp1)
         st0 = relic_state_rates_analytic(E0, zp1 - 1.0, sumG_eq, M, masses, T_nu0, eta, tglx, tglw, tglx10, tglw10,
-                                         tfd16, True, 0, True)
+                                         tfd16, True, 0, True, pol)
         st1 = relic_state_rates_analytic(E0, zp1 - 1.0, sumG_eq, M, masses, T_nu0, eta, tglx, tglw, tglx10, tglw10,
-                                         tfd16, True, 1, True)
+                                         tfd16, True, 1, True, pol)
         for r in range(3):
             f0[g, r] = st0[r] / (2.0 * np.pi)
             f1[g, r] = st1[r] / (2.0 * np.pi)
@@ -2232,10 +2346,13 @@ def _thermal_table(dlnE, Delta, N, n_u, n_lo, n_hi, prof=1):
     return out
 
 
-def _thermal_terms(E, L_edges, q, Delta, dlnE, masses, n0, T_nu0, eta, M, MG, H0, Om, OL, hbin, n_u, prof=1):
+def _thermal_terms(E, L_edges, q, Delta, dlnE, masses, n0, T_nu0, eta, M, MG, H0, Om, OL, hbin, n_u, prof=1,
+                   pols=(0,)):
     """Everything _thermal_products needs but the bins' rows: per step m the relic states' weights (W, i0, st, nw),
     the at-rest kernels on the lattice (Jn) and the exact thermal resonant kernels per bin (JT0, JT1); the lattice's
-    profile totals (Nn, Ln, Dn) and produced spectra (n_first, BT)."""
+    profile totals (Nn, Ln, Dn) and produced spectra (n_first, BT). pols: the relics' weightings (0: rho; +1, -1: a
+    Dirac relic's left- and right-chiral shares), one set of W (K, 3, 4096), JT0 and JT1 (K, N, 3) each, stacked
+    along a first axis; i0, st and nw are common to them."""
     N = len(E)
     K = len(L_edges) - 1
     M2 = M * M
@@ -2244,12 +2361,14 @@ def _thermal_terms(E, L_edges, q, Delta, dlnE, masses, n0, T_nu0, eta, M, MG, H0
     live = (masses > 0.0) & (n0 > 0.0)
     Tm = np.ascontiguousarray(T_nu0 * np.exp(L_mid)[:, None] * np.cbrt(eta)[None, :])
     c0 = (np.log(2.0 * E[0]) + L_mid - np.log(M2)) / Delta
-    W = np.zeros((K, 3, 4096))
+    npol = len(pols)
+    W = np.zeros((npol, K, 3, 4096))
     i0 = np.zeros((K, 3), dtype=np.int64)
     st = np.ones((K, 3), dtype=np.int64)
     nw = np.zeros((K, 3), dtype=np.int64)
-    _thermal_weights_all(masses, Tm, c0, Delta, THERMAL_STRIDE_MAX, THERMAL_STRIDE_DIV, THERMAL_SUPPORT, live, W, i0,
-                         st, nw)
+    for k, pl in enumerate(pols):
+        _thermal_weights_all(masses, Tm, c0, Delta, THERMAL_STRIDE_MAX, THERMAL_STRIDE_DIV, THERMAL_SUPPORT, live,
+                             W[k], i0, st, nw, int(pl))
     if np.any(nw[:, live] < 0):
         raise ValueError("thermal products: a relic's distribution is wider than the weights' storage")
     sel = np.zeros((K, 3), dtype=np.bool_)
@@ -2264,8 +2383,8 @@ def _thermal_terms(E, L_edges, q, Delta, dlnE, masses, n0, T_nu0, eta, M, MG, H0
     Jf = np.zeros((nn, 3, 4))
     Nf, Lf, Df = (np.zeros((nn, 3, P)) for _ in range(3))
     Jn = np.zeros((K, nn, 4))
-    JT0 = np.zeros((K, N, 3))
-    JT1 = np.zeros((K, N, 3))
+    JT0 = np.zeros((npol, K, N, 3))
+    JT1 = np.zeros((npol, K, N, 3))
     sumG_eq = 12.0 * np.pi * MG / M2
     for m in range(K):
         zlo, zhi, zmid = np.exp(L_edges[m]), np.exp(L_edges[m + 1]), np.exp(L_mid[m])
@@ -2289,13 +2408,15 @@ def _thermal_terms(E, L_edges, q, Delta, dlnE, masses, n0, T_nu0, eta, M, MG, H0
                 pts.append(np.arange(max(cen - np.log1p(10.0 * v), x_lo), min(cen - np.log1p(-min(10.0 * v, 0.9)), x_hi),
                                      v / 6.0))
         lna = np.unique(np.concatenate(pts))
-        f0 = np.zeros((len(lna), 3))
-        f1 = np.zeros((len(lna), 3))
-        _resonance_grid(lna, zmid, M, sumG_eq, masses, T_nu0, eta, _TGL16_X, _TGL16_W, _TGL10_X, _TGL10_W, _TFD16,
-                        f0, f1)
-        log0 = np.all(f0 > 0.0, axis=0)
-        f0[:, log0] = np.log(f0[:, log0])
-        _resonance_step(E, L_edges[m], L_edges[m + 1], L_mid[m], H0, Om, OL, lna, f0, f1, log0, JT0[m], JT1[m])
+        for k, pl in enumerate(pols):
+            f0 = np.zeros((len(lna), 3))
+            f1 = np.zeros((len(lna), 3))
+            _resonance_grid(lna, zmid, M, sumG_eq, masses, T_nu0, eta, _TGL16_X, _TGL16_W, _TGL10_X, _TGL10_W,
+                            _TFD16, f0, f1, int(pl))
+            log0 = np.all(f0 > 0.0, axis=0)
+            f0[:, log0] = np.log(f0[:, log0])
+            _resonance_step(E, L_edges[m], L_edges[m + 1], L_mid[m], H0, Om, OL, lna, f0, f1, log0, JT0[k, m],
+                            JT1[k, m])
     tasks = [_thermal_tasks(N, st[m], nw[m], n0) for m in range(K)]
     return dict(W=W, i0=i0, st=st, nw=nw, tasks=tasks, n_first=n_first, BT=BT, Nn=np.ascontiguousarray(Nf[:, 0, :]),
                 Ln=np.ascontiguousarray(Lf[:, 0, :]), Dn=np.ascontiguousarray(Df[:, 0, :]), Jn=Jn, JT0=JT0, JT1=JT1)
@@ -2343,9 +2464,10 @@ def propagate_si(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta
     only); thermal -- the s-channel terms averaged over the relics' thermal momenta where that matters
     (_thermal_resonance_terms; the dark portal's MeV regime, 2026-10-14); False keeps the relics at rest, as both
     papers and the secret-interaction planes; "full" (vector 2026-10-18, scalar 2026-10-21) averages every collision
-    term -- rates, in-bin terms and produced spectra -- over the relics' thermal momenta (_thermal_products); valid for
-    Majorana relics, unpolarized at rest and in motion (a Dirac relic keeps its helicity, so its rates depend on its
-    speed: not modelled; secret_interactions.thermal_products refuses Dirac).
+    term -- rates, in-bin terms and produced spectra -- over the relics' thermal momenta (_thermal_products):
+    Majorana relics are unpolarized at rest and in motion; a Dirac relic keeps its helicity, and the beam meets its
+    left- and right-chiral components in shares that depend on its speed and direction (Dirac 2026-10-21:
+    model_spec, polarized).
 
     Returns the (N_E, 3) mass-state fluxes at z = 0 of the visible neutrinos (both helicities), on
     E_bins; with return_diagnostics also a dict of the number and energy bookkeeping (of the first
@@ -2483,15 +2605,21 @@ def _transport_columns(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu
     M2 = M * M
     Gam = mediator_width(M, g_mass, mediator, majorana) + float(Gamma_vis)
     MG = M * Gam
-    spec = model_spec(g_mass, mediator, majorana, phiphi, channels, dirac_sterile)
+    full = thermal == "full"
+    # thermal="full" with Dirac neutrinos: the relics' chiral shares as separate relic slots (model_spec, polarized)
+    spec = model_spec(g_mass, mediator, majorana, phiphi, channels, dirac_sterile, polarized=full)
+    pols = spec["pols"]
+    n_st = spec["n"]
+    n_rel = 3 * len(pols)
     if Gamma_vis > 0.0:
         if spec["prof"] != 1:
             raise ValueError("secret interactions: a visible width is implemented for the vector only")
         # the s channel's events into visible pairs: absorbed, no secondaries. In the tensors' units the final-state
         # sum Tr(G G^dag) stands for Gamma_nu = M Tr / 24 pi, so the visible width adds 24 pi Gamma_vis / M,
-        # spread over the three secondary slots of the absorption tensor only (Creg keeps the neutrino channels)
+        # spread over the three secondary slots of the absorption tensor only (Creg keeps the neutrino channels);
+        # Dirac at rest: half (kappa), polarized: on rho_L, which carries that half
         X = 24.0 * np.pi * float(Gamma_vis) / M
-        kap = 1.0 if majorana else 0.5
+        kap = 1.0 if (majorana or pols != (0,)) else 0.5
         Ctau = spec["Ctau"].copy()
         Gm = np.asarray(g_mass, dtype=np.complex128)
         for a in range(3):
@@ -2506,7 +2634,6 @@ def _transport_columns(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu
     delta_mode = str(channels).strip().lower() == "delta"
     n0 = relic_density_per_helicity(T_nu0) * np.asarray(eta_mass, dtype=np.float64)
 
-    full = thermal == "full"
     if full and delta_mode:
         raise ValueError("secret interactions: thermal='full' is implemented for the full channels")
     if not full:
@@ -2514,9 +2641,9 @@ def _transport_columns(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu
 
     C = len(columns)
     runs = spec["runs"]
-    Fs = [np.zeros((N, 3, C)) for _ in runs]
+    Fs = [np.zeros((N, n_st, C)) for _ in runs]
     diags = [np.zeros((C, 6)) for _ in runs]
-    reg = np.zeros((N, 3, C))
+    reg = np.zeros((N, n_st, C))
     J = np.zeros((N, 3, 4))
     Nq = np.zeros((N, 3, P))
     Lq = np.zeros((N, 3, P))
@@ -2539,36 +2666,44 @@ def _transport_columns(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu
                      T_nu0, eta_arr, spec["jt"])
     if full:
         # thermal relics in every collision term (2026-10-18): the steps' products from the lattice
-        # (_thermal_products), fed to the sweep as absolute products with J = 1 and per-bin rows
-        skey = skey + "/full/%d" % n_u
+        # (_thermal_products), fed to the sweep as absolute products with J = 1 and per-bin rows; one block of relic
+        # slots per weighting (Dirac: rho_L, rho_R; 2026-10-21)
+        skey = skey + "/full/%d/%s" % (n_u, pols)
         th = _STEP_TERMS.get(skey)
         if th is None:
             th = _thermal_terms(E, L_edges, q, Delta, dlnE, masses, n0, T_nu0, eta_arr, M, MG, H0, Omega_m, Omega_L,
-                                hbin, n_u, prof)
+                                hbin, n_u, prof, pols)
             _STEP_TERMS.clear()
             _STEP_TERMS[skey] = th
         offs = np.zeros(N + 1, dtype=np.int64)
         offs[1:] = np.cumsum(jj + 1)
-        Rth = np.zeros((3, int(offs[-1]), P))
-        Oth = np.ascontiguousarray(np.tile(offs, (3, 1)))
-        node_th = np.ascontiguousarray(np.tile(jj[:, None], (1, 3)))
-        Jone = np.ones((N, 3, 4))
+        blocks = [(np.zeros((N, 3, P)), np.zeros((N, 3, P)), np.zeros((N, 3, P)), np.zeros((3, int(offs[-1]), P)))
+                  for _ in pols]
+        Oth = np.ascontiguousarray(np.tile(offs, (n_rel, 1)))
+        node_th = np.ascontiguousarray(np.tile(jj[:, None], (1, n_rel)))
+        Jone = np.ones((N, n_rel, 4))
     steps = None if full else _STEP_TERMS.get(skey)
     store = None
     if not full and steps is None and K * J.nbytes + 3 * K * Nq.nbytes <= _STEP_TERMS_MAX_BYTES:
         store = []
-    S0 = np.zeros((N, 3, C))
+    S0 = np.zeros((N, n_st, C))
     for m in range(K - 1, -1, -1):
         L_lo, L_hi = L_edges[m], L_edges[m + 1]
         for k, (P_c, p_c, w_c, phi_c, rho_c) in enumerate(columns):
             dt, T_inj = _step_time_and_injection(L_lo, L_hi, H0, Omega_m, Omega_L, p_c, rho_evol, phi_c)
-            S0[:, :, k] = np.outer(Eps[k] * (T_inj / dt), np.asarray(P_c, dtype=np.float64))
+            S0[:, :3, k] = np.outer(Eps[k] * (T_inj / dt), np.asarray(P_c, dtype=np.float64))
         if full:
             chunk = numba.set_parallel_chunksize(1)
-            _thermal_products(q, spec["jt"], th["W"][m], th["i0"][m], th["st"][m], th["nw"][m], n0, th["n_first"],
-                              th["Jn"][m], th["Nn"], th["Ln"], th["Dn"], th["BT"], th["JT0"][m], th["JT1"][m], Nq, Lq,
-                              Dq, Rth, offs, th["tasks"][m])
+            for b, (Nb, Lb, Db, Rb) in enumerate(blocks):
+                _thermal_products(q, spec["jt"], th["W"][b][m], th["i0"][m], th["st"][m], th["nw"][m], n0,
+                                  th["n_first"], th["Jn"][m], th["Nn"], th["Ln"], th["Dn"], th["BT"], th["JT0"][b][m],
+                                  th["JT1"][b][m], Nb, Lb, Db, Rb, offs, th["tasks"][m])
             numba.set_parallel_chunksize(chunk)
+            if len(blocks) == 1:
+                Nq, Lq, Dq, Rth = blocks[0]
+            else:
+                Nq, Lq, Dq = (np.ascontiguousarray(np.concatenate([bl[i] for bl in blocks], axis=1)) for i in range(3))
+                Rth = np.ascontiguousarray(np.concatenate([bl[3] for bl in blocks], axis=0))
             for k in range(len(runs)):
                 _si_sweep_cols(Fs[k], E, dE, S0, Jone, Nq, Lq, Dq, spec["jt"], spec["w"], spec["qe"], spec["Ctau"],
                                Cregs[k], Rth, Oth, node_th, dt, reg, diags[k], prof == 1)
@@ -2601,7 +2736,7 @@ def _transport_columns(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu
     F_all = sum(wt * Fk for (_, wt), Fk in zip(runs, Fs))
     outs = []
     for k in range(C):
-        F = np.ascontiguousarray(F_all[:, :, k])
+        F = np.ascontiguousarray(F_all[:, :3, k])          # the visible neutrinos (states 3-5: sterile ones)
         out = np.ascontiguousarray(F[:N_E])
         if not return_diagnostics:
             outs.append(out)

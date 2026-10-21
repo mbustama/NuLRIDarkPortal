@@ -254,3 +254,118 @@ def vector_pair_lab_longitudinal(s, cos3, M):
         amp = ub @ (s2 @ PL @ slash(p1 - k1) @ s1 / t + s1 @ PL @ slash(p1 - k2) @ s2 / uu) @ PL @ u1
         tot += abs(amp) ** 2
     return tot, t, uu, mdot(k1, p2)
+
+
+# --- massive, polarized Dirac relics (2026-10-21) -----------------------------------------------------------------
+# A moving relic of mass m keeps its helicity; the amplitudes see its left- and right-chiral components. These
+# helpers evaluate the Dirac processes with an arbitrary relic spinor (massive, any spin) and arbitrary momenta, for
+# tests/test_si.py's check that, averaged over the final azimuth about the collision axis, a relic of spin
+# polarization P along the beam (rest frame) is exactly the mixture (1 + P)/2 left-chiral + (1 - P)/2 right-chiral
+# of massless relics, up to m^2/s.
+SIG4 = [I2.astype(complex), SX, SY, SZ]
+
+
+def _sqrt_psig(p, m, bar_=False):
+    """sqrt(p.sigma) (bar_: sqrt(p.sigmabar)) of a momentum p of mass m, by its eigenvalues E -+ |p| (the small one as
+    m^2 / (E + |p|), without cancellation)."""
+    E, k = p[0], np.linalg.norm(p[1:])
+    m2 = m * m
+    if k == 0.0:
+        return np.sqrt(E) * I2.astype(complex)
+    n = p[1:] / k
+    proj = 0.5 * (I2 + (n[0] * SX + n[1] * SY + n[2] * SZ))         # onto sigma.n = +1
+    hi, lo = np.sqrt(E + k), np.sqrt(m2 / (E + k))
+    return (lo * proj + hi * (I2 - proj)) if not bar_ else (hi * proj + lo * (I2 - proj))
+
+
+def u_massive(p, m, xi):
+    """Massive particle spinor (sqrt(p.sigma) xi, sqrt(p.sigmabar) xi); xi its rest-frame spin state (reached by the
+    pure boost from rest)."""
+    return np.concatenate([_sqrt_psig(p, m) @ xi, _sqrt_psig(p, m, True) @ xi])
+
+
+def v_massive(p, m, eta):
+    """Massive antiparticle spinor (sqrt(p.sigma) eta, -sqrt(p.sigmabar) eta); eta is the rest-frame state opposite to
+    the physical spin (as v(p, h) above)."""
+    return np.concatenate([_sqrt_psig(p, m) @ eta, -(_sqrt_psig(p, m, True) @ eta)])
+
+
+def relic_cm(kind, s, m, theta_s, phi_s):
+    """The relic of mass m in the CM frame of a massless neutrino along +z: (p1, p2, spinor), spin along
+    (theta_s, phi_s) in its rest frame (reached by a boost along z, so the beam is +z there too); kind 'nu' or
+    'nubar'."""
+    rs = np.sqrt(s)
+    k = (s - m * m) / (2.0 * rs)
+    p1 = np.array([k, 0.0, 0.0, k])
+    p2 = np.array([(s + m * m) / (2.0 * rs), 0.0, 0.0, -k])
+    if kind == "nu":
+        return p1, p2, u_massive(p2, m, _xi(theta_s, phi_s, +1))
+    return p1, p2, v_massive(p2, m, _xi(theta_s, phi_s, -1))
+
+
+def finals_cm(p1, p2, cth, phi, mf=0.0):
+    """Final momenta (p3, p4) at CM angle acos(cth) to p1 and azimuth phi, both of mass mf, in the frame of p1, p2
+    (boosted from their CM)."""
+    P = p1 + p2
+    rs = np.sqrt(mdot(P, P))
+    b = P[1:] / P[0]
+
+    def boost(beta, x):
+        b2 = beta @ beta
+        if b2 == 0.0:
+            return x.copy()
+        g = 1.0 / np.sqrt(1.0 - b2)
+        bp = beta @ x[1:]
+        return np.concatenate([[g * (x[0] - bp)], x[1:] + ((g - 1.0) * bp / b2 - g * x[0]) * beta])
+    q1 = boost(b, p1)
+    n = q1[1:] / np.linalg.norm(q1[1:])
+    e1 = np.cross(n, [0.3, 0.5, 0.8])
+    e1 /= np.linalg.norm(e1)
+    e2 = np.cross(n, e1)
+    kf = np.sqrt(rs * rs / 4.0 - mf * mf)
+    d = cth * n + np.sqrt(1.0 - cth * cth) * (np.cos(phi) * e1 + np.sin(phi) * e2)
+    p3 = boost(-b, np.concatenate([[rs / 2.0], kf * d]))
+    return p3, P - p3
+
+
+def dirac_amp2(proc, p1, p2, p3, p4, w2, c, M, Gam):
+    """|M|^2 summed over the final helicities (polarizations) for an incident nu_L(p1) on a relic of spinor w2 (any
+    mass and spin): proc 'V_nnbar' (vector, s + t), 'V_nn' (t + u), 'V_pair' (nu nubar -> V V; p3, p4 the vectors),
+    'S_nn', 'S_nnbar' (scalar, Dirac), 'S_phiphi' (nu nubar -> phi phi); c: two complex coupling products."""
+    u1 = u(p1, -0.5)
+    s = mdot(p1 + p2, p1 + p2)
+    t = mdot(p1 - p3, p1 - p3)
+    uu = mdot(p1 - p4, p1 - p4)
+    HS = (-0.5, 0.5)
+    tot = 0.0
+    if proc == "V_pair":
+        ub = bar(w2)
+        for e1 in pols(p3, M):
+            for e2 in pols(p4, M):
+                s1, s2 = slash(np.conj(e1)), slash(np.conj(e2))
+                a = ub @ (s2 @ PL @ slash(p1 - p3) @ s1 / t + s1 @ PL @ slash(p1 - p4) @ s2 / uu) @ PL @ u1
+                tot += abs(a) ** 2
+        return tot
+    if proc == "S_phiphi":
+        return abs(bar(w2) @ (c[0] * slash(p1 - p3) / t + c[1] * slash(p1 - p4) / uu) @ u1) ** 2
+    for h3 in HS:
+        for h4 in HS:
+            U3 = u(p3, h3)
+            if proc == "V_nnbar":
+                V4 = v(p4, h4)
+                a = (_cur_up(U3, V4) @ _cur(w2, u1) * c[0] / (s - M * M + 1j * M * Gam)
+                     - _cur_up(U3, u1) @ _cur(w2, V4) * c[1] / (t - M * M))
+            elif proc == "V_nn":
+                U4 = u(p4, h4)
+                a = (_cur_up(U3, u1) @ _cur(U4, w2) * c[0] / (t - M * M)
+                     - _cur_up(U4, u1) @ _cur(U3, w2) * c[1] / (uu - M * M))
+            elif proc == "S_nn":
+                U4 = u(p4, h4)
+                a = ((bar(U3) @ u1) * (bar(U4) @ w2) * c[0] / (t - M * M)
+                     - (bar(U4) @ u1) * (bar(U3) @ w2) * c[1] / (uu - M * M))
+            else:                                                  # S_nnbar
+                V4 = v(p4, h4)
+                a = ((bar(U3) @ V4) * (bar(w2) @ u1) * c[0] / (s - M * M + 1j * M * Gam)
+                     - (bar(U3) @ u1) * (bar(w2) @ V4) * c[1] / (t - M * M))
+            tot += abs(a) ** 2
+    return tot

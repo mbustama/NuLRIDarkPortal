@@ -1407,9 +1407,6 @@ def build_solver_params(config: Dict) -> Tuple[np.ndarray, Dict]:
         thermal = si_cfg.get('thermal_products', False)
         if not isinstance(thermal, bool):
             raise ValueError(f"secret_interactions.thermal_products must be true or false, got {thermal!r}")
-        if thermal and nu_type == 'dirac':
-            raise ValueError("secret_interactions.thermal_products is implemented for Majorana neutrinos only: a Dirac "
-                             "relic's coupling to the left-handed current depends on its speed, not modelled yet")
         if thermal and channels != 'full':
             raise ValueError("secret_interactions.thermal_products needs channels 'full'")
         import dp_si

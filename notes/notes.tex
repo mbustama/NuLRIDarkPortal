@@ -1955,6 +1955,106 @@ by the new treatment only).
 long. The campaign's MeV planes cost 1.5 to 2.5 times as much per point (pilot of 2026-10-18), and
 the campaign $\sim$12~h on 176 cores instead of $\sim$6.
 
+\subsection{Dirac relics in motion: their helicity (2026-10-21)}
+\label{sec:dirac-helicity}
+
+The secret-interaction planes use the same switch (\texttt{secret\_interactions.thermal\_products});
+for Majorana relics nothing changes from Sec.~\ref{sec:relic-motion}. A Dirac relic is different: it
+keeps the helicity it had when it decoupled, $-1/2$ for $\nu$ and $+1/2$ for $\bar\nu$. At rest,
+averaged over directions, it is unpolarized, which is what the at-rest treatment assumes. In motion
+its spin is tied to its momentum, and since $\sigma$ selects the direction, the beam sees a
+polarization that varies with $\sigma$. Mauricio asked for the exact treatment (Option~1).
+
+\textit{The polarization the beam sees.}---In the relic's rest frame (the pure boost along its
+momentum keeps the spin direction), the spin of a $\nu$ of helicity $-1/2$, or of a $\bar\nu$ of
+$+1/2$, along the incoming neutrino is
+\begin{equation}
+\pi = \frac{E_p\sigma - m^2}{p\,\sigma},
+\end{equation}
+from $-1$ at $\sigma = E_p - p$ (the relic moving with the beam) to $+1$ at $\sigma = E_p + p$
+(against it); with the flux factor its average over directions is the speed $v$.
+
+\textit{The amplitudes see two massless relics.}---Write the relic's spinor as its left- and
+right-chiral parts. The left-chiral part enters every bilinear like a massless particle of
+momentum $(p_{\rm r} - mS)/2$, $S$ the spin vector; the right-chiral part like one of momentum
+$(p_{\rm r} + mS)/2$. With the final neutrinos massless, each final helicity configuration picks
+one part, so the two never interfere. The transport needs only the final energies, so it averages
+over the final azimuth about the collision axis; then $mS \to -\pi\, p_{\rm r}$ up to terms of
+order $m^2/s$ ($\sim\!10^{-15}$), and
+\begin{equation}
+|\mathcal M|^2 = \frac{1+\pi}{2}\,|\mathcal M_L|^2 + \frac{1-\pi}{2}\,|\mathcal M_R|^2 ,
+\end{equation}
+with $\mathcal M_{L,R}$ those of a massless relic of either chirality at the same $s$ and angle
+(for the $\bar\nu$ the weights apply to its $v$ spinor's chirality, opposite to its spin). The
+brute force (\file{tests/amplitudes\_bruteforce.py}, massive spinors of any spin) confirms this for
+all six Dirac processes with complex couplings, the deviations scaling as $m^2/s$.
+
+\textit{Which part takes part where.}---The vector couples only to the left-chiral part: a Dirac
+relic offers it in the share $(1+\pi)/2$, which is $1/2$ at rest (the factor $\kappa$ of
+Sec.~\ref{sec:si_dirac_vector}) and $(1+v)/2$ on average. Every scalar vertex flips chirality. The
+left-chiral part takes part in $\nu\nu\to\nu\nu$ through $t$ and $u$ together (both final neutrinos
+sterile), in $\nu\bar\nu\to\nu\bar\nu$ through $t$ alone (both sterile), and in double-scalar
+production. The right-chiral part takes part in $\nu\nu\to\nu\nu$ through $t$ or $u$ apart (the
+relic's partner visible) and in $\nu\bar\nu\to\nu\bar\nu$ through $s$ and $t$. The incident's own
+daughter is sterile on either. So the scalar's $s$-channel resonance needs the right-chiral part,
+whose share $(1-\pi)/2 \approx m^2/4p^2$ is tiny on a relativistic relic, except for relics moving
+almost along the beam. The split of the at-rest tensors by the relic's chirality was derived from
+this and agrees with the brute force to $10^{-15}$, including parity: an incident sterile neutrino
+on one part gives the visible one's secondaries on the other, with visibility swapped.
+
+\textit{The distributions.}---The chiral shares replace $\rho$ by
+\begin{align}
+\rho_L(\sigma) &= \rho\,\frac{1+\pi}{2}
+= \frac{1}{3\zeta(3)T_{\rm r}^3}\int_{p_X}^\infty f\,\frac{(E_p + p)(\sigma - E_p + p)}{2E_p}\,dp, \\
+\rho_R(\sigma) &= \rho\,\frac{1-\pi}{2}
+= \frac{1}{3\zeta(3)T_{\rm r}^3}\int_{p_X}^\infty f\,\frac{(E_p - p)(E_p + p - \sigma)}{2E_p}\,dp,
+\end{align}
+both with a kink at $\sigma = m$. With the flux factor, $(1 - v\cos\theta)(1\pm\pi)/2 =
+(1\pm v)(1\mp\cos\theta)/2$, so the resonance kernels' exact thermal averages are the semi-analytic
+kernel at $v = \pm1$ times $(1\pm v)/2$.
+
+\textit{Transport.}---The products come in two sets of relic slots, weighted by $\rho_L$ and
+$\rho_R$ (\file{src/dp\_si.py}, \texttt{model\_spec(polarized=True)}). The vector runs Majorana's
+tensors on $\rho_L$ alone. For the scalar, a polarized background breaks the parity that let
+visible and sterile neutrinos be run as sum and difference, so they are transported together, six
+states in one sweep. The option \texttt{"drop"} keeps the visible ones only.
+
+\textit{Validation.}---The reference (\file{tools/thermal\_reference.py}) weights its mixture of
+relics at rest by $\rho(1\pm\pi)/2$ written out directly. At the analysis grid, at 31.6~keV and
+4.22~MeV and $m_{\rm lightest} = 10^{-6}$, $10^{-3}$ and $0.03$~eV, the Dirac fluxes agree with it
+to $9\times10^{-6}$ (31.6~keV) and to $3\times10^{-4}$ of the free flux (4.22~MeV; $1.4\times10^{-3}$
+of the flux itself at one bin inside an absorption dip); relics at rest are off by factors up to
+$4\times10^3$. With the chiral shares forced to $\rho/2$ each, an unpolarized background, the
+polarized transport reproduces the parity runs to $10^{-11}$: the chiral tensors, the six-state sweep
+and the slots' bookkeeping. The Majorana and dark-portal paths are unchanged (bit for bit against
+the campaign's code). A Dirac scalar transport costs 3.4--3.9 times one with the relics at rest, a
+vector 1.6--2 times.
+
+\textit{Effect.}---Large (Fig.~\ref{fig:dirac-polarization}). For the scalar the $s$-channel
+resonance on the lightest relic nearly disappears when it is relativistic: at 31.6~keV and
+$m_{\rm lightest} = 10^{-6}$~eV the flux at 10~TeV keeps $86\%$ where the unpolarized treatment
+absorbs it all, and at 4.22~MeV the dip near 10~PeV goes. For the vector the same relic absorbs more,
+its left-chiral share being near one rather than one half: at 4.22~MeV the dip near 10~PeV deepens
+from $0.30$ to $0.19$ of the free flux. With $m_{\rm lightest} = 0.03$~eV the changes reach $0.14$
+(scalar) and $0.33$ (vector) of the free flux at 4.22~MeV.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{../output/figures/dirac_polarization.png}
+\caption{Dirac relics' helicity: the flux at Earth over the free-streaming one (texture $e$, pion
+sources) with the relics at rest, in motion ignoring their helicity (each chiral share $\rho/2$), and
+in motion with it, for $m_{\rm lightest} = 10^{-6}$~eV (thick) and $0.03$~eV (thin)
+(\file{tools/dirac\_relic\_polarization.py}).}
+\label{fig:dirac-polarization}
+\end{figure}
+
+\textit{A numerical note.}---Far below the resonance ($s \sim 10^{-4}M^2$) the semi-analytic
+kernel's closed-form angular integral cancels to $10^{-3}$--$10^{-2}$ relative. For the chiral
+shares the angular integral is taken by 8-point quadrature there (exact to rounding). For $\rho$
+(Majorana, and the dark portal) the closed form stays until the running campaign ends, so that its
+planes stay reproducible; its effect on the fluxes is within the $2\times10^{-4}$ agreement with the
+reference.
+
 %==============================================================================
 \section{Open items}
 \label{sec:open}
