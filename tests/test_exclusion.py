@@ -80,3 +80,25 @@ def test_merged_planes_share_one_field(tmp_path):
     assert lowest_excluded(lx, G, F, 4.0) == pytest.approx(-2.6 - 0.2 + 0.2 * 3.84 / 30.0, abs=2 * ex.STEP)
     assert lowest_excluded(lx, G, F, 0.0) == pytest.approx(-3.5 + 0.5 * 3.84 / 30.0, abs=2 * ex.STEP)
     assert np.all(F[np.ix_(G < -10.5, lx > 4.1)] < 0)                         # below the MeV scan: allowed
+
+
+def test_refinement_above_the_grid_and_between_masses(tmp_path):
+    """refine_grid.py's points: at grid masses above the grid's largest coupling (the field extends up to them) and at
+    new masses between the grid's (partial columns from 1e-5 up)."""
+    x = 10.0 ** np.arange(4.0, 8.01, 1.0)
+    y = 10.0 ** np.arange(-10.0, -1.9, 0.2)
+    chi = np.zeros((len(x), len(y)))                            # nothing excluded on the grid
+    path = write_plane(tmp_path / "p" / "plane_m_Zd_eV_g_D.json", x, y, chi)
+    rec = lambda m, g, c: json.dumps(dict(held={"m_Zd_eV": 10.0 ** m, "g_D": 10.0 ** g}, chi2=c)) + "\n"
+    with open(tmp_path / "p" / "refine_grid.0.jsonl", "w") as f:
+        for m in (4.0, 5.0, 6.0, 7.0, 8.0):
+            for g in (-1.8, -1.6, -1.4, -1.2, -1.0):
+                f.write(rec(m, g, 30.0 if g >= -1.4 else 0.0))   # excluded from 10^-1.4 up
+    with open(tmp_path / "p" / "refine_grid_between.0.jsonl", "w") as f:
+        for g in np.arange(-5.0, -0.99, 0.2):
+            f.write(rec(5.5, g, 30.0 if g >= -3.0 else 0.0))   # a dip down to 1e-3 at 10^5.5 eV only
+    lx, G, F, _, _ = ex.field(path)
+    assert G[-1] == pytest.approx(-1.0, abs=ex.STEP)
+    assert lowest_excluded(lx, G, F, 5.0) == pytest.approx(-1.6 + 0.2 * 3.84 / 30.0, abs=2 * ex.STEP)
+    assert any(abs(lx - 5.5) < 1e-6)
+    assert lowest_excluded(lx, G, F, 5.5) == pytest.approx(-3.2 + 0.2 * 3.84 / 30.0, abs=2 * ex.STEP)

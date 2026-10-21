@@ -56,8 +56,9 @@ def _records(paths):
 def field(path):
     """(log10 m columns, log10 g, signed-distance field [g, m] (masked where a column is left out), y name, sampled
     [g, m]) of the plane summary at `path`, with the refinement records in its directory
-    (tools/refine_ridges.py, refine_edges.py: at grid masses, merged into their columns; between them, partial columns:
-    their own points inside each sampled window -- runs of couplings at most 0.15 decade apart -- with the minimum of the
+    (tools/refine_ridges.py, refine_edges.py, refine_grid.py: at grid masses, merged into their columns, also above
+    the grid's largest coupling, which then extends the field; between them, partial columns:
+    their own points inside each sampled window -- runs of couplings at most 0.25 decade apart -- with the minimum of the
     neighbouring full columns, and the neighbouring columns' field interpolated in log10 m outside). `sampled` marks
     where a column holds samples (all of a grid column, the windows of a partial one)."""
     from scipy import ndimage
@@ -66,7 +67,14 @@ def field(path):
     x = np.array(s["grids"][0])
     y = np.array(s["grids"][1])
     xn, yn = s["names"]
-    G = np.arange(np.log10(y[0]), np.log10(y[-1]) + STEP / 2, STEP)
+    grid_recs = list(_records(glob.glob(os.path.join(here, "refine_ridges.*.jsonl"))
+                              + glob.glob(os.path.join(here, "refine_edges.*.jsonl"))
+                              + glob.glob(os.path.join(here, "refine_grid.*.jsonl"))))
+    between_recs = list(_records(glob.glob(os.path.join(here, "refine_ridges_between.*.jsonl"))
+                                 + glob.glob(os.path.join(here, "refine_edges_between.*.jsonl"))
+                                 + glob.glob(os.path.join(here, "refine_grid_between.*.jsonl"))))
+    g_top = max([np.log10(y[-1])] + [np.log10(r["held"][yn]) for r in grid_recs + between_recs])
+    G = np.arange(np.log10(y[0]), g_top + STEP / 2, STEP)      # the refinement may reach above the grid
     chi = np.array([[np.nan if v is None else v for v in row] for row in s["chi2"]], dtype=float)
     chi0 = chi.copy()
     d = chi - np.nanmin(chi, axis=1, keepdims=True)
@@ -76,8 +84,7 @@ def field(path):
         if sel.sum() <= 3 and np.nanmax(d[sel]) < 5.0:
             chi[sel] = np.nan                                   # a speck: shown as allowed below
     cols = {i: [(float(y[j]), float(chi[i, j])) for j in range(len(y)) if np.isfinite(chi[i, j])] for i in range(len(x))}
-    for r in _records(glob.glob(os.path.join(here, "refine_ridges.*.jsonl"))
-                      + glob.glob(os.path.join(here, "refine_edges.*.jsonl"))):
+    for r in grid_recs:
         cols[int(np.argmin(np.abs(np.log(x / r["held"][xn]))))].append((r["held"][yn], r["chi2"]))
     left_out = {i for i in range(len(x)) if not abs(chi0[i, 0] - np.nanmedian(chi0[:, 0])) < 0.3}
     S, low, cov = {}, {}, {}
@@ -98,8 +105,7 @@ def field(path):
         cov[np.log10(x[i])] = np.ones(len(G), bool)
     xs = {np.log10(x[i]): S.get(i) for i in range(len(x))}     # None: left out
     between = {}
-    for r in _records(glob.glob(os.path.join(here, "refine_ridges_between.*.jsonl"))
-                      + glob.glob(os.path.join(here, "refine_edges_between.*.jsonl"))):
+    for r in between_recs:
         between.setdefault(round(np.log10(r["held"][xn]), 6), []).append((r["held"][yn], r["chi2"]))
     for lm, pts in between.items():
         m = 10 ** lm
@@ -113,7 +119,7 @@ def field(path):
         dc = np.array([p[1] for p in pts]) - cmin
         excl = (1 - t) * S[i] + t * S[i + 1] > 0
         cov[lm] = np.zeros(len(G), bool)
-        for run in np.split(np.arange(len(g)), np.flatnonzero(np.diff(g) > 0.15) + 1):
+        for run in np.split(np.arange(len(g)), np.flatnonzero(np.diff(g) > 0.25) + 1):
             win = (G >= g[run[0]]) & (G <= g[run[-1]])
             excl[win] = np.interp(G[win], g[run], dc[run]) >= THRESHOLD
             cov[lm] |= win
