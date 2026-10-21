@@ -2716,6 +2716,34 @@ in degrees. The NuFIT~6.1 constraints of Sec.~\ref{sec:syst} will replace these 
 FrequentistAnalysis was retired on 2026-10-12; the analysis package that replaced it applies its
 priors and checks their names against the model's parameters (Sec.~\ref{sec:stats}).
 
+\subsection{The thermal kernels' grid (2026-10-21)}
+\label{app:kernelgrid}
+
+\textit{What went wrong.}---With the relics thermal in every collision (Sec.~\ref{sec:relic-motion}),
+the resonance factors' exact thermal averages are computed on a grid in $\ln(2E(1+z))$ and
+interpolated in their logarithm with four points. The grid merged a regular one with finer ones
+around slow relics' resonances, so two nodes could lie arbitrarily close together. Deep in the
+thermal tail the averages' quadrature is good to about $1\%$, and an interpolation through two nodes
+$\epsilon$ apart whose values differ by that noise overshoots by roughly $1\%\times{\rm spacing}/\epsilon$:
+by $e^{66}$ at $\epsilon\sim10^{-6}$, to infinity below $\sim10^{-7}$. An infinite kernel stopped a
+fit (a grid-extension task at 453~keV, and the potential planes' points at 1--10~keV, whose fits had
+failed); a large finite one absorbed isolated energies outright. In 48 random MeV points, two were off
+by 0.66 and 0.76 of the free flux, once inside the data range (2--18~TeV).
+
+\textit{The fix.}---Neighbouring nodes at least half the finest spacing apart. Against the reference,
+which uses no such grid, the worst points then agree to $3.4\times10^{-5}$ of the free flux.
+
+\textit{The campaign.}---Every stored solution that went through this code was re-evaluated with the
+fix (125\,458 evaluations; with the old grid, at a tenth of them, as a control: it gives back the stored
+$\chi^2$ exactly for MESE and the projection), and refitted where $\chi^2$ moved by more than 0.05 or
+the fit had failed. The fix moved $\chi^2$ by more than 0.05 at 0.5--0.8\% of points, by at most about
+1.5. No robust 95\% edge moved. One artifact went: in the MESE $L_e - L_\tau$ planes at 1~MeV, the bug had
+pulled one point below 3.84 among neighbours at 4.37, which made a thin excluded sliver from
+$10^{-4.96}$ to $10^{-4.6}$. A few columns where $\Delta\chi^2$ hovers within about 0.07 of 3.84 over a
+wide range of couplings changed their reading; and the potential planes gained their 1--10~keV columns.
+Along the way: the HESE+DR2 $\chi^2$ is not exactly reproducible on re-evaluation at 0.6\% of points
+(by up to about 1.5, its inner fit of the detector nuisances). \note{Look at the HESE+DR2 reproducibility}
+
 \subsection{Earlier corrections}
 
 \textit{Thermal kernel (July 2026).}---The midpoint-rule momentum integral erred by 6--9\% at

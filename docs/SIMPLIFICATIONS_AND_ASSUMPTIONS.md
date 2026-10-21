@@ -209,3 +209,22 @@ small, not yet measured), **open** (decided to remove or change, not yet done).
 
 19. **Sky resolution:** HEALPix N_side 8, the Earth crossed on 2 chords per direction band, the Sun averaged
     isotropically. *Accepted.*
+
+20. **The thermal kernels' grid (a bug, fixed 2026-10-21).** In every MeV transport with thermal products (the
+    campaign's L_e-L_mu, L_e-L_tau and dark-portal MeV planes, and the 1-10 keV end of the ultralight and potential
+    planes), the grid on which the resonance kernels' exact thermal averages are interpolated merged a regular grid
+    with finer ones around slow relics' resonances, which put nodes arbitrarily close together; deep in the thermal
+    tail the kernels' quadrature is good to ~1%, and the 4-point interpolation of their logarithm through two nearly
+    coincident nodes overshot without bound: infinite kernels (a crash; the failed fits of the potential planes at
+    1-10 keV) or isolated energies absorbed outright (in 48 random MeV points: two off by 0.66-0.76 of the free flux,
+    once inside the data range). *Fixed* (dp_si._thin_grid: neighbours at least half the finest spacing apart; within
+    3.4e-5 of the reference where the old grid was 0.76 off). The campaign's results were re-evaluated with the
+    fixed code at every stored solution (125,458 evaluations; tools/recheck_thermal_grid.py; the old grid's control
+    gives back the stored chi^2 exactly for MESE and the projection) and refitted where chi^2 moved by more than 0.05
+    (~600 MeV points) or the fit had failed (7,478 potential-plane points), and the planes' reading takes the
+    corrected values (analysis/exclusion.corrected). The fix moved chi^2 by more than 0.05 at 0.5-0.8% of points
+    (at most ~1.5); no robust edge moved; one artifact went (a thin excluded sliver at 1 MeV, 1e-4.96-1e-4.6, in the
+    MESE L_e-L_tau planes, from one point the bug had pulled below 3.84); edges moved in a few columns where Delta
+    chi^2 hovers within ~0.07 of 3.84 over a wide range (HESE+DR2, dark portal tau and e near 3-5 MeV); the
+    potential planes gained their 1-10 keV columns. HESE+DR2's chi^2 itself is not exactly reproducible on
+    re-evaluation at 0.6% of points (up to ~1.5, its inner nuisance fit): *to look at*.
