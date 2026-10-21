@@ -6,7 +6,8 @@ the per-mass crossings (field). One figure with the compositions fixed to pion d
 fitted, the ultralight planes also exclude a thin band (~0.5 decade) along the edge of the pion-decay region, which
 exists only because each source's composition is taken to be the same at every energy (notes, 'Thin excluded bands
 with fitted source compositions'); Mauricio, 2026-10-21: left out of the exclusion figures (thin_bands takes them out),
-drawn on their own, as ribbons at their true width, in <prefix>_thin_bands.png. Mass columns whose smallest scanned coupling is not at the no-effect chi^2 are left unshaded (none in this
+drawn on their own, as ribbons at their true width, in <prefix>_thin_bands.png. Drawn in Mauricio's style
+(tools/figure_style.py: the matplotlibrc at the repository root). Mass columns whose smallest scanned coupling is not at the no-effect chi^2 are left unshaded (none in this
 campaign). The plane summaries' 'elevated' columns are NOT masked: in the IceCube flavor + spectrum MeV planes the data
 prefer an effect near 3 MeV, which lifts every other mass above the global minimum although its scan does reach the
 no-effect couplings; the per-mass reading is valid there.
@@ -25,6 +26,8 @@ import numpy as np  # noqa: E402
 from matplotlib.patches import Patch  # noqa: E402
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.join(REPO, "tools"))
+from figure_style import PANEL, pct, use  # noqa: E402
 MODELS = [("le_lmu_ul", r"$L_e - L_\mu$, ultralight"), ("le_ltau_ul", r"$L_e - L_\tau$, ultralight"),
           ("le_lmu_mev", r"$L_e - L_\mu$, MeV"), ("le_ltau_mev", r"$L_e - L_\tau$, MeV"),
           ("dp_e_mev", r"dark portal, $e$ texture, MeV"), ("dp_mu_mev", r"dark portal, $\mu$ texture, MeV"),
@@ -224,7 +227,8 @@ def figure(suffix, comp_title, out, bands=False):
     """The exclusion figure (7 models, thin bands left out); bands: only the ultralight planes, with their thin bands
     as ribbons and an inset on their flat stretch."""
     models = MODELS[:2] if bands else MODELS
-    fig, axes = plt.subplots(1, 3, figsize=(15, 4.6)) if bands else plt.subplots(2, 4, figsize=(17, 8.2))
+    nr, nc = (1, 3) if bands else (2, 4)
+    fig, axes = plt.subplots(nr, nc, figsize=(nc * PANEL[0], nr * PANEL[1] + 0.5))
     for ax, (model, title) in zip(axes.flat, models):
         yname, drawn = None, []
         for ds, label, color in SETS:
@@ -245,36 +249,34 @@ def figure(suffix, comp_title, out, bands=False):
             ins.set_ylim(*INSET[1])
             ins.set_xticks([-24, -20, -16])
             ins.set_yticks([-28, -26, -24])
-            ins.tick_params(labelsize=7)
-            ins.grid(True, color="0.9", lw=0.5)
+            ins.tick_params(labelsize=13, pad=3, length=5)
             ax.indicate_inset_zoom(ins, edgecolor="0.45")
         if model.endswith("_mev"):
             ax.set_ylim(-6, -2)                          # nothing is excluded below ~1e-5 in the MeV planes
         ax.set_xlabel(r"$\log_{10}(m_{Z_D}$ / eV$)$")
         ax.set_ylabel(r"$\log_{10}$ " + YLABEL.get(yname, yname or "coupling"))
-        ax.set_title(title, fontsize=10.5)
-        ax.grid(True, color="0.9", lw=0.6)
-        for side in ("top", "right"):
-            ax.spines[side].set_visible(False)
+        ax.set_title(title)
     leg_ax = axes.flat[-1]
     leg_ax.axis("off")
     handles = [Patch(facecolor=c, edgecolor=c, alpha=0.5, label=lab) for _, lab, c in SETS]
-    leg_ax.legend(handles=handles, loc="center", fontsize=9.5, frameon=False,
-                  title="Excluded at 95% (shaded; per mass, " + r"$\Delta\chi^2 \geq 3.84$)", title_fontsize=9.5)
+    leg_ax.legend(handles=handles, loc="center", bbox_to_anchor=(0.5, 0.62), frameon=False,
+                  title=f"Excluded at 95{pct()}\n(shaded; per mass, " + r"$\Delta\chi^2 \geq 3.84$)",
+                  title_fontsize=plt.rcParams["legend.fontsize"])
     if suffix and not bands:
-        leg_ax.text(0.5, 0.17, "Not shown: thin excluded bands along the edge of the\npion-decay region in the "
+        leg_ax.text(0.5, 0.1, "Not shown: thin excluded bands along the edge of the\npion-decay region in the "
                     "ultralight planes, which\nexist only for energy-independent source compositions.",
-                    ha="center", va="center", fontsize=8, color="0.35", transform=leg_ax.transAxes)
+                    ha="center", va="center", fontsize=12, color="0.35", transform=leg_ax.transAxes)
     fig.suptitle((f"Thin excluded bands, {comp_title} (ribbons at their true width; inset enlarged)" if bands else
                   f"Campaign of 2026-10-20, {comp_title}: excluded couplings per mediator mass; mixing fixed, lightest "
-                  "mass profiled, relics thermal in every collision"), fontsize=11.5)
+                  "mass profiled, relics thermal in every collision"))
     fig.tight_layout(rect=(0, 0, 1, 0.96))
-    fig.savefig(out, dpi=110)
+    fig.savefig(out)
     plt.close(fig)
     print("saved", out)
 
 
 def main(prefix):
+    use()
     for suffix, tag, comp_title in COMPS:
         figure(suffix, comp_title, f"{prefix}_excluded_{tag}.png")
     figure(COMPS[1][0], COMPS[1][2], f"{prefix}_thin_bands.png", bands=True)
