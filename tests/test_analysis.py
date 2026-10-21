@@ -374,6 +374,31 @@ def test_repair_pass_resumes_where_it_stopped(synthetic, tmp_path):
     assert len(marks2) == len(grid) and len({tuple(m) for m in marks2}) == len(grid)
 
 
+def test_certificate_box_tells_the_lightest_mass_basins_apart():
+    """A neighbour's lightest mass two decades away is outside a point's certificate box although the box, a prior
+    width across in eV, spans both (2026-10-21: ultralight points stuck at 1e-6 eV were never tried at 1e-4 eV)."""
+    from analysis.exact_profile import ExactProfiler, ExactSettings
+    p = object.__new__(ExactProfiler)
+    p.settings, p.eta, p.w = ExactSettings(), ["m_lightest_eV"], {"m_lightest_eV": 2e-3}
+    assert p.within_certificate({"m_lightest_eV": 1e-6}, {"m_lightest_eV": 1.5e-6})
+    assert not p.within_certificate({"m_lightest_eV": 1e-6}, {"m_lightest_eV": 1e-4})
+    assert not p.within_certificate({"m_lightest_eV": 1e-6}, {"m_lightest_eV": 0.05})
+
+
+def test_repair_tries_a_spike_inside_a_wrong_certificate(monkeypatch):
+    """A point far above its neighbours is refitted from their solutions even when its certificate claims to cover
+    them (2026-10-21: the spike test needed a trial, and the certificate skipped every one)."""
+    from types import SimpleNamespace
+    chi2 = lambda v: 1.0 if v["m"] > 1e-5 else 50.0
+    monkeypatch.setitem(scans._W, "objective", SimpleNamespace(chi2=chi2))
+    monkeypatch.setitem(scans._W, "exact", SimpleNamespace(within_certificate=lambda own, other: True))
+    monkeypatch.setattr(scans, "_fit_held", lambda held, starts, settings: SimpleNamespace(
+        values=dict(starts[0]), chi2=chi2(starts[0]), nfev=1, seconds=0.0, message=""))
+    task = ((0, 0), {"g": 1.0}, {"m": 1e-6}, 50.0, [{"m": 1e-4}], 1.0, False, {}, True)
+    r = scans._run_repair(task)
+    assert r is not None and r["chi2"] == 1.0
+
+
 def test_checkpoints_of_another_configuration_are_ignored(synthetic, tmp_path):
     """Results computed under different physics must never be reused: records carry the
     configuration's identity (data, solver, parameters, priors, grid), and a scan under a

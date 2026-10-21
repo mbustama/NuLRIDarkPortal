@@ -65,6 +65,7 @@ SOLVER_KEYS = {"s12sq": ("standard_mixing", "th12_deg"), "s13sq": ("standard_mix
 NUFIT_WIDTHS = dict(s12sq=0.012, s13sq=0.00057, s23sq=0.018, d_cp_deg=30.0, dm21_sq=2.0e-6, dm31_sq=2.5e-5)
 M_LIGHTEST_WIDTH = 2e-3           # eV: the trust region's unit for m_lightest (the relics' thermal scale, ~10 T_nu)
 M_LIGHTEST_MIN = 1e-6             # eV (module docstring)
+ML_BASIN = 0.3                    # decades: a basin in m_lightest spans at least ~0.3 decade (profile_global)
 # the MeV planes' scan of the lightest mass (profile_global): M_LIGHTEST_MIN and 1e-4 .. 0.1 eV, three per decade
 # (2026-10-18; five until then): a basin in m_lightest spans at least ~0.3 decade (module docstring of profile_global)
 ML_SCAN = (M_LIGHTEST_MIN,) + tuple(float(10.0 ** (-4.0 + k / 3.0)) for k in range(10))
@@ -746,9 +747,20 @@ class ExactProfiler:
 
     def within_certificate(self, own_values: Mapping, other: Mapping) -> bool:
         """Whether `other`'s mixing lies within a certified point's certificate box (cert_radius widths of its own):
-        a repair need not try it."""
+        a repair need not try it. The lightest mass must also lie within ML_BASIN decades (2026-10-21): chi^2 can have
+        separate basins in it, at the lower bound and near 1e-4 eV, that a box a prior width across in eV does not tell
+        apart -- ultralight points stuck at 1e-6 eV with chi^2 up to 335 too high were never tried at their
+        neighbours' 1e-4 eV."""
         r = self.settings.cert_radius
-        return all(abs(float(other[n]) - float(own_values[n])) <= r * self.w[n] for n in self.eta if n in other)
+        for n in self.eta:
+            if n not in other:
+                continue
+            a, b = float(other[n]), float(own_values[n])
+            if abs(a - b) > r * self.w[n]:
+                return False
+            if n == "m_lightest_eV" and abs(np.log10(max(a, M_LIGHTEST_MIN) / max(b, M_LIGHTEST_MIN))) > ML_BASIN:
+                return False
+        return True
 
     # ------------------------------------------------------------------ validation
     def bruteforce(self, held: Mapping, starts: Sequence[Mapping], settings: Optional[FitSettings] = None):

@@ -205,6 +205,15 @@ def _run_repair(task) -> Optional[dict]:
         if x < own_chi2 - REPAIR_TOL:
             better.append((x, trial))
     spike = force or (nb_mean is not None and own_chi2 > nb_mean + SPIKE_TOL)
+    if prof is not None and spike and not trials:
+        # every neighbour inside the point's certificate: a spike is still tried at their solutions (2026-10-21; a
+        # wrong certificate otherwise blocked the spike test, which needs a trial)
+        for c in candidates:
+            trial = {**c, **held}
+            x = obj.chi2(trial)
+            trials.append((x, trial))
+            if x < own_chi2 - REPAIR_TOL:
+                better.append((x, trial))
     if prof is not None:
         if not better and not (spike and trials):
             return None
