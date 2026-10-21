@@ -32,14 +32,15 @@ MODELS = [("le_lmu_ul", r"$L_e - L_\mu$, ultralight"), ("le_ltau_ul", r"$L_e - L
           ("le_lmu_mev", r"$L_e - L_\mu$, MeV"), ("le_ltau_mev", r"$L_e - L_\tau$, MeV"),
           ("dp_e_mev", r"dark portal, $e$ texture, MeV"), ("dp_mu_mev", r"dark portal, $\mu$ texture, MeV"),
           ("dp_tau_mev", r"dark portal, $\tau$ texture, MeV")]
-# Okabe-Ito's blue, orange and bluish green (Mauricio, 2026-10-21); passes the dataviz skill's checks (colour-blind
-# separation >= 11); every outline is drawn in a darker shade of its fill (edge()). Legend order; drawn largest first (DRAWN), so that the smaller regions sit on top.
+# Mauricio's NuMixingRGAstroHE palette, as in NuFlavorRatiosSteriles (2026-10-21): MESE pink, gold, and the fullest
+# detector combination's purple; regions in opaque tints of them (tint()), edges in the colours. Legend order; drawn largest first (DRAWN), so that the smaller regions sit on top.
 # now_ic26: IceCube's MESE flavor composition (2025; 11.4 yr, IceCubeRates/future/nfss_detectors.py) and its 2026 spectrum; now_events: HESE 7.5 yr and IceTracks-DR2's
 # IC79 + IC86 (312.8 + 3920.6 days, 11.6 yr)
-SETS = [("now_ic26", "Today: IceCube MESE 11.4 yr + spectrum", "#0072B2"),
-        ("now_events", "Today: IceCube HESE 7.5 yr + DR2 11.6 yr", "#E69F00"),
-        ("proj_future", "Projection: combined future detectors", "#009E73")]
+SETS = [("now_ic26", "Today: IceCube MESE 11.4 yr + spectrum", "#F06292"),
+        ("now_events", "Today: IceCube HESE 7.5 yr + DR2 11.6 yr", "#E6CE58"),
+        ("proj_future", "Projection: combined future detectors", "#5E3576")]
 TITLE = "Disfavored (95{} C.L.)"
+TITLE_COMP = {"": r"fixing $f_{e,{\rm S}} = 1/3$", "_fx": r"fitting $f_{e,{\rm S}}$"}   # the source compositions
 DRAWN = SETS[::-1]
 YLABEL = {"g_D": r"$g_D$", "g_D_trace": r"$g_D$ (texture trace)"}
 COMPS = [("", "pion", "source compositions fixed to pion decay"), ("_fx", "fitted", "source compositions fitted")]
@@ -229,18 +230,26 @@ def ticks(ax, x, y):
 
 
 def edge(color, f=0.72):
-    """a darker shade of color, for outlines"""
+    """a darker shade of color"""
     from matplotlib.colors import to_rgb
     return tuple(f * c for c in to_rgb(color))
 
 
+def tint(color, amount=0.55):
+    """color mixed with white (NuFlavorRatiosSteriles' paper figures: regions in opaque tints, edges in the color)"""
+    from matplotlib.colors import to_rgb
+    return tuple(1.0 - (1.0 - c) * (1.0 - amount) for c in to_rgb(color))
+
+
 def draw(ax, lx, G, F, ribbons, color, lw=1.8):
-    ax.contourf(lx, G, F, levels=[0, 2 * D], colors=[color], alpha=0.3)
-    ax.contour(lx, G, F, levels=[0], colors=[edge(color)], linewidths=lw)
+    """a data set's excluded region: an opaque tint (no transparency: overlaps would mix the colors), drawn in the
+    order called (largest first), with its edge in the colour above every fill"""
+    ax.contourf(lx, G, F, levels=[0, 2 * D], colors=[tint(color)], zorder=1)
+    ax.contour(lx, G, F, levels=[0], colors=[color], linewidths=lw, zorder=5)
     for r in ribbons:
         xs, ys = np.r_[r[:, 0], r[::-1, 0], r[0, 0]], np.r_[r[:, 2], r[::-1, 1], r[0, 2]]
-        ax.fill(xs, ys, color=color, alpha=0.5, lw=0)
-        ax.plot(xs, ys, color=color, lw=0.6 * lw)
+        ax.fill(xs, ys, color=tint(color), lw=0, zorder=1)
+        ax.plot(xs, ys, color=color, lw=0.6 * lw, zorder=5)
 
 
 def figure(suffix, comp_title, out, bands=False):
@@ -281,9 +290,9 @@ def figure(suffix, comp_title, out, bands=False):
         ax.set_title(title)
     leg_ax = axes.flat[-1]
     leg_ax.axis("off")
-    handles = [Patch(facecolor=c + "80", edgecolor=edge(c), lw=1.5, label=lab) for _, lab, c in SETS]
+    handles = [Patch(facecolor=tint(c), edgecolor=c, lw=1.5, label=lab) for _, lab, c in SETS]
     leg_ax.legend(handles=handles, loc="center", bbox_to_anchor=(0.5, 0.62), frameon=True, edgecolor="black",
-                  title=TITLE.format(pct()) + "\n" + r"(per mass, $\Delta\chi^2 \geq 3.84$)",
+                  title=TITLE.format(pct()) + ", " + TITLE_COMP[suffix] + "\n" + r"(per mass, $\Delta\chi^2 \geq 3.84$)",
                   title_fontsize=plt.rcParams["legend.fontsize"])
     if suffix and not bands:
         leg_ax.text(0.5, 0.1, "Not shown: thin excluded bands along the edge of the\npion-decay region in the "
@@ -299,7 +308,21 @@ def figure(suffix, comp_title, out, bands=False):
 
 
 JOINED = [("le_lmu", r"$L_e - L_\mu$"), ("le_ltau", r"$L_e - L_\tau$")]
-MEV_CORNER = ((4, 9), (-6, -2))   # log10 m, log10 g: where the MeV planes' structure lies, enlarged in an inset
+MEV_INSET = [0.755, 0.08, 0.205, 0.52]   # axes fraction: the MeV inset; the legend's bottom right at its bottom left
+MEV_CORNER = ((2.5, 7.5), (-5, -2))   # log10 m, log10 g: where the MeV planes' structure lies, enlarged in an inset
+
+
+def merged(ul_path, mev_path):
+    """One field for both planes of a model (contoured once, so that no seam shows at 1e4 eV): the ultralight plane's
+    (its thin bands out) and the MeV plane's on the ultralight couplings, the MeV plane allowed below its smallest
+    coupling (1e-10: no effect there); at 1e4 eV, where both have a column, the MeV plane's (finer in coupling)."""
+    lu, G, Fu, _, Cu = field(ul_path)
+    Fu, _ = thin_bands(lu, G, Fu, Cu)
+    lm, Gm, Fm, _, _ = field(mev_path)
+    Fm = np.ma.masked_invalid(np.array([np.interp(G, Gm, Fm[:, k].filled(np.nan), left=-D, right=-D)
+                                        for k in range(len(lm))]).T)
+    keep = lu < lm[0] - 1e-9
+    return np.r_[lu[keep], lm], G, np.ma.concatenate([Fu[:, keep], Fm], axis=1)
 
 
 def joined(suffix, comp_title, out):
@@ -312,22 +335,20 @@ def joined(suffix, comp_title, out):
     for k, (ax, (model, title)) in enumerate(zip(axes, JOINED)):
         drawn = []
         for ds, label, color in DRAWN:
-            for kind in ("_ul", "_mev"):
-                hits = glob.glob(f"{REPO}/output/analysis/campaign_ml/{ds}/{model}{kind}{suffix}/*/plane_*.json")
-                if not hits:
-                    continue
-                lx, G, F, _, C = field(hits[0])
-                if kind == "_ul":
-                    F, _ = thin_bands(lx, G, F, C)
-                draw(ax, lx, G, F, [], color, lw=2.0)
-                drawn.append((lx, G, F, [], color))
-        ins = ax.inset_axes([0.70, 0.08, 0.255, 0.52])
+            paths = [glob.glob(f"{REPO}/output/analysis/campaign_ml/{ds}/{model}{kind}{suffix}/*/plane_*.json")
+                     for kind in ("_ul", "_mev")]
+            if not all(paths):
+                continue
+            lx, G, F = merged(paths[0][0], paths[1][0])
+            draw(ax, lx, G, F, [], color, lw=2.0)
+            drawn.append((lx, G, F, [], color))
+        ins = ax.inset_axes(MEV_INSET)
         for d in drawn:
             draw(ins, *d, lw=1.5)
         ins.set_xlim(*MEV_CORNER[0])
         ins.set_ylim(*MEV_CORNER[1])
         ticks(ins, (1, 0.25), (1, 0.25))
-        ins.tick_params(labelsize=14, pad=4, length=6, labelleft=False, labelright=True)   # clear of the legend
+        ins.tick_params(labelsize=18, pad=4, length=6, labelleft=False, labelright=True)   # clear of the legend
         ins.tick_params(which="minor", length=3)
         ax.indicate_inset_zoom(ins, edgecolor="0.45")
         ax.set_xlim(-30, 9)
@@ -338,9 +359,11 @@ def joined(suffix, comp_title, out):
     axes[1].set_xlabel(r"Mediator mass, $\log_{10}(M'/{\rm eV})$")
     fig.text(0.012, 0.545, r"Coupling, $\log_{10} g'$", rotation=90, ha="left", va="center",
              fontsize=plt.rcParams["axes.labelsize"])
-    handles = [Patch(facecolor=c + "80", edgecolor=edge(c), lw=1.5, label=lab) for _, lab, c in SETS]
-    leg = axes[0].legend(handles=handles, loc="lower left", bbox_to_anchor=(0.412, 0.035), ncol=1, fontsize=12,
-                         frameon=True, framealpha=1, edgecolor="black", title=TITLE.format(pct()), title_fontsize=13)
+    handles = [Patch(facecolor=tint(c), edgecolor=c, lw=1.5, label=lab.replace(" + ", "\n+ ", 1)
+                     .replace("combined future", "combined\nfuture")) for _, lab, c in SETS]
+    leg = axes[0].legend(handles=handles, loc="lower right", bbox_to_anchor=(MEV_INSET[0] - 0.01, MEV_INSET[1]), ncol=1,
+                         fontsize=15, frameon=True, framealpha=1, edgecolor="black",
+                         title=TITLE.format(pct()) + ",\n" + TITLE_COMP[suffix], title_fontsize=15)
     leg.get_frame().set_linewidth(1.0)
     fig.savefig(out)
     plt.close(fig)
