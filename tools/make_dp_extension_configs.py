@@ -4,7 +4,7 @@ analysis/configs/campaign_ml/<data set>/, as the campaign's (mixing fixed at Tab
 exactly, the relics thermal in every collision; outputs under output/analysis/campaign_ml/):
   dp_<flavor>_ul[_fx] -- the MeV planes' physics (eps' = 0: no coupling to matter, so no long-range potential; the
       scattering and absorption on relic neutrinos) at ultralight masses, 1e-30 - 1e4 eV, one mass per decade, the
-      coupling (the texture's trace g_D Sum|U|^2) 1e-12 - 1, four per decade; the MeV planes' lightest-mass scan. A
+      coupling (the texture's trace g_D Sum|U|^2) 1e-8 - 1, four per decade; the MeV planes' lightest-mass scan. A
       limit that does not depend on eps', drawn with the MeV planes' in one panel per flavor.
   dp_<flavor>_pot_x<x>_<sign>[_fx] -- the long-range potential at a fixed neutrino-side coupling x = g_D Sum|U|^2
       (1e-24: no relic screening; 1e-16: the Sun and the Galaxy screened; 1e-8: every local body screened), both signs,
@@ -28,7 +28,7 @@ import make_campaign_configs as mcc  # noqa: E402
 
 FLAVORS = ("e", "mu", "tau")
 UL_MASS = (-30, 4, 35)            # log10 m_Zd, one per decade
-UL_COUPLING = (-12, 0, 49)        # log10 g_D Sum|U|^2, four per decade
+UL_COUPLING = (-8, 0, 33)         # log10 g_D Sum|U|^2, four per decade (pilot: no effect below 1e-4)
 POT_SPLITS = (1e-24, 1e-16, 1e-8)
 
 

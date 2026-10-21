@@ -34,7 +34,9 @@ MASS_RANGE = (2.5, 7.5)                # log10 m of the new masses, every 1/32 d
 G_NEW = (-5.0, TOP)                    # log10 g at the new masses
 # seconds per fit, measured on the campaign (median, one core): (data set, 'mev' | 'ul')
 SECONDS = {("now_ic26", "mev"): 88, ("now_events", "mev"): 300, ("proj_future", "mev"): 153,
-           ("now_ic26", "ul"): 4, ("now_events", "ul"): 22, ("proj_future", "ul"): 12}
+           ("now_ic26", "ul"): 4, ("now_events", "ul"): 22, ("proj_future", "ul"): 12,
+           # the dark portal at eps' = 0 below 1e4 eV (tools/pilot_fits.py, 2026-10-21: mean per fit)
+           ("now_ic26", "dpul"): 88, ("now_events", "dpul"): 543, ("proj_future", "dpul"): 143}
 
 
 def points(cfgp):
@@ -56,7 +58,10 @@ def points(cfgp):
 
 def kind_of(cfgp):
     ds = os.path.basename(os.path.dirname(cfgp))
-    return ds, ("ul" if "_ul" in os.path.basename(cfgp) or "_pot_" in os.path.basename(cfgp) else "mev")
+    name = os.path.basename(cfgp)
+    if name.startswith("dp_") and "_ul" in name:
+        return ds, "dpul"
+    return ds, ("ul" if "_ul" in name or "_pot_" in name else "mev")
 
 
 def plan(manifest, tasks, configs):
