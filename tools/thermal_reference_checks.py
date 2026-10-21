@@ -1,9 +1,11 @@
 """
 thermal_reference_checks.py -- dp_si's thermal relics in every collision term (dark_portal.thermal_products,
-2026-10-18) against the reference (tools/thermal_reference.py) at the analysis grid: the fluxes at Earth of an
-MeV-plane configuration at two points and three lightest masses, each run in a fresh process -- production with the
-switch on ('full'), production without it ('old': the resonance alone), the reference ('ref'); then the time of a
-second transport (a process's tables built) with the switch on and off.
+2026-10-18; secret_interactions.thermal_products, 2026-10-21) against the reference (tools/thermal_reference.py) at the
+analysis grid: the fluxes at Earth of an MeV-plane configuration (the dark portal's, or a secret interaction's) at two
+points and three lightest masses, each run in a fresh process -- production with the switch on ('full'), production
+without it ('old': the dark portal's resonance alone, the secret interactions' relics at rest), the reference
+('ref'); then the time of a second transport (a process's tables built) with the switch on and off. Writes
+output/analysis/thermal_checks[_<config name>].npz.
 
   python tools/thermal_reference_checks.py <config.json> [--workers N]
 """
@@ -16,7 +18,8 @@ import time
 from multiprocessing import get_context
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-POINTS = [{"m_Zd_eV": 3.16e4, "g_D_trace": 2e-3}, {"m_Zd_eV": 4.22e6, "g_D_trace": 1.35e-3}]
+MG = [(3.16e4, 2e-3), (4.22e6, 1.35e-3)]       # (mediator mass, coupling) of the two points
+POINTS = []                                   # set in main from the plane's axes
 MLS = (1e-6, 1e-3, 0.03)
 
 
@@ -37,7 +40,8 @@ def flux(args):
     def run(point):
         raw = copy.deepcopy(json.load(open(path)))
         raw["solver"].setdefault("cosmology", {})["m_lightest_eV"] = m_l
-        raw["solver"]["dark_portal"]["thermal_products"] = mode.startswith("full")
+        si = raw["solver"].get("secret_interactions", {})
+        (si if si.get("enabled") else raw["solver"]["dark_portal"])["thermal_products"] = mode.startswith("full")
         raw["parameters"].pop("m_lightest_eV", None)
         raw.pop("exact_profile", None)
         cfg = config_mod.from_dict(raw, os.path.abspath(path))
@@ -51,7 +55,8 @@ def flux(args):
 
     dt, E, F = run(pt)
     if mode.endswith("_time"):
-        dt, E, F = run(dict(pt, g_D_trace=1.1 * pt["g_D_trace"]))
+        y = json.load(open(path))["planes"][0]["y"]
+        dt, E, F = run(dict(pt, **{y: 1.1 * pt[y]}))
     F = F.sum(axis=tuple(range(1, F.ndim))) if F.ndim > 1 else F
     return mode, json.dumps(pt), m_l, dt, np.asarray(E).tolist(), F.tolist()
 
@@ -63,6 +68,9 @@ def main(argv=None):
     ap.add_argument("--workers", type=int, default=16)
     a = ap.parse_args(argv)
     path = os.path.abspath(a.config)
+    global POINTS
+    pl = json.load(open(path))["planes"][0]
+    POINTS = [{pl["x"]: m, pl["y"]: g} for m, g in MG]
     tasks = [(path, mode, pt, m_l, 2) for mode in ("ref", "full", "old") for pt in POINTS for m_l in MLS]
     tasks.insert(0, (path, "ref_fine", POINTS[0], MLS[0], 2))     # the reference's convergence (2 sub-steps, 16 nodes)
     ctx = get_context("spawn")
@@ -75,7 +83,9 @@ def main(argv=None):
     print("PROGRESS 100% | timing done", flush=True)
     got = {(mode, p, m): (dt, np.array(E), np.array(F)) for mode, p, m, dt, E, F in res}
     idx = {json.dumps(pt): i for i, pt in enumerate(POINTS)}
-    np.savez(os.path.join(REPO, "output", "analysis", "thermal_checks.npz"),
+    name = json.load(open(path))["name"]
+    np.savez(os.path.join(REPO, "output", "analysis", "thermal_checks.npz" if name.startswith("dp_")
+                          else f"thermal_checks_{name}.npz"),
              **{f"{mode}_{idx[p]}_{m:g}": np.vstack([E, F]) for (mode, p, m), (dt, E, F) in got.items()})
 
     def rel(k1, k2):

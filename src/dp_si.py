@@ -2209,11 +2209,12 @@ THERMAL_SUPPORT = 1e-9
 THERMAL_GRID_STEP = 1.0
 
 
-def _thermal_table(dlnE, Delta, N, n_u, n_lo, n_hi):
-    """The vector's produced spectra, full rows d = 0..N-1, on the lattice mu_n = exp(-n Delta) for n_lo <= n <= n_hi
-    (they depend on mu, the bin width and N only): (n_first, BT (nodes, 10, N): profile-major, so that the products'
-    sums run along d), kept per grid and widened as needed."""
-    key = (float(dlnE), float(Delta), int(N), int(n_u))
+def _thermal_table(dlnE, Delta, N, n_u, n_lo, n_hi, prof=1):
+    """The model's produced spectra (prof 0: the scalar's 7 profiles, 1: the vector's 10), full rows d = 0..N-1, on
+    the lattice mu_n = exp(-n Delta) for n_lo <= n <= n_hi (they depend on mu, the bin width and N only): (n_first,
+    BT (nodes, P, N): profile-major, so that the products' sums run along d), kept per grid and model and widened as
+    needed."""
+    key = (float(dlnE), float(Delta), int(N), int(n_u), int(prof))
     hit = _THERMAL_TABLE.get(key)
     if hit is not None:
         if hit[0] <= n_lo and hit[0] + hit[1].shape[0] - 1 >= n_hi:
@@ -2223,15 +2224,15 @@ def _thermal_table(dlnE, Delta, N, n_u, n_lo, n_hi):
     n_lo -= 32
     n_hi += 32
     nodes = np.arange(n_lo, n_hi + 1)
-    Bt, _ = build_vector_table_tri(np.ascontiguousarray(np.exp(-nodes * Delta)),
-                                   np.full(len(nodes), N - 1, dtype=np.int64), dlnE, n_u)
+    build = build_profile_table_tri if prof == 0 else build_vector_table_tri
+    Bt, _ = build(np.ascontiguousarray(np.exp(-nodes * Delta)), np.full(len(nodes), N - 1, dtype=np.int64), dlnE, n_u)
     out = (int(n_lo), np.ascontiguousarray(Bt.reshape(len(nodes), N, Bt.shape[1]).transpose(0, 2, 1)))
     _THERMAL_TABLE.clear()
     _THERMAL_TABLE[key] = out
     return out
 
 
-def _thermal_terms(E, L_edges, q, Delta, dlnE, masses, n0, T_nu0, eta, M, MG, H0, Om, OL, hbin, n_u):
+def _thermal_terms(E, L_edges, q, Delta, dlnE, masses, n0, T_nu0, eta, M, MG, H0, Om, OL, hbin, n_u, prof=1):
     """Everything _thermal_products needs but the bins' rows: per step m the relic states' weights (W, i0, st, nw),
     the at-rest kernels on the lattice (Jn) and the exact thermal resonant kernels per bin (JT0, JT1); the lattice's
     profile totals (Nn, Ln, Dn) and produced spectra (n_first, BT)."""
@@ -2255,7 +2256,7 @@ def _thermal_terms(E, L_edges, q, Delta, dlnE, masses, n0, T_nu0, eta, M, MG, H0
     sel[:, live] = True
     n_lo = min(0, int(i0[sel].min())) if sel.any() else 0
     n_hi = max(0, (N - 1) * q + int((i0 + st * (nw - 1))[sel].max())) if sel.any() else 0
-    n_first, BT = _thermal_table(dlnE, Delta, N, n_u, n_lo, n_hi)
+    n_first, BT = _thermal_table(dlnE, Delta, N, n_u, n_lo, n_hi, prof)
     nodes = n_first + np.arange(BT.shape[0])
     nn = len(nodes)
     P = BT.shape[1]
@@ -2270,7 +2271,7 @@ def _thermal_terms(E, L_edges, q, Delta, dlnE, masses, n0, T_nu0, eta, M, MG, H0
         zlo, zhi, zmid = np.exp(L_edges[m]), np.exp(L_edges[m + 1]), np.exp(L_mid[m])
         # the lattice's at-rest kernels: a relic of 1 eV at the step's energy that puts the step's middle at mu_n
         _step_integrals(M2 * np.exp(nodes * Delta) / (2.0 * zmid), zlo, zhi, zmid, one, one, M2, MG, H0, Om, OL,
-                        False, 1, hbin, Jf, Nf, Lf, Df)
+                        False, prof, hbin, Jf, Nf, Lf, Df)
         Jn[m] = Jf[:, 0, :]
         # the resonant kernels' grid in ln a, a = 2 E (1+z): every THERMAL_GRID_STEP Delta, finer (a sixth of the
         # speed, ten speeds around the resonance) where a slow relic state's distribution is narrower than eight steps
@@ -2341,8 +2342,10 @@ def propagate_si(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta
     to electrons): it widens the resonance and the s-channel events into it are absorbed without secondaries (vector
     only); thermal -- the s-channel terms averaged over the relics' thermal momenta where that matters
     (_thermal_resonance_terms; the dark portal's MeV regime, 2026-10-14); False keeps the relics at rest, as both
-    papers and the secret-interaction planes; "full" (vector, 2026-10-18) averages every collision term -- rates,
-    in-bin terms and produced spectra -- over the relics' thermal momenta (_thermal_products).
+    papers and the secret-interaction planes; "full" (vector 2026-10-18, scalar 2026-10-21) averages every collision
+    term -- rates, in-bin terms and produced spectra -- over the relics' thermal momenta (_thermal_products); valid for
+    Majorana relics, unpolarized at rest and in motion (a Dirac relic keeps its helicity, so its rates depend on its
+    speed: not modelled; secret_interactions.thermal_products refuses Dirac).
 
     Returns the (N_E, 3) mass-state fluxes at z = 0 of the visible neutrinos (both helicities), on
     E_bins; with return_diagnostics also a dict of the number and energy bookkeeping (of the first
@@ -2504,8 +2507,8 @@ def _transport_columns(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu
     n0 = relic_density_per_helicity(T_nu0) * np.asarray(eta_mass, dtype=np.float64)
 
     full = thermal == "full"
-    if full and (prof != 1 or delta_mode):
-        raise ValueError("secret interactions: thermal='full' is implemented for the vector's full channels")
+    if full and delta_mode:
+        raise ValueError("secret interactions: thermal='full' is implemented for the full channels")
     if not full:
         (lat_B, lat_O), top = _profile_tables(prof, M, masses, E[0], N, dlnE, q, K, top_full, L_top_mid, n_u)
 
@@ -2541,7 +2544,7 @@ def _transport_columns(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu
         th = _STEP_TERMS.get(skey)
         if th is None:
             th = _thermal_terms(E, L_edges, q, Delta, dlnE, masses, n0, T_nu0, eta_arr, M, MG, H0, Omega_m, Omega_L,
-                                hbin, n_u)
+                                hbin, n_u, prof)
             _STEP_TERMS.clear()
             _STEP_TERMS[skey] = th
         offs = np.zeros(N + 1, dtype=np.int64)
@@ -2568,7 +2571,7 @@ def _transport_columns(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu
             numba.set_parallel_chunksize(chunk)
             for k in range(len(runs)):
                 _si_sweep_cols(Fs[k], E, dE, S0, Jone, Nq, Lq, Dq, spec["jt"], spec["w"], spec["qe"], spec["Ctau"],
-                               Cregs[k], Rth, Oth, node_th, dt, reg, diags[k], True)
+                               Cregs[k], Rth, Oth, node_th, dt, reg, diags[k], prof == 1)
             continue
         if steps is not None:
             J, Nq, Lq, Dq = steps[K - 1 - m]

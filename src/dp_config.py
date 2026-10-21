@@ -173,6 +173,11 @@ def _build_default_config() -> Dict:
             # double-scalar production: 'coherent', ((g^2)_ij)^2, or 'paper', sum_k g_ik^2 g_jk^2 as
             # printed in 2107.13568 (see dp_si)
             "phiphi_coupling": "coherent",
+            # the relics' thermal momenta in every collision term (dp_si thermal="full"; 2026-10-21, as
+            # dark_portal.thermal_products): off keeps the relics at rest, as 2107.13568 and 2001.04994. Majorana
+            # neutrinos only: a Dirac relic keeps its helicity, so its coupling to the left-handed current depends on
+            # its speed ((1 + v)/2), which the transport does not model yet
+            "thermal_products": False,
             # scalar with Dirac neutrinos: 'track' the sterile secondaries, which scatter too and turn
             # back into visible ones (exact, by parity), or 'drop' them as 2107.13568 does
             "dirac_sterile": "track",

@@ -36,12 +36,14 @@ def test_weights_carry_rho_moments(m, T):
         assert abs((W[:nw] * nu ** k).sum() - ref) <= 1e-7 * max(1.0, abs(ref)), k
 
 
-@pytest.mark.parametrize("M, g", [(3e6, 3e-2), (3e5, 1e-2)])
-def test_transport_matches_reference(M, g, monkeypatch):
+@pytest.mark.parametrize("mediator, M, g", [("vector", 3e6, 3e-2), ("vector", 3e5, 1e-2),
+                                             ("scalar", 3e6, 3e-2), ("scalar", 3e5, 1e-2)])
+def test_transport_matches_reference(mediator, M, g, monkeypatch):
+    """thermal="full" against the reference, for both mediators (the scalar since 2026-10-21; Majorana relics)."""
     E = 1e13 * np.exp(DELTA * np.arange(100))
     kw = dict(z_max=1.0, H0=1.44e-33, Omega_m=0.315, Omega_L=0.685, U_pmns=np.eye(3), T_nu0=1.68e-4,
               eta_mass=np.ones(3), rho_src=np.full(3, 1 / 3), p_index=2.0, rho_evol=0.0, Phi_0=1.0, majorana=True,
-              channels="full", mediator="vector", E_extension=2.0, masses=np.array([1e-6, 8.6e-3, 0.05]), M=M)
+              channels="full", mediator=mediator, E_extension=2.0, masses=np.array([1e-6, 8.6e-3, 0.05]), M=M)
     gm = g * np.eye(3, dtype=np.complex128)
     F0 = dp_si.propagate_si(E, g_mass=0 * gm, **kw).sum(axis=1)
     full = dp_si.propagate_si(E, g_mass=gm, thermal="full", **kw).sum(axis=1)
@@ -51,8 +53,10 @@ def test_transport_matches_reference(M, g, monkeypatch):
     dp_si._COLUMNS.clear()
     ref = dp_si.propagate_si(E, g_mass=gm, **kw).sum(axis=1)
     dp_si._COLUMNS.clear()
-    assert np.max(np.abs(full - ref) / F0) < 2e-4
-    assert np.max(np.abs(res - ref) / F0) > 3e-3
+    err_full, err_res = np.max(np.abs(full - ref) / F0), np.max(np.abs(res - ref) / F0)
+    assert err_full < 2e-4
+    # the test can tell: the resonance-only treatment misses by far more (vector 3e-3 and up; scalar 1.1e-3 at 3 MeV)
+    assert err_res > max(5e-4, 10.0 * err_full)
 
 
 @pytest.mark.parametrize("m", [1e-6, 1e-5, 1e-4])
@@ -77,3 +81,18 @@ def test_resonant_kernel_resolves_the_relic_mass(m):
                                                                    for sg in (-1, 1)})
     ref = sum(integrate.quad(f, p, q, limit=400, epsabs=0, epsrel=1e-10)[0] for p, q in zip(cuts[:-1], cuts[1:]))
     assert abs(st / (2 * np.pi * n) / ref - 1.0) < 1e-6
+
+
+def test_si_config_switch():
+    """secret_interactions.thermal_products (2026-10-21) turns thermal="full" on for Majorana neutrinos and refuses
+    Dirac ones, whose relics' helicity makes their rates depend on their speed."""
+    import dark_portal_solver as dps
+    base = {"secret_interactions": {"enabled": True, "mediator": "scalar", "neutrino_type": "majorana",
+                                    "m_phi_eV": 3e6, "g_phi": 1e-2, "texture": "e"}}
+    _, params = dps.build_solver_params(base)
+    assert params["si"]["thermal"] is False
+    on = {"secret_interactions": dict(base["secret_interactions"], thermal_products=True)}
+    _, params = dps.build_solver_params(on)
+    assert params["si"]["thermal"] == "full"
+    with pytest.raises(ValueError, match="Majorana"):
+        dps.build_solver_params({"secret_interactions": dict(on["secret_interactions"], neutrino_type="dirac")})

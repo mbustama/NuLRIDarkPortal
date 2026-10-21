@@ -698,6 +698,7 @@ def _flux_from_setup(E_bins: np.ndarray, params: Dict, setup: Dict, injection,
                                     channels=si_p['channels'], phiphi=si_p['phiphi'],
                                     z_substeps=si_p['z_substeps'], E_extension=si_p['E_extension'],
                                     mediator=si_p['mediator'], dirac_sterile=si_p['dirac_sterile'],
+                                    thermal=si_p.get('thermal', False),
                                     inj_window=params.get('inj_window_eV', (0.0, np.inf)))
         F_fl = np.ascontiguousarray(F_mass @ (np.abs(U) ** 2).T)
         if not np.isfinite(F_fl).all():
@@ -1403,11 +1404,19 @@ def build_solver_params(config: Dict) -> Tuple[np.ndarray, Dict]:
             raise ValueError("secret_interactions.z_substeps must be an integer >= 1.")
         if not float(si_cfg['E_extension']) >= 1.0:
             raise ValueError("secret_interactions.E_extension must be >= 1.")
+        thermal = si_cfg.get('thermal_products', False)
+        if not isinstance(thermal, bool):
+            raise ValueError(f"secret_interactions.thermal_products must be true or false, got {thermal!r}")
+        if thermal and nu_type == 'dirac':
+            raise ValueError("secret_interactions.thermal_products is implemented for Majorana neutrinos only: a Dirac "
+                             "relic's coupling to the left-handed current depends on its speed, not modelled yet")
+        if thermal and channels != 'full':
+            raise ValueError("secret_interactions.thermal_products needs channels 'full'")
         import dp_si
         g_flavor = dp_si.flavor_couplings(si_cfg['texture'], g_phi, si_cfg['g_matrix'])   # validates the texture
         params['si'] = dict(mediator=mediator, majorana=(nu_type == 'majorana'), dirac_sterile=sterile, m_phi_eV=m_phi,
                             g_flavor=g_flavor, channels=channels, phiphi=phiphi, z_substeps=int(z_sub),
-                            E_extension=float(si_cfg['E_extension']))
+                            E_extension=float(si_cfg['E_extension']), thermal="full" if thermal else False)
 
     # Per-direction output and the Galactic component (docs/dev/DIRECTIONS_PLAN.md, 2026-10-13).
     sky_cfg = config['sky']
