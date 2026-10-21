@@ -696,6 +696,40 @@ fractions step near $30$--$50$~TeV.}
 \label{fig:band_mechanism}
 \end{figure}
 
+\subsection{Where the fitted-composition regions end: missing tau neutrinos (2026-10-21)}
+\label{sec:tau_disappearance}
+
+\textit{What the fit sees.}---With the source compositions fitted, the MESE flavor + spectrum $L_e - L_\tau$ plane
+is excluded only just ($\Delta\chi^2 \approx 3.9$), and its region ends below the top of the scan, near
+$g' = 3\times10^{-3}$; with pion-decay sources the same couplings stay excluded ($\Delta\chi^2 = 7.5$--$9.9$). Splitting
+$\chi^2$ into its terms (\file{tools/check\_dips.py}, $\mzd = 10^{-15}$~eV, Table~\ref{tab:tau_disappearance}) puts
+every change in the flavor term; the spectrum moves $\chi^2$ by at most $0.33$.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{ccccc}
+$\log_{10} g'$ & $\Delta\chi^2$ & flavor term & spectrum term & $f_{\tau,\oplus}$ \\ \hline
+$-3.5$ to $-3$ & $3.89$ & $3.89$ & $0.00$ & $0.000$ \\
+$-2.5$ & $3.64$ & $3.63$ & $0.01$ & $0.011$ \\
+$-2.25$ & $1.92$ & $1.85$ & $0.08$ & $0.100$ \\
+$-2$ & $0.45$ & $0.09$ & $0.33$ & $0.270$
+\end{tabular}
+\caption{MESE flavor + spectrum, $L_e - L_\tau$, source compositions fitted, $\mzd = 10^{-15}$~eV: $\Delta\chi^2$ from
+the no-effect point, its flavor and spectrum terms, and the fraction of $\nu_\tau$ at Earth.}
+\label{tab:tau_disappearance}
+\end{table}
+
+\textit{Why.}---Where the new potential dominates the vacuum term along the whole path, the flavors stop mixing: each
+neutrino arrives with the flavor it left with, and since the sources make no $\nu_\tau$, none arrives. Fitting the
+sources reproduces the measured $\nu_e$ and $\nu_\mu$ shares ($f_{e,\oplus} = 0.51$, $f_{\mu,\oplus} = 0.49$) but cannot
+make $\nu_\tau$; MESE measures the $\tau$ share only loosely, so the missing $\nu_\tau$ cost just $\Delta\chi^2 = 3.9$.
+With pion-decay sources the $\nu_e$ and $\nu_\mu$ shares are off as well ($0.33{:}0.67{:}0$), hence $7.5$. Above
+$3\times10^{-3}$ the $\nu_\tau$ reappear and the region ends. That they come back through scattering on relic
+neutrinos, which sets in near these couplings (it makes the HESE + DR2 line near $8\times10^{-3}$), is our reading,
+not yet checked. \note{Check: the scattering switched off at $g' = 10^{-2}$} The same missing $\nu_\tau$ set the main
+region of every ultralight plane with fitted compositions. Doubling every grid of the flavor calculation changes these
+values by at most $0.03$.
+
 %==============================================================================
 \section{Secret neutrino interactions}
 \label{sec:si}
