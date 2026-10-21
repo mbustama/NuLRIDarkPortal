@@ -4,8 +4,9 @@ mediators of 1 keV and up with a negligible potential, relics thermal in every c
 resonant kernels' grid fix (dp_si._thin_grid, 2026-10-21: nearly coincident nodes made the interpolation of the
 thermal kernels overshoot -- a crash, or isolated energies absorbed outright). At every stored solution (the plane
 summaries' grid points and every refine_*.jsonl record) the chi^2 with the grid as it was (THERMAL_GRID_MIN_GAP = 0,
-which must give back the stored value: the control) and with the fix, each grid in its own fresh processes (no cache
-shared between them; NULRI_FLUX_CACHE is ignored). Results go next to each plane's summary, recheck.<task>.jsonl.
+which must give back the stored value: the control, at every CONTROL_EVERY-th point) and with the fix (every point),
+each grid in its own fresh processes (no cache shared between them; NULRI_FLUX_CACHE is ignored). The change at a
+point is then new - stored. Results go next to each plane's summary, recheck.<task>.jsonl.
 
   python tools/recheck_thermal_grid.py plan <manifest.json> --tasks N      every affected plane's points, balanced
   python tools/recheck_thermal_grid.py run <manifest.json> <task> [--workers 32]
@@ -25,6 +26,7 @@ sys.path[:0] = [os.path.join(REPO, "src"), REPO, os.path.join(REPO, "tools")]
 CAMPAIGN = os.path.join(REPO, "analysis", "configs", "campaign_ml")
 M_MIN = 1e3                                   # dark_portal_solver.SI_COSMOLOGY_MIN_M_EV: dp_si below it never
 GAPS = (0.5, 0.0)                             # the fix, then the grid as it was
+CONTROL_EVERY = 10                            # the old grid (the control) at every 10th point of a plane
 # seconds per chi^2 evaluation on one core (a guess for the plan; the cost is one model evaluation)
 SECONDS = {"now_ic26": 20, "now_events": 90, "proj_future": 60}
 _W = {}
@@ -144,7 +146,9 @@ def run(manifest, task, workers):
                 done.add((r["source"], json.dumps(r["held"], sort_keys=True), r["gap"]))
         with open(path, "a") as fh:
             for gap in GAPS:
-                todo = [(s, h, v) for s, h, v, _ in pts if (s, json.dumps(h, sort_keys=True), gap) not in done]
+                todo = [(s, h, v) for k, (s, h, v, _) in enumerate(pts)
+                        if (s, json.dumps(h, sort_keys=True), gap) not in done
+                        and (gap > 0.0 or (item["lo"] + k) % CONTROL_EVERY == 0)]
                 print(f"{item['config']} gap {gap}: {len(todo)} points ({len(pts) - len(todo)} done)", flush=True)
                 if not todo:
                     continue
@@ -172,14 +176,14 @@ def report():
                 recs.setdefault((r["source"], json.dumps(r["held"], sort_keys=True)), {})[r["gap"]] = r
         if not recs:
             continue
-        si = [g for g in recs.values() if 0.0 in g and 0.5 in g and g[0.0]["chi2"] is not None]
+        si = [g for g in recs.values() if 0.5 in g and g[0.5]["chi2"] is not None]
         err = sum(1 for g in recs.values() for r in g.values() if r.get("error"))
-        ctrl = [abs(g[0.0]["chi2"] - g[0.0]["stored"]) for g in si]
-        dlt = [g[0.5]["chi2"] - g[0.0]["chi2"] for g in si if g[0.5]["chi2"] is not None]
+        ctrl = [abs(g[0.0]["chi2"] - g[0.0]["stored"]) for g in recs.values() if 0.0 in g and g[0.0]["chi2"] is not None]
+        dlt = [g[0.5]["chi2"] - g[0.5]["stored"] for g in si]
         name = os.path.relpath(d, os.path.join(REPO, "output", "analysis", "campaign_ml"))
         rows.append(name)
         print(f"{name:45s} {len(recs):5d} pts, {len(si):5d} via dp_si, errors {err}; control max |old - stored| "
-              f"{max(ctrl) if ctrl else 0:.2e}; |new - old| > 0.05: {sum(abs(x) > 0.05 for x in dlt)}, > 1: "
+              f"{max(ctrl) if ctrl else 0:.2e} ({len(ctrl)}); |new - stored| > 0.05: {sum(abs(x) > 0.05 for x in dlt)}, > 1: "
               f"{sum(abs(x) > 1 for x in dlt)}, max {max(map(abs, dlt)) if dlt else 0:.2f}")
     return rows
 
