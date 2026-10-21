@@ -21,8 +21,9 @@ PANEL = (5.0, 4.75)   # inches: one panel, the matplotlibrc's figure.figsize
 def use() -> None:
     """Draw every later figure in the repository's style."""
     matplotlib.rc_file(RC)
-    if shutil.which("latex") is None:
-        matplotlib.rcParams["text.usetex"] = False
+    if shutil.which("latex") is None:                # matplotlib's own text, in a serif font that has every glyph
+        matplotlib.rcParams.update({"text.usetex": False, "font.serif": ["DejaVu Serif"],
+                                    "mathtext.fontset": "dejavuserif"})
 
 
 def pct() -> str:
