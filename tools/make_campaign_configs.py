@@ -192,6 +192,7 @@ SUM_U2 = 0.5
 MODEL_KEYS = {"dark_portal": "dp", "L_mu-L_tau": "lmu_ltau", "L_e-L_mu": "le_lmu", "L_e-L_tau": "le_ltau",
               "B-3L_e": "b_3le", "B-3L_mu": "b_3lmu", "B-3L_tau": "b_3ltau", "B-3/2(L_mu+L_tau)": "b_32lmultau"}
 SPLITS = (1e-24, 1e-20, 1e-16, 1e-12, 1e-8)
+SPLIT_M_HI = None                # log10 m_Zd where the split planes end; None: where screening stops mattering (below)
 M_POT = (-30, 4)                 # log10 m_Zd range of the potential planes, one per decade
 M_MEV = (4, 9, 41)               # the MeV planes: eight per decade
 P_RANGE = (-60, -6)              # log10 P, one per decade
@@ -301,7 +302,7 @@ def planes_for(dataset, spectrum="pl", mixing="fixed"):
                             p_hi = P_RANGE[1]
                             tag = "bal"
                         else:
-                            m_hi = int(np.floor(np.log10(2e-4 * split)))
+                            m_hi = int(np.floor(np.log10(2e-4 * split))) if SPLIT_M_HI is None else SPLIT_M_HI
                             m_lo = M_POT[0]
                             if m_hi < m_lo:
                                 continue
