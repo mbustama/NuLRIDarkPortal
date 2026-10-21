@@ -4,7 +4,7 @@ plots.py
 Figures of profiles and planes, read from their summary JSON files (run.summarize writes
 them). Delta chi^2 is drawn against the parameter, with the thresholds of the configuration
 as horizontal lines (profiles) or contour levels (planes). Drawn in Mauricio's style
-(figure_style.py: the matplotlibrc at the repository root; 2026-10-21).
+(figure_style.py and its matplotlibrc; 2026-10-21).
 """
 import matplotlib
 

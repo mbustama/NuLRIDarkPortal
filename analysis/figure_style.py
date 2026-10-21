@@ -1,8 +1,9 @@
 """
-figure_style.py -- the style every figure is drawn in: Mauricio's matplotlibrc at the repository root (copied
+figure_style.py -- the style every figure is drawn in: Mauricio's matplotlibrc, next to this file (copied
 unchanged from GeoneutrinoDecay, 2026-10-21; Palatino through LaTeX, ticks inward on all four sides, large labels,
-5 x 4.75 inch panels, 300 dpi). matplotlib reads matplotlibrc by itself only when run from the directory that holds
-it, so the figure scripts call use() before they draw. The file's backend is left alone (matplotlib's rc_file skips
+5 x 4.75 inch panels, 300 dpi). Not at the repository root: matplotlib reads a matplotlibrc in the working
+directory by itself, which would switch LaTeX and the Tk backend on for every run from the root (CI and Tycho's
+compute nodes have neither); the figure scripts call use() before they draw. The file's backend is left alone (matplotlib's rc_file skips
 it): scripts save through Agg. Where LaTeX is missing (Tycho's compute nodes, CI), text falls back to matplotlib's
 own rendering.
   from analysis.figure_style import use, pct, tex; use()
@@ -13,7 +14,7 @@ import shutil
 
 import matplotlib
 
-RC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "matplotlibrc")
+RC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "matplotlibrc")
 PANEL = (5.0, 4.75)   # inches: one panel, the matplotlibrc's figure.figsize
 
 

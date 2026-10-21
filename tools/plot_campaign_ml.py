@@ -7,7 +7,7 @@ fitted, the ultralight planes also exclude a thin band (~0.5 decade) along the e
 exists only because each source's composition is taken to be the same at every energy (notes, 'Thin excluded bands
 with fitted source compositions'); Mauricio, 2026-10-21: left out of the exclusion figures (thin_bands takes them out),
 drawn on their own, as ribbons at their true width, in <prefix>_thin_bands.png. Drawn in Mauricio's style
-(analysis/figure_style.py: the matplotlibrc at the repository root). Mass columns whose smallest scanned coupling is not at the no-effect chi^2 are left unshaded (none in this
+(analysis/figure_style.py and its matplotlibrc). Mass columns whose smallest scanned coupling is not at the no-effect chi^2 are left unshaded (none in this
 campaign). The plane summaries' 'elevated' columns are NOT masked: in the IceCube flavor + spectrum MeV planes the data
 prefer an effect near 3 MeV, which lifts every other mass above the global minimum although its scan does reach the
 no-effect couplings; the per-mass reading is valid there.
@@ -275,10 +275,53 @@ def figure(suffix, comp_title, out, bands=False):
     print("saved", out)
 
 
+JOINED = [("le_lmu", r"$L_e - L_\mu$"), ("le_ltau", r"$L_e - L_\tau$")]
+MEV_CORNER = ((4, 9), (-6, -2))   # log10 m, log10 g: where the MeV planes' structure lies, enlarged in an inset
+
+
+def joined(suffix, comp_title, out):
+    """L_e-L_mu and L_e-L_tau, each in one wide panel: the ultralight plane (1e-30 to 1e4 eV) and the MeV plane
+    (1e4 to 1e9 eV) side by side, the thin bands left out, with an inset on the MeV planes' corner."""
+    fig, axes = plt.subplots(2, 1, figsize=(3 * PANEL[0], 2 * PANEL[1] + 1.0))
+    for ax, (model, title) in zip(axes, JOINED):
+        drawn = []
+        for ds, label, color in SETS:
+            for kind in ("_ul", "_mev"):
+                hits = glob.glob(f"{REPO}/output/analysis/campaign_ml/{ds}/{model}{kind}{suffix}/*/plane_*.json")
+                if not hits:
+                    continue
+                lx, G, F, _, C = field(hits[0])
+                if kind == "_ul":
+                    F, _ = thin_bands(lx, G, F, C)
+                draw(ax, lx, G, F, [], color)
+                drawn.append((lx, G, F, [], color))
+        ins = ax.inset_axes([0.62, 0.08, 0.36, 0.5])
+        for d in drawn:
+            draw(ins, *d, lw=1.4)
+        ins.set_xlim(*MEV_CORNER[0])
+        ins.set_ylim(*MEV_CORNER[1])
+        ins.tick_params(labelsize=14, pad=4, length=6)
+        ax.indicate_inset_zoom(ins, edgecolor="0.45")
+        ax.set_xlim(-30, 9)
+        ax.set_ylim(-32, -2)
+        ax.set_xlabel(r"$\log_{10}(m_{Z_D}$ / eV$)$")
+        ax.set_ylabel(r"$\log_{10} g_D$")
+        ax.text(0.015, 0.94, title, transform=ax.transAxes, ha="left", va="top", fontsize=22)
+    handles = [Patch(facecolor=c, edgecolor=c, alpha=0.5, label=lab) for _, lab, c in SETS]
+    fig.legend(handles=handles, loc="upper center", ncol=3, frameon=False,
+               title=f"Excluded at 95{pct()} ({comp_title}; per mass, " + r"$\Delta\chi^2 \geq 3.84$)",
+               title_fontsize=plt.rcParams["legend.fontsize"])
+    fig.tight_layout(rect=(0, 0, 1, 0.9))
+    fig.savefig(out)
+    plt.close(fig)
+    print("saved", out)
+
+
 def main(prefix):
     use()
     for suffix, tag, comp_title in COMPS:
         figure(suffix, comp_title, f"{prefix}_excluded_{tag}.png")
+        joined(suffix, comp_title, f"{prefix}_joined_{tag}.png")
     figure(COMPS[1][0], COMPS[1][2], f"{prefix}_thin_bands.png", bands=True)
 
 
