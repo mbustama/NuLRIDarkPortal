@@ -11,6 +11,11 @@ point is then new - stored. Results go next to each plane's summary, recheck.<ta
   python tools/recheck_thermal_grid.py plan <manifest.json> --tasks N      every affected plane's points, balanced
   python tools/recheck_thermal_grid.py run <manifest.json> <task> [--workers 32]
   python tools/recheck_thermal_grid.py report                              per plane: the control and the change
+  python tools/recheck_thermal_grid.py refit-plan <refit manifest> --tasks N
+      the points to refit: chi^2 moved by more than MOVED, a failed fit (stored chi^2 missing), or an error
+  python tools/recheck_thermal_grid.py refit <refit manifest> <task> [--workers 32]
+      each refitted with the fixed code from its stored solution, into refine_recheck.<task>.jsonl, which
+      analysis/exclusion.corrected reads (a refit takes over where it went lower)
 """
 import argparse
 import glob
@@ -29,6 +34,10 @@ GAPS = (0.5, 0.0)                             # the fix, then the grid as it was
 CONTROL_EVERY = 10                            # the old grid (the control) at every 10th point of a plane
 # seconds per chi^2 evaluation on one core (a guess for the plan; the cost is one model evaluation)
 SECONDS = {"now_ic26": 20, "now_events": 90, "proj_future": 60}
+MOVED = 0.05                                  # chi^2: a solution that moved more is refitted
+# seconds per fit on one core, as tools/refine_grid.SECONDS (the potential planes' from the pilot)
+FIT_SECONDS = {("now_ic26", "mev"): 400, ("now_events", "mev"): 1550, ("proj_future", "mev"): 1150,
+               ("now_ic26", "ul"): 100, ("now_events", "ul"): 550, ("proj_future", "ul"): 150}
 _W = {}
 
 
@@ -188,6 +197,116 @@ def report():
     return rows
 
 
+def _flagged(d):
+    """[(source, held, values)] of a plane directory's points to refit (recheck records; values from the plane)."""
+    recs = {}
+    for f in glob.glob(os.path.join(d, "recheck.*.jsonl")):
+        for line in open(f):
+            try:
+                r = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if r["gap"] == 0.5:
+                recs[(r["source"], json.dumps(r["held"], sort_keys=True))] = r
+    out = []
+    for (src, h), r in recs.items():
+        st = r.get("stored")
+        failed = st is None or st != st
+        if r.get("error") or (r["chi2"] is not None and (failed or abs(r["chi2"] - st) > MOVED)):
+            out.append((src, json.loads(h)))
+    return out
+
+
+def refit_plan(manifest, tasks):
+    items = []
+    for c in sorted(glob.glob(os.path.join(CAMPAIGN, "*", "*.json"))):
+        pts = solutions(c)
+        if not pts:
+            continue
+        from analysis.config import from_dict
+        from analysis.run import asimov_only
+        cfg = from_dict(json.load(open(c)), c)
+        d = cfg.output_path("asimov" if asimov_only(cfg) else "data")
+        flag = {(s, json.dumps(h, sort_keys=True)) for s, h in _flagged(d)}
+        sel = [k for k, (s, h, v, ch) in enumerate(pts) if (s, json.dumps(h, sort_keys=True)) in flag]
+        if sel:
+            ds = os.path.basename(os.path.dirname(c))
+            kind = "mev" if "_mev" in os.path.basename(c) else "ul"
+            items.append(dict(config=os.path.relpath(c, REPO), points=sel, seconds=FIT_SECONDS[(ds, kind)]))
+    total = sum(len(i["points"]) * i["seconds"] for i in items)
+    per = total / tasks
+    shares, cur, load_ = [], [], 0.0
+    for it in sorted(items, key=lambda i: -i["seconds"]):
+        pts = list(it["points"])
+        while pts:
+            room = max(1, int((per - load_) / it["seconds"]))
+            take, pts = pts[:room], pts[room:]
+            cur.append(dict(config=it["config"], points=take))
+            load_ += len(take) * it["seconds"]
+            if load_ >= per * 0.999 and len(shares) < tasks - 1:
+                shares.append(cur)
+                cur, load_ = [], 0.0
+    if cur:
+        shares.append(cur)
+    json.dump(dict(tasks=shares, points=sum(len(i["points"]) for i in items), core_seconds=total), open(manifest, "w"))
+    for it in items:
+        print(f"  {it['config']}: {len(it['points'])}")
+    print(f"{sum(len(i['points']) for i in items)} points in {len(items)} planes, ~{total / 3600:.0f} core-hours, "
+          f"{len(shares)} tasks -> {manifest}")
+
+
+def _refit_one(task):
+    from analysis import scans
+    source, held, start, settings = task
+    try:
+        r = scans._fit_held(held, [start], settings)
+        return source, held, float(r.chi2), r.values, None
+    except Exception as e:
+        return source, held, None, None, repr(e)[:300]
+
+
+def refit(manifest, task, workers):
+    from dataclasses import asdict
+    from analysis import scans
+    from analysis.config import from_dict
+    from analysis.run import asimov_only
+    share = json.load(open(manifest))["tasks"][task]
+    for item in share:
+        cfgp = os.path.join(REPO, item["config"])
+        raw = json.load(open(cfgp))
+        cfg = from_dict(raw, cfgp)
+        kind = "asimov" if asimov_only(cfg) else "data"
+        out_dir = cfg.output_path(kind)
+        dc = None
+        if kind == "asimov":
+            runs = json.load(open(os.path.join(out_dir, "manifest.json")))["runs"]
+            dc = tuple(next(r["data_centre"] for r in reversed(runs) if r.get("data_centre")))
+        pts = solutions(cfgp)
+        path = os.path.join(out_dir, f"refine_recheck.{task}.jsonl")
+        done = set()
+        if os.path.exists(path):
+            for line in open(path):
+                try:
+                    r = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                done.add((r["source"], json.dumps(r["held"], sort_keys=True)))
+        settings = {**asdict(cfg.fit), "n_random": 0}
+        todo = [(pts[k][0], pts[k][1], pts[k][2], settings) for k in item["points"]
+                if (pts[k][0], json.dumps(pts[k][1], sort_keys=True)) not in done]
+        print(f"{item['config']}: {len(todo)} refits ({len(item['points']) - len(todo)} done)", flush=True)
+        if not todo:
+            continue
+        with open(path, "a") as fh, get_context("spawn").Pool(min(workers, len(todo)), initializer=scans._init_worker,
+                                                              initargs=(raw, cfgp, dc)) as pool:
+            for k, (s, h, chi2, values, err) in enumerate(pool.imap_unordered(_refit_one, todo, chunksize=1)):
+                fh.write(json.dumps(dict(source=s, held=h, chi2=chi2, values=values, error=err)) + "\n")
+                fh.flush()
+                if (k + 1) % 20 == 0:
+                    print(f"PROGRESS {100 * (k + 1) / len(todo):.0f}% | {k + 1} of {len(todo)}", flush=True)
+    print("done", flush=True)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -199,11 +318,22 @@ def main(argv=None):
     r.add_argument("task", type=int)
     r.add_argument("--workers", type=int, default=32)
     sub.add_parser("report")
+    p = sub.add_parser("refit-plan")
+    p.add_argument("manifest")
+    p.add_argument("--tasks", type=int, required=True)
+    r = sub.add_parser("refit")
+    r.add_argument("manifest")
+    r.add_argument("task", type=int)
+    r.add_argument("--workers", type=int, default=32)
     a = ap.parse_args(argv)
     if a.cmd == "plan":
         plan(a.manifest, a.tasks)
     elif a.cmd == "run":
         run(a.manifest, a.task, a.workers)
+    elif a.cmd == "refit-plan":
+        refit_plan(a.manifest, a.tasks)
+    elif a.cmd == "refit":
+        refit(a.manifest, a.task, a.workers)
     else:
         report()
     return 0

@@ -102,3 +102,35 @@ def test_refinement_above_the_grid_and_between_masses(tmp_path):
     assert lowest_excluded(lx, G, F, 5.0) == pytest.approx(-1.6 + 0.2 * 3.84 / 30.0, abs=2 * ex.STEP)
     assert any(abs(lx - 5.5) < 1e-6)
     assert lowest_excluded(lx, G, F, 5.5) == pytest.approx(-3.2 + 0.2 * 3.84 / 30.0, abs=2 * ex.STEP)
+
+
+def test_thermal_grid_corrections(tmp_path):
+    """The kernels' grid fix (2026-10-21): a grid point re-evaluated with the fixed code (recheck, gap 0.5) takes the
+    new chi^2; a refit (refine_recheck) takes over where lower; a refinement record is corrected through its file's
+    name; a failed fit (stored chi^2 missing) changes only through a refit."""
+    x = 10.0 ** np.arange(4.0, 8.01, 1.0)
+    y = 10.0 ** np.arange(-6.0, -1.9, 0.5)
+    chi = np.where(np.log10(y)[None, :] >= -3.0, 30.0, 0.0) * np.ones((len(x), 1))
+    chi[3, 0] = np.nan                                           # a failed fit at the smallest coupling
+    path = write_plane(tmp_path / "p" / "plane_m_Zd_eV_g_D.json", x, y, chi)
+    held = lambda m, g: {"m_Zd_eV": 10.0 ** m, "g_D": 10.0 ** g}
+    rc = lambda src, m, g, c, st, gap=0.5: json.dumps(dict(source=src, held=held(m, g), gap=gap, chi2=c,
+                                                           stored=st)) + "\n"
+    with open(tmp_path / "p" / "refine_grid.0.jsonl", "w") as f:
+        f.write(json.dumps(dict(held=held(5.0, -1.5), chi2=30.0)) + "\n")
+    with open(tmp_path / "p" / "recheck.0.jsonl", "w") as f:
+        f.write(rc("grid", 5.0, -3.5, 10.0, 0.0))               # now excluded at 10^-3.5 (mass 1e5)
+        f.write(rc("grid", 6.0, -3.5, 10.0, 0.0))
+        f.write(rc("grid", 6.0, -3.5, 0.0, 0.0, gap=0.0))        # the old grid's control: not used
+        f.write(rc("grid", 7.0, -6.0, 50.0, float("nan")))       # a failed fit's point: not without a refit
+        f.write(rc("refine_grid.0.jsonl", 5.0, -1.5, 0.0, 30.0))  # a record no longer excluded
+    with open(tmp_path / "p" / "refine_recheck.0.jsonl", "w") as f:
+        f.write(json.dumps(dict(source="grid", held=held(6.0, -3.5), chi2=1.0)) + "\n")   # the refit, lower
+    corr = ex.corrected(str(tmp_path / "p"), "m_Zd_eV", "g_D")
+    assert corr[("grid", (5.0, -3.5))] == 10.0 and corr[("grid", (6.0, -3.5))] == 1.0
+    assert ("grid", (7.0, -6.0)) not in corr and corr[("refine_grid.0.jsonl", (5.0, -1.5))] == 0.0
+    lx, G, F, _, _ = ex.field(path)
+    near = lambda a, b: a == pytest.approx(b, abs=2 * ex.STEP)
+    assert near(lowest_excluded(lx, G, F, 4.0), -3.5 + 0.5 * 3.84 / 30.0)            # untouched
+    assert near(lowest_excluded(lx, G, F, 5.0), -4.0 + 0.5 * 3.84 / 10.0)            # the re-evaluated point
+    assert near(lowest_excluded(lx, G, F, 6.0), -3.5 + 0.5 * (3.84 - 1.0) / 29.0)    # the refit's, not the 10

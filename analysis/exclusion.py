@@ -44,13 +44,41 @@ def signed(G, excl):
     return np.where(excl, 1.0, -1.0) * np.minimum(dist, D)
 
 
-def _records(paths):
+def _records(paths, corrected=None, xn=None, yn=None):
+    """The records of the files, each with its chi2 replaced by the corrected one where there is one."""
     for f in paths:
         for line in open(f):
             try:
-                yield json.loads(line)
+                r = json.loads(line)
             except json.JSONDecodeError:
                 continue
+            if corrected:
+                c = corrected.get((os.path.basename(f), _key(r["held"], xn, yn)))
+                if c is not None:
+                    r["chi2"] = c
+            yield r
+
+
+def _key(held, xn, yn):
+    return round(float(np.log10(held[xn])), 6), round(float(np.log10(held[yn])), 6)
+
+
+def corrected(here, xn, yn):
+    """The thermal kernels' grid fix (2026-10-21; tools/recheck_thermal_grid.py, notes 'The thermal kernels' grid'):
+    {(source, (log10 m, log10 g)): chi2} -- every stored solution that went through dp_si, re-evaluated with the fixed
+    code (recheck.*.jsonl, the fixed grid's records; a solution whose stored chi2 was missing, a failed fit, only
+    through a refit), a refit (refine_recheck.*.jsonl) taking over where it went lower. Source: 'grid' for the
+    summary's points, else the record file's name. Empty without the recheck."""
+    out = {}
+    for r in _records(glob.glob(os.path.join(here, "recheck.*.jsonl"))):
+        st = r.get("stored")
+        if r.get("gap") == 0.5 and r.get("chi2") is not None and st is not None and st == st:
+            out[(r["source"], _key(r["held"], xn, yn))] = float(r["chi2"])
+    for r in _records(glob.glob(os.path.join(here, "refine_recheck.*.jsonl"))):
+        if r.get("chi2") is not None:
+            k = (r["source"], _key(r["held"], xn, yn))
+            out[k] = min(out.get(k, np.inf), float(r["chi2"]))
+    return out
 
 
 def field(path):
@@ -67,15 +95,21 @@ def field(path):
     x = np.array(s["grids"][0])
     y = np.array(s["grids"][1])
     xn, yn = s["names"]
+    corr = corrected(here, xn, yn)
     grid_recs = list(_records(glob.glob(os.path.join(here, "refine_ridges.*.jsonl"))
                               + glob.glob(os.path.join(here, "refine_edges.*.jsonl"))
-                              + glob.glob(os.path.join(here, "refine_grid.*.jsonl"))))
+                              + glob.glob(os.path.join(here, "refine_grid.*.jsonl")), corr, xn, yn))
     between_recs = list(_records(glob.glob(os.path.join(here, "refine_ridges_between.*.jsonl"))
                                  + glob.glob(os.path.join(here, "refine_edges_between.*.jsonl"))
-                                 + glob.glob(os.path.join(here, "refine_grid_between.*.jsonl"))))
+                                 + glob.glob(os.path.join(here, "refine_grid_between.*.jsonl")), corr, xn, yn))
     g_top = max([np.log10(y[-1])] + [np.log10(r["held"][yn]) for r in grid_recs + between_recs])
     G = np.arange(np.log10(y[0]), g_top + STEP / 2, STEP)      # the refinement may reach above the grid
     chi = np.array([[np.nan if v is None else v for v in row] for row in s["chi2"]], dtype=float)
+    for (src, (lm, lg)), c in corr.items():                     # the summary's points, re-evaluated or refitted
+        if src == "grid":
+            i, j = int(np.argmin(abs(np.log10(x) - lm))), int(np.argmin(abs(np.log10(y) - lg)))
+            if abs(np.log10(x[i]) - lm) < 1e-5 and abs(np.log10(y[j]) - lg) < 1e-5:
+                chi[i, j] = c
     chi0 = chi.copy()
     d = chi - np.nanmin(chi, axis=1, keepdims=True)
     lab, n = ndimage.label(d >= THRESHOLD)
