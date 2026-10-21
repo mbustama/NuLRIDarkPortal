@@ -5,7 +5,7 @@ its speed and direction (dp_si.model_spec, polarized). For the Dirac scalar and 
 validation points of tools/thermal_reference_checks.py and two lightest masses: the flux at Earth summed over flavors,
 over the free-streaming one, with the relics at rest, in motion ignoring their helicity (each chiral share rho/2), and
 in motion with it (secret_interactions.thermal_products). Writes output/analysis/dirac_polarization.npz; --plot draws
-output/figures/dirac_polarization.png from it.
+a quick look, output/figures/dirac_polarization.png (the paper's version: notebooks/paper_figures.ipynb).
 
   python tools/dirac_relic_polarization.py [--workers N]
   python tools/dirac_relic_polarization.py --plot
@@ -66,9 +66,9 @@ def plot():
     from analysis import figure_style as fs
     fs.use()
     z = np.load(OUT)
-    style = {"rest": ("#9b2226", (0, (4, 2)), "relics at rest"),
-             "unpolarized": ("#ee9b00", (0, (1, 1.5)), "in motion, helicity ignored"),
-             "polarized": ("#0a9396", "-", "in motion, helicity kept")}
+    style = {"rest": ("#9b2226", (0, (4, 2)), "Relics at rest"),
+             "unpolarized": ("#ee9b00", (0, (1, 1.5)), "In motion, helicity ignored"),
+             "polarized": ("#0a9396", "-", "In motion, helicity kept")}
     fig, axes = plt.subplots(2, 2, figsize=(2.3 * fs.PANEL[0], 1.9 * fs.PANEL[1]), sharex=True, sharey=True)
     for i, med in enumerate(("scalar", "vector")):
         for j, (M, g) in enumerate(MG):
@@ -86,7 +86,7 @@ def plot():
             ax.set_title(f"Dirac {med}, $M$ = {mlab}, $g = {g / 10 ** e:.3g}\\times 10^{{{e}}}$", fontsize=17)
     fig.supxlabel(r"Neutrino energy, $\log_{10}(E/\mathrm{eV})$")
     fig.supylabel("Flux / flux without interaction")
-    axes[1, 0].legend(loc="lower right", fontsize=14, title=r"thick: $m_1 = 10^{-6}$ eV, thin: $0.03$ eV",
+    axes[1, 0].legend(loc="lower right", fontsize=14, title=r"Thick: $m_1 = 10^{-6}$ eV, thin: $0.03$ eV",
                       title_fontsize=14, frameon=True, edgecolor="black")
     fig.tight_layout()
     path = os.path.join(REPO, "output", "figures", "dirac_polarization.png")
