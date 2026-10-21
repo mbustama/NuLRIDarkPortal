@@ -1,7 +1,8 @@
 """
 refine_grid.py -- the campaign's planes sampled finer and higher (Mauricio, 2026-10-21): couplings up to 1 at every
 mass of a plane, and new masses 1/32 decade apart (three between the MeV planes' grid masses) between 10^2.5 and
-10^7.5 eV, each with couplings 1e-5 - 1 every 0.2 decade. Each point is fitted (the campaign's own code, mass and
+10^7.5 eV; there, at every mass, couplings every 0.1 decade from 1e-5 to 1e-2 (so that flat edges do not step) and
+every 0.2 decade up to 1. Each point is fitted (the campaign's own code, mass and
 coupling held) from the stored solution of the nearest grid point. Results go next to the plane's summary, in
 refine_grid.<task>.jsonl (at grid masses) and refine_grid_between.<task>.jsonl (new masses), which
 analysis/exclusion.py merges into the plane's excluded region; the plane's own checkpoint is not touched.
@@ -29,30 +30,37 @@ sys.path[:0] = [os.path.join(REPO, "src"), REPO, os.path.join(REPO, "tools")]
 from check_edge_islands import load  # noqa: E402
 
 TOP = 0.0                              # log10 of the largest coupling
-STEP_G = 0.2                           # decades between new couplings
 MASS_RANGE = (2.5, 7.5)                # log10 m of the new masses, every 1/32 decade
-G_NEW = (-5.0, TOP)                    # log10 g at the new masses
-# seconds per fit, measured on the campaign (median, one core): (data set, 'mev' | 'ul')
-SECONDS = {("now_ic26", "mev"): 88, ("now_events", "mev"): 300, ("proj_future", "mev"): 153,
-           ("now_ic26", "ul"): 4, ("now_events", "ul"): 22, ("proj_future", "ul"): 12,
-           # the dark portal at eps' = 0 below 1e4 eV (tools/pilot_fits.py, 2026-10-21: mean per fit)
+FINE = (-5.0, -2.0, 0.1)               # log10 g: every 0.1 decade here at every mass in MASS_RANGE (flat edges)
+COARSE = (-2.0, TOP, 0.2)              # and every 0.2 decade above
+# seconds per fit on one core: measured on this run's first hour (2026-10-21; full lightest-mass scan per fit, 4-8
+# times the campaign's, whose fits reused their neighbours'); the eps' = 0 ultralight dark portal from the pilot
+SECONDS = {("now_ic26", "mev"): 400, ("now_events", "mev"): 1550, ("proj_future", "mev"): 1150,
+           ("now_ic26", "ul"): 20, ("now_events", "ul"): 100, ("proj_future", "ul"): 60,
            ("now_ic26", "dpul"): 88, ("now_events", "dpul"): 543, ("proj_future", "dpul"): 143}
 
 
 def points(cfgp):
-    """[(log10 m, log10 g, between)] for the plane of configuration cfgp."""
+    """[(log10 m, log10 g, between)] for the plane of configuration cfgp: at every mass in MASS_RANGE (the grid's and
+    the new ones, 1/32 decade apart) couplings every 0.1 decade over FINE and every 0.2 decade over COARSE; at the
+    grid's other masses, the grid's own coupling step from its largest coupling up to 1. Grid points are left out
+    (they are fitted already)."""
     pl = json.load(open(cfgp))["planes"][0]
     lx = np.linspace(*np.log10(pl["x_range"]), pl["nx"])
     ly = np.linspace(*np.log10(pl["y_range"]), pl["ny"])
     step_y = ly[1] - ly[0]
+    on_grid = lambda g: np.min(abs(ly - g)) < 1e-6 and ly[0] - 1e-9 <= g <= ly[-1] + 1e-9
+    dense = np.round(np.r_[np.arange(FINE[0], FINE[1] - 1e-9, FINE[2]), np.arange(COARSE[0], COARSE[1] + 1e-9,
+                                                                                  COARSE[2])], 6)
     out = []
-    if ly[-1] < TOP - 1e-9:                                     # higher couplings at every grid mass
-        g_up = np.arange(ly[-1] + step_y, TOP + 1e-9, step_y)
-        out += [(float(m), float(g), False) for m in lx for g in g_up]
+    for m in lx:                                                 # the grid's masses
+        if MASS_RANGE[0] - 1e-9 <= m <= MASS_RANGE[1] + 1e-9:
+            out += [(float(m), float(g), False) for g in dense if not on_grid(g) and ly[0] - 1e-9 <= g]
+        elif ly[-1] < TOP - 1e-9:
+            out += [(float(m), float(g), False) for g in np.arange(ly[-1] + step_y, TOP + 1e-9, step_y)]
     js = np.arange(int(np.ceil(MASS_RANGE[0] * 32 - 1e-9)), int(np.floor(MASS_RANGE[1] * 32 + 1e-9)) + 1)
     new_m = [j / 32 for j in js if lx[0] < j / 32 < lx[-1] and np.min(abs(lx - j / 32)) > 1e-6]
-    g_new = np.arange(G_NEW[0], G_NEW[1] + 1e-9, STEP_G)
-    out += [(float(m), float(g), True) for m in new_m for g in g_new]
+    out += [(float(m), float(g), True) for m in new_m for g in dense]
     return out
 
 
