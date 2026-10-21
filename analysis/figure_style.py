@@ -40,3 +40,28 @@ def tex(text: str) -> str:
     for k in range(0, len(parts), 2):
         parts[k] = re.sub(r"(?<!\\)([_%&#])", r"\\\1", parts[k])
     return "$".join(parts)
+
+
+# The campaign's data sets, as every figure labels and colours them (Mauricio, 2026-10-21: colours from his coolors
+# palette coolors.co/001219-005f73-0a9396-94d2bd-e9d8a6-ee9b00-ca6702-bb3e03-ae2012-9b2226 -- auburn, gamboge, dark
+# cyan, which pass the dataviz skill's colour-blind checks; regions in opaque tints of them, edges in the colours).
+# now_ic26: IceCube's MESE flavor composition (2025; 11.4 yr) and its 2026 spectrum; now_events: HESE 7.5 yr and
+# IceTracks-DR2's IC79 + IC86 (312.8 + 3920.6 days, 11.6 yr); proj_future: the 8 future detectors, 10 yr each.
+DATASETS = [("now_ic26", "Today: IC MESE 11.4 yr flavor + spectrum", "#9b2226"),
+            ("now_events", "Today: IC HESE 7.5 yr + DR2 11.6 yr", "#ee9b00"),
+            ("proj_future", "Projected: combined detectors", "#0a9396")]
+
+
+def tint(color, amount=0.55):
+    """`color` mixed with white (the regions' fill; NuFlavorRatiosSteriles' paper figures)."""
+    from matplotlib.colors import to_rgb
+    return tuple(1.0 - (1.0 - c) * (1.0 - amount) for c in to_rgb(color))
+
+
+def ticks(ax, x, y):
+    """Major and minor tick spacings: x = (major, minor), y = (major, minor)."""
+    from matplotlib.ticker import MultipleLocator
+    ax.xaxis.set_major_locator(MultipleLocator(x[0]))
+    ax.xaxis.set_minor_locator(MultipleLocator(x[1]))
+    ax.yaxis.set_major_locator(MultipleLocator(y[0]))
+    ax.yaxis.set_minor_locator(MultipleLocator(y[1]))
