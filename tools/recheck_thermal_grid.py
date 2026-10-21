@@ -142,12 +142,16 @@ def run(manifest, task, workers):
         if kind == "asimov":
             runs = json.load(open(os.path.join(out_dir, "manifest.json")))["runs"]
             dc = tuple(next(r["data_centre"] for r in reversed(runs) if r.get("data_centre")))
-        pts = solutions(cfgp)[item["lo"]:item["hi"]]
+        if "keys" in item:                       # cover-plan's items name their points (the files may grow)
+            want = {tuple(k) for k in item["keys"]}
+            pts = [p for p in solutions(cfgp) if (p[0], json.dumps(p[1], sort_keys=True)) in want]
+        else:
+            pts = solutions(cfgp)[item["lo"]:item["hi"]]
         stored = {(s, json.dumps(h, sort_keys=True)): c for s, h, _, c in pts}
-        path = os.path.join(out_dir, f"recheck.{task}.jsonl")
+        path = os.path.join(out_dir, f"recheck.{item.get('tag', '')}{task}.jsonl")
         done = set()
-        if os.path.exists(path):
-            for line in open(path):
+        for f in glob.glob(os.path.join(out_dir, "recheck.*.jsonl")):     # the plane's every check
+            for line in open(f):
                 try:
                     r = json.loads(line)
                 except json.JSONDecodeError:
@@ -157,7 +161,7 @@ def run(manifest, task, workers):
             for gap in GAPS:
                 todo = [(s, h, v) for k, (s, h, v, _) in enumerate(pts)
                         if (s, json.dumps(h, sort_keys=True), gap) not in done
-                        and (gap > 0.0 or (item["lo"] + k) % CONTROL_EVERY == 0)]
+                        and (gap > 0.0 or ("lo" in item and (item["lo"] + k) % CONTROL_EVERY == 0))]
                 print(f"{item['config']} gap {gap}: {len(todo)} points ({len(pts) - len(todo)} done)", flush=True)
                 if not todo:
                     continue
@@ -217,6 +221,71 @@ def _flagged(d):
     return out
 
 
+def _refitted(d):
+    out = set()
+    for f in glob.glob(os.path.join(d, "refine_recheck.*.jsonl")):
+        for line in open(f):
+            try:
+                r = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            out.add((r["source"], json.dumps(r["held"], sort_keys=True)))
+    return out
+
+
+def _balance(items, tasks, n_of, take_of):
+    """items (each with 'seconds' per point) cut into ~tasks shares of equal time."""
+    total = sum(n_of(i) * i["seconds"] for i in items)
+    per = total / tasks
+    shares, cur, load_ = [], [], 0.0
+    for it in sorted(items, key=lambda i: -i["seconds"]):
+        rest = list(range(n_of(it)))
+        while rest:
+            room = max(1, int((per - load_) / it["seconds"]))
+            take, rest = rest[:room], rest[room:]
+            cur.append(take_of(it, take))
+            load_ += len(take) * it["seconds"]
+            if load_ >= per * 0.999 and len(shares) < tasks - 1:
+                shares.append(cur)
+                cur, load_ = [], 0.0
+    if cur:
+        shares.append(cur)
+    return shares, total
+
+
+def cover_plan(manifest, tasks):
+    """The stored solutions with no check yet (the last check tasks chose their points by position while the restarted
+    grid appended to the files; 2026-10-21): checked by name, fixed grid only, into recheck.cov<task>.jsonl."""
+    from analysis.config import from_dict
+    from analysis.run import asimov_only
+    items = []
+    for c in sorted(glob.glob(os.path.join(CAMPAIGN, "*", "*.json"))):
+        pts = solutions(c)
+        if not pts:
+            continue
+        cfg = from_dict(json.load(open(c)), c)
+        d = cfg.output_path("asimov" if asimov_only(cfg) else "data")
+        have = set()
+        for f in glob.glob(os.path.join(d, "recheck.*.jsonl")):
+            for line in open(f):
+                try:
+                    r = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if r["gap"] == 0.5:
+                    have.add((r["source"], json.dumps(r["held"], sort_keys=True)))
+        keys = [[s, json.dumps(h, sort_keys=True)] for s, h, _, _ in pts if (s, json.dumps(h, sort_keys=True)) not in have]
+        if keys:
+            ds = os.path.basename(os.path.dirname(c))
+            items.append(dict(config=os.path.relpath(c, REPO), keys=keys, seconds=SECONDS[ds]))
+    shares, total = _balance(items, tasks, lambda i: len(i["keys"]),
+                             lambda i, take: dict(config=i["config"], keys=[i["keys"][k] for k in take], tag="cov"))
+    json.dump(dict(tasks=shares, points=sum(len(i["keys"]) for i in items), core_seconds=total), open(manifest, "w"))
+    for it in items:
+        print(f"  {it['config']}: {len(it['keys'])}")
+    print(f"{sum(len(i['keys']) for i in items)} points, ~{total / 3600:.0f} core-hours, {len(shares)} tasks -> {manifest}")
+
+
 def refit_plan(manifest, tasks):
     items = []
     for c in sorted(glob.glob(os.path.join(CAMPAIGN, "*", "*.json"))):
@@ -227,8 +296,8 @@ def refit_plan(manifest, tasks):
         from analysis.run import asimov_only
         cfg = from_dict(json.load(open(c)), c)
         d = cfg.output_path("asimov" if asimov_only(cfg) else "data")
-        flag = {(s, json.dumps(h, sort_keys=True)) for s, h in _flagged(d)}
-        sel = [k for k, (s, h, v, ch) in enumerate(pts) if (s, json.dumps(h, sort_keys=True)) in flag]
+        flag = {(s, json.dumps(h, sort_keys=True)) for s, h in _flagged(d)} - _refitted(d)
+        sel = [[s, json.dumps(h, sort_keys=True)] for s, h, v, ch in pts if (s, json.dumps(h, sort_keys=True)) in flag]
         if sel:
             ds = os.path.basename(os.path.dirname(c))
             kind = "mev" if "_mev" in os.path.basename(c) else "ul"
@@ -241,7 +310,7 @@ def refit_plan(manifest, tasks):
         while pts:
             room = max(1, int((per - load_) / it["seconds"]))
             take, pts = pts[:room], pts[room:]
-            cur.append(dict(config=it["config"], points=take))
+            cur.append(dict(config=it["config"], keys=take, tag="r"))
             load_ += len(take) * it["seconds"]
             if load_ >= per * 0.999 and len(shares) < tasks - 1:
                 shares.append(cur)
@@ -282,19 +351,23 @@ def refit(manifest, task, workers):
             runs = json.load(open(os.path.join(out_dir, "manifest.json")))["runs"]
             dc = tuple(next(r["data_centre"] for r in reversed(runs) if r.get("data_centre")))
         pts = solutions(cfgp)
-        path = os.path.join(out_dir, f"refine_recheck.{task}.jsonl")
+        path = os.path.join(out_dir, f"refine_recheck.{item.get('tag', '')}{task}.jsonl")
         done = set()
-        if os.path.exists(path):
-            for line in open(path):
+        for f in glob.glob(os.path.join(out_dir, "refine_recheck.*.jsonl")):     # the plane's every refit
+            for line in open(f):
                 try:
                     r = json.loads(line)
                 except json.JSONDecodeError:
                     continue
                 done.add((r["source"], json.dumps(r["held"], sort_keys=True)))
         settings = {**asdict(cfg.fit), "n_random": 0}
-        todo = [(pts[k][0], pts[k][1], pts[k][2], settings) for k in item["points"]
-                if (pts[k][0], json.dumps(pts[k][1], sort_keys=True)) not in done]
-        print(f"{item['config']}: {len(todo)} refits ({len(item['points']) - len(todo)} done)", flush=True)
+        if "keys" in item:                       # named points (the files may grow while this runs)
+            want = {tuple(k) for k in item["keys"]}
+            sel = [p for p in pts if (p[0], json.dumps(p[1], sort_keys=True)) in want]
+        else:                                    # the first round's positions (2026-10-21)
+            sel = [pts[k] for k in item["points"]]
+        todo = [(p[0], p[1], p[2], settings) for p in sel if (p[0], json.dumps(p[1], sort_keys=True)) not in done]
+        print(f"{item['config']}: {len(todo)} refits ({len(sel) - len(todo)} done)", flush=True)
         if not todo:
             continue
         with open(path, "a") as fh, get_context("spawn").Pool(min(workers, len(todo)), initializer=scans._init_worker,
@@ -318,6 +391,9 @@ def main(argv=None):
     r.add_argument("task", type=int)
     r.add_argument("--workers", type=int, default=32)
     sub.add_parser("report")
+    p = sub.add_parser("cover-plan")
+    p.add_argument("manifest")
+    p.add_argument("--tasks", type=int, required=True)
     p = sub.add_parser("refit-plan")
     p.add_argument("manifest")
     p.add_argument("--tasks", type=int, required=True)
@@ -330,6 +406,8 @@ def main(argv=None):
         plan(a.manifest, a.tasks)
     elif a.cmd == "run":
         run(a.manifest, a.task, a.workers)
+    elif a.cmd == "cover-plan":
+        cover_plan(a.manifest, a.tasks)
     elif a.cmd == "refit-plan":
         refit_plan(a.manifest, a.tasks)
     elif a.cmd == "refit":
