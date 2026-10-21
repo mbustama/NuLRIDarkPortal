@@ -636,6 +636,66 @@ one-sided values are $1.64$ and $2.71$, so limits read at the two-sided values a
 conservative.
 Section~\ref{sec:soundness} describes the tests.
 
+\subsection{Thin excluded bands with fitted source compositions (2026-10-21)}
+\label{sec:thinbands}
+
+\textit{What they are.}---With the source compositions fitted (the \texttt{\_fx} planes of the
+campaign of 2026-10-20), the ultralight $L_e - L_\mu$ and $L_e - L_\tau$ planes exclude, besides
+their main region, a thin band about $0.5$ decade wide in $\gd$
+(Fig.~\ref{fig:thin_bands}). It runs along the lower edge of the region excluded with pion-decay
+compositions: flat near $\gd\approx3\times10^{-28}$ up to $\mzd\approx10^{-20}$~eV, climbing
+between $10^{-19}$ and $10^{-13}$~eV, then, for $L_e - L_\tau$ and the future detectors, along
+$\gd\approx10^{-1.75}\mzd$. Its peak $\Delta\chi^2$ is $4.5$--$13$ for the future detectors and
+about $4$--$6$ for the HESE and DR2 events, whose plane also has a second row along
+$\gd\approx10^{-0.5}\mzd$ that barely reaches $3.84$. The band has real gaps, where its peak
+falls below $3.84$: between $10^{-19}$ and $10^{-17.8}$~eV for $L_e - L_\mu$ and near $10^{-17.4}$~eV for
+$L_e - L_\tau$ (future detectors).
+
+\textit{Why they exist.}---Well above the band, the new potential dominates the vacuum term at
+every measured energy and shifts the flavor composition at Earth by the same amount at every
+energy; a different source composition produces the same shift, so the fit absorbs it (at
+$\mzd = 10^{-22}$~eV, $L_e - L_\tau$, $\Delta\chi^2$ falls from $7.3$ on the band to $0.4$ a third
+of a decade above it, and at $\gd = 3\times10^{-27}$ the fitted electron fractions are $0.67$ and
+$0.76$ for the extragalactic and Galactic sources, against $1/3$ for pion decay). On the band, the potential is comparable to the vacuum term inside the measured range:
+the flavor composition at Earth steps near $30$--$50$~TeV, where the future detectors collect most
+of their events (Fig.~\ref{fig:band_mechanism}), and no energy-independent source composition
+reproduces a step. Below the band the step moves above $\sim1$~PeV, where events are few. The
+band therefore follows the edge of the pion-decay region, where the effect switches on.
+
+\textit{Checks.}---The band is not a fitting or numerical artifact. Its points refitted from ten
+kinds of start (their own solution, their neighbours', the pion-decay plane's, the four corner
+compositions, random starts) return the same $\chi^2$ to $0.1$ (\file{tools/check\_edge\_islands.py}).
+Sampled along the edge with $11\,000$ fits, the coarse grid's isolated islands join into the
+continuous band (\file{tools/refine\_edges.py}). With every grid of the flavor calculation doubled
+(energy and redshift bins, Sun paths, Earth chords and steps), $\Delta\chi^2$ at seven band points
+moves by at most $0.06$ (\file{tools/check\_band\_numerics.py}).
+
+\textit{Treatment.}---The band exists only because the fit takes each source's flavor composition
+to be the same at every energy (item~9 of \file{docs/SIMPLIFICATIONS\_AND\_ASSUMPTIONS.md}).
+Sources whose composition changes with energy, such as muon-damped sources, could absorb the step
+as well. We leave the band out of the exclusion figures (\file{tools/plot\_campaign\_ml.py}) and
+will mention it in the paper. \note{Decide how the paper describes it}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{../output/figures/campaign_ml_thin_bands.png}
+\caption{\textbf{Thin excluded bands with fitted source compositions} (\file{tools/plot\_campaign\_ml.py}):
+the ultralight planes at 95\%, per mass, with the bands drawn at their true width (insets: their
+flat stretch, enlarged). The exclusion figures leave them out.}
+\label{fig:thin_bands}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{../output/figures/band_mechanism.png}
+\caption{\textbf{Why the band exists} (\file{tools/check\_band\_mechanism.py}): flavor fractions at
+Earth against energy for the future detectors, $L_e - L_\tau$, $\mzd = 10^{-22}$~eV, at couplings
+below, on and above the band, each with its fitted parameters. Above the band the shift is the same
+at every energy (dashed: with pion-decay sources) and the fitted sources remove it; on the band the
+fractions step near $30$--$50$~TeV.}
+\label{fig:band_mechanism}
+\end{figure}
+
 %==============================================================================
 \section{Secret neutrino interactions}
 \label{sec:si}

@@ -63,6 +63,11 @@ small, not yet measured), **open** (decided to remove or change, not yet done).
 
 9. **Source flavor composition** at pion decay (1/3, 2/3, 0) in the nominal planes; fitted as (x, 1 - x, 0) in the
    `_fx` twins, extragalactic and Galactic independently. No tau neutrinos at the sources. *Accepted.*
+   The composition is the same at every energy. Consequence (2026-10-21): with it fitted, the ultralight planes
+   exclude a thin band (~0.5 decade) along the edge of the pion-decay region, where the flavor composition at Earth
+   steps with energy and no energy-independent composition can follow; sources whose composition changes with energy
+   (muon damping) could absorb it. Left out of the exclusion figures, described in the notes ('Thin excluded bands
+   with fitted source compositions').
 
 10. **Neutrinos and antineutrinos 1:1 at the sources.** *Accepted.*
 

@@ -2,15 +2,16 @@
 plot_campaign_ml.py -- the campaign_ml planes (2026-10-20: mixing fixed, m_lightest profiled exactly, the relics thermal
 in every MeV collision term) as excluded regions: per physics model and data set, the couplings with a per-mass
 Delta chi^2 >= 3.84 (95%) shaded, edges drawn through
-the per-mass crossings (field). Shading rather than one limit line (Mauricio, 2026-10-20): with the
-source compositions fitted, a data set can exclude a narrow band of couplings and allow larger ones again (the future
-detectors near 3e-28 in the ultralight planes). One figure with the compositions fixed to pion decay, one with them
-fitted. Mass columns whose smallest scanned coupling is not at the no-effect chi^2 are left unshaded (none in this
+the per-mass crossings (field). One figure with the compositions fixed to pion decay, one with them fitted. With them
+fitted, the ultralight planes also exclude a thin band (~0.5 decade) along the edge of the pion-decay region, which
+exists only because each source's composition is taken to be the same at every energy (notes, 'Thin excluded bands
+with fitted source compositions'); Mauricio, 2026-10-21: left out of the exclusion figures (thin_bands takes them out),
+drawn on their own, as ribbons at their true width, in <prefix>_thin_bands.png. Mass columns whose smallest scanned coupling is not at the no-effect chi^2 are left unshaded (none in this
 campaign). The plane summaries' 'elevated' columns are NOT masked: in the IceCube flavor + spectrum MeV planes the data
 prefer an effect near 3 MeV, which lifts every other mass above the global minimum although its scan does reach the
 no-effect couplings; the per-mass reading is valid there.
 Reads the plane summaries under output/analysis/campaign_ml/.
-  python tools/plot_campaign_ml.py [output prefix, default output/figures/campaign_ml_excluded]
+  python tools/plot_campaign_ml.py [output prefix, default output/figures/campaign_ml]
 """
 import glob
 import json
@@ -85,7 +86,7 @@ no-effect chi^2 (the median over masses there, within 0.3) masked (unshaded); co
             m, g = r["held"][s["names"][0]], r["held"][s["names"][1]]
             cols[int(np.argmin(np.abs(np.log(x / m))))].append((g, r["chi2"]))
     elevated = {i for i in range(len(x)) if not abs(chi0[i, 0] - np.nanmedian(chi0[:, 0])) < 0.3}
-    S, low = {}, {}                                            # per grid column: the field, the lowest allowed log g
+    S, low, cov = {}, {}, {}                                   # per column: the field, lowest allowed log g, sampled
     for i, pts in cols.items():
         if i in elevated or not pts:
             continue
@@ -101,6 +102,7 @@ no-effect chi^2 (the median over masses there, within 0.3) masked (unshaded); co
         pts = sorted(list(zip(g, dc)) + [(np.log10(gs), v) for gs, v in specks])
         excl = np.interp(G, [p[0] for p in pts], [p[1] for p in pts]) >= 3.84
         S[i] = signed(G, excl)
+        cov[np.log10(x[i])] = np.ones(len(G), bool)
     xs = {np.log10(x[i]): S.get(i) for i in range(len(x))}     # None: masked
     # the ridges and edges sampled between the grid's masses (refine_ridges.py --between, refine_edges.py): inside
     # each sampled window (runs of couplings at most 0.15 decade apart), their own points (minimum from the
@@ -127,28 +129,125 @@ no-effect chi^2 (the median over masses there, within 0.3) masked (unshaded); co
         g = np.log10([p[0] for p in pts])
         dc = np.array([p[1] for p in pts]) - cmin
         excl = (1 - t) * S[i] + t * S[i + 1] > 0
+        cov[lm] = np.zeros(len(G), bool)
         for run in np.split(np.arange(len(g)), np.flatnonzero(np.diff(g) > 0.15) + 1):
             win = (G >= g[run[0]]) & (G <= g[run[-1]])
             excl[win] = np.interp(G[win], g[run], dc[run]) >= 3.84
+            cov[lm] |= win
         if i in low and i + 1 in low:
             excl &= G >= (1 - t) * low[i] + t * low[i + 1]
         xs[lm] = signed(G, excl)
     lx = np.array(sorted(xs))
     F = np.ma.masked_invalid(np.array([xs[v] if xs[v] is not None else np.full(len(G), np.nan) for v in lx]).T)
-    return lx, G, F, s["names"][1]
+    C = np.array([cov.get(v, np.zeros(len(G), bool)) for v in lx]).T
+    return lx, G, F, s["names"][1], C
 
 
-def figure(suffix, comp_title, out):
-    fig, axes = plt.subplots(2, 4, figsize=(17, 8.2))
-    for ax, (model, title) in zip(axes.flat, MODELS):
-        yname = None
+def thin_bands(lx, G, F, C, r=0.4, link=0.6, step=0.05, area=3.0):
+    """The thin excluded bands of an ultralight plane as ribbons. Thin: no disk of radius r decades (in log m and log g
+    alike) fits inside it -- the excluded set rasterised every step decades and opened with that disk; what the
+    opening removes is thin (the bands are ~0.5 decade across, the regions far more), and so is what it leaves in
+    patches smaller than area square decades that do not reach the top of the scan (where a band widens). Per mass, a thin excluded run
+    of couplings is taken out of the shaded field and, where the mass column was sampled there (C), its lower and upper
+    edges become a node (runs less than 0.2 decade apart, one node). Nodes of neighbouring masses whose runs overlap within link
+    decades are joined; a band ends at a sampled mass without a run near it (a real gap), not at a mass that was not
+    sampled there; a band seen at one mass only is dropped. Returns (field without the bands, [(log m, lower log g,
+    upper log g) ribbons])."""
+    from scipy import ndimage
+    Ff = F.filled(np.nan)
+    xr = np.arange(lx[0], lx[-1] + step / 2, step)
+    rows = np.arange(0, len(G), int(round(step / STEP)))
+    R = np.zeros((len(rows), len(xr)), bool)
+    for a_, gi in enumerate(rows):
+        ok = np.isfinite(Ff[gi])
+        if ok.sum() > 1:
+            R[a_] = np.interp(xr, lx[ok], Ff[gi][ok]) > 0
+    pad = int(np.ceil(r / step))
+    yy, xx = np.mgrid[-pad:pad + 1, -pad:pad + 1]
+    thick = ndimage.binary_opening(np.pad(R, pad, mode="edge"), structure=xx ** 2 + yy ** 2 <= pad ** 2)[pad:-pad, pad:-pad]
+    lab, n = ndimage.label(thick)                          # a region: at least area square decades, or cut off by the
+    area_ = ndimage.sum(thick, lab, range(1, n + 1)) * step ** 2   # top of the scan; smaller patches go with the bands
+    top = set(lab[-1][lab[-1] > 0])
+    thick = np.isin(lab, [k + 1 for k in range(n) if area_[k] >= area or k + 1 in top])
+    Fs = F.copy()
+    nodes = []
+    for k in range(len(lx)):
+        ex = np.asarray(F[:, k].filled(-1.0)) > 0
+        edges = np.flatnonzero(np.diff(np.r_[False, ex, False].astype(int)))
+        kr = int(round((lx[k] - lx[0]) / step))
+        col = []
+        for i0, i1 in zip(edges[::2], edges[1::2] - 1):
+            rr = np.flatnonzero((G[rows] >= G[i0]) & (G[rows] <= G[i1]))
+            if len(rr) and thick[rr, kr].any():
+                continue                                         # part of a region: shaded as before
+            Fs[i0:i1 + 1, k] = -STEP
+            sel = np.arange(i0, i1 + 1)[C[i0:i1 + 1, k]]
+            if len(sel):
+                if col and G[sel[0]] - col[-1][1] < 0.2:           # runs a hair apart: one band
+                    col[-1] = (col[-1][0], G[sel[-1]])
+                else:
+                    col.append((G[sel[0]], G[sel[-1]]))
+        nodes.append(col)
+    done, active = [], []
+    for k, col in enumerate(nodes):
+        used, keep = set(), []
+        for ch in active:
+            lo, hi = ch["last"]
+            cand = [n for n in col if n not in used and n[0] <= hi + link and n[1] >= lo - link]
+            if cand:
+                n = min(cand, key=lambda n: abs(n[0] + n[1] - lo - hi))
+                used.add(n)
+                ch["pts"].append((lx[k], n[0], n[1]))
+                ch["last"] = n
+                keep.append(ch)
+            elif C[(G >= lo - link) & (G <= hi + link), k].all():
+                done.append(ch["pts"])                           # sampled here and no band: it ends
+            else:
+                keep.append(ch)                                  # not sampled here: carry on
+        active = keep + [dict(pts=[(lx[k], n[0], n[1])], last=n) for n in col if n not in used]
+    return Fs, [np.array(p) for p in done + [ch["pts"] for ch in active] if len(p) > 1]   # seen at one mass: dropped
+
+
+INSET = ((-25, -15), (-28.5, -24))   # log10 m, log10 g: the thin bands' flat stretch, enlarged
+
+
+def draw(ax, lx, G, F, ribbons, color, lw=1.8):
+    ax.contourf(lx, G, F, levels=[0, 2 * D], colors=[color], alpha=0.22)
+    ax.contour(lx, G, F, levels=[0], colors=[color], linewidths=lw)
+    for r in ribbons:
+        xs, ys = np.r_[r[:, 0], r[::-1, 0], r[0, 0]], np.r_[r[:, 2], r[::-1, 1], r[0, 2]]
+        ax.fill(xs, ys, color=color, alpha=0.5, lw=0)
+        ax.plot(xs, ys, color=color, lw=0.6 * lw)
+
+
+def figure(suffix, comp_title, out, bands=False):
+    """The exclusion figure (7 models, thin bands left out); bands: only the ultralight planes, with their thin bands
+    as ribbons and an inset on their flat stretch."""
+    models = MODELS[:2] if bands else MODELS
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4.6)) if bands else plt.subplots(2, 4, figsize=(17, 8.2))
+    for ax, (model, title) in zip(axes.flat, models):
+        yname, drawn = None, []
         for ds, label, color in SETS:
             hits = glob.glob(f"{REPO}/output/analysis/campaign_ml/{ds}/{model}{suffix}/*/plane_*.json")
             if not hits:
                 continue
-            lx, G, F, yname = field(hits[0])
-            ax.contourf(lx, G, F, levels=[0, 2 * D], colors=[color], alpha=0.22)
-            ax.contour(lx, G, F, levels=[0], colors=[color], linewidths=1.8)
+            lx, G, F, yname, C = field(hits[0])
+            ribbons = []
+            if model.endswith("_ul"):
+                F, ribbons = thin_bands(lx, G, F, C)
+            draw(ax, lx, G, F, ribbons if bands else [], color)
+            drawn.append((lx, G, F, ribbons, color))
+        if bands:                                        # the thin bands, enlarged
+            ins = ax.inset_axes([0.57, 0.06, 0.41, 0.38])
+            for d in drawn:
+                draw(ins, *d, lw=1.2)
+            ins.set_xlim(*INSET[0])
+            ins.set_ylim(*INSET[1])
+            ins.set_xticks([-24, -20, -16])
+            ins.set_yticks([-28, -26, -24])
+            ins.tick_params(labelsize=7)
+            ins.grid(True, color="0.9", lw=0.5)
+            ax.indicate_inset_zoom(ins, edgecolor="0.45")
         if model.endswith("_mev"):
             ax.set_ylim(-6, -2)                          # nothing is excluded below ~1e-5 in the MeV planes
         ax.set_xlabel(r"$\log_{10}(m_{Z_D}$ / eV$)$")
@@ -162,8 +261,13 @@ def figure(suffix, comp_title, out):
     handles = [Patch(facecolor=c, edgecolor=c, alpha=0.5, label=lab) for _, lab, c in SETS]
     leg_ax.legend(handles=handles, loc="center", fontsize=9.5, frameon=False,
                   title="Excluded at 95% (shaded; per mass, " + r"$\Delta\chi^2 \geq 3.84$)", title_fontsize=9.5)
-    fig.suptitle(f"Campaign of 2026-10-20, {comp_title}: excluded couplings per mediator mass; mixing fixed, lightest "
-                 "mass profiled, relics thermal in every collision", fontsize=11.5)
+    if suffix and not bands:
+        leg_ax.text(0.5, 0.17, "Not shown: thin excluded bands along the edge of the\npion-decay region in the "
+                    "ultralight planes, which\nexist only for energy-independent source compositions.",
+                    ha="center", va="center", fontsize=8, color="0.35", transform=leg_ax.transAxes)
+    fig.suptitle((f"Thin excluded bands, {comp_title} (ribbons at their true width; inset enlarged)" if bands else
+                  f"Campaign of 2026-10-20, {comp_title}: excluded couplings per mediator mass; mixing fixed, lightest "
+                  "mass profiled, relics thermal in every collision"), fontsize=11.5)
     fig.tight_layout(rect=(0, 0, 1, 0.96))
     fig.savefig(out, dpi=110)
     plt.close(fig)
@@ -172,8 +276,9 @@ def figure(suffix, comp_title, out):
 
 def main(prefix):
     for suffix, tag, comp_title in COMPS:
-        figure(suffix, comp_title, f"{prefix}_{tag}.png")
+        figure(suffix, comp_title, f"{prefix}_excluded_{tag}.png")
+    figure(COMPS[1][0], COMPS[1][2], f"{prefix}_thin_bands.png", bands=True)
 
 
 if __name__ == "__main__":
-    main(sys.argv[1] if len(sys.argv) > 1 else os.path.join(REPO, "output", "figures", "campaign_ml_excluded"))
+    main(sys.argv[1] if len(sys.argv) > 1 else os.path.join(REPO, "output", "figures", "campaign_ml"))
