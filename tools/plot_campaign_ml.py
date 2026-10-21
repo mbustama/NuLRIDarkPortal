@@ -32,10 +32,15 @@ MODELS = [("le_lmu_ul", r"$L_e - L_\mu$, ultralight"), ("le_ltau_ul", r"$L_e - L
           ("le_lmu_mev", r"$L_e - L_\mu$, MeV"), ("le_ltau_mev", r"$L_e - L_\tau$, MeV"),
           ("dp_e_mev", r"dark portal, $e$ texture, MeV"), ("dp_mu_mev", r"dark portal, $\mu$ texture, MeV"),
           ("dp_tau_mev", r"dark portal, $\tau$ texture, MeV")]
-# categorical slots 1-3 of the validated default palette (dataviz skill), in fixed order
-SETS = [("now_ic26", "IceCube flavor + spectrum (today)", "#2a78d6"),
-        ("now_events", "HESE + DR2 events (today)", "#eb6834"),
-        ("proj_future", "future detectors (projection)", "#1baf7a")]
+# Okabe-Ito's blue, orange and bluish green (Mauricio, 2026-10-21); passes the dataviz skill's checks (colour-blind
+# separation >= 11); every outline is drawn in a darker shade of its fill (edge()). Legend order; drawn largest first (DRAWN), so that the smaller regions sit on top.
+# now_ic26: IceCube's MESE flavor composition (2025; 11.4 yr, IceCubeRates/future/nfss_detectors.py) and its 2026 spectrum; now_events: HESE 7.5 yr and IceTracks-DR2's
+# IC79 + IC86 (312.8 + 3920.6 days, 11.6 yr)
+SETS = [("now_ic26", "Today: IceCube MESE 11.4 yr + spectrum", "#0072B2"),
+        ("now_events", "Today: IceCube HESE 7.5 yr + DR2 11.6 yr", "#E69F00"),
+        ("proj_future", "Projection: combined future detectors", "#009E73")]
+TITLE = "Disfavored (95{} C.L.)"
+DRAWN = SETS[::-1]
 YLABEL = {"g_D": r"$g_D$", "g_D_trace": r"$g_D$ (texture trace)"}
 COMPS = [("", "pion", "source compositions fixed to pion decay"), ("_fx", "fitted", "source compositions fitted")]
 
@@ -214,9 +219,24 @@ def thin_bands(lx, G, F, C, r=0.4, link=0.6, step=0.05, area=3.0):
 INSET = ((-25, -15), (-28.5, -24))   # log10 m, log10 g: the thin bands' flat stretch, enlarged
 
 
+def ticks(ax, x, y):
+    """major and minor tick spacings (decades): x = (major, minor), y = (major, minor)"""
+    from matplotlib.ticker import MultipleLocator
+    ax.xaxis.set_major_locator(MultipleLocator(x[0]))
+    ax.xaxis.set_minor_locator(MultipleLocator(x[1]))
+    ax.yaxis.set_major_locator(MultipleLocator(y[0]))
+    ax.yaxis.set_minor_locator(MultipleLocator(y[1]))
+
+
+def edge(color, f=0.72):
+    """a darker shade of color, for outlines"""
+    from matplotlib.colors import to_rgb
+    return tuple(f * c for c in to_rgb(color))
+
+
 def draw(ax, lx, G, F, ribbons, color, lw=1.8):
-    ax.contourf(lx, G, F, levels=[0, 2 * D], colors=[color], alpha=0.22)
-    ax.contour(lx, G, F, levels=[0], colors=[color], linewidths=lw)
+    ax.contourf(lx, G, F, levels=[0, 2 * D], colors=[color], alpha=0.3)
+    ax.contour(lx, G, F, levels=[0], colors=[edge(color)], linewidths=lw)
     for r in ribbons:
         xs, ys = np.r_[r[:, 0], r[::-1, 0], r[0, 0]], np.r_[r[:, 2], r[::-1, 1], r[0, 2]]
         ax.fill(xs, ys, color=color, alpha=0.5, lw=0)
@@ -231,7 +251,7 @@ def figure(suffix, comp_title, out, bands=False):
     fig, axes = plt.subplots(nr, nc, figsize=(nc * PANEL[0], nr * PANEL[1] + 0.5))
     for ax, (model, title) in zip(axes.flat, models):
         yname, drawn = None, []
-        for ds, label, color in SETS:
+        for ds, label, color in DRAWN:
             hits = glob.glob(f"{REPO}/output/analysis/campaign_ml/{ds}/{model}{suffix}/*/plane_*.json")
             if not hits:
                 continue
@@ -247,20 +267,23 @@ def figure(suffix, comp_title, out, bands=False):
                 draw(ins, *d, lw=1.2)
             ins.set_xlim(*INSET[0])
             ins.set_ylim(*INSET[1])
-            ins.set_xticks([-24, -20, -16])
-            ins.set_yticks([-28, -26, -24])
+            ticks(ins, (4, 1), (2, 0.5))
             ins.tick_params(labelsize=13, pad=3, length=5)
+            ins.tick_params(which="minor", length=3)
             ax.indicate_inset_zoom(ins, edgecolor="0.45")
         if model.endswith("_mev"):
             ax.set_ylim(-6, -2)                          # nothing is excluded below ~1e-5 in the MeV planes
+            ticks(ax, (1, 0.25), (1, 0.25))
+        else:
+            ticks(ax, (10, 2), (10, 2))
         ax.set_xlabel(r"$\log_{10}(m_{Z_D}$ / eV$)$")
         ax.set_ylabel(r"$\log_{10}$ " + YLABEL.get(yname, yname or "coupling"))
         ax.set_title(title)
     leg_ax = axes.flat[-1]
     leg_ax.axis("off")
-    handles = [Patch(facecolor=c, edgecolor=c, alpha=0.5, label=lab) for _, lab, c in SETS]
-    leg_ax.legend(handles=handles, loc="center", bbox_to_anchor=(0.5, 0.62), frameon=False,
-                  title=f"Excluded at 95{pct()}\n(shaded; per mass, " + r"$\Delta\chi^2 \geq 3.84$)",
+    handles = [Patch(facecolor=c + "80", edgecolor=edge(c), lw=1.5, label=lab) for _, lab, c in SETS]
+    leg_ax.legend(handles=handles, loc="center", bbox_to_anchor=(0.5, 0.62), frameon=True, edgecolor="black",
+                  title=TITLE.format(pct()) + "\n" + r"(per mass, $\Delta\chi^2 \geq 3.84$)",
                   title_fontsize=plt.rcParams["legend.fontsize"])
     if suffix and not bands:
         leg_ax.text(0.5, 0.1, "Not shown: thin excluded bands along the edge of the\npion-decay region in the "
@@ -281,11 +304,14 @@ MEV_CORNER = ((4, 9), (-6, -2))   # log10 m, log10 g: where the MeV planes' stru
 
 def joined(suffix, comp_title, out):
     """L_e-L_mu and L_e-L_tau, each in one wide panel: the ultralight plane (1e-30 to 1e4 eV) and the MeV plane
-    (1e4 to 1e9 eV) side by side, the thin bands left out, with an inset on the MeV planes' corner."""
-    fig, axes = plt.subplots(2, 1, figsize=(3 * PANEL[0], 2 * PANEL[1] + 1.0))
-    for ax, (model, title) in zip(axes, JOINED):
+    (1e4 to 1e9 eV) side by side, the thin bands left out, with an inset on the MeV planes' corner. The panels share
+    the mass axis, labelled under the lower one, and one coupling label; the model's name in a rounded box; the legend
+    inside the upper panel (Mauricio, 2026-10-21)."""
+    fig, axes = plt.subplots(2, 1, sharex=True, figsize=(3 * PANEL[0], 2 * PANEL[1] + 1.0))
+    fig.subplots_adjust(left=0.085, right=0.985, top=0.98, bottom=0.11, hspace=0.06)
+    for k, (ax, (model, title)) in enumerate(zip(axes, JOINED)):
         drawn = []
-        for ds, label, color in SETS:
+        for ds, label, color in DRAWN:
             for kind in ("_ul", "_mev"):
                 hits = glob.glob(f"{REPO}/output/analysis/campaign_ml/{ds}/{model}{kind}{suffix}/*/plane_*.json")
                 if not hits:
@@ -293,25 +319,29 @@ def joined(suffix, comp_title, out):
                 lx, G, F, _, C = field(hits[0])
                 if kind == "_ul":
                     F, _ = thin_bands(lx, G, F, C)
-                draw(ax, lx, G, F, [], color)
+                draw(ax, lx, G, F, [], color, lw=2.0)
                 drawn.append((lx, G, F, [], color))
-        ins = ax.inset_axes([0.62, 0.08, 0.36, 0.5])
+        ins = ax.inset_axes([0.70, 0.08, 0.255, 0.52])
         for d in drawn:
-            draw(ins, *d, lw=1.4)
+            draw(ins, *d, lw=1.5)
         ins.set_xlim(*MEV_CORNER[0])
         ins.set_ylim(*MEV_CORNER[1])
-        ins.tick_params(labelsize=14, pad=4, length=6)
+        ticks(ins, (1, 0.25), (1, 0.25))
+        ins.tick_params(labelsize=14, pad=4, length=6, labelleft=False, labelright=True)   # clear of the legend
+        ins.tick_params(which="minor", length=3)
         ax.indicate_inset_zoom(ins, edgecolor="0.45")
         ax.set_xlim(-30, 9)
         ax.set_ylim(-32, -2)
-        ax.set_xlabel(r"$\log_{10}(m_{Z_D}$ / eV$)$")
-        ax.set_ylabel(r"$\log_{10} g_D$")
-        ax.text(0.015, 0.94, title, transform=ax.transAxes, ha="left", va="top", fontsize=22)
-    handles = [Patch(facecolor=c, edgecolor=c, alpha=0.5, label=lab) for _, lab, c in SETS]
-    fig.legend(handles=handles, loc="upper center", ncol=3, frameon=False,
-               title=f"Excluded at 95{pct()} ({comp_title}; per mass, " + r"$\Delta\chi^2 \geq 3.84$)",
-               title_fontsize=plt.rcParams["legend.fontsize"])
-    fig.tight_layout(rect=(0, 0, 1, 0.9))
+        ticks(ax, (5, 1), (5, 1))
+        ax.text(0.015, 0.94, title, transform=ax.transAxes, ha="left", va="top", fontsize=22,
+                bbox=dict(boxstyle="round,pad=0.35", facecolor="white", edgecolor="0.25", lw=1.2))
+    axes[1].set_xlabel(r"Mediator mass, $\log_{10}(M'/{\rm eV})$")
+    fig.text(0.012, 0.545, r"Coupling, $\log_{10} g'$", rotation=90, ha="left", va="center",
+             fontsize=plt.rcParams["axes.labelsize"])
+    handles = [Patch(facecolor=c + "80", edgecolor=edge(c), lw=1.5, label=lab) for _, lab, c in SETS]
+    leg = axes[0].legend(handles=handles, loc="lower left", bbox_to_anchor=(0.412, 0.035), ncol=1, fontsize=12,
+                         frameon=True, framealpha=1, edgecolor="black", title=TITLE.format(pct()), title_fontsize=13)
+    leg.get_frame().set_linewidth(1.0)
     fig.savefig(out)
     plt.close(fig)
     print("saved", out)
