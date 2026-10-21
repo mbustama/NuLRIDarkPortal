@@ -32,13 +32,14 @@ MODELS = [("le_lmu_ul", r"$L_e - L_\mu$, ultralight"), ("le_ltau_ul", r"$L_e - L
           ("le_lmu_mev", r"$L_e - L_\mu$, MeV"), ("le_ltau_mev", r"$L_e - L_\tau$, MeV"),
           ("dp_e_mev", r"dark portal, $e$ texture, MeV"), ("dp_mu_mev", r"dark portal, $\mu$ texture, MeV"),
           ("dp_tau_mev", r"dark portal, $\tau$ texture, MeV")]
-# Mauricio's NuMixingRGAstroHE palette, as in NuFlavorRatiosSteriles (2026-10-21): MESE pink, gold, and the fullest
-# detector combination's purple; regions in opaque tints of them (tint()), edges in the colours. Legend order; drawn largest first (DRAWN), so that the smaller regions sit on top.
+# from Mauricio's coolors palette (2026-10-21; coolors.co/001219-005f73-0a9396-94d2bd-e9d8a6-ee9b00-ca6702-bb3e03-
+# ae2012-9b2226): auburn, gamboge, dark cyan, which pass the dataviz skill's checks; regions in opaque tints of them
+# (tint()), edges in the colours. Legend order; drawn largest first (DRAWN), so that the smaller regions sit on top.
 # now_ic26: IceCube's MESE flavor composition (2025; 11.4 yr, IceCubeRates/future/nfss_detectors.py) and its 2026 spectrum; now_events: HESE 7.5 yr and IceTracks-DR2's
 # IC79 + IC86 (312.8 + 3920.6 days, 11.6 yr)
-SETS = [("now_ic26", "Today: IceCube MESE 11.4 yr + spectrum", "#F06292"),
-        ("now_events", "Today: IceCube HESE 7.5 yr + DR2 11.6 yr", "#E6CE58"),
-        ("proj_future", "Projection: combined future detectors", "#5E3576")]
+SETS = [("now_ic26", "Today: IC MESE 11.4 yr flavor + spectrum", "#9b2226"),
+        ("now_events", "Today: IC HESE 7.5 yr + DR2 11.6 yr", "#ee9b00"),
+        ("proj_future", "Projected: combined detectors", "#0a9396")]
 TITLE = "Disfavored (95{} C.L.)"
 TITLE_COMP = {"": r"fixing $f_{e,{\rm S}} = 1/3$", "_fx": r"fitting $f_{e,{\rm S}}$"}   # the source compositions
 DRAWN = SETS[::-1]
@@ -308,7 +309,7 @@ def figure(suffix, comp_title, out, bands=False):
 
 
 JOINED = [("le_lmu", r"$L_e - L_\mu$"), ("le_ltau", r"$L_e - L_\tau$")]
-MEV_INSET = [0.755, 0.08, 0.205, 0.52]   # axes fraction: the MeV inset; the legend's bottom right at its bottom left
+MEV_INSET = [0.735, 0.13, 0.205, 0.52]   # axes fraction: the MeV inset; the legend's bottom right at its bottom left
 MEV_CORNER = ((2.5, 7.5), (-5, -2))   # log10 m, log10 g: where the MeV planes' structure lies, enlarged in an inset
 
 
@@ -330,7 +331,7 @@ def joined(suffix, comp_title, out):
     (1e4 to 1e9 eV) side by side, the thin bands left out, with an inset on the MeV planes' corner. The panels share
     the mass axis, labelled under the lower one, and one coupling label; the model's name in a rounded box; the legend
     inside the upper panel (Mauricio, 2026-10-21)."""
-    fig, axes = plt.subplots(2, 1, sharex=True, figsize=(3 * PANEL[0], 2 * PANEL[1] + 1.0))
+    fig, axes = plt.subplots(2, 1, sharex=True, figsize=(3.5 * PANEL[0], 2 * PANEL[1] + 1.0))
     fig.subplots_adjust(left=0.085, right=0.985, top=0.98, bottom=0.11, hspace=0.06)
     for k, (ax, (model, title)) in enumerate(zip(axes, JOINED)):
         drawn = []
@@ -359,11 +360,15 @@ def joined(suffix, comp_title, out):
     axes[1].set_xlabel(r"Mediator mass, $\log_{10}(M'/{\rm eV})$")
     fig.text(0.012, 0.545, r"Coupling, $\log_{10} g'$", rotation=90, ha="left", va="center",
              fontsize=plt.rcParams["axes.labelsize"])
-    handles = [Patch(facecolor=tint(c), edgecolor=c, lw=1.5, label=lab.replace(" + ", "\n+ ", 1)
-                     .replace("combined future", "combined\nfuture")) for _, lab, c in SETS]
-    leg = axes[0].legend(handles=handles, loc="lower right", bbox_to_anchor=(MEV_INSET[0] - 0.01, MEV_INSET[1]), ncol=1,
-                         fontsize=15, frameon=True, framealpha=1, edgecolor="black",
-                         title=TITLE.format(pct()) + ",\n" + TITLE_COMP[suffix], title_fontsize=15)
+    handles = [Patch(facecolor=tint(c), edgecolor=c, lw=1.5, label=lab) for _, lab, c in SETS]
+    # the legend's bottom right exactly at the inset's bottom left, less a gap (borderaxespad=0: no padding)
+    leg = axes[0].legend(handles=handles, loc="lower right", bbox_to_anchor=(MEV_INSET[0] - 0.012, MEV_INSET[1]),
+                         borderaxespad=0.0, ncol=1, fontsize=15, frameon=True, framealpha=1, edgecolor="black",
+                         title=TITLE.format(pct()) + ", " + TITLE_COMP[suffix], title_fontsize=16)
+    fig.canvas.draw()
+    bb = leg.get_window_extent().transformed(axes[0].transAxes.inverted())
+    print(f"  legend in the upper panel (axes fraction): x {bb.x0:.3f}-{bb.x1:.3f}, y {bb.y0:.4f}-{bb.y1:.3f}; "
+          f"inset bottom {MEV_INSET[1]}", flush=True)
     leg.get_frame().set_linewidth(1.0)
     fig.savefig(out)
     plt.close(fig)
