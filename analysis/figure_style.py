@@ -5,9 +5,10 @@ unchanged from GeoneutrinoDecay, 2026-10-21; Palatino through LaTeX, ticks inwar
 it, so the figure scripts call use() before they draw. The file's backend is left alone (matplotlib's rc_file skips
 it): scripts save through Agg. Where LaTeX is missing (Tycho's compute nodes, CI), text falls back to matplotlib's
 own rendering.
-  from figure_style import use, pct; use()
+  from analysis.figure_style import use, pct, tex; use()
 """
 import os
+import re
 import shutil
 
 import matplotlib
@@ -26,3 +27,14 @@ def use() -> None:
 def pct() -> str:
     """A percent sign that survives the text renderer in use (LaTeX reads a bare one as a comment)."""
     return r"\%" if matplotlib.rcParams["text.usetex"] else "%"
+
+
+def tex(text: str) -> str:
+    """Plain text made safe for the renderer in use: under LaTeX, _ % & # escaped outside $...$ (configuration
+    titles and parameter names carry underscores)."""
+    if not matplotlib.rcParams["text.usetex"]:
+        return text
+    parts = text.split("$")
+    for k in range(0, len(parts), 2):
+        parts[k] = re.sub(r"(?<!\\)([_%&#])", r"\\\1", parts[k])
+    return "$".join(parts)

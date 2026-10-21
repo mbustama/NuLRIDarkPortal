@@ -6,7 +6,7 @@ shift changes with energy and no composition reproduces it. Checked at m = 1e-22
 plane: the flavor fractions at Earth against energy at couplings below, on and above the band, each with its fitted
 parameters (stored fits), the one above also with the compositions of pion decay (the shift before absorption), and the
 Asimov data (no new force). Writes output/analysis/band_mechanism.npz and output/figures/band_mechanism.png, drawn in
-Mauricio's style (tools/figure_style.py); --replot redraws the figure from the npz without the solver.
+Mauricio's style (analysis/figure_style.py); --replot redraws the figure from the npz without the solver.
   python tools/check_band_mechanism.py [--replot]
 """
 import glob
@@ -38,7 +38,7 @@ def plot(labels, E, fractions):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    from figure_style import PANEL, use
+    from analysis.figure_style import PANEL, use
     use()
     fig, axes = plt.subplots(1, 3, figsize=(3 * PANEL[0] + 1, PANEL[1] + 0.6), sharex=True)
     for k, (label, f) in enumerate(zip(labels, fractions)):

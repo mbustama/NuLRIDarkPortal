@@ -3,7 +3,8 @@ plots.py
 
 Figures of profiles and planes, read from their summary JSON files (run.summarize writes
 them). Delta chi^2 is drawn against the parameter, with the thresholds of the configuration
-as horizontal lines (profiles) or contour levels (planes).
+as horizontal lines (profiles) or contour levels (planes). Drawn in Mauricio's style
+(figure_style.py: the matplotlibrc at the repository root; 2026-10-21).
 """
 import matplotlib
 
@@ -12,6 +13,8 @@ import matplotlib.lines  # noqa: E402
 import matplotlib.patches  # noqa: E402
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
+
+from .figure_style import PANEL, tex, use  # noqa: E402
 
 LABELS = {
     "m_Zd_eV": r"$m_{Z_D}$ [eV]", "g_D": r"$g_D$", "epsilon_prime": r"$\epsilon'$",
@@ -36,21 +39,22 @@ def plot_profile(summary: dict, path: str):
     x = np.asarray(summary["grids"][0])
     d = np.asarray(summary["dchi2"])
     log = summary.get("log", False)
-    fig, ax = plt.subplots(figsize=(4.6, 3.4))
+    use()
+    fig, ax = plt.subplots(figsize=PANEL)
     ok = np.isfinite(d)
     ax.plot(x[ok], d[ok], "k-", lw=1.4)
     ax.plot(x[ok], d[ok], "k.", ms=3)
     top = max(1.5 * max(summary["thresholds"].values()), 1.0)
     for (lab, t), (c, ls) in zip(sorted(summary["thresholds"].items(), key=lambda kv: kv[1]), STYLES):
         ax.axhline(t, color=c, ls=ls, lw=1.0)
-        ax.text(x[0], t, f" {lab}", va="bottom", ha="left", fontsize=8, color=c)
+        ax.text(x[0], t, tex(f" {lab}"), va="bottom", ha="left", fontsize=12, color=c)
     if log:
         ax.set_xscale("log")
     ax.set_xlim(x[0], x[-1])
     ax.set_ylim(0.0, top)
     ax.set_xlabel(label(name))
     ax.set_ylabel(r"$\Delta\chi^2$")
-    ax.set_title(summary.get("title", ""), fontsize=9)
+    ax.set_title(tex(summary.get("title", "")), fontsize=12)
     fig.tight_layout()
     fig.savefig(path)
     plt.close(fig)
@@ -65,7 +69,8 @@ def plot_plane(summary: dict, path: str):
     y = np.asarray(summary["grids"][1])
     d = np.asarray(summary["dchi2"], dtype=float)          # [i_x, i_y]
     logx, logy = summary.get("log", [False, False])
-    fig, ax = plt.subplots(figsize=(5.4, 3.9))
+    use()
+    fig, ax = plt.subplots(figsize=(PANEL[0] + 1.3, PANEL[1]))
     levels = sorted(summary["thresholds"].items(), key=lambda kv: kv[1])
     X, Y = np.meshgrid(x, y, indexing="ij")
     dm = np.where(np.isfinite(d), d, 1e9)
@@ -78,8 +83,9 @@ def plot_plane(summary: dict, path: str):
     handles = []
     for (lab, t), c in zip(levels, contour_colors):
         ax.contour(X, Y, dm, levels=[t], colors=[c], linewidths=1.2)
-        handles.append(matplotlib.lines.Line2D([], [], color=c, lw=1.2, label=f"{lab} ($\\Delta\\chi^2$ = {t:g})"))
-    ax.legend(handles=handles, fontsize=7, loc="lower right", framealpha=0.85)
+        handles.append(matplotlib.lines.Line2D([], [], color=c, lw=1.2,
+                                               label=tex(f"{lab} ($\\Delta\\chi^2$ = {t:g})")))
+    ax.legend(handles=handles, fontsize=11, loc="lower right", framealpha=0.85)
     raster = summary.get("raster")
     if raster is None:
         i, j = np.unravel_index(np.argmin(dm), dm.shape)
@@ -99,17 +105,17 @@ def plot_plane(summary: dict, path: str):
         if summary.get("elevated"):
             handles.append(matplotlib.patches.Patch(facecolor="none", edgecolor="tab:red", hatch="///",
                                                     label="column minimum above the best fit"))
-            ax.legend(handles=handles, fontsize=7, loc="lower right", framealpha=0.85)
+            ax.legend(handles=handles, fontsize=11, loc="lower right", framealpha=0.85)
     if logx:
         ax.set_xscale("log")
     if logy:
         ax.set_yscale("log")
     ax.set_xlabel(label(xn))
     ax.set_ylabel(label(yn))
-    title = summary.get("title", "")
+    title = tex(summary.get("title", ""))
     if raster is not None:
         title += f"\nper {label(raster)}: $\\Delta\\chi^2$ from each column's minimum"
-    ax.set_title(title, fontsize=9)
+    ax.set_title(title, fontsize=12)
     fig.tight_layout()
     fig.savefig(path)
     plt.close(fig)

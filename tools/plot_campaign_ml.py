@@ -7,7 +7,7 @@ fitted, the ultralight planes also exclude a thin band (~0.5 decade) along the e
 exists only because each source's composition is taken to be the same at every energy (notes, 'Thin excluded bands
 with fitted source compositions'); Mauricio, 2026-10-21: left out of the exclusion figures (thin_bands takes them out),
 drawn on their own, as ribbons at their true width, in <prefix>_thin_bands.png. Drawn in Mauricio's style
-(tools/figure_style.py: the matplotlibrc at the repository root). Mass columns whose smallest scanned coupling is not at the no-effect chi^2 are left unshaded (none in this
+(analysis/figure_style.py: the matplotlibrc at the repository root). Mass columns whose smallest scanned coupling is not at the no-effect chi^2 are left unshaded (none in this
 campaign). The plane summaries' 'elevated' columns are NOT masked: in the IceCube flavor + spectrum MeV planes the data
 prefer an effect near 3 MeV, which lifts every other mass above the global minimum although its scan does reach the
 no-effect couplings; the per-mass reading is valid there.
@@ -26,8 +26,8 @@ import numpy as np  # noqa: E402
 from matplotlib.patches import Patch  # noqa: E402
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-sys.path.insert(0, os.path.join(REPO, "tools"))
-from figure_style import PANEL, pct, use  # noqa: E402
+sys.path.insert(0, REPO)
+from analysis.figure_style import PANEL, pct, use  # noqa: E402
 MODELS = [("le_lmu_ul", r"$L_e - L_\mu$, ultralight"), ("le_ltau_ul", r"$L_e - L_\tau$, ultralight"),
           ("le_lmu_mev", r"$L_e - L_\mu$, MeV"), ("le_ltau_mev", r"$L_e - L_\tau$, MeV"),
           ("dp_e_mev", r"dark portal, $e$ texture, MeV"), ("dp_mu_mev", r"dark portal, $\mu$ texture, MeV"),
