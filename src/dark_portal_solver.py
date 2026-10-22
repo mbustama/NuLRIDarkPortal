@@ -407,10 +407,15 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
     W1, W2, c1, c2, self_cross = cross_kernel_weights(E_bins)
     inj_lo, inj_hi = float(inj_window[0]), float(inj_window[1])
     inj_w = ((E_bins >= inj_lo) & (E_bins < inj_hi)).astype(np.float64)
+    # 'combined' (below 1 keV, a potential and hard scatterings): the dark-portal phase is rescaled per energy by the
+    # ratio of dp_si's flux to the phase's own for a fixed reference source (equal flavors, nu and nubar alike, the
+    # whole spectrum) -- the same factor for every run, so that the runs the analysis adds up (pure flavors, nu and
+    # nubar, spectral windows, directions) add up exactly
+    ref = None
     if si_combined:
-        # 'combined': the dark-portal phase gives only the flavor composition, that of the whole spectrum, so that
-        # runs with the sources split in energy add up (the flux itself is dp_si's, windowed)
-        inj_w = np.ones_like(inj_w)
+        rho_ref = np.full(3, 1.0 / 3.0)
+        inj_w_ref = np.ones_like(inj_w)
+        ref = [dict(F=np.zeros((N_E, 3), dtype=np.float64), R=np.zeros(N_E, dtype=np.float64)) for _ in species]
 
     z_steps = range(1, len(z_bins)) if (arrival_flavor is None and not si_cosmology) else range(0)
     iterator = tqdm(z_steps, desc="Cosmo Phase", leave=False) if (dp_core.HAS_TQDM and show_progress) else z_steps
@@ -446,10 +451,18 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         step_cosmological_rates(z, dt, R_z, E_bins, nu["F"], nb["F"], w_nu, w_nb, rho_src, Pis[0], Pis[1],
                                 nu["G_step"], nb["G_step"], nu["brp_step"], nb["brp_step"], p_index, Phi_0,
                                 W3, pref3, self_same, W1, W2, c1, c2, self_cross, nu["R"], nb["R"], inj_w)
+        if ref is not None:
+            step_cosmological_rates(z, dt, R_z, E_bins, ref[0]["F"], ref[1]["F"], 0.5, 0.5, rho_ref, Pis[0], Pis[1],
+                                    nu["G_step"], nb["G_step"], nu["brp_step"], nb["brp_step"], p_index, Phi_0,
+                                    W3, pref3, self_same, W1, W2, c1, c2, self_cross, ref[0]["R"], ref[1]["R"],
+                                    inj_w_ref)
         if jump_unit is not None:
-            for sp in species:
+            for i_s, sp in enumerate(species):
                 _soft_jumps(E_bins, 1.0 + z, sp["J_table"], sp["Gd_table"], sp["GG_table"], sp["lam_table"],
                             sp["log_s0"], sp["inv_dlogs"], sp["c_z"][k], float(jump_unit[k]), dt, sp["F"])
+                if ref is not None:
+                    _soft_jumps(E_bins, 1.0 + z, sp["J_table"], sp["Gd_table"], sp["GG_table"], sp["lam_table"],
+                                sp["log_s0"], sp["inv_dlogs"], sp["c_z"][k], float(jump_unit[k]), dt, ref[i_s]["F"])
     if verbose == 2:
         safe_print(f"Cosmological baseline finished at z = {z_bins[-1]:.4f}.")
 
@@ -467,23 +480,22 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         m_D0_sq = dp_absorption.debye_mass_sq(ab[0].G_mass_diag2, m_nu_bg_arr, T_nu0, eta_mass)
         M_t = float(np.sqrt(m_Zd * m_Zd + m_D0_sq)) if m_D0_sq > 1e-10 * m_Zd * m_Zd else m_Zd
         F_mass = dp_si.propagate_si(E_bins, float(z_bins[0]), H0, Omega_m, Omega_L, U_pmns, m_nu_bg_arr, T_nu0,
-                                    eta_mass, rho_src, p_index, rho_evol, Phi_0 * w_tot, M_t, g_mass,
+                                    eta_mass, rho_ref if si_combined else rho_src, p_index, rho_evol,
+                                    Phi_0 * (1.0 if si_combined else w_tot), M_t, g_mass,
                                     majorana=True, channels="full", mediator="vector",
                                     z_substeps=int(st["z_substeps"]), E_extension=float(st["E_extension"]),
-                                    Gamma_vis=ab[0].Gamma_vis, inj_window=(inj_lo, inj_hi),
+                                    Gamma_vis=ab[0].Gamma_vis,
+                                    inj_window=(0.0, np.inf) if si_combined else (inj_lo, inj_hi),
                                     thermal="full" if st.get("thermal_products") else True)
         if si_combined:
             # below 1 keV with both a potential and hard scatterings (2026-10-22; notes, 'Soft scatterings on the
             # relics'): the dark-portal phase's eigenstate populations (the potential, the soft scatterings) rescaled
             # per energy to dp_si's flux (the energy losses, which do not depend on the flavor where the Z mixing's
             # kappa I dominates the hard scatterings). Checked against a transport with both (scratch reference).
-            # Linear in the sources: the composition does not depend on their normalization or energy window, and
-            # it is the same linear combination of the pure-flavor runs' (whose totals the flavor-blind phase shares).
-            tot_si = F_mass.sum(axis=1)
-            for sp, w_s in zip(species, (w_nu, w_nb)):
-                tot_dp = sp["F"].sum(axis=1)
-                scale = np.divide(tot_si * (w_s / w_tot if w_tot > 0 else 0.0), tot_dp,
-                                  out=np.zeros_like(tot_dp), where=tot_dp > 0.0)
+            tot_si = 0.5 * F_mass.sum(axis=1)            # the reference's, per kind (injected 1:1)
+            for sp, rf in zip(species, ref):
+                tot_dp = rf["F"].sum(axis=1)
+                scale = np.divide(tot_si, tot_dp, out=np.zeros_like(tot_dp), where=tot_dp > 0.0)
                 sp["F"] = np.ascontiguousarray(sp["F"] * scale[:, None])
         else:
             # dp_si carries both kinds of each mass state together (exact for their sum, the interaction conserving CP

@@ -1400,8 +1400,19 @@ def _bin_matrix(tau, lose, Q, Qn, Mx):
     non-forward-peaked events, the drift; Qn: the secondaries of the latter landing in the bin), floored at zero.
     The same matrix as -tau_a delta_ca + Q[c, a] tau_a, but the quasi-elastic conversions within the bin, which at
     small mu = M^2/s outnumber the losses by ~1/mu (2026-10-22: 1e30 below 1 eV), now cancel exactly in each column
-    instead of leaving their rounding (1e-16 of them) as a spurious growing mode. Leading the first n rows of Mx."""
+    instead of leaving their rounding (1e-16 of them) as a spurious growing mode (beyond STIFF_BIN; below it the
+    matrix as it was formed before). Leading the first n rows of Mx."""
     n = tau.shape[0]
+    big = 0.0
+    for a in range(n):
+        big = max(big, tau[a])
+    if big <= STIFF_BIN:
+        # every MeV plane: the matrix as it was formed before, bit for bit
+        for a in range(n):
+            Ga = max(tau[a], 0.0)
+            for c in range(n):
+                Mx[c, a] = -(Ga if c == a else 0.0) + Q[c, a] * Ga
+        return
     for a in range(n):
         Ga = max(tau[a], 0.0)
         col = 0.0
@@ -1456,6 +1467,7 @@ def _si_sweep(F, E, dE, S0, J, Nq, Lq, Dq, jt, w, qe, Ctau, Creg, tabB, tabO, no
     S = np.empty(3)
     Am = np.empty((3, 3))
     Bm = np.zeros((7, 7))
+    Ex = np.zeros((7, 7))
     Fnew = np.empty(3)
     Qn = np.empty((3, 3))
     lose = np.empty(3)
@@ -1533,7 +1545,24 @@ def _si_sweep(F, E, dE, S0, J, Nq, Lq, Dq, jt, w, qe, Ctau, Creg, tabB, tabO, no
             for c in range(3):
                 Bm[c, 6] = S[c] * dt / ssc
                 Bm[3 + c, c] = 1.0
-            Ex = _expm_small(Bm)
+            big = 0.0
+            for c in range(3):
+                for a in range(3):
+                    big = max(big, abs(Bm[c, a]))
+            if big > STIFF_BIN:
+                # the augmented exponential's blocks from _phi_eig: F(dt) = e^M F + phi1 S dt, <F> = phi1 F + phi2 S dt
+                Em, P1, P2 = _phi_eig(np.ascontiguousarray(Bm[0:3, 0:3]))
+                for c in range(3):
+                    for a in range(3):
+                        Ex[c, a] = Em[c, a]
+                        Ex[3 + c, a] = P1[c, a]
+                    Ex[c, 6] = 0.0
+                    Ex[3 + c, 6] = 0.0
+                    for b in range(3):
+                        Ex[c, 6] += P1[c, b] * Bm[b, 6]
+                        Ex[3 + c, 6] += P2[c, b] * Bm[b, 6]
+            else:
+                Ex = _expm_small(Bm)
             own = 0.0
             for a in range(3):
                 # events of state a over the step (per unit energy), as a rate: (tau_a/dt) <F_a>
@@ -1628,12 +1657,58 @@ def _si_sweep(F, E, dE, S0, J, Nq, Lq, Dq, jt, w, qe, Ctau, Creg, tabB, tabO, no
         diag[1] += pushed * dt
 
 
+# A bin's rate matrix (per step) beyond this is exponentiated through its eigenvalues (_phi_eig): rates ~1/mu, which
+# below ~1 eV reach 1e30 per step, leave a rounding of 1e-16 of them in the eigenvalue that should be zero -- e^+1e14
+# in scaling and squaring (2026-10-22). Well below it (every MeV plane), the augmented exponential as before.
+STIFF_BIN = 1e12
+
+
+@njit(cache=True)
+def _phi_eig(Mx):
+    """(e^M, phi1(M), phi2(M)) of a stiff n x n rate matrix through its eigenvalues, their real parts floored at zero
+    (a rate matrix's are <= 0: what rises above is rounding); phi1(l) = (e^l - 1)/l, phi2(l) = (e^l - 1 - l)/l^2,
+    their series near l = 0."""
+    n = Mx.shape[0]
+    A = np.zeros((n, n), dtype=np.complex128)
+    for c in range(n):
+        for a in range(n):
+            A[c, a] = Mx[c, a]
+    lam, V = np.linalg.eig(A)
+    Vi = np.linalg.inv(V)
+    E = np.zeros((n, n), dtype=np.complex128)
+    P1 = np.zeros((n, n), dtype=np.complex128)
+    P2 = np.zeros((n, n), dtype=np.complex128)
+    for k in range(n):
+        l = complex(min(lam[k].real, 0.0), lam[k].imag)
+        if abs(l) < 1e-6:
+            e = 1.0 + l * (1.0 + l * (0.5 + l / 6.0))
+            p1 = 1.0 + l * (0.5 + l * (1.0 / 6.0 + l / 24.0))
+            p2 = 0.5 + l * (1.0 / 6.0 + l * (1.0 / 24.0 + l / 120.0))
+        else:
+            e = np.exp(l)
+            p1 = (e - 1.0) / l
+            p2 = (e - 1.0 - l) / (l * l)
+        for c in range(n):
+            for a in range(n):
+                v = V[c, k] * Vi[k, a]
+                E[c, a] += v * e
+                P1[c, a] += v * p1
+                P2[c, a] += v * p2
+    return (np.ascontiguousarray(E.real), np.ascontiguousarray(P1.real), np.ascontiguousarray(P2.real))
+
+
 @njit(cache=True)
 def _phi_functions(Mx):
     """(e^M, phi1(M), phi2(M)) of an n x n matrix M, phi1 = sum M^k/(k+1)!, phi2 = sum M^k/(k+2)!, from the
     exponential of the augmented 3n x 3n matrix [[M, I, 0], [0, 0, I], [0, 0, 0]] (whose first block row is
-    [e^M, phi1, phi2])."""
+    [e^M, phi1, phi2]); beyond STIFF_BIN through the eigenvalues (_phi_eig)."""
     n = Mx.shape[0]
+    big = 0.0
+    for c in range(n):
+        for a in range(n):
+            big = max(big, abs(Mx[c, a]))
+    if big > STIFF_BIN:
+        return _phi_eig(Mx)
     A = np.zeros((3 * n, 3 * n))
     for c in range(n):
         for a in range(n):
