@@ -134,3 +134,25 @@ def test_thermal_grid_corrections(tmp_path):
     assert near(lowest_excluded(lx, G, F, 4.0), -3.5 + 0.5 * 3.84 / 30.0)            # untouched
     assert near(lowest_excluded(lx, G, F, 5.0), -4.0 + 0.5 * 3.84 / 10.0)            # the re-evaluated point
     assert near(lowest_excluded(lx, G, F, 6.0), -3.5 + 0.5 * (3.84 - 1.0) / 29.0)    # the refit's, not the 10
+
+
+def test_column_between_masses_reads_its_own_minimum(tmp_path):
+    """A mass between the grid's sampled from 1e-5 up (refine_grid's new masses; 2026-10-22): Delta chi^2 from its own
+    minimum (and the no-effect chi^2), not from its neighbours' -- where the data prefer an effect at a depth that
+    changes with mass, a neighbour's deeper minimum made the whole column read as excluded."""
+    x = 10.0 ** np.arange(4.0, 8.01, 1.0)
+    y = 10.0 ** np.arange(-10.0, -1.9, 0.2)
+    ly = np.log10(y)
+    chi = np.full((len(x), len(y)), 10.0)                      # no effect: 10 everywhere ...
+    chi[:, np.argmin(abs(ly + 4.0))] = 5.0                     # ... a preferred dip at 1e-4 (5.0), at every grid mass
+    chi[:, ly >= -2.6] = 30.0                                  # excluded from 10^-2.6 up
+    path = write_plane(tmp_path / "p" / "plane_m_Zd_eV_g_D.json", x, y, chi)
+    rec = lambda m, g, c: json.dumps(dict(held={"m_Zd_eV": 10.0 ** m, "g_D": 10.0 ** g}, chi2=c)) + "\n"
+    with open(tmp_path / "p" / "refine_grid_between.0.jsonl", "w") as f:
+        for g in np.round(np.arange(-5.0, -1.99, 0.1), 6):    # at 10^5.5: a shallower dip (8.0); 30 from 10^-2.6 up
+            f.write(rec(5.5, g, 30.0 if g >= -2.6 else (8.0 if abs(g + 4.0) < 0.05 else 10.0)))
+    lx, G, F, _, _ = ex.field(path)
+    # own minimum 8.0: 10 is 2.0 above it, allowed; excluded only from the 30s (interpolated between -2.7 and -2.6)
+    assert lowest_excluded(lx, G, F, 5.5) == pytest.approx(-2.7 + 0.1 * (3.84 + 8.0 - 10.0) / 20.0, abs=2 * ex.STEP)
+    # the grid columns: their own dips, 5 below the plateau -- excluded from just above the dip (upper limits only)
+    assert lowest_excluded(lx, G, F, 5.0) == pytest.approx(-4.0 + 0.2 * 3.84 / 5.0, abs=2 * ex.STEP)

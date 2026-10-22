@@ -31,6 +31,7 @@ import numpy as np
 D = 1.5        # decades: the signed distance to the 95% edge is clipped here (see field)
 STEP = 0.005   # decades: the coupling resolution of the field
 THRESHOLD = 3.84
+OWN_COLUMN_FROM = -4.95  # log10 g: a column between grid masses sampled from here down reads its own minimum (field)
 
 
 def signed(G, excl):
@@ -138,6 +139,7 @@ def field(path):
         S[i] = signed(G, np.interp(G, [p[0] for p in pts], [p[1] for p in pts]) >= THRESHOLD)
         cov[np.log10(x[i])] = np.ones(len(G), bool)
     xs = {np.log10(x[i]): S.get(i) for i in range(len(x))}     # None: left out
+    null = float(np.nanmedian(chi0[:, 0]))                     # the no-effect chi^2 (the grid's smallest coupling)
     between = {}
     for r in between_recs:
         between.setdefault(round(np.log10(r["held"][xn]), 6), []).append((r["held"][yn], r["chi2"]))
@@ -147,17 +149,31 @@ def field(path):
         if i < 0 or i + 1 >= len(x) or i not in S or i + 1 not in S:
             continue
         t = np.log(m / x[i]) / np.log(x[i + 1] / x[i])
-        cmin = min(np.nanmin(chi0[i]), np.nanmin(chi0[i + 1]), min(c for _, c in pts))
         pts.sort()
         g = np.log10([p[0] for p in pts])
-        dc = np.array([p[1] for p in pts]) - cmin
+        c = np.array([p[1] for p in pts])
+        own = g[0] <= OWN_COLUMN_FROM
+        if own:
+            # sampled from the small couplings up (refine_grid's new masses): the column's own minimum, with the
+            # no-effect chi^2 (the same at every mass) for the couplings below its samples (2026-10-22: the neighbours'
+            # minima, where the data prefer an effect at a mass-dependent depth, made whole columns read as excluded)
+            cmin = min(c.min(), null)
+        else:
+            # a window high in the column (refine_ridges, refine_edges): the neighbouring full columns' minima
+            cmin = min(np.nanmin(chi0[i]), np.nanmin(chi0[i + 1]), c.min())
+        dc = c - cmin
         excl = (1 - t) * S[i] + t * S[i + 1] > 0
         cov[lm] = np.zeros(len(G), bool)
         for run in np.split(np.arange(len(g)), np.flatnonzero(np.diff(g) > 0.25) + 1):
             win = (G >= g[run[0]]) & (G <= g[run[-1]])
             excl[win] = np.interp(G[win], g[run], dc[run]) >= THRESHOLD
             cov[lm] |= win
-        if i in low and i + 1 in low:
+        if own:
+            # upper limits only, from the column's own samples: below its lowest allowed coupling nothing is excluded
+            # (none of it if the no-effect couplings are allowed)
+            if null - cmin >= THRESHOLD and (dc < THRESHOLD).any():
+                excl &= G >= g[int(np.argmax(dc < THRESHOLD))]
+        elif i in low and i + 1 in low:
             excl &= G >= (1 - t) * low[i] + t * low[i + 1]
         xs[lm] = signed(G, excl)
     lx = np.array(sorted(xs))
