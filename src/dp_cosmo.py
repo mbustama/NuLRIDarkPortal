@@ -266,24 +266,37 @@ def _soft_jumps(E_bins: np.ndarray, zp1: float, J_table: np.ndarray, Gd_table: n
                     r *= om * om / (om * om + D * D)
                 A[a, b] = r
                 A[b, a] = r
+        rmax = 0.0
         for a in range(3):
             A[a, a] = -(A[0, a] + A[1, a] + A[2, a] - A[a, a])
+            rmax = max(rmax, -A[a, a])
+        if rmax * dt <= 0.0:
+            continue
         vals, V = np.linalg.eigh(A)
+        # as a correction, F + V (e^(vals dt) - 1) V^T F: a slow step moves the populations by its own small amount
+        # only, never by the rounding of a full re-expansion (1e-16 of the bin's largest population, which rewrote
+        # populations far below it -- and the analysis interpolates fluxes in their logarithm); the uniform mode
+        # (vals = 0) keeps the total
         x = np.zeros(3)
         for k in range(3):
             acc = 0.0
             for a in range(3):
                 acc += V[a, k] * F[i, a]
-            x[k] = acc * np.exp(min(vals[k], 0.0) * dt)
+            x[k] = acc * np.expm1(min(vals[k], 0.0) * dt)
+        clipped = False
         for a in range(3):
             acc = 0.0
             for k in range(3):
                 acc += V[a, k] * x[k]
-            F[i, a] = max(acc, 0.0)
-        s_new = F[i, 0] + F[i, 1] + F[i, 2]
-        if s_new > 0.0:
-            for a in range(3):
-                F[i, a] *= tot / s_new
+            F[i, a] += acc
+            if F[i, a] < 0.0:
+                F[i, a] = 0.0
+                clipped = True
+        if clipped:
+            s_new = F[i, 0] + F[i, 1] + F[i, 2]
+            if s_new > 0.0:
+                for a in range(3):
+                    F[i, a] *= tot / s_new
 
 
 @njit(fastmath=True, error_model="numpy", cache=True, parallel=True)

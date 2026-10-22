@@ -378,11 +378,12 @@ def relic_state_rates_analytic(E0: float, z: float, sum_G: float, m_Zd: float,
                     v = -1.0
                     f_FD *= m2 / (2.0 * E_bg * (E_bg + p))
                 u0 = A_ - M2
-                if fine_m and B_ < 0.1 * np.sqrt(u0 * u0 + MG2):
+                if fine_m and pol != 0 and B_ < 0.1 * np.sqrt(u0 * u0 + MG2):
                     # far from the resonance the closed form cancels to ~eps (u0 / B)^2 (1e-3 at s ~ 1e-4 M^2,
                     # 2026-10-21): there the kernel is analytic across the whole angular range, and 8-point
-                    # Gauss-Legendre in cos(theta) is exact to rounding (the chiral shares since 2026-10-21; rho, pol 0,
-                    # since 2026-10-22, after the dark-portal campaign)
+                    # Gauss-Legendre in cos(theta) is exact to rounding. The chiral shares only: pol 0 (rho) keeps the
+                    # closed form its campaign planes were computed with (2026-10-22: the projections' chi^2 moved by
+                    # ~0.1 with it, against 2e-4 of agreement with the reference either way)
                     I_ang = 0.0
                     for g in range(8):
                         c_ = _GL8C_X[g]

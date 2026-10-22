@@ -188,7 +188,7 @@
   "norm_astro": 1.0,
   "p_index": 2.735,
   "p_index_low": 1.31,
-  "g_D_trace": 1e-10
+  "g_D_trace": 1e-30
  },
  "flux_basis": "pure_flavors",
  "output_dir": "output/analysis/campaign_ml/proj_future/dp_mu_ul",

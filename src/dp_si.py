@@ -1657,44 +1657,71 @@ def _si_sweep(F, E, dE, S0, J, Nq, Lq, Dq, jt, w, qe, Ctau, Creg, tabB, tabO, no
         diag[1] += pushed * dt
 
 
-# A bin's rate matrix (per step) beyond this is exponentiated through its eigenvalues (_phi_eig): rates ~1/mu, which
-# below ~1 eV reach 1e30 per step, leave a rounding of 1e-16 of them in the eigenvalue that should be zero -- e^+1e14
-# in scaling and squaring (2026-10-22). Well below it (every MeV plane), the augmented exponential as before.
+# A bin's rate matrix (per step) beyond this is exponentiated keeping its blocks those of a rate matrix (_phi_eig):
+# rates ~1/mu, which below ~1 eV reach 1e30 per step, leave a rounding of 1e-16 of them in the eigenvalue that should
+# be zero -- e^+1e14 in plain scaling and squaring (2026-10-22). Well below it (every MeV plane), the augmented
+# exponential as before.
 STIFF_BIN = 1e12
 
 
 @njit(cache=True)
 def _phi_eig(Mx):
-    """(e^M, phi1(M), phi2(M)) of a stiff n x n rate matrix through its eigenvalues, their real parts floored at zero
-    (a rate matrix's are <= 0: what rises above is rounding); phi1(l) = (e^l - 1)/l, phi2(l) = (e^l - 1 - l)/l^2,
-    their series near l = 0."""
+    """(e^M, phi1(M), phi2(M)) of a stiff n x n rate matrix M (off the diagonal >= 0, columns summing to <= 0; its
+    exponential non-negative with columns summing to <= 1): the augmented exponential of M 2^-s (norm below 1/2,
+    the diagonal Pade approximant) squared s times, with the blocks kept as the rate matrix's exponential must be --
+    e^(M t) non-negative with columns summing to <= 1, t phi1 and t^2 phi2 non-negative -- after every squaring, so that
+    the rounding of rates ~1e30 (1e-16 of them, either sign) cannot grow (2026-10-22: an eigenvector route blew up
+    where two eigenvalues nearly meet). Doubling t: A' = A A, B' = A B + B, C' = A C + t B + C, for A = e^(M t),
+    B = t phi1(M t), C = t^2 phi2(M t); at t = 1 they are the three functions."""
     n = Mx.shape[0]
-    A = np.zeros((n, n), dtype=np.complex128)
+    nrm = 0.0
+    for c in range(n):
+        rs = 0.0
+        for a in range(n):
+            rs += abs(Mx[c, a])
+        nrm = max(nrm, rs)
+    sq = 0
+    if nrm > 0.5:
+        sq = int(np.ceil(np.log2(nrm / 0.5)))
+    t = 1.0 / (2.0 ** sq)
+    Aug = np.zeros((3 * n, 3 * n))
     for c in range(n):
         for a in range(n):
-            A[c, a] = Mx[c, a]
-    lam, V = np.linalg.eig(A)
-    Vi = np.linalg.inv(V)
-    E = np.zeros((n, n), dtype=np.complex128)
-    P1 = np.zeros((n, n), dtype=np.complex128)
-    P2 = np.zeros((n, n), dtype=np.complex128)
-    for k in range(n):
-        l = complex(min(lam[k].real, 0.0), lam[k].imag)
-        if abs(l) < 1e-6:
-            e = 1.0 + l * (1.0 + l * (0.5 + l / 6.0))
-            p1 = 1.0 + l * (0.5 + l * (1.0 / 6.0 + l / 24.0))
-            p2 = 0.5 + l * (1.0 / 6.0 + l * (1.0 / 24.0 + l / 120.0))
-        else:
-            e = np.exp(l)
-            p1 = (e - 1.0) / l
-            p2 = (e - 1.0 - l) / (l * l)
+            Aug[c, a] = Mx[c, a] * t
+        Aug[c, n + c] = t
+        Aug[n + c, 2 * n + c] = t
+    Ex = _expm_small(Aug)                    # its norm is below ~1/2 + 2t: no squaring inside
+    A = np.ascontiguousarray(Ex[0:n, 0:n])
+    B = np.ascontiguousarray(Ex[0:n, n:2 * n])
+    C = np.ascontiguousarray(Ex[0:n, 2 * n:3 * n])
+    _keep_rate_blocks(A, B, C)
+    for _ in range(sq):
+        A2 = A @ A
+        B2 = A @ B + B
+        C2 = A @ C + t * B + C
+        A, B, C = A2, B2, C2
+        t *= 2.0
+        _keep_rate_blocks(A, B, C)
+    return A, B, C
+
+
+@njit(cache=True)
+def _keep_rate_blocks(A, B, C):
+    """A non-negative with columns summing to <= 1, B and C non-negative (in place)."""
+    n = A.shape[0]
+    for a in range(n):
+        col = 0.0
         for c in range(n):
-            for a in range(n):
-                v = V[c, k] * Vi[k, a]
-                E[c, a] += v * e
-                P1[c, a] += v * p1
-                P2[c, a] += v * p2
-    return (np.ascontiguousarray(E.real), np.ascontiguousarray(P1.real), np.ascontiguousarray(P2.real))
+            if A[c, a] < 0.0:
+                A[c, a] = 0.0
+            col += A[c, a]
+            if B[c, a] < 0.0:
+                B[c, a] = 0.0
+            if C[c, a] < 0.0:
+                C[c, a] = 0.0
+        if col > 1.0:
+            for c in range(n):
+                A[c, a] /= col
 
 
 @njit(cache=True)
@@ -2239,9 +2266,9 @@ def _thermal_weights(m, T, c0, Delta, smax, sdiv, thr, W, pol=0):
         for u in range(nsub):
             ua = x0 + h * u
             ub = x0 + h * (u + 1)
-            if ua < lm < ub:
-                # split at sigma = m: the chiral shares' densities have a kink there (2026-10-21), rho a weaker one
-                # (split too since 2026-10-22, after the dark-portal campaign)
+            if pol != 0 and ua < lm < ub:
+                # split at sigma = m (2026-10-21): the chiral shares' densities have a kink there (rho a weaker one;
+                # pol 0 unsplit, its arithmetic that of the campaign planes)
                 for sgm in range(2):
                     pa = ua if sgm == 0 else lm
                     hh = (lm - ua) if sgm == 0 else (ub - lm)
