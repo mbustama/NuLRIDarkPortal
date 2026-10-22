@@ -43,7 +43,17 @@ def _skip(r):
     return r["new"] == r["old"] and "_pot_x1m16_" in r["config"]
 
 
-def plan(flags_path, manifest, n_tasks, seconds_json=None, only=None, per_plane=None):
+def _coupling(cfg, held):
+    """The plane's coupling at a point: eps' for the potential planes (g_D eps' sum|U|^2 over the split), else the
+    plane's own."""
+    name = os.path.basename(cfg)
+    if "g_D_eps_trace" in held:
+        split = {"x1m24": 1e-24, "x1m16": 1e-16, "x1m08": 1e-8}[name.split("_pot_")[1].split("_")[0]]
+        return held["g_D_eps_trace"] / split
+    return next(v for k, v in held.items() if k != "m_Zd_eV")
+
+
+def plan(flags_path, manifest, n_tasks, seconds_json=None, only=None, per_plane=None, max_coupling=None):
     secs = dict(SECONDS)
     fam_secs = {}
     if seconds_json:
@@ -58,6 +68,8 @@ def plan(flags_path, manifest, n_tasks, seconds_json=None, only=None, per_plane=
         if only and fam not in only:
             continue
         kind = "transport" if r["new"] != r["old"] else "jumps"
+        if max_coupling is not None and kind == "transport" and _coupling(r["config"], r["held"]) > max_coupling:
+            continue              # excluded beyond doubt by the energy losses: inferred afterwards (infer)
         pts.append(dict(config=r["config"], source=r["source"], held=r["held"], kind=kind,
                         seconds=float(fam_secs.get((ds, fam, kind), fam_secs.get((ds, fam), secs[ds])))))
     if per_plane:
@@ -201,6 +213,8 @@ def main(argv=None):
     a.add_argument("--seconds-json", default=None)
     a.add_argument("--only", default=None)
     a.add_argument("--per-plane", type=int, default=None)
+    a.add_argument("--max-coupling", type=float, default=None,
+                   help="leave out the transport points above this coupling (eps' for the potential planes)")
     a = sub.add_parser("run")
     a.add_argument("manifest")
     a.add_argument("task", type=int)
@@ -211,7 +225,8 @@ def main(argv=None):
     a.add_argument("--tasks", default=None)
     a = ap.parse_args(argv)
     if a.cmd == "plan":
-        return plan(a.flags, a.manifest, a.tasks, a.seconds_json, a.only.split(",") if a.only else None, a.per_plane)
+        return plan(a.flags, a.manifest, a.tasks, a.seconds_json, a.only.split(",") if a.only else None, a.per_plane,
+                    a.max_coupling)
     if a.cmd == "run":
         return run(a.manifest, a.task, a.data_root, a.workers)
     lo = hi = None
