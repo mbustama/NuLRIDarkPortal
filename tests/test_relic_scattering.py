@@ -107,9 +107,9 @@ def _flux(E, p):
 
 
 def test_negligible_scatterings_bit_for_bit():
-    """A potential plane at g_D sum|U|^2 = 1e-16 (the scatterings far below the expansion rate): the same flux with
-    the jumps' code as without it."""
-    E, p = _point("dp_mu_pot_x1m16_pos.json", 1e-20, 1e-38)
+    """A potential plane at g_D sum|U|^2 = 1e-16 and 1e-12 eV (the scatterings far below the expansion rate): the
+    same flux with the jumps' code as without it."""
+    E, p = _point("dp_mu_pot_x1m16_pos.json", 1e-12, 1e-38)
     F1, _ = _flux(E, p)
     save = dps.SOFT_JUMP_MIN
     try:

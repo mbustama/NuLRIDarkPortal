@@ -101,7 +101,15 @@ def test_potential_dominated_limit_per_model(model):
     E, params = dps.build_solver_params(cfg)
     params["show_progress"] = False
     setup = dps._flux_setup(E, params)
-    F_nu, F_nb = dps._flux_from_setup(E, params, setup, (0.5, 0.5))
+    # without the soft scatterings on the relics (2026-10-22): at g' = 1e-15 and 1e-20 eV they act at about the
+    # expansion rate and equalize the lowest energies, where the potential dominates least -- physics the closed form
+    # leaves out (tests/test_relic_scattering.py has them)
+    save = dps.SOFT_JUMP_MIN
+    try:
+        dps.SOFT_JUMP_MIN = np.inf
+        F_nu, F_nb = dps._flux_from_setup(E, params, setup, (0.5, 0.5))
+    finally:
+        dps.SOFT_JUMP_MIN = save
     S = MD.texture(model)
     for F, anti in ((F_nu, False), (F_nb, True)):
         fr = F / F.sum(axis=1, keepdims=True)

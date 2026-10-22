@@ -343,9 +343,15 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
     # The soft scatterings on the relics (2026-10-22; notes, 'Soft scatterings on the relics'): each step's rate per
     # unit |G|^2, or None where they add up to nothing over the path (_soft_scattering_rates), the run then as before
     jump_unit = None
+    G_jump = None
     if lagrangian and arrival_flavor is None and not si_cosmology:
+        # the part of the coupling that can move a neutrino between states: the Z mixing's kappa I cannot, and its
+        # rounding in W^dag G W (1e-16 kappa) would, times the relic factor it dominates; so the dark portal's
+        # g_D u u^dag alone (a given G_coupling as it is)
+        G_jump = (ab[0].G if G_coupling is not None
+                  else ab[0].G - dp_absorption.kappa_z_mixing(eps_prime) * np.eye(3, dtype=np.complex128))
         jump_unit = _soft_scattering_rates(ab[0], U_pmns, m_Zd, m_nu_bg_arr, T_nu0, eta_mass, z_bins, H0, Omega_m,
-                                           Omega_L)
+                                           Omega_L, G_jump=G_jump)
 
     # Per kind: the vacuum matrix U M U^dag (computed once), the LRI and SM textures with the
     # antineutrino transform (U -> conj U, u -> conj u, V -> -conj V) applied here, centrally,
@@ -388,9 +394,9 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                             F=np.zeros((N_E, 3), dtype=np.float64), P_all=np.zeros((N_E, 3, 3), dtype=np.float64),
                             R=np.zeros(N_E, dtype=np.float64)))
         if jump_unit is not None:
-            ab_s = ab[1] if anti else ab[0]
             J_t, Gd_t, GG_t, lam_t = _build_sigma_jump_table(Q_t, Mp_t, s_t, floor_t, sigma_nodes,
-                                                             np.ascontiguousarray(ab_s.G))
+                                                             np.ascontiguousarray(np.conj(G_jump) if anti
+                                                                                  else G_jump))
             species[-1].update(J_table=J_t, Gd_table=Gd_t, GG_table=GG_t, lam_table=lam_t)
     nu, nb = species
 
@@ -401,6 +407,10 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
     W1, W2, c1, c2, self_cross = cross_kernel_weights(E_bins)
     inj_lo, inj_hi = float(inj_window[0]), float(inj_window[1])
     inj_w = ((E_bins >= inj_lo) & (E_bins < inj_hi)).astype(np.float64)
+    if si_combined:
+        # 'combined': the dark-portal phase gives only the flavor composition, that of the whole spectrum, so that
+        # runs with the sources split in energy add up (the flux itself is dp_si's, windowed)
+        inj_w = np.ones_like(inj_w)
 
     z_steps = range(1, len(z_bins)) if (arrival_flavor is None and not si_cosmology) else range(0)
     iterator = tqdm(z_steps, desc="Cosmo Phase", leave=False) if (dp_core.HAS_TQDM and show_progress) else z_steps
@@ -467,6 +477,8 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
             # relics'): the dark-portal phase's eigenstate populations (the potential, the soft scatterings) rescaled
             # per energy to dp_si's flux (the energy losses, which do not depend on the flavor where the Z mixing's
             # kappa I dominates the hard scatterings). Checked against a transport with both (scratch reference).
+            # Linear in the sources: the composition does not depend on their normalization or energy window, and
+            # it is the same linear combination of the pure-flavor runs' (whose totals the flavor-blind phase shares).
             tot_si = F_mass.sum(axis=1)
             for sp, w_s in zip(species, (w_nu, w_nb)):
                 tot_dp = sp["F"].sum(axis=1)
@@ -591,7 +603,8 @@ SOFT_JUMP_MIN = 1e-4
 
 
 def _soft_scattering_rates(ab0, U_pmns: np.ndarray, m_Zd: float, m_nu: np.ndarray, T_nu0: float,
-                           eta_mass: np.ndarray, z_bins: np.ndarray, H0: float, Omega_m: float, Omega_L: float):
+                           eta_mass: np.ndarray, z_bins: np.ndarray, H0: float, Omega_m: float, Omega_L: float,
+                           G_jump=None):
     """The soft scatterings' rate per unit |<b|G|a>|^2 at each redshift node (eV), or None if negligible.
 
     The vector's t channel (dp_si's profiles 2 and 6, the relic as an antineutrino and as a neutrino) is forward-peaked:
@@ -599,15 +612,17 @@ def _soft_scattering_rates(ab0, U_pmns: np.ndarray, m_Zd: float, m_nu: np.ndarra
     m_D the relics' Debye mass (dp_absorption.debye_mass_sq, Majorana, at T_nu (1+z)); nearly all of it moves the
     neutrino between states at its own energy. Gamma_unit(z) = 2 n_hel (1+z)^3 sum_r eta_r (G'G'^dag)_rr /
     (4 pi M_t^2), G' = U^dag G U (n_hel the relics per helicity and mass state, dp_si.relic_density_per_helicity), so
-    that a -> b goes at Gamma_unit |<b|G|a>|^2 (_soft_jumps). None where sum_k Gamma_unit(z_k) dt_k max|G|^2 over the
-    path is below SOFT_JUMP_MIN (the run is then the same as without them, bit for bit)."""
+    that a -> b goes at Gamma_unit |<b|G_jump|a>|^2 (_soft_jumps; G_jump the part of G that moves neutrinos between
+    states, default G; the relics' factor takes the whole G). None where sum_k Gamma_unit(z_k) dt_k max|G_jump|^2 over
+    the path is below SOFT_JUMP_MIN (the run is then the same as without them, bit for bit)."""
     G = np.asarray(ab0.G, dtype=np.complex128)
+    Gj = G if G_jump is None else np.asarray(G_jump, dtype=np.complex128)
     Gm = U_pmns.conj().T @ G @ U_pmns
     relic = float(np.sum(np.asarray(eta_mass, dtype=np.float64) * np.sum(np.abs(Gm) ** 2, axis=1)))
     if relic <= 0.0:
         return None
     n_hel0 = 3.0 * 1.2020569031595942 * T_nu0 ** 3 / (4.0 * np.pi ** 2)
-    g2max = float(np.max(np.abs(np.linalg.eigvalsh(G))) ** 2)
+    g2max = float(np.max(np.abs(np.linalg.eigvalsh(Gj))) ** 2)
     out = np.empty(len(z_bins), dtype=np.float64)
     for k, z in enumerate(z_bins):
         mD2 = dp_absorption.debye_mass_sq(ab0.G_mass_diag2, m_nu, T_nu0 * (1.0 + z), eta_mass)

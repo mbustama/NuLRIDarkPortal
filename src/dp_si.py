@@ -1393,6 +1393,28 @@ def _thermal_resonance_terms(E, L_lo, L_hi, masses, T_nu0, eta_mass, M, MG, H0, 
 
 
 @njit(cache=True)
+def _bin_matrix(tau, lose, Q, Qn, Mx):
+    """A bin's rate matrix over the step (exact_bin): Mx[c, a] = Q[c, a] tau_a off the diagonal (the events of state a
+    whose secondary lands in the bin as c), and on it minus the sum of its column's other entries minus the bin's net
+    loss to state a's events, lose_a - sum_c Qn[c, a] tau_a (lose: the events whose daughters leave the bin, the
+    non-forward-peaked events, the drift; Qn: the secondaries of the latter landing in the bin), floored at zero.
+    The same matrix as -tau_a delta_ca + Q[c, a] tau_a, but the quasi-elastic conversions within the bin, which at
+    small mu = M^2/s outnumber the losses by ~1/mu (2026-10-22: 1e30 below 1 eV), now cancel exactly in each column
+    instead of leaving their rounding (1e-16 of them) as a spurious growing mode. Leading the first n rows of Mx."""
+    n = tau.shape[0]
+    for a in range(n):
+        Ga = max(tau[a], 0.0)
+        col = 0.0
+        gain = 0.0
+        for c in range(n):
+            if c != a:
+                Mx[c, a] = Q[c, a] * Ga
+                col += Mx[c, a]
+            gain += Qn[c, a] * Ga
+        Mx[a, a] = -col - max(lose[a] - gain, 0.0)
+
+
+@njit(cache=True)
 def _si_sweep(F, E, dE, S0, J, Nq, Lq, Dq, jt, w, qe, Ctau, Creg, tabB, tabO, node, dt, reg, diag, exact_bin):
     """One redshift step of the transport (module notes above). F (N, 3) is updated in place.
     S0 (N, 3): injection rate per unit energy over the step. J, Nq, Lq, Dq: _step_integrals. jt, w, qe,
@@ -1435,9 +1457,12 @@ def _si_sweep(F, E, dE, S0, J, Nq, Lq, Dq, jt, w, qe, Ctau, Creg, tabB, tabO, no
     Am = np.empty((3, 3))
     Bm = np.zeros((7, 7))
     Fnew = np.empty(3)
+    Qn = np.empty((3, 3))
+    lose = np.empty(3)
     for j in range(N - 1, -1, -1):
         for a in range(3):
             t = 0.0
+            tl = 0.0
             for r in range(3):
                 for q in range(P):
                     if w[q] == 0.0:
@@ -1448,10 +1473,13 @@ def _si_sweep(F, E, dE, S0, J, Nq, Lq, Dq, jt, w, qe, Ctau, Creg, tabB, tabO, no
                     if qe[q] != 0:
                         for c in range(3):
                             t += w[q] * Ctau[q, a, r, c] * Jv * (Lq[j, r, q] if c == a else Nq[j, r, q])
+                            tl += w[q] * Ctau[q, a, r, c] * Jv * Lq[j, r, q]
                     else:
                         sc = Ctau[q, a, r, 0] + Ctau[q, a, r, 1] + Ctau[q, a, r, 2]
                         t += w[q] * sc * Jv * Nq[j, r, q]
+                        tl += w[q] * sc * Jv * Nq[j, r, q]
             tau[a] = t
+            lose[a] = tl
         # the drift of the daughters staying in the bin (vector; zero for the scalar)
         drift = False
         for a in range(3):
@@ -1465,6 +1493,7 @@ def _si_sweep(F, E, dE, S0, J, Nq, Lq, Dq, jt, w, qe, Ctau, Creg, tabB, tabO, no
                 if dd > 0.0:
                     drift = True
                     tau[a] += Dm[a, c]
+                    lose[a] += Dm[a, c]
         for r in range(3):
             for q in range(P):
                 Jv = J[j, r, jt[q]]
@@ -1475,6 +1504,7 @@ def _si_sweep(F, E, dE, S0, J, Nq, Lq, Dq, jt, w, qe, Ctau, Creg, tabB, tabO, no
         for c in range(3):
             for a in range(3):
                 Q[c, a] = 0.0
+                Qn[c, a] = 0.0
         for r in range(3):
             o = tabO[r, node[j, r]]
             for q in range(P):
@@ -1484,6 +1514,8 @@ def _si_sweep(F, E, dE, S0, J, Nq, Lq, Dq, jt, w, qe, Ctau, Creg, tabB, tabO, no
                         if qe[q] != 0 and c == a:
                             continue
                         Q[c, a] += Wn[r, q, a, c] * b0
+                        if qe[q] == 0:
+                            Qn[c, a] += Wn[r, q, a, c] * b0
         for a in range(3):
             S[a] = S0[j, a] + reg[j, a]
         if exact_bin:
@@ -1497,10 +1529,8 @@ def _si_sweep(F, E, dE, S0, J, Nq, Lq, Dq, jt, w, qe, Ctau, Creg, tabB, tabO, no
             for c in range(7):
                 for a in range(7):
                     Bm[c, a] = 0.0
+            _bin_matrix(tau, lose, Q, Qn, Bm)
             for c in range(3):
-                for a in range(3):
-                    Ga = max(tau[a], 0.0)
-                    Bm[c, a] = -(Ga if c == a else 0.0) + Q[c, a] * Ga
                 Bm[c, 6] = S[c] * dt / ssc
                 Bm[3 + c, c] = 1.0
             Ex = _expm_small(Bm)
@@ -1656,9 +1686,12 @@ def _si_sweep_cols(F, E, dE, S0, J, Nq, Lq, Dq, jt, w, qe, Ctau, Creg, tabB, tab
     active = np.zeros((nr, P), dtype=np.bool_)
     oo = np.empty(nr, dtype=np.int64)
     dm = np.empty(nr, dtype=np.int64)
+    Qn = np.empty((n, n))
+    lose = np.empty(n)
     for j in range(N - 1, -1, -1):
         for a in range(n):
             t = 0.0
+            tl = 0.0
             for r in range(nr):
                 for q in range(P):
                     if w[q] == 0.0:
@@ -1669,12 +1702,15 @@ def _si_sweep_cols(F, E, dE, S0, J, Nq, Lq, Dq, jt, w, qe, Ctau, Creg, tabB, tab
                     if qe[q] != 0:
                         for c in range(n):
                             t += w[q] * Ctau[q, a, r, c] * Jv * (Lq[j, r, q] if c == a else Nq[j, r, q])
+                            tl += w[q] * Ctau[q, a, r, c] * Jv * Lq[j, r, q]
                     else:
                         sc = Ctau[q, a, r, 0]
                         for c in range(1, n):
                             sc += Ctau[q, a, r, c]
                         t += w[q] * sc * Jv * Nq[j, r, q]
+                        tl += w[q] * sc * Jv * Nq[j, r, q]
             tau[a] = t
+            lose[a] = tl
         drift = False
         for a in range(n):
             for c in range(n):
@@ -1687,6 +1723,7 @@ def _si_sweep_cols(F, E, dE, S0, J, Nq, Lq, Dq, jt, w, qe, Ctau, Creg, tabB, tab
                 if dd > 0.0:
                     drift = True
                     tau[a] += Dm[a, c]
+                    lose[a] += Dm[a, c]
         for r in range(nr):
             for q in range(P):
                 Jv = J[j, r, jt[q]]
@@ -1701,6 +1738,7 @@ def _si_sweep_cols(F, E, dE, S0, J, Nq, Lq, Dq, jt, w, qe, Ctau, Creg, tabB, tab
         for c in range(n):
             for a in range(n):
                 Q[c, a] = 0.0
+                Qn[c, a] = 0.0
         for r in range(nr):
             o = tabO[r, node[j, r]]
             for q in range(P):
@@ -1710,14 +1748,13 @@ def _si_sweep_cols(F, E, dE, S0, J, Nq, Lq, Dq, jt, w, qe, Ctau, Creg, tabB, tab
                         if qe[q] != 0 and c == a:
                             continue
                         Q[c, a] += Wn[r, q, a, c] * b0
+                        if qe[q] == 0:
+                            Qn[c, a] += Wn[r, q, a, c] * b0
         for k in range(C):
             for a in range(n):
                 S[a, k] = S0[j, a, k] + reg[j, a, k]
         if exact_bin:
-            for c in range(n):
-                for a in range(n):
-                    Ga = max(tau[a], 0.0)
-                    Mx[c, a] = -(Ga if c == a else 0.0) + Q[c, a] * Ga
+            _bin_matrix(tau, lose, Q, Qn, Mx)
             Em, P1, P2 = _phi_functions(Mx)
             for k in range(C):
                 for a in range(n):
