@@ -218,8 +218,16 @@ def infer(flags_path, data_root, manifest_out, max_coupling, n_tasks):
                 k = ex._key(r["held"], xn, yn)
                 if r.get("chi2") is not None:
                     col.setdefault(k[0], []).append((k[1], float(r["chi2"]), os.path.basename(f)))
+        refitted = set()                     # the pilot refitted some points above the cut: their own values stand
+        for f in glob.glob(os.path.join(out_dir, "rerun_rs.[0-9]*.jsonl")):
+            for line in open(f):
+                q = json.loads(line)
+                if q.get("chi2") is not None:
+                    refitted.add((q["source"], json.dumps(q["held"], sort_keys=True)))
         out = []
         for r in rows:
+            if (r["source"], json.dumps(r["held"], sort_keys=True)) in refitted:
+                continue
             lm = round(float(np.log10(r["held"][xn])), 6)
             pts = col.get(lm, [])
             cmin = min((c for _, c, _ in pts), default=np.nan)
