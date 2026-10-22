@@ -6,7 +6,9 @@ that tools/refine_grid.py runs (its records merge into the planes' reading: anal
   reading, analysis/exclusion.field); between neighbouring grid masses, NEW masses 1/(NEW+1) decade apart, with
   couplings every STEP decade within +-HALF decade of either neighbour's crossings. Grid points left out.
 Task indices start at OFFSET (record files refine_grid[_between].<task>.jsonl beside the grid extension's 0-199).
-  python tools/plan_pot_refinement.py <manifest.json> --tasks N [--count]
+  python tools/plan_pot_refinement.py <manifest.json> --tasks N [--splits x1m24 x1m16] [--count]
+(--splits: only the planes at those g_D sum|U|^2; 2026-10-22, the 1e-8 planes held until the relic-scattering
+treatment below 1 keV is settled.)
 """
 import argparse
 import glob
@@ -63,9 +65,12 @@ def main(argv=None):
     ap.add_argument("manifest")
     ap.add_argument("--tasks", type=int, required=True)
     ap.add_argument("--count", action="store_true")
+    ap.add_argument("--splits", nargs="+", default=None, help="tags of the planes to take, e.g. x1m24 x1m16")
     a = ap.parse_args(argv)
     items = []
     for c in sorted(glob.glob(os.path.join(REPO, "analysis/configs/campaign_ml/*/dp_*_pot_*.json"))):
+        if a.splits and not any(f"_pot_{t}_" in os.path.basename(c) for t in a.splits):
+            continue
         cfg = from_dict(json.load(open(c)), c)
         out_dir = cfg.output_path("asimov" if asimov_only(cfg) else "data")
         if not glob.glob(os.path.join(out_dir, "plane_*.json")):
