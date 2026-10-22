@@ -121,7 +121,8 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                        earth_band_costh=None, earth_nodes_per_band: int = 2, sun_path_cos=None,
                        arrival_flavor=None, arrival_basis: str = "flavor", matter_charge=None,
                        absorption_model: str = "lagrangian", G_coupling=None, Gamma_vis=None,
-                       si_cosmology: bool = False, si_settings=None, potential_product=None,
+                       si_cosmology: bool = False, si_combined: bool = False, si_settings=None,
+                       potential_product=None,
                        inj_window=(0.0, np.inf), earth_transfer: str = "off"):
     """
     Executes the complete spectrum integration, driving the underlying JIT kernels.
@@ -443,7 +444,7 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         safe_print(f"Cosmological baseline finished at z = {z_bins[-1]:.4f}.")
 
     arrival = "eigen"
-    if si_cosmology and arrival_flavor is None:
+    if (si_cosmology or si_combined) and arrival_flavor is None:
         if not lagrangian:
             raise ValueError("si_cosmology needs absorption_model = 'lagrangian'")
         import dp_si
@@ -461,12 +462,24 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                                     z_substeps=int(st["z_substeps"]), E_extension=float(st["E_extension"]),
                                     Gamma_vis=ab[0].Gamma_vis, inj_window=(inj_lo, inj_hi),
                                     thermal="full" if st.get("thermal_products") else True)
-        # dp_si carries both kinds of each mass state together (exact for their sum, the interaction conserving CP
-        # to O(Gamma/M)); split in the injection's proportions; the arrival's eigenstates are the mass states
-        # (no potential) in ascending order of the vacuum term
-        order = np.argsort(np.real(np.diag(M_sq)))
-        for sp, w_s in zip(species, (w_nu, w_nb)):
-            sp["F"] = np.ascontiguousarray(F_mass[:, order] * (w_s / w_tot if w_tot > 0 else 0.0))
+        if si_combined:
+            # below 1 keV with both a potential and hard scatterings (2026-10-22; notes, 'Soft scatterings on the
+            # relics'): the dark-portal phase's eigenstate populations (the potential, the soft scatterings) rescaled
+            # per energy to dp_si's flux (the energy losses, which do not depend on the flavor where the Z mixing's
+            # kappa I dominates the hard scatterings). Checked against a transport with both (scratch reference).
+            tot_si = F_mass.sum(axis=1)
+            for sp, w_s in zip(species, (w_nu, w_nb)):
+                tot_dp = sp["F"].sum(axis=1)
+                scale = np.divide(tot_si * (w_s / w_tot if w_tot > 0 else 0.0), tot_dp,
+                                  out=np.zeros_like(tot_dp), where=tot_dp > 0.0)
+                sp["F"] = np.ascontiguousarray(sp["F"] * scale[:, None])
+        else:
+            # dp_si carries both kinds of each mass state together (exact for their sum, the interaction conserving CP
+            # to O(Gamma/M)); split in the injection's proportions; the arrival's eigenstates are the mass states
+            # (no potential) in ascending order of the vacuum term
+            order = np.argsort(np.real(np.diag(M_sq)))
+            for sp, w_s in zip(species, (w_nu, w_nb)):
+                sp["F"] = np.ascontiguousarray(F_mass[:, order] * (w_s / w_tot if w_tot > 0 else 0.0))
     if arrival_flavor is not None:
         f_arr = np.asarray(arrival_flavor, dtype=np.float64)
         if f_arr.shape != (3,) or np.any(f_arr < 0.0):
@@ -572,7 +585,9 @@ SI_COSMOLOGY_MIN_M_EV = 1e3
 # t-channel scatterings cost the flux 1.5% at 1e-3 (1-100 eV, 2026-10-22) and scale as G^4, so ~1e-6 here
 SI_HARD_MIN_G = 1e-4
 # the soft scatterings are left out of a run where sum_k Gamma_unit(z_k) dt_k max|G|^2 over the path stays below this
-SOFT_JUMP_MIN = 1e-6
+# (they then move at most that fraction of the flux between states: the potential planes at g_D sum|U|^2 <= 1e-16
+# reach ~5e-6, and stay bit for bit as before)
+SOFT_JUMP_MIN = 1e-4
 
 
 def _soft_scattering_rates(ab0, U_pmns: np.ndarray, m_Zd: float, m_nu: np.ndarray, T_nu0: float,
@@ -603,30 +618,36 @@ def _soft_scattering_rates(ab0, U_pmns: np.ndarray, m_Zd: float, m_nu: np.ndarra
     return out if tot >= SOFT_JUMP_MIN else None
 
 
-def _use_si_cosmology(params: Dict, E_bins: np.ndarray) -> bool:
-    """Whether the cosmological phase goes through dp_si's vector transport (dark_portal.cosmo_transport: 'auto' --
-    when the cosmological potential, and the host galaxy's, stay below 1e-4 of the smallest vacuum splitting at every
-    energy and redshift, i.e. the MeV regime, decided 2026-10-14; 'si' forces it, 'dark_portal' never). The bound
-    used: sigma = 2 E (1+z) V <= 2 E_max (1+z_max)^4 |g_D eps'| K n_max / m^2, n_max the larger of the cosmic charge
-    density at z_max and a host galaxy's local one."""
+def _cosmology_mode(params: Dict, E_bins: np.ndarray) -> str:
+    """How the cosmological phase is computed: 'si' (dp_si's vector transport), 'dark_portal' (the dark-portal phase:
+    adiabatic eigenstates, the resonance, the soft scatterings) or 'combined' (both, _flux_from_setup: the dark-portal
+    phase's flavor composition with dp_si's flux).
+
+    dark_portal.cosmo_transport 'si' forces 'si', 'dark_portal' forces 'dark_portal'; 'auto' (the default):
+      at 1 keV and above, 'si' when the cosmological potential, and the host galaxy's, stay below 1e-4 of the smallest
+        vacuum splitting at every energy and redshift (the MeV regime, decided 2026-10-14), else 'dark_portal'. The
+        bound: sigma = 2 E (1+z) V <= 2 E_max (1+z_max)^4 |g_D eps'| K n_max / m^2, n_max the larger of the cosmic
+        charge density at z_max and a host galaxy's local one;
+      below 1 keV (2026-10-22) the resonance falls below the band, and dp_si is needed only for the hard t-channel
+        scatterings (energy losses, mass-independent there), at couplings above SI_HARD_MIN_G (the largest |eigenvalue|
+        of G): there 'si' where the potential is negligible as above, 'combined' where it is not; below
+        SI_HARD_MIN_G, 'dark_portal'."""
     mode = str(params.get('cosmo_transport', 'auto')).strip().lower()
     if mode not in ('auto', 'si', 'dark_portal'):
         raise ValueError(f"dark_portal.cosmo_transport must be 'auto', 'si' or 'dark_portal', got {mode!r}")
     if mode == 'dark_portal' or params.get('absorption_model', 'lagrangian') != 'lagrangian':
-        return False
+        return 'dark_portal'
     if mode == 'si':
-        return True
+        return 'si'
     m = float(params['m_Zd_eV'])
-    if m < SI_COSMOLOGY_MIN_M_EV:
-        # below 1 keV the resonance falls below the band (2026-10-22): dp_si's transport only where the hard t-channel
-        # scatterings (energy losses, mass-independent there) can matter, couplings above SI_HARD_MIN_G; below that,
-        # the dark-portal phase, with the resonance and the soft scatterings (_soft_jumps), whatever the potential
+    sub_keV = m < SI_COSMOLOGY_MIN_M_EV
+    if sub_keV:
         G_c = params.get('G_coupling', None)
         if G_c is None:
             u = np.array([params['u_e'], params['u_mu'], params['u_tau']], dtype=np.complex128)
             G_c = dp_absorption.dark_portal_coupling(params['g_D'], u, params['epsilon_prime'])
         if float(np.max(np.abs(np.linalg.eigvalsh(np.asarray(G_c, dtype=np.complex128))))) < SI_HARD_MIN_G:
-            return False
+            return 'dark_portal'
     K = (4.0 * 0.88 * (91.18 * GeV) ** 2 / 0.65) * (np.sqrt(2.0) / 2.0 * G_F)
     n_q0 = dp_matter.cosmic_density(params.get('matter_charge', None), params['n_n0_eV3'])
     zp1 = 1.0 + float(params['z_max'])
@@ -638,7 +659,14 @@ def _use_si_cosmology(params: Dict, E_bins: np.ndarray) -> bool:
     pp = params.get('potential_product', None)
     coupling = abs(float(params['g_D']) * float(params['epsilon_prime']) if pp is None else float(pp))
     sigma_max = 2.0 * float(E_bins[-1]) * zp1 * coupling * K * n_max / (m * m)
-    return sigma_max < 1e-4 * float(params['dm21_sq'])
+    if sigma_max < 1e-4 * float(params['dm21_sq']):
+        return 'si'
+    return 'combined' if sub_keV else 'dark_portal'
+
+
+def _use_si_cosmology(params: Dict, E_bins: np.ndarray) -> bool:
+    """Whether the cosmological phase is dp_si's vector transport alone (_cosmology_mode 'si')."""
+    return _cosmology_mode(params, E_bins) == 'si'
 
 
 def _absorption_setup(params: Dict, U_pmns: np.ndarray, u_arr: np.ndarray, anti: bool = False):
@@ -702,7 +730,8 @@ def _flux_setup(E_bins: np.ndarray, params: Dict) -> Dict:
     # interpolate (grid.n_z_thermal; OFF by default -- see its docstring for the measured
     # error budget before enabling).
     sum_G, sum_G_alpha, eta_mass = compute_gamma_grid_inputs(U_pmns_base, u_arr_base, params['g_D'], params['epsilon_prime'], eta_bg)
-    si_cosmo = _use_si_cosmology(params, E_bins)
+    cosmo_mode = _cosmology_mode(params, E_bins)
+    si_cosmo = cosmo_mode == 'si'
     if si_cosmo:
         Gamma_grid_all = np.zeros((len(z_bins), len(E_bins), 3))     # not used: dp_si's transport (MeV regime)
     elif params.get('absorption_model', 'lagrangian') == 'lagrangian':
@@ -716,7 +745,8 @@ def _flux_setup(E_bins: np.ndarray, params: Dict) -> Dict:
                                              thermal_analytic=params.get('thermal_analytic', True))
 
     return dict(z_bins=z_bins, rho_src=rho_src, M_sq=M_sq, u_arr_base=u_arr_base, eta_bg=eta_bg,
-                U_pmns_base=U_pmns_base, Gamma_grid_all=Gamma_grid_all, si_cosmology=si_cosmo)
+                U_pmns_base=U_pmns_base, Gamma_grid_all=Gamma_grid_all, si_cosmology=si_cosmo,
+                si_combined=cosmo_mode == 'combined')
 
 
 def _flux_from_setup(E_bins: np.ndarray, params: Dict, setup: Dict, injection,
@@ -797,7 +827,7 @@ def _flux_from_setup(E_bins: np.ndarray, params: Dict, setup: Dict, injection,
         matter_charge=params.get('matter_charge', None),
         absorption_model=params.get('absorption_model', 'lagrangian'),
         G_coupling=params.get('G_coupling', None), Gamma_vis=params.get('Gamma_vis', None),
-        si_cosmology=setup.get('si_cosmology', False),
+        si_cosmology=setup.get('si_cosmology', False), si_combined=setup.get('si_combined', False),
         si_settings=dict(z_substeps=params.get('si', {}).get('z_substeps', 1),
                          E_extension=params.get('si', {}).get('E_extension', 10.0),
                          thermal_products=params.get('thermal_products', False)),
