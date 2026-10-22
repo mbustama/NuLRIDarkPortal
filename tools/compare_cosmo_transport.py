@@ -5,7 +5,8 @@ the flux at Earth (summed over flavors, over the free-streaming one, and the fla
 treatment forced (dark_portal.cosmo_transport 'dark_portal' or 'si') at the same masses and couplings, to see whether
 the step the joined plane shows at 1 keV (2026-10-22) is physics or the seam between the two. Writes
 output/analysis/cosmo_transport_seam.npz and prints a table.
-  python tools/compare_cosmo_transport.py [--config <dp ul config>] [--workers N]
+  python tools/compare_cosmo_transport.py [--config <dp ul config>] [--workers N] [--masses ...] [--log-g ...]
+      [--modes dark_portal si] [--out <npz>]
 """
 import argparse
 import copy
@@ -52,16 +53,21 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--config", default=os.path.join(REPO, "analysis/configs/campaign_ml/now_ic26/dp_e_ul.json"))
     ap.add_argument("--workers", type=int, default=16)
+    ap.add_argument("--masses", type=float, nargs="+", default=list(MASSES))
+    ap.add_argument("--log-g", type=float, nargs="+", default=[float(np.log10(g)) for g in COUPLINGS])
+    ap.add_argument("--modes", nargs="+", default=list(MODES), choices=MODES)
+    ap.add_argument("--out", default=OUT)
     a = ap.parse_args(argv)
-    tasks = [(a.config, mode, M, g) for mode in MODES for M in MASSES for g in COUPLINGS]
-    tasks += [(a.config, "free", M, 0.0) for M in MASSES]
+    masses, couplings, modes = a.masses, [10.0 ** lg for lg in a.log_g], a.modes
+    tasks = [(a.config, mode, M, g) for mode in modes for M in masses for g in couplings]
+    tasks += [(a.config, "free", M, 0.0) for M in masses]
     with get_context("spawn").Pool(a.workers, maxtasksperchild=1) as pool:
         res = pool.map(flux, tasks, chunksize=1)
     got = {(mode, M, g): (E, F, err) for mode, M, g, E, F, err in res}
-    np.savez(OUT, **{f"{mode}_{M:g}_{g:.4g}": np.array(F) for (mode, M, g), (E, F, err) in got.items() if F},
+    np.savez(a.out, **{f"{mode}_{M:g}_{g:.4g}": np.array(F) for (mode, M, g), (E, F, err) in got.items() if F},
              E=np.array(next(E for E, F, err in got.values() if E)))
-    print(f"{'M (eV)':>8} {'log g':>6} | {'dark_portal: total/free, f_e,f_mu at 100 TeV':>44} | {'si: same':>36}")
-    for M in MASSES:
+    print(f"{'M (eV)':>8} {'log g':>6} | " + " | ".join(f"{m + ': total/free, f_e f_mu at 100 TeV':>44}" for m in modes))
+    for M in masses:
         E, F0, _ = got[("free", M, 0.0)]
         if F0 is None:
             print(f"{M:8g}: free run failed")
@@ -70,9 +76,9 @@ def main(argv=None):
         F0 = np.array(F0)
         k = int(np.argmin(abs(E - 1e14)))
         band = (E > 1e13) & (E < 1e16)
-        for g in COUPLINGS:
+        for g in couplings:
             row = []
-            for mode in MODES:
+            for mode in modes:
                 _, F, err = got[(mode, M, g)]
                 if F is None:
                     row.append(f"FAILED {err[:30]}")
@@ -81,7 +87,7 @@ def main(argv=None):
                 tot = F.sum(axis=1) / F0.sum(axis=1)
                 f = F[k] / F[k].sum() if F.ndim == 2 and F.shape[1] >= 3 else [np.nan] * 3
                 row.append(f"min {tot[band].min():.3f} mean {tot[band].mean():.3f}, f {f[0]:.3f} {f[1]:.3f}")
-            print(f"{M:8g} {np.log10(g):6.2f} | {row[0]:>44} | {row[1]:>36}")
+            print(f"{M:8g} {np.log10(g):6.2f} | " + " | ".join(f"{r:>44}" for r in row))
     return 0
 
 
