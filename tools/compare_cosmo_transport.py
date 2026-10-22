@@ -42,7 +42,7 @@ def flux(args):
     v.update({pl["x"]: M, pl["y"]: 1e-30 if mode == "free" else g})
     try:
         E, params = dps.build_solver_params(m._run_cfg(m._overrides(v)))
-        F = np.asarray(dps.propagate_weighted(E, params))
+        F = np.asarray(dps.propagate_weighted(E, params, sources=[np.array([1.0, 2.0, 0.0]) / 3.0])[0])
         return mode, M, g, np.asarray(E).tolist(), F.reshape(len(E), -1).tolist(), None
     except Exception as e:
         return mode, M, g, None, None, repr(e)[:300]

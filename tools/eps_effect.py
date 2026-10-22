@@ -36,7 +36,9 @@ def flux(args):
     pl = raw["planes"][0]
     v.update({pl["x"]: MASS, pl["y"]: 10.0 ** log_p})
     E, params = dps.build_solver_params(m._run_cfg(m._overrides(v)))
-    return path, log_p, np.asarray(E).tolist(), np.asarray(dps.propagate_weighted(E, params)).tolist()
+    # the analysis' base run injects a pure flavor (its basis fluxes are combined later): pion-decay sources here
+    F = dps.propagate_weighted(E, params, sources=[np.array([1.0, 2.0, 0.0]) / 3.0])[0]
+    return path, log_p, np.asarray(E).tolist(), np.asarray(F).tolist()
 
 
 MASS = 1e-20
