@@ -147,6 +147,10 @@ def _build_default_config() -> Dict:
             # kernels only (dp_si thermal=True); True -- in every collision term: rates, in-bin terms and produced
             # spectra (thermal="full"; docs/SIMPLIFICATIONS_AND_ASSUMPTIONS.md 6a).
             "thermal_products": False,
+            # Scatterings on the relics below 1 keV (2026-10-22; notes, 'Soft scatterings on the relics'): the soft
+            # ones in the dark-portal phase, the hard ones through dp_si. False leaves them out (the code before then):
+            # the analysis generates its Asimov data -- the Standard Model -- that way (analysis/config.objective).
+            "relic_scattering": True,
             "U_LRI_struct": None
         },
         "secret_interactions": {

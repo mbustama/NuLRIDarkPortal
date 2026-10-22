@@ -56,6 +56,12 @@ small, not yet measured), **open** (decided to remove or change, not yet done).
    Effect: the top edge of every potential plane below 1 keV, from eps' ~5e-3 to ~2e-3; the 1e-8 potential planes'
    diagonal edges below ~1e-6 eV; the dark portal's ultralight planes (eps' = 0) below 1 keV; possibly the L_e-L_mu,
    L_e-L_tau ultralight planes near 1 eV-1 keV (to be measured).
+   The projections' Asimov data are the Standard Model's (Mauricio, 2026-10-22, option (a)): generated with the
+   scatterings left out (dark_portal.relic_scattering false; analysis/config.objective), since at a split such as
+   g_D sum|U|^2 = 1e-8 they act even at eps' -> 0 (each mass column is read against its own best fit). The two
+   accuracy fixes of the thermal kernels (8-point angular quadrature far below the resonance, the sigma = m split)
+   stay with Dirac relics only: for Majorana ones they moved the projected MeV planes' chi^2 by ~0.1 (median), within
+   the 2e-4 agreement with the reference either way.
 
 6. **Galactic component propagated adiabatically** from its emission points to the Sun (Landau-Zener parameter
    >= 1.5e5 wherever checked; `tools/galactic_adiabaticity.py`). *Accepted.*

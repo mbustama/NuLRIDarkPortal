@@ -137,3 +137,16 @@ def test_jumps_against_dp_si(log_g):
     _, f_dp = _flux(E, dict(p, cosmo_transport="dark_portal"))
     _, f_si = _flux(E, dict(p, cosmo_transport="si"))
     assert np.max(np.abs(f_dp - f_si)) < 2e-3, (f_dp, f_si)
+
+
+def test_switch_off_and_standard_model_asimov():
+    """dark_portal.relic_scattering false: below 1 keV the dark-portal phase without the scatterings (the code before
+    2026-10-22); the analysis' Asimov data come from a model with it off (the Standard Model at a split such as
+    g_D sum|U|^2 = 1e-8, where they act even at eps' -> 0)."""
+    from analysis.config import load
+    E, p = _point("dp_mu_pot_x1m08_pos.json", 1e-10, 1e-11, relic_scattering=False)
+    assert dps._cosmology_mode(p, E) == "dark_portal"
+    cfg = load(os.path.join(REPO, "analysis", "configs", "campaign_ml", "proj_future", "dp_mu_pot_x1m08_pos.json"))
+    truth = cfg._truth_model()
+    assert truth.base["dark_portal"]["relic_scattering"] is False
+    assert cfg.model().base["dark_portal"].get("relic_scattering", True) is True

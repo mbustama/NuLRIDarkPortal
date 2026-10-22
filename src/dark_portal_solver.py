@@ -122,7 +122,7 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                        arrival_flavor=None, arrival_basis: str = "flavor", matter_charge=None,
                        absorption_model: str = "lagrangian", G_coupling=None, Gamma_vis=None,
                        si_cosmology: bool = False, si_combined: bool = False, si_settings=None,
-                       potential_product=None,
+                       potential_product=None, relic_scattering: bool = True,
                        inj_window=(0.0, np.inf), earth_transfer: str = "off"):
     """
     Executes the complete spectrum integration, driving the underlying JIT kernels.
@@ -344,7 +344,7 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
     # unit |G|^2, or None where they add up to nothing over the path (_soft_scattering_rates), the run then as before
     jump_unit = None
     G_jump = None
-    if lagrangian and arrival_flavor is None and not si_cosmology:
+    if relic_scattering and lagrangian and arrival_flavor is None and not si_cosmology:
         # the part of the coupling that can move a neutrino between states: the Z mixing's kappa I cannot, and its
         # rounding in W^dag G W (1e-16 kappa) would, times the relic factor it dominates; so the dark portal's
         # g_D u u^dag alone (a given G_coupling as it is)
@@ -668,6 +668,8 @@ def _cosmology_mode(params: Dict, E_bins: np.ndarray) -> str:
         return 'si'
     m = float(params['m_Zd_eV'])
     sub_keV = m < SI_COSMOLOGY_MIN_M_EV
+    if sub_keV and not params.get('relic_scattering', True):
+        return 'dark_portal'
     if sub_keV:
         G_c = params.get('G_coupling', None)
         if G_c is None:
@@ -855,6 +857,7 @@ def _flux_from_setup(E_bins: np.ndarray, params: Dict, setup: Dict, injection,
         absorption_model=params.get('absorption_model', 'lagrangian'),
         G_coupling=params.get('G_coupling', None), Gamma_vis=params.get('Gamma_vis', None),
         si_cosmology=setup.get('si_cosmology', False), si_combined=setup.get('si_combined', False),
+        relic_scattering=params.get('relic_scattering', True),
         si_settings=dict(z_substeps=params.get('si', {}).get('z_substeps', 1),
                          E_extension=params.get('si', {}).get('E_extension', 10.0),
                          thermal_products=params.get('thermal_products', False)),
@@ -1429,6 +1432,7 @@ def build_solver_params(config: Dict) -> Tuple[np.ndarray, Dict]:
     # the MeV transport's relics thermal in every collision term (dp_si thermal="full", 2026-10-18), not only in the
     # resonance: off by default
     params['thermal_products'] = bool(config['dark_portal'].get('thermal_products', False))
+    params['relic_scattering'] = bool(config['dark_portal'].get('relic_scattering', True))
     if params['absorption_model'] not in ('lagrangian', 'theory_notes'):
         raise ValueError(f"dark_portal.absorption_model must be 'lagrangian' or 'theory_notes', got "
                          f"{config['dark_portal']['absorption_model']!r}")

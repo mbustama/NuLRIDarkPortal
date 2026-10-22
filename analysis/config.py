@@ -204,9 +204,24 @@ class AnalysisConfig:
                 terms.append(FutureEventLikelihood(model, self.events["future"] or {}))
             events = terms[0] if len(terms) == 1 else _EventTerms(terms)
             if data_centre is not None:
-                events.set_asimov(self.asimov_values())
+                # the Asimov data are the Standard Model's (Mauricio, 2026-10-22): generated with the scatterings on the
+                # relics left out, which at a split such as g_D sum|U|^2 = 1e-8 act even where eps' -> 0
+                truth = self._truth_model()
+                for t in (events.terms if isinstance(events, _EventTerms) else [events]):
+                    own = t.model
+                    t.model = truth
+                    try:
+                        t.set_asimov(self.asimov_values())
+                    finally:
+                        t.model = own
         return Objective(model, self.surface, self.priors, data_centre=data_centre, spectrum=self.spectrum,
                          events=events)
+
+    def _truth_model(self) -> FlavorModel:
+        """The model the Asimov data come from: this one with dark_portal.relic_scattering off."""
+        raw = copy.deepcopy(self.raw)
+        raw.setdefault("solver", {}).setdefault("dark_portal", {})["relic_scattering"] = False
+        return from_dict(raw, self.path).model()
 
     def digest(self) -> str:
         return hashlib.sha256(json.dumps(self.raw, sort_keys=True).encode()).hexdigest()[:16]
