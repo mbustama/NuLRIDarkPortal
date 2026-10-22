@@ -11,7 +11,8 @@ and by how much: step 2 of the campaign's finishing plan, which decides what is 
       scatterings gets the same flux as before, bit for bit, except through dp_si's thermal kernels (the two accuracy
       fixes, ~1e-4).
   sample <flags.jsonl> <manifest.json> --per-plane N --tasks T
-      the chi^2 comparison's points, per plane up to N flagged and N unflagged through dp_si (seeded).
+      the chi^2 comparison's points, per plane up to N of each kind (seeded): the transport changed, the soft
+      scatterings only, and unflagged through dp_si's thermal kernels.
   eval <manifest.json> <task> --data-root R --out <prefix> [--workers N]
       chi^2 at those stored solutions with the code this file runs from (run it from the old code's checkout and
       from the new), each in its own objective with the event nuisances' profile started from the priors' centres
@@ -156,7 +157,10 @@ def sample(flags_path, manifest, per_plane, n_tasks):
         r = json.loads(line)
         if "error" in r or "skip" in r:
             continue
-        key = "flagged" if r["flagged"] else ("thermal_si" if r["thermal_si"] else None)
+        if r["flagged"]:
+            key = "transport" if r["new"] != r["old"] else "jumps"
+        else:
+            key = "thermal_si" if r["thermal_si"] else None
         if key:
             by.setdefault((r["config"], key), []).append(r)
     pts = []
@@ -238,9 +242,17 @@ def report(flags_path, old_prefix, new_prefix):
                     out[(r["config"], r["source"], json.dumps(r["held"], sort_keys=True))] = r["chi2"]
         return out
     old, new = recs(old_prefix), recs(new_prefix)
-    d = {}
+    kind = {}
+    for line in open(flags_path):
+        r = json.loads(line)
+        if "error" in r or "skip" in r:
+            continue
+        kind[(r["config"], r["source"], json.dumps(r["held"], sort_keys=True))] = (
+            ("transport" if r["new"] != r["old"] else "jumps") if r["flagged"] else "unflagged")
+    d, dk = {}, {}
     for k in old.keys() & new.keys():
         d.setdefault(_family(k[0]), []).append(new[k] - old[k])
+        dk.setdefault((_family(k[0]), kind.get(k, "?")), []).append(new[k] - old[k])
     print(f"{'data set':12s} {'family':10s} {'points':>8s} {'flagged':>8s} {'transport':>9s} {'jumps':>7s} | "
           f"{'compared':>8s} {'|d|>0.05':>8s} {'max|d|':>8s}")
     for k in sorted(fam):
@@ -248,6 +260,11 @@ def report(flags_path, old_prefix, new_prefix):
         dd = np.abs(np.array(d.get(k, [])))
         print(f"{k[0]:12s} {k[1]:10s} {f['n']:8d} {f['flagged']:8d} {f['mode']:9d} {f['jumps']:7d} | {len(dd):8d} "
               f"{int((dd > 0.05).sum()) if len(dd) else 0:8d} {dd.max() if len(dd) else 0:8.3f}")
+    print("\nby kind: family, kind, compared, |d| > 0.05, median |d|, max |d|")
+    for k in sorted(dk):
+        dd = np.abs(np.array(dk[k]))
+        print(f"{k[0][0]:12s} {k[0][1]:10s} {k[1]:10s} {len(dd):6d} {int((dd > 0.05).sum()):6d} "
+              f"{np.median(dd):9.2e} {dd.max():9.3f}")
     return 0
 
 
