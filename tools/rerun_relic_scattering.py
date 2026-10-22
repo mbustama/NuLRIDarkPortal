@@ -180,6 +180,71 @@ def run(manifest, task, data_root, workers):
     return 0
 
 
+def infer(flags_path, data_root, manifest_out, max_coupling, n_tasks):
+    """The transport points left out above max_coupling (plan --max-coupling): in each column (a plane's mass), when
+    the refitted point with the largest coupling at or below max_coupling is excluded -- Delta chi^2 >= 3.84 from the
+    column's minimum (every corrected value at that mass, the reruns' included) -- the points above it are marked
+    excluded (rerun_rs.inferred.jsonl, chi^2 = the column's minimum + INFERRED_DCHI2, 'inferred': true): the energy
+    losses only grow with the coupling. Every other left-out point goes into manifest_out, to be refitted."""
+    from analysis import exclusion as ex
+    left = {}
+    for line in open(flags_path):
+        r = json.loads(line)
+        if _skip(r) or r["new"] == r["old"] or _coupling(r["config"], r["held"]) <= max_coupling:
+            continue
+        left.setdefault(r["config"], []).append(r)
+    refit, n_inf = [], 0
+    for cfg, rows in sorted(left.items()):
+        cfgp = os.path.join(REPO, cfg)
+        out_dir, _ = _out_dir(cfgp, data_root)
+        path = glob.glob(os.path.join(out_dir, "plane_*.json"))[0]
+        summ = json.load(open(path))
+        xn, yn = summ["names"]
+        corr = ex.corrected(out_dir, xn, yn)
+        # every value per column (log10 m), the corrections applied: the summary's grid and the refinement records
+        col = {}
+        x, y = np.array(summ["grids"][0]), np.array(summ["grids"][1])
+        for i, m in enumerate(x):
+            for j, g in enumerate(y):
+                c = summ["chi2"][i][j]
+                k = ("grid", (round(float(np.log10(m)), 6), round(float(np.log10(g)), 6)))
+                c = corr.get(k, c)
+                if c is not None:
+                    col.setdefault(k[1][0], []).append((k[1][1], float(c), "grid"))
+        for f in glob.glob(os.path.join(out_dir, "refine_*.jsonl")):
+            if os.path.basename(f).startswith("refine_recheck"):
+                continue
+            for r in ex._records([f], corr, xn, yn):
+                k = ex._key(r["held"], xn, yn)
+                if r.get("chi2") is not None:
+                    col.setdefault(k[0], []).append((k[1], float(r["chi2"]), os.path.basename(f)))
+        out = []
+        for r in rows:
+            lm = round(float(np.log10(r["held"][xn])), 6)
+            pts = col.get(lm, [])
+            cmin = min((c for _, c, _ in pts), default=np.nan)
+            lg_cut = np.log10(max_coupling) + (np.log10(r["held"][yn]) - np.log10(_coupling(cfg, r["held"])))
+            below = [(g, c) for g, c, _ in pts if g <= lg_cut + 1e-9]
+            if below and np.isfinite(cmin) and max(below)[1] - cmin >= ex.THRESHOLD:
+                out.append(dict(source=r["source"], held=r["held"], chi2=cmin + INFERRED_DCHI2, values=None,
+                                inferred=True, error=None))
+            else:
+                refit.append(dict(config=cfg, source=r["source"], held=r["held"], kind="transport",
+                                  seconds=SECONDS[cfg.split("/")[-2]]))
+        if out:
+            with open(os.path.join(out_dir, "rerun_rs.inferred.jsonl"), "w") as fh:
+                for o in out:
+                    fh.write(json.dumps(o) + "\n")
+            n_inf += len(out)
+    tasks = [refit[k::n_tasks] for k in range(n_tasks)] if refit else []
+    json.dump(dict(tasks=tasks, points=len(refit)), open(manifest_out, "w"))
+    print(f"{n_inf} points marked excluded; {len(refit)} to refit -> {manifest_out}")
+    return 0
+
+
+INFERRED_DCHI2 = 1e3
+
+
 def times(data_root, lo=None, hi=None):
     from validate_relic_scattering import _planes
     acc = {}
@@ -220,6 +285,12 @@ def main(argv=None):
     a.add_argument("task", type=int)
     a.add_argument("--data-root", default=REPO)
     a.add_argument("--workers", type=int, default=32)
+    a = sub.add_parser("infer")
+    a.add_argument("flags")
+    a.add_argument("manifest_out")
+    a.add_argument("--data-root", default=REPO)
+    a.add_argument("--max-coupling", type=float, default=1e-2)
+    a.add_argument("--tasks", type=int, default=10)
     a = sub.add_parser("times")
     a.add_argument("data_root")
     a.add_argument("--tasks", default=None)
@@ -229,6 +300,8 @@ def main(argv=None):
                     a.max_coupling)
     if a.cmd == "run":
         return run(a.manifest, a.task, a.data_root, a.workers)
+    if a.cmd == "infer":
+        return infer(a.flags, a.data_root, a.manifest_out, a.max_coupling, a.tasks)
     lo = hi = None
     if a.tasks:
         lo, hi = (int(v) for v in a.tasks.split("-"))
