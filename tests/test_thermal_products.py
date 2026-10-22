@@ -27,8 +27,8 @@ DELTA = 0.0228
 def test_weights_carry_rho_moments(m, T, pol):
     """pol +-1: a Dirac relic's chiral shares, against the reference's rho (1 +- pi)/2 written out directly, to 1e-7
     of rho's own moments (the right-chiral share of a relativistic relic, ~m^2/p^2 of rho, lies partly below rho's
-    support, at 6e-11 of rho for m = 1e-6); the shares' weights add up to rho's (to 1e-6: the shares' quadrature is
-    split at sigma = m, rho's not, for now)."""
+    support, at 6e-11 of rho for m = 1e-6); the shares' weights add up to rho's (every quadrature split at sigma = m
+    since 2026-10-22, so to rounding)."""
     W = np.zeros(512)
     i0, s, nw = dp_si._thermal_weights(m, T, 0.37, DELTA, 8, 16.0, 1e-9, W, pol)
     assert nw > 0
@@ -48,7 +48,7 @@ def test_weights_carry_rho_moments(m, T, pol):
         W0, WR = np.zeros(512), np.zeros(512)
         assert dp_si._thermal_weights(m, T, 0.37, DELTA, 8, 16.0, 1e-9, W0, 0) == (i0, s, nw)
         dp_si._thermal_weights(m, T, 0.37, DELTA, 8, 16.0, 1e-9, WR, -1)
-        assert np.max(np.abs(W + WR - W0)) <= 1e-6 * np.max(np.abs(W0))
+        assert np.max(np.abs(W + WR - W0)) <= 1e-12 * np.max(np.abs(W0))
 
 
 _TRANSPORT_CASES = [("vector", 3e6, 3e-2, True), ("vector", 3e5, 1e-2, True), ("scalar", 3e6, 3e-2, True),

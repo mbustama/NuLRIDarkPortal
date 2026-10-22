@@ -30,8 +30,32 @@ small, not yet measured), **open** (decided to remove or change, not yet done).
    The atmospheric neutrinos crossing the Earth would also feel the new potential; leaving that out can only weaken
    the bounds.
 
-5. **No t-channel scattering on the relic neutrinos.** *Accepted, with a range restriction.*
-   Not modeled; above couplings of ~1e-7 it matters, so the coupling-split variants stop at x = 1e-8.
+5. **No t-channel scattering on the relic neutrinos below 1 keV.** *Fixed in code (branch relic-scattering,
+   2026-10-22); the affected planes to rerun.* Until then the dark-portal phase (below 1 keV) had the resonance only,
+   and the split variants stopped at g_D sum|U|^2 = 1e-8 on the grounds that the t channel matters above ~1e-7; that
+   reckoning left out the Z mixing's coupling to every neutrino, kappa = eps' g / c_W = 0.74 eps', which in the
+   potential planes reaches 0.74. Now (notes, 'Soft scatterings on the relics'):
+   - the soft scatterings (the t channel's forward peak, sigma ~ |G|^4 / 4 pi M_t^2) move neutrinos between
+     eigenstates at their own energy: jumps in the dark-portal phase (dp_cosmo._soft_jumps), Zeno-suppressed where
+     the coherences are damped faster than they turn. Fast, they equalize the flavors (1/3 each); in the 1e-8
+     potential planes below ~1e-6 eV they erase the cosmological potential's effect (toy and solver).
+   - M_t^2 = M^2 + m_D^2, m_D the relics' Debye mass (Majorana: their charge is v-suppressed). The spin (magnetic)
+     part of the exchange is not statically screened; its cutoff is dynamical, at a comparable or smaller scale. The
+     results do not depend on it where it matters: there the rates exceed the expansion rate by ~1e10.
+   - the hard scatterings (energy losses, mass-independent below 1 keV, 1.5% of the flux at couplings 1e-3, 40% at
+     3e-3) go through dp_si's transport, below 1 keV only for couplings above SI_HARD_MIN_G = 1e-4 (~1e-6 losses
+     there); with a potential too ('combined'), the dark-portal phase's composition times dp_si's flux per energy.
+     Exact when the hard scatterings do not depend on the flavor (kappa I, which dominates them in the potential
+     planes); against a reference transport with every scattered neutrino projected exactly on the new eigenbasis
+     (scratch ref_combined.py): totals to 3 digits, flavors to 1e-3 near the edges (6e-3 where 2% of the flux
+     survives).
+   - left out: the scatterings during the crossing of the Galaxy (where they could act, M_t < ~3e-11 eV, the
+     cosmological phase has already equalized, or the potential suppresses them); the u-channel interference
+     (~ln(1/mu) against 1/mu); the hard scatterings of a non-universal coupling where the potential matters (only
+     where the potential alone already excludes).
+   Effect: the top edge of every potential plane below 1 keV, from eps' ~5e-3 to ~2e-3; the 1e-8 potential planes'
+   diagonal edges below ~1e-6 eV; the dark portal's ultralight planes (eps' = 0) below 1 keV; possibly the L_e-L_mu,
+   L_e-L_tau ultralight planes near 1 eV-1 keV (to be measured).
 
 6. **Galactic component propagated adiabatically** from its emission points to the Sun (Landau-Zener parameter
    >= 1.5e5 wherever checked; `tools/galactic_adiabaticity.py`). *Accepted.*
@@ -201,7 +225,10 @@ small, not yet measured), **open** (decided to remove or change, not yet done).
 ## Numerics
 
 17. **The solver's redshift grid** (200 steps in the campaign): the flux normalization is accurate to a few 1e-3
-    (first-order error). *Accepted.*
+    (first-order error). *Accepted.* Measured 2026-10-22: 200 steps put 0.5% more flux than 800 at every energy
+    alike, and dp_si's transport (steps uniform in ln(1+z)) 0.17% less than 800 -- the "0.7%" between the two
+    transports. The flux normalization floats in every fit, so no chi^2 moves; where a plane switches transport
+    (below 1 keV, at SI_HARD_MIN_G) the step is absorbed the same way.
 
 18. **Interpolation in the spectral indices** between solver runs at 3 nodes (7 for the MeV planes' upper index):
     at worst 0.35% in flux and 9e-4 in flavor fractions for the lower index (strong MeV absorption); ~1e-5 for the
@@ -227,4 +254,15 @@ small, not yet measured), **open** (decided to remove or change, not yet done).
     MESE L_e-L_tau planes, from one point the bug had pulled below 3.84); edges moved in a few columns where Delta
     chi^2 hovers within ~0.07 of 3.84 over a wide range (HESE+DR2, dark portal tau and e near 3-5 MeV); the
     potential planes gained their 1-10 keV columns. HESE+DR2's chi^2 itself is not exactly reproducible on
-    re-evaluation at 0.6% of points (up to ~1.5, its inner nuisance fit): *to look at*.
+    re-evaluation at 0.6% of points (up to ~1.5, its inner nuisance fit): see 21.
+
+21. **HESE+DR2's nuisance profile starts from the previous evaluation's nuisances** (events.EventLikelihood.profile,
+    warm start), and where the profile has more than one minimum -- the HESE detector systematics' interpolation has
+    kinks at its nodes -- the chi^2 depends on what the process evaluated before. Measured 2026-10-22
+    (tools/events_profile_check.py, 240 points): restarted from 17 starting points, chi^2 moves at 85% of the
+    mismatched points (by up to 1.48) and at none of the matched ones; the lowest start is never more than 0.01 below
+    the lower of the stored and the re-evaluated values, so the lower one is right and the other a fit stopped early
+    (L-BFGS-B fallbacks at 73% of the mismatched points' profiles, 30% of the matched). No 95% call among the
+    mismatched controls flips. *Open, planned:* one re-evaluation pass at the end of the campaign, from fixed starts,
+    keeping the lowest chi^2, at the planes' reference points and within ~2 of the threshold; the fitting code is
+    left as it is (changing it would slow every HESE+DR2 fit).

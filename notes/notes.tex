@@ -2055,6 +2055,64 @@ shares the angular integral is taken by 8-point quadrature there (exact to round
 planes stay reproducible; its effect on the fluxes is within the $2\times10^{-4}$ agreement with the
 reference.
 
+\subsection{Soft scatterings on the relics (2026-10-22)}
+\label{sec:soft-scatterings}
+
+Below $\mzd = 1$~keV the cosmological phase used to carry the resonance only: the resonance energy
+$\mzd^2/2m_\nu$ falls far below the band there, and the $t$ channel was left out on the grounds that it
+matters only for $\gd\sum|U|^2 \gtrsim 10^{-7}$ (so the split variants stopped at $10^{-8}$). That
+reckoning left out the coupling the $Z$ mixing gives every neutrino, $\kappa = \epsp g/c_W = 0.74\,\epsp$,
+which in the potential planes reaches $0.74$. The vector's $t$ channel is forward-peaked: on a relic of
+mass state $r$ at rest, $\sigma \simeq \sum_c |G_{ca}|^2 (G'G'^\dagger)_{rr}/(4\pi M_t^2)$ for each of the
+relic's two roles (profiles 2 and 6 of dp\_si), with $M_t^2 = \mzd^2 + m_D^2$, $m_D$ the relics' Debye mass
+(\file{dp\_absorption.debye\_mass\_sq}; Majorana, whose charge is $v$-suppressed). Nearly all of it moves
+the neutrino at its own energy; the rest (the logarithmic tail) costs it energy, at a rate that no longer
+depends on $\mzd$ once $\mzd^2 \ll 2m_\nu E$.
+
+\textit{The soft part: jumps between eigenstates.}---Each scattering acts on the neutrino's flavor state
+as $G$ (the scattered amplitude is $G|\psi\rangle$): the Lindblad equation
+$\dot\rho = -i[H,\rho] + \Gamma_{\rm u}(G\rho G - \{G^2,\rho\}/2)$, $\Gamma_{\rm u} = 2n_{\rm hel}(1+z)^3
+\sum_r \eta_r (G'G'^\dagger)_{rr}/(4\pi M_t^2)$. Eliminating the coherences between the eigenstates $a,b$
+of $H$ (Hubble-slow; they turn at $\omega_{ab}$ and are damped at $D_{ab} = \Gamma_{\rm u}[(G^2_{aa} +
+G^2_{bb})/2 - G_{aa}G_{bb}]$) leaves rates between populations $R_{ba} = \Gamma_{\rm u}|G_{ba}|^2\,
+\omega_{ab}^2/(\omega_{ab}^2 + D_{ab}^2)$: the secular rates where $D \ll \omega$, the Zeno-suppressed
+$\omega^2/D$ where not (Stodolsky's damping). They are applied per redshift step in the dark-portal phase
+(\file{dp\_cosmo.\_soft\_jumps}, exactly through the symmetric rate matrix's eigenbasis) wherever they add up
+to $10^{-4}$ over the path. Fast, they equalize the flavors (the states they connect end with equal shares):
+the flavor fractions go to $1/3$ each, a shift of only $\sim0.01$ from the standard ones for pion sources
+($|\Delta\chi^2| < 1$ alone, fitted: $\le0.1$ MESE, $\le0.75$ HESE+DR2, $-0.47$ the projection, at 100~eV).
+But at $\gd\sum|U|^2 = 10^{-8}$, where the relics screen the local potentials and only the cosmological one
+is left, they erase its effect below $\mzd\sim10^{-6}$~eV: a toy with both (one energy, adiabatic
+eigenstates, these rates) moves the rise of $f_\mu$ from $P/\mzd^2 \simeq 10^5$ to $10^{6.5}$~eV$^{-2}$ at
+$10^{-8}$~eV and removes it at $10^{-20}$~eV; the solver, with the $Z$ mixing's $\kappa$ in the relics'
+factor, equalizes further still. The spin (magnetic) part of the exchange is not statically screened; its
+cutoff is dynamical, at a comparable or smaller scale, and where it matters the rates exceed the expansion
+rate by $\sim10^{10}$, so nothing depends on it.
+
+\textit{The hard part.}---Below 1~keV, dp\_si's transport (now with $M_t$) carries the cosmological phase
+wherever the couplings exceed $10^{-4}$ (the largest $|$eigenvalue$|$ of $G$; the energy losses are
+$\sim10^{-6}$ there, 1.5\% of the flux at $10^{-3}$, 40\% at $3\times10^{-3}$) and the potential is
+negligible. Where it is not (\texttt{'combined'}), the dark-portal phase's eigenstate populations are rescaled
+per energy to dp\_si's flux: exact when the hard scatterings do not depend on the flavor, as for $\kappa I$,
+which dominates them in the potential planes. Checked against a coarse transport with all three (the potential,
+the jumps, the energy losses with every scattered neutrino projected on the eigenbasis at its new energy;
+textures $e$, $\mu$, $10^{-10}$--$10^{-6}$~eV, $\epsp = 10^{-3}$--$10^{-2}$): the total to three digits, the
+flavor fractions to $10^{-3}$ near the edges ($6\times10^{-3}$ where 2\% of the flux survives).
+
+\textit{What it changes.}---The top edge of every potential plane below 1~keV, from $\epsp\sim5\times10^{-3}$ to
+$\sim2\times10^{-3}$ (at $\epsp = 3\times10^{-3}$ the flux between 10~TeV and 3~PeV falls to 0.77); the
+$10^{-8}$ potential planes' diagonal edges below $\sim10^{-6}$~eV; the dark portal's ultralight planes
+($\epsp = 0$) below 1~keV; possibly the $L_e-L_\mu$, $L_e-L_\tau$ ultralight planes near 1~eV--1~keV. Left out:
+the scatterings while crossing the Galaxy (where they could act the cosmological phase has already equalized, or
+the potential suppresses them), the $u$-channel interference ($\sim\ln(1/\mu)$ against $1/\mu$), and the hard
+scatterings of a non-universal coupling where a potential matters too (only where the potential alone already
+excludes).
+
+\textit{The two transports' normalizations.}---With no scattering they differ by 0.7\% at every energy: the
+dark-portal phase's 200 linear redshift steps overcount the sources by 0.5\% (against 800), dp\_si's steps,
+uniform in $\ln(1+z)$, undercount by 0.17\%. The flux normalization floats in every fit, so no $\chi^2$ moves,
+also where a plane switches transport.
+
 %==============================================================================
 \section{Open items}
 \label{sec:open}

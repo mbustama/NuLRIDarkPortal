@@ -2127,9 +2127,9 @@ def _thermal_weights(m, T, c0, Delta, smax, sdiv, thr, W, pol=0):
         for u in range(nsub):
             ua = x0 + h * u
             ub = x0 + h * (u + 1)
-            if pol != 0 and ua < lm < ub:
-                # split at sigma = m (2026-10-21): the chiral shares' densities have a kink there (rho a weaker one;
-                # pol 0 unsplit, its arithmetic unchanged, while the dark-portal campaign that uses it runs)
+            if ua < lm < ub:
+                # split at sigma = m: the chiral shares' densities have a kink there (2026-10-21), rho a weaker one
+                # (split too since 2026-10-22, after the dark-portal campaign)
                 for sgm in range(2):
                     pa = ua if sgm == 0 else lm
                     hh = (lm - ua) if sgm == 0 else (ub - lm)
