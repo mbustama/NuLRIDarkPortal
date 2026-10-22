@@ -94,27 +94,31 @@ def plan(flags_path, manifest, n_tasks, seconds_json=None, only=None, per_plane=
 _W = {}
 
 
-def _init(raw, cfgp, dc):
-    from analysis import scans
-    scans._init_worker(raw, cfgp, dc)
-
-
 def _fit(task):
+    """One refit, in a worker that keeps one plane's objective at a time (the tasks come grouped by plane)."""
     from analysis import scans
-    held, start, settings, src = task
+    cfgp, raw, dc, held, start, settings, src = task
     t0 = time.time()
     try:
+        if _W.get("cfgp") != cfgp:
+            scans._init_worker(raw, cfgp, dc)
+            _W["cfgp"] = cfgp
         r = scans._fit_held(held, [start], settings)
-        return dict(source=src, held=held, chi2=float(r.chi2), values=r.values, seconds=time.time() - t0, error=None)
+        return cfgp, dict(source=src, held=held, chi2=float(r.chi2), values=r.values, seconds=time.time() - t0,
+                          error=None)
     except Exception as e:
-        return dict(source=src, held=held, chi2=None, values=None, seconds=time.time() - t0, error=repr(e)[:300])
+        return cfgp, dict(source=src, held=held, chi2=None, values=None, seconds=time.time() - t0,
+                          error=repr(e)[:300])
 
 
 def run(manifest, task, data_root, workers):
+    """A task's points, every plane's in one pool (2026-10-22: a pool per plane left most workers idle where a plane
+    had few points)."""
     from analysis.run import asimov_only
     from refine_grid import Progress
     share = json.load(open(manifest))["tasks"][task]
-    for cfg in sorted({p["config"] for p in share}, key=lambda c: [p["config"] for p in share].index(c)):
+    jobs, outs = [], {}
+    for cfg in sorted({p["config"] for p in share}):
         cfgp = os.path.join(REPO, cfg)
         raw = json.load(open(cfgp))
         out_dir, c = _out_dir(cfgp, data_root)
@@ -131,9 +135,9 @@ def run(manifest, task, data_root, workers):
                     continue
                 if r.get("chi2") is not None:
                     done.add((r["source"], json.dumps(r["held"], sort_keys=True)))
-        sols = {(s, json.dumps(h, sort_keys=True)): v for s, h, v in solutions(cfgp, data_root)}
+        sols = {(s_, json.dumps(h, sort_keys=True)): v for s_, h, v in solutions(cfgp, data_root)}
         settings = {**asdict(c.fit), "n_random": 0}
-        jobs = []
+        n0 = len(jobs)
         for p in share:
             if p["config"] != cfg:
                 continue
@@ -141,17 +145,25 @@ def run(manifest, task, data_root, workers):
             if key in done or key not in sols:
                 continue
             start = {k: v for k, v in sols[key].items() if k not in p["held"]}
-            jobs.append((p["held"], start, settings, p["source"]))
-        print(f"{cfg}: {len(jobs)} fits", flush=True)
-        if not jobs:
-            continue
-        progress = Progress(len(jobs), "fits")
-        with get_context("spawn").Pool(min(workers, len(jobs)), initializer=_init, initargs=(raw, cfgp, dc)) as pool, \
-                open(os.path.join(out_dir, f"rerun_rs.{task}.jsonl"), "a") as fh:
-            for k, r in enumerate(pool.imap_unordered(_fit, jobs, chunksize=1)):
-                fh.write(json.dumps(r) + "\n")
-                fh.flush()
+            jobs.append((cfgp, raw, dc, p["held"], start, settings, p["source"]))
+        outs[cfgp] = out_dir
+        print(f"{cfg}: {len(jobs) - n0} fits", flush=True)
+    print(f"{len(jobs)} fits in all", flush=True)
+    if not jobs:
+        return 0
+    progress = Progress(len(jobs), "fits")
+    files = {}
+    try:
+        with get_context("spawn").Pool(min(workers, len(jobs))) as pool:
+            for k, (cfgp, r) in enumerate(pool.imap_unordered(_fit, jobs, chunksize=1)):
+                if cfgp not in files:
+                    files[cfgp] = open(os.path.join(outs[cfgp], f"rerun_rs.{task}.jsonl"), "a")
+                files[cfgp].write(json.dumps(r) + "\n")
+                files[cfgp].flush()
                 progress(k + 1)
+    finally:
+        for fh in files.values():
+            fh.close()
     print("done", flush=True)
     return 0
 
