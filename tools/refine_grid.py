@@ -40,6 +40,31 @@ SECONDS = {("now_ic26", "mev"): 400, ("now_events", "mev"): 1550, ("proj_future"
            ("now_ic26", "dpul"): 88, ("now_events", "dpul"): 543, ("proj_future", "dpul"): 143}
 
 
+PROGRESS_EVERY = 120.0                 # seconds: a PROGRESS line at least this often (the Tycho monitor flags older ones)
+
+
+class Progress:
+    """PROGRESS <p>% | <done> of <total> <what> | <rate> | ETA <HH:MM>, at every `every`-th item and at least every
+    PROGRESS_EVERY seconds (2026-10-22: slow fits printed every 50 only, ~15 min apart, and read as stale)."""
+
+    def __init__(self, total, what="fits", every=50):
+        import time
+        self.total, self.what, self.every = total, what, every
+        self.t0 = self.last = time.time()
+        print(f"PROGRESS 0% | 0 of {total} {what} | starting", flush=True)
+
+    def __call__(self, done):
+        import time
+        now = time.time()
+        if done % self.every and done != self.total and now - self.last < PROGRESS_EVERY:
+            return
+        self.last = now
+        rate = done / max(now - self.t0, 1e-9) * 60.0
+        eta = time.strftime("%H:%M", time.localtime(now + (self.total - done) / max(rate, 1e-9) * 60.0))
+        print(f"PROGRESS {100 * done / self.total:.0f}% | {done} of {self.total} {self.what} | {rate:.1f}/min | "
+              f"ETA {eta}", flush=True)
+
+
 def points(cfgp):
     """[(log10 m, log10 g, between)] for the plane of configuration cfgp: at every mass in MASS_RANGE (the grid's and
     the new ones, 1/32 decade apart) couplings every 0.1 decade over FINE and every 0.2 decade over COARSE; at the
@@ -145,13 +170,13 @@ def run(manifest, task, workers):
             continue
         files = {b: open(os.path.join(out_dir, f"refine_grid{'_between' if b else ''}.{task}.jsonl"), "a")
                  for b in (False, True)}
+        progress = Progress(len(tasks))
         with get_context("spawn").Pool(min(workers, len(tasks)), initializer=scans._init_worker,
                                        initargs=(raw, cfgp, dc)) as pool:
             for k, (held, chi2, values, b) in enumerate(pool.imap_unordered(run_one, tasks)):
                 files[b].write(json.dumps(dict(held=held, chi2=chi2, values=values)) + "\n")
                 files[b].flush()
-                if (k + 1) % 50 == 0:
-                    print(f"PROGRESS {100 * (k + 1) / len(tasks):.0f}% | {k + 1} of {len(tasks)} fits", flush=True)
+                progress(k + 1)
         for f in files.values():
             f.close()
     print("done", flush=True)

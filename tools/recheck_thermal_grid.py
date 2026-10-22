@@ -39,6 +39,7 @@ MOVED = 0.05                                  # chi^2: a solution that moved mor
 FIT_SECONDS = {("now_ic26", "mev"): 400, ("now_events", "mev"): 1550, ("proj_future", "mev"): 1150,
                ("now_ic26", "ul"): 100, ("now_events", "ul"): 550, ("proj_future", "ul"): 150}
 _W = {}
+from refine_grid import Progress  # noqa: E402  (tools/ is on the path)
 
 
 def solutions(cfgp):
@@ -165,14 +166,14 @@ def run(manifest, task, workers):
                 print(f"{item['config']} gap {gap}: {len(todo)} points ({len(pts) - len(todo)} done)", flush=True)
                 if not todo:
                     continue
+                progress = Progress(len(todo), "points")
                 with get_context("spawn").Pool(min(workers, len(todo)), initializer=_init,
                                                initargs=(raw, cfgp, dc, gap)) as pool:
                     for k, (s, h, chi2, err) in enumerate(pool.imap_unordered(_one, todo, chunksize=1)):
                         fh.write(json.dumps(dict(source=s, held=h, gap=gap, chi2=chi2, error=err,
                                                  stored=stored[(s, json.dumps(h, sort_keys=True))])) + "\n")
                         fh.flush()
-                        if (k + 1) % 50 == 0:
-                            print(f"PROGRESS {100 * (k + 1) / len(todo):.0f}% | {k + 1} of {len(todo)}", flush=True)
+                        progress(k + 1)
     print("done", flush=True)
 
 
@@ -372,11 +373,11 @@ def refit(manifest, task, workers):
             continue
         with open(path, "a") as fh, get_context("spawn").Pool(min(workers, len(todo)), initializer=scans._init_worker,
                                                               initargs=(raw, cfgp, dc)) as pool:
+            progress = Progress(len(todo), "refits", every=20)
             for k, (s, h, chi2, values, err) in enumerate(pool.imap_unordered(_refit_one, todo, chunksize=1)):
                 fh.write(json.dumps(dict(source=s, held=h, chi2=chi2, values=values, error=err)) + "\n")
                 fh.flush()
-                if (k + 1) % 20 == 0:
-                    print(f"PROGRESS {100 * (k + 1) / len(todo):.0f}% | {k + 1} of {len(todo)}", flush=True)
+                progress(k + 1)
     print("done", flush=True)
 
 
