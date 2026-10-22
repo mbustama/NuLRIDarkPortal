@@ -54,6 +54,7 @@ from dp_cosmo import (  # noqa: F401
     calc_H_Hubble, calc_R_source, calc_V_LRI_cosmo, get_adiabatic_mixing_cosmo, yukawa_horizon_inv_m2,
     _build_sigma_projection_table, step_cosmological_pair, cascade_kernel_weights, cross_kernel_weights,
     _build_sigma_coupling_tables, _cosmo_coherent_rates, _cosmo_projections, step_cosmological_rates,
+    _build_sigma_jump_table, _soft_jumps,
 )
 from dp_spatial import (  # noqa: F401
     calc_MW_neutron_density, calc_earth_density, get_baseline_earth,
@@ -338,6 +339,13 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
     elif host_galaxy_scale < 0.0:
         raise ValueError(f"source.host_galaxy_scale must be >= 0, got {host_galaxy_scale}")
 
+    # The soft scatterings on the relics (2026-10-22; notes, 'Soft scatterings on the relics'): each step's rate per
+    # unit |G|^2, or None where they add up to nothing over the path (_soft_scattering_rates), the run then as before
+    jump_unit = None
+    if lagrangian and arrival_flavor is None and not si_cosmology:
+        jump_unit = _soft_scattering_rates(ab[0], U_pmns, m_Zd, m_nu_bg_arr, T_nu0, eta_mass, z_bins, H0, Omega_m,
+                                           Omega_L)
+
     # Per kind: the vacuum matrix U M U^dag (computed once), the LRI and SM textures with the
     # antineutrino transform (U -> conj U, u -> conj u, V -> -conj V) applied here, centrally,
     # and the sigma-table of the cosmological mixing.
@@ -378,6 +386,11 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                             inv_dlogs=(N_sigma - 1) / np.log(sig_max / sig_min),
                             F=np.zeros((N_E, 3), dtype=np.float64), P_all=np.zeros((N_E, 3, 3), dtype=np.float64),
                             R=np.zeros(N_E, dtype=np.float64)))
+        if jump_unit is not None:
+            ab_s = ab[1] if anti else ab[0]
+            J_t, Gd_t, GG_t, lam_t = _build_sigma_jump_table(Q_t, Mp_t, s_t, floor_t, sigma_nodes,
+                                                             np.ascontiguousarray(ab_s.G))
+            species[-1].update(J_table=J_t, Gd_table=Gd_t, GG_table=GG_t, lam_table=lam_t)
     nu, nb = species
 
     inv_sum_G = 1.0 / sum_G if sum_G > 0.0 else 0.0
@@ -422,6 +435,10 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         step_cosmological_rates(z, dt, R_z, E_bins, nu["F"], nb["F"], w_nu, w_nb, rho_src, Pis[0], Pis[1],
                                 nu["G_step"], nb["G_step"], nu["brp_step"], nb["brp_step"], p_index, Phi_0,
                                 W3, pref3, self_same, W1, W2, c1, c2, self_cross, nu["R"], nb["R"], inj_w)
+        if jump_unit is not None:
+            for sp in species:
+                _soft_jumps(E_bins, 1.0 + z, sp["J_table"], sp["Gd_table"], sp["GG_table"], sp["lam_table"],
+                            sp["log_s0"], sp["inv_dlogs"], sp["c_z"][k], float(jump_unit[k]), dt, sp["F"])
     if verbose == 2:
         safe_print(f"Cosmological baseline finished at z = {z_bins[-1]:.4f}.")
 
@@ -434,8 +451,12 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         st.update(si_settings or {})
         g_mass = dp_si.mass_basis_couplings_model(ab[0].G, U_pmns, "vector", True)
         w_tot = w_nu + w_nb
+        # the relics' Debye mass cuts the t channel's forward peak off below the mediator mass (2026-10-22; today's,
+        # notes 'Soft scatterings on the relics'); where it is below 1e-5 of the mediator mass, the bare mass
+        m_D0_sq = dp_absorption.debye_mass_sq(ab[0].G_mass_diag2, m_nu_bg_arr, T_nu0, eta_mass)
+        M_t = float(np.sqrt(m_Zd * m_Zd + m_D0_sq)) if m_D0_sq > 1e-10 * m_Zd * m_Zd else m_Zd
         F_mass = dp_si.propagate_si(E_bins, float(z_bins[0]), H0, Omega_m, Omega_L, U_pmns, m_nu_bg_arr, T_nu0,
-                                    eta_mass, rho_src, p_index, rho_evol, Phi_0 * w_tot, m_Zd, g_mass,
+                                    eta_mass, rho_src, p_index, rho_evol, Phi_0 * w_tot, M_t, g_mass,
                                     majorana=True, channels="full", mediator="vector",
                                     z_substeps=int(st["z_substeps"]), E_extension=float(st["E_extension"]),
                                     Gamma_vis=ab[0].Gamma_vis, inj_window=(inj_lo, inj_hi),
@@ -547,6 +568,39 @@ def save_flux_to_file(E_array: np.ndarray, Flux_array: np.ndarray, filename: str
 
 
 SI_COSMOLOGY_MIN_M_EV = 1e3
+# below SI_COSMOLOGY_MIN_M_EV, dp_si's transport needs couplings this large (the largest |eigenvalue| of G): its hard
+# t-channel scatterings cost the flux 1.5% at 1e-3 (1-100 eV, 2026-10-22) and scale as G^4, so ~1e-6 here
+SI_HARD_MIN_G = 1e-4
+# the soft scatterings are left out of a run where sum_k Gamma_unit(z_k) dt_k max|G|^2 over the path stays below this
+SOFT_JUMP_MIN = 1e-6
+
+
+def _soft_scattering_rates(ab0, U_pmns: np.ndarray, m_Zd: float, m_nu: np.ndarray, T_nu0: float,
+                           eta_mass: np.ndarray, z_bins: np.ndarray, H0: float, Omega_m: float, Omega_L: float):
+    """The soft scatterings' rate per unit |<b|G|a>|^2 at each redshift node (eV), or None if negligible.
+
+    The vector's t channel (dp_si's profiles 2 and 6, the relic as an antineutrino and as a neutrino) is forward-peaked:
+    per relic mass state r, sigma = sum_c |G_ca|^2 (G' G'^dag)_rr / (4 pi M_t^2) each, M_t^2 = m_Zd^2 + m_D^2(z) with
+    m_D the relics' Debye mass (dp_absorption.debye_mass_sq, Majorana, at T_nu (1+z)); nearly all of it moves the
+    neutrino between states at its own energy. Gamma_unit(z) = 2 n_hel (1+z)^3 sum_r eta_r (G'G'^dag)_rr /
+    (4 pi M_t^2), G' = U^dag G U (n_hel the relics per helicity and mass state, dp_si.relic_density_per_helicity), so
+    that a -> b goes at Gamma_unit |<b|G|a>|^2 (_soft_jumps). None where sum_k Gamma_unit(z_k) dt_k max|G|^2 over the
+    path is below SOFT_JUMP_MIN (the run is then the same as without them, bit for bit)."""
+    G = np.asarray(ab0.G, dtype=np.complex128)
+    Gm = U_pmns.conj().T @ G @ U_pmns
+    relic = float(np.sum(np.asarray(eta_mass, dtype=np.float64) * np.sum(np.abs(Gm) ** 2, axis=1)))
+    if relic <= 0.0:
+        return None
+    n_hel0 = 3.0 * 1.2020569031595942 * T_nu0 ** 3 / (4.0 * np.pi ** 2)
+    g2max = float(np.max(np.abs(np.linalg.eigvalsh(G))) ** 2)
+    out = np.empty(len(z_bins), dtype=np.float64)
+    for k, z in enumerate(z_bins):
+        mD2 = dp_absorption.debye_mass_sq(ab0.G_mass_diag2, m_nu, T_nu0 * (1.0 + z), eta_mass)
+        out[k] = 2.0 * n_hel0 * (1.0 + z) ** 3 * relic / (4.0 * np.pi * (m_Zd * m_Zd + mD2))
+    dz = z_bins[0] - z_bins[1]
+    tot = sum(out[k] * dz / (calc_H_Hubble(z_bins[k], H0, Omega_m, Omega_L) * (1.0 + z_bins[k]))
+              for k in range(1, len(z_bins))) * g2max
+    return out if tot >= SOFT_JUMP_MIN else None
 
 
 def _use_si_cosmology(params: Dict, E_bins: np.ndarray) -> bool:
@@ -564,9 +618,15 @@ def _use_si_cosmology(params: Dict, E_bins: np.ndarray) -> bool:
         return True
     m = float(params['m_Zd_eV'])
     if m < SI_COSMOLOGY_MIN_M_EV:
-        # dp_si's collision tables are built and validated for keV and heavier mediators (its planes); below,
-        # the resonance falls below the band and the dark-portal phase (resonance only) is used
-        return False
+        # below 1 keV the resonance falls below the band (2026-10-22): dp_si's transport only where the hard t-channel
+        # scatterings (energy losses, mass-independent there) can matter, couplings above SI_HARD_MIN_G; below that,
+        # the dark-portal phase, with the resonance and the soft scatterings (_soft_jumps), whatever the potential
+        G_c = params.get('G_coupling', None)
+        if G_c is None:
+            u = np.array([params['u_e'], params['u_mu'], params['u_tau']], dtype=np.complex128)
+            G_c = dp_absorption.dark_portal_coupling(params['g_D'], u, params['epsilon_prime'])
+        if float(np.max(np.abs(np.linalg.eigvalsh(np.asarray(G_c, dtype=np.complex128))))) < SI_HARD_MIN_G:
+            return False
     K = (4.0 * 0.88 * (91.18 * GeV) ** 2 / 0.65) * (np.sqrt(2.0) / 2.0 * G_F)
     n_q0 = dp_matter.cosmic_density(params.get('matter_charge', None), params['n_n0_eV3'])
     zp1 = 1.0 + float(params['z_max'])

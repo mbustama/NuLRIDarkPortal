@@ -176,6 +176,116 @@ def _build_sigma_coupling_tables(Q: np.ndarray, Mp: np.ndarray, s: np.ndarray, f
     return P, Qabs, Qreg
 
 
+@njit(cache=True, parallel=True)
+def _build_sigma_jump_table(Q: np.ndarray, Mp: np.ndarray, s: np.ndarray, floor: float,
+                            sigma_nodes: np.ndarray, G: np.ndarray):
+    """The soft relic scatterings' tables on the sigma nodes (2026-10-22; notes, 'Soft scatterings on the relics'):
+    with W the eigenvectors of M_rot + sigma S (flavor basis, ascending eigenvalues; dp_transit.frame_at) and G the
+    flavor coupling (Hermitian),
+      J[k, b, a]  = |(W^dag G W)_ba|^2        the weight of a scattering that takes eigenstate a to b,
+      Gd[k, a]    = Re (W^dag G W)_aa,  GG[k, a] = (W^dag G^dag G W)_aa   (the damping of the coherences),
+      lam[k, a]   = the eigenvalues (M units, eV^2; their differences over 2E are the oscillation frequencies)."""
+    n = len(sigma_nodes)
+    J = np.zeros((n, 3, 3), dtype=np.float64)
+    Gd = np.zeros((n, 3), dtype=np.float64)
+    GG = np.zeros((n, 3), dtype=np.float64)
+    lam = np.zeros((n, 3), dtype=np.float64)
+    for k in prange(n):
+        vals = np.empty(3)
+        W = np.empty((3, 3), dtype=np.complex128)
+        frame_at(Q, Mp, s, floor, sigma_nodes[k], vals, W)
+        GW = np.zeros((3, 3), dtype=np.complex128)
+        for f in range(3):
+            for a in range(3):
+                acc = 0.0 + 0.0j
+                for g in range(3):
+                    acc += G[f, g] * W[g, a]
+                GW[f, a] = acc
+        for a in range(3):
+            lam[k, a] = vals[a]
+            nrm = 0.0
+            for f in range(3):
+                nrm += GW[f, a].real ** 2 + GW[f, a].imag ** 2
+            GG[k, a] = nrm
+            for b in range(3):
+                acc = 0.0 + 0.0j
+                for f in range(3):
+                    acc += np.conj(W[f, b]) * GW[f, a]
+                J[k, b, a] = acc.real ** 2 + acc.imag ** 2
+                if a == b:
+                    Gd[k, a] = acc.real
+    return J, Gd, GG, lam
+
+
+@njit(cache=True, parallel=True)
+def _soft_jumps(E_bins: np.ndarray, zp1: float, J_table: np.ndarray, Gd_table: np.ndarray, GG_table: np.ndarray,
+                lam_table: np.ndarray, log_s0: float, inv_dlogs: float, c_z: float, Gamma_unit: float, dt: float,
+                F: np.ndarray):
+    """One z-step of the soft scatterings on the relics, applied to the eigenstate populations F (N_E, 3) in place.
+    Per energy (sigma = E c_z, the tables interpolated linearly in log sigma as _cosmo_projections), the populations
+    relax with the rates a -> b
+        R_ba = Gamma_unit J_ba w^2 / (w^2 + D^2),   w = (lam_a - lam_b) / 2E(1+z),
+        D = Gamma_unit [ (GG_a + GG_b) / 2 - Gd_a Gd_b ]   (the damping of the coherence between a and b),
+    the Lindblad dynamics d rho/dt = Gamma_unit (G rho G - {G^2, rho}/2) with the coherences eliminated: the secular
+    rates Gamma_unit J_ba where the coherences oscillate faster than they are damped (D << w), the Zeno-suppressed
+    ones (w^2 / D) where not. R is symmetric (G Hermitian), so the step is exact through its eigenbasis: the
+    populations' sum is kept, and rates far above 1/dt drive them to equal shares of the states they connect."""
+    N_E = len(E_bins)
+    N_sig = J_table.shape[0]
+    for i in prange(N_E):
+        tot = F[i, 0] + F[i, 1] + F[i, 2]
+        if tot <= 0.0:
+            continue
+        sig = np.abs(E_bins[i] * c_z)
+        f = 0.0 if sig <= 0.0 else (np.log(sig) - log_s0) * inv_dlogs
+        k0 = int(f)
+        if k0 < 0:
+            k0 = 0
+        elif k0 > N_sig - 2:
+            k0 = N_sig - 2
+        w = f - k0
+        if w < 0.0:
+            w = 0.0
+        elif w > 1.0:
+            w = 1.0
+        two_E = 2.0 * E_bins[i] * zp1
+        A = np.zeros((3, 3), dtype=np.float64)
+        for a in range(3):
+            for b in range(a + 1, 3):
+                Jab = 0.5 * ((1.0 - w) * (J_table[k0, b, a] + J_table[k0, a, b])
+                             + w * (J_table[k0 + 1, b, a] + J_table[k0 + 1, a, b]))
+                om = ((1.0 - w) * (lam_table[k0, a] - lam_table[k0, b])
+                      + w * (lam_table[k0 + 1, a] - lam_table[k0 + 1, b])) / two_E
+                ga = (1.0 - w) * Gd_table[k0, a] + w * Gd_table[k0 + 1, a]
+                gb = (1.0 - w) * Gd_table[k0, b] + w * Gd_table[k0 + 1, b]
+                gga = (1.0 - w) * GG_table[k0, a] + w * GG_table[k0 + 1, a]
+                ggb = (1.0 - w) * GG_table[k0, b] + w * GG_table[k0 + 1, b]
+                D = Gamma_unit * max(0.5 * (gga + ggb) - ga * gb, 0.0)
+                r = Gamma_unit * Jab
+                if D > 0.0:
+                    r *= om * om / (om * om + D * D)
+                A[a, b] = r
+                A[b, a] = r
+        for a in range(3):
+            A[a, a] = -(A[0, a] + A[1, a] + A[2, a] - A[a, a])
+        vals, V = np.linalg.eigh(A)
+        x = np.zeros(3)
+        for k in range(3):
+            acc = 0.0
+            for a in range(3):
+                acc += V[a, k] * F[i, a]
+            x[k] = acc * np.exp(min(vals[k], 0.0) * dt)
+        for a in range(3):
+            acc = 0.0
+            for k in range(3):
+                acc += V[a, k] * x[k]
+            F[i, a] = max(acc, 0.0)
+        s_new = F[i, 0] + F[i, 1] + F[i, 2]
+        if s_new > 0.0:
+            for a in range(3):
+                F[i, a] *= tot / s_new
+
+
 @njit(fastmath=True, error_model="numpy", cache=True, parallel=True)
 def _cosmo_coherent_rates(E_bins: np.ndarray, P_table: np.ndarray, Qabs_table: np.ndarray,
                           Qreg_table: np.ndarray, log_s0: float, inv_dlogs: float, c_z: float,
