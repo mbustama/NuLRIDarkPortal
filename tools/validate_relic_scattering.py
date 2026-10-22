@@ -36,8 +36,13 @@ _W = {}
 
 
 def _planes():
-    return sorted(c for c in glob.glob(os.path.join(CONFIGS, "*", "*.json"))
-                  if isinstance(json.load(open(c)), dict) and "planes" in json.load(open(c)))
+    """The plane configurations (inventories beside them have no solver)."""
+    out = []
+    for c in sorted(glob.glob(os.path.join(CONFIGS, "*", "*.json"))):
+        raw = json.load(open(c))
+        if isinstance(raw, dict) and "planes" in raw and "solver" in raw:
+            out.append(c)
+    return out
 
 
 def _out_dir(cfgp, data_root):
