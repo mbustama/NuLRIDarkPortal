@@ -65,11 +65,13 @@ def _key(held, xn, yn):
 
 
 def corrected(here, xn, yn):
-    """The thermal kernels' grid fix (2026-10-21; tools/recheck_thermal_grid.py, notes 'The thermal kernels' grid'):
+    """The corrections to the stored solutions. The thermal kernels' grid fix (2026-10-21; tools/recheck_thermal_grid.py,
+    notes 'The thermal kernels' grid'):
     {(source, (log10 m, log10 g)): chi2} -- every stored solution that went through dp_si, re-evaluated with the fixed
     code (recheck.*.jsonl, the fixed grid's records; a solution whose stored chi2 was missing, a failed fit, only
     through a refit), a refit (refine_recheck.*.jsonl) taking over where it went lower. Source: 'grid' for the
-    summary's points, else the record file's name. Empty without the recheck."""
+    summary's points, else the record file's name. Then the relic-scattering reruns (rerun_rs.*.jsonl), which replace
+    the value at their points. Empty without either."""
     out = {}
     for r in _records(glob.glob(os.path.join(here, "recheck.*.jsonl"))):
         st = r.get("stored")
@@ -79,6 +81,11 @@ def corrected(here, xn, yn):
         if r.get("chi2") is not None:
             k = (r["source"], _key(r["held"], xn, yn))
             out[k] = min(out.get(k, np.inf), float(r["chi2"]))
+    # the relic-scattering reruns (2026-10-22; tools/rerun_relic_scattering.py): new physics at those points, so they
+    # take over whatever their value
+    for r in _records(glob.glob(os.path.join(here, "rerun_rs.*.jsonl"))):
+        if r.get("chi2") is not None:
+            out[(r["source"], _key(r["held"], xn, yn))] = float(r["chi2"])
     return out
 
 

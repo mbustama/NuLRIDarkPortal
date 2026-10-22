@@ -136,6 +136,26 @@ def test_thermal_grid_corrections(tmp_path):
     assert near(lowest_excluded(lx, G, F, 6.0), -3.5 + 0.5 * (3.84 - 1.0) / 29.0)    # the refit's, not the 10
 
 
+def test_relic_scattering_reruns_replace(tmp_path):
+    """The relic-scattering reruns (2026-10-22): a refit with the new code replaces the value at its point, higher or
+    lower (new physics, not a better minimum), after the thermal-grid corrections; through the file's name for a
+    refinement record."""
+    x = 10.0 ** np.arange(4.0, 8.01, 1.0)
+    y = 10.0 ** np.arange(-6.0, -1.9, 0.5)
+    chi = np.where(np.log10(y)[None, :] >= -3.0, 30.0, 0.0) * np.ones((len(x), 1))
+    path = write_plane(tmp_path / "p" / "plane_m_Zd_eV_g_D.json", x, y, chi)
+    held = lambda m, g: {"m_Zd_eV": 10.0 ** m, "g_D": 10.0 ** g}
+    with open(tmp_path / "p" / "refine_recheck.0.jsonl", "w") as f:
+        f.write(json.dumps(dict(source="grid", held=held(6.0, -3.5), chi2=1.0)) + "\n")
+    with open(tmp_path / "p" / "rerun_rs.0.jsonl", "w") as f:
+        f.write(json.dumps(dict(source="grid", held=held(6.0, -3.5), chi2=12.0)) + "\n")   # higher: still taken
+        f.write(json.dumps(dict(source="grid", held=held(5.0, -2.5), chi2=0.5)) + "\n")    # lower: taken
+        f.write(json.dumps(dict(source="grid", held=held(7.0, -2.5), chi2=None)) + "\n")   # a failed refit: not
+    corr = ex.corrected(str(tmp_path / "p"), "m_Zd_eV", "g_D")
+    assert corr[("grid", (6.0, -3.5))] == 12.0 and corr[("grid", (5.0, -2.5))] == 0.5
+    assert ("grid", (7.0, -2.5)) not in corr
+
+
 def test_column_between_masses_reads_its_own_minimum(tmp_path):
     """A mass between the grid's sampled from 1e-5 up (refine_grid's new masses; 2026-10-22): Delta chi^2 from its own
     minimum (and the no-effect chi^2), not from its neighbours' -- where the data prefer an effect at a depth that
