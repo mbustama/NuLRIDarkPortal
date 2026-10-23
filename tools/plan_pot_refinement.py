@@ -7,6 +7,10 @@ that tools/refine_grid.py runs (its records merge into the planes' reading: anal
   couplings every STEP decade within +-HALF decade of either neighbour's crossings. Grid points left out.
 Task indices start at OFFSET (record files refine_grid[_between].<task>.jsonl beside the grid extension's 0-199).
   python tools/plan_pot_refinement.py <manifest.json> --tasks N [--splits x1m24 x1m16] [--count]
+      [--pattern '*/dp_*_ul*.json'] [--offset 3000] [--max-mass 1e3]
+(--pattern: other planes, relative to analysis/configs/campaign_ml (2026-10-23: the planes the relic-scattering rerun
+changed); --max-mass: only the columns below it; --offset: the first task index, so that record files do not meet
+earlier ones.)
 (--splits: only the planes at those g_D sum|U|^2; 2026-10-22, the 1e-8 planes held until the relic-scattering
 treatment below 1 keV is settled.)
 """
@@ -34,7 +38,7 @@ def crossings(lx, G, F):
     return out
 
 
-def points(cfgp, out_dir):
+def points(cfgp, out_dir, max_mass=None):
     from analysis import exclusion as ex
     path = glob.glob(os.path.join(out_dir, "plane_*.json"))[0]
     s = json.load(open(path))
@@ -46,6 +50,8 @@ def points(cfgp, out_dir):
     inside = lambda g: ly_grid[0] - 1e-9 <= g <= ly_grid[-1] + 1e-9
     around = lambda cs: sorted({round(float(c0 + d), 6) for c0 in cs for d in np.arange(-HALF, HALF + 1e-9, STEP)})
     pts = []
+    if max_mass is not None:
+        lx_grid = lx_grid[lx_grid < np.log10(max_mass) + 1e-9]
     for m in lx_grid:
         cs = cr.get(round(float(m), 6), [])
         pts += [(float(m), g, False) for g in around(cs) if inside(g) and not on_grid(g)]
@@ -66,16 +72,22 @@ def main(argv=None):
     ap.add_argument("--tasks", type=int, required=True)
     ap.add_argument("--count", action="store_true")
     ap.add_argument("--splits", nargs="+", default=None, help="tags of the planes to take, e.g. x1m24 x1m16")
+    ap.add_argument("--pattern", default="*/dp_*_pot_*.json", help="the planes, relative to campaign_ml's configs")
+    ap.add_argument("--offset", type=int, default=OFFSET)
+    ap.add_argument("--max-mass", type=float, default=None)
     a = ap.parse_args(argv)
     items = []
-    for c in sorted(glob.glob(os.path.join(REPO, "analysis/configs/campaign_ml/*/dp_*_pot_*.json"))):
+    for c in sorted(glob.glob(os.path.join(REPO, "analysis/configs/campaign_ml", a.pattern))):
+        raw = json.load(open(c))
+        if not (isinstance(raw, dict) and "planes" in raw and "solver" in raw):
+            continue
         if a.splits and not any(f"_pot_{t}_" in os.path.basename(c) for t in a.splits):
             continue
         cfg = from_dict(json.load(open(c)), c)
         out_dir = cfg.output_path("asimov" if asimov_only(cfg) else "data")
         if not glob.glob(os.path.join(out_dir, "plane_*.json")):
             continue
-        pts = points(c, out_dir)
+        pts = points(c, out_dir, a.max_mass)
         if pts:
             items.append(dict(config=os.path.relpath(c, REPO), points=pts, seconds=SECONDS[kind_of(c)]))
     total = sum(len(i["points"]) * i["seconds"] for i in items)
@@ -96,9 +108,9 @@ def main(argv=None):
                 cur, load = [], 0.0
     if cur:
         shares.append(cur)
-    json.dump(dict(tasks=[[] for _ in range(OFFSET)] + shares, total_fits=sum(len(i["points"]) for i in items),
+    json.dump(dict(tasks=[[] for _ in range(a.offset)] + shares, total_fits=sum(len(i["points"]) for i in items),
                    core_seconds=total), open(a.manifest, "w"))
-    print(f"{len(shares)} tasks from {OFFSET} -> {a.manifest}")
+    print(f"{len(shares)} tasks from {a.offset} -> {a.manifest}")
     return 0
 
 
