@@ -180,6 +180,63 @@ def run(manifest, task, data_root, workers):
     return 0
 
 
+def _infer_plane(task):
+    """infer for one plane: (points to refit, number marked excluded)."""
+    from analysis import exclusion as ex
+    cfg, rows, data_root, max_coupling = task
+    refit, n_inf = [], 0
+    cfgp = os.path.join(REPO, cfg)
+    out_dir, _ = _out_dir(cfgp, data_root)
+    path = glob.glob(os.path.join(out_dir, "plane_*.json"))[0]
+    summ = json.load(open(path))
+    xn, yn = summ["names"]
+    corr = ex.corrected(out_dir, xn, yn)
+    # every value per column (log10 m), the corrections applied: the summary's grid and the refinement records
+    col = {}
+    x, y = np.array(summ["grids"][0]), np.array(summ["grids"][1])
+    for i, m in enumerate(x):
+        for j, g in enumerate(y):
+            c = summ["chi2"][i][j]
+            k = ("grid", (round(float(np.log10(m)), 6), round(float(np.log10(g)), 6)))
+            c = corr.get(k, c)
+            if c is not None:
+                col.setdefault(k[1][0], []).append((k[1][1], float(c), "grid"))
+    for f in glob.glob(os.path.join(out_dir, "refine_*.jsonl")):
+        if os.path.basename(f).startswith("refine_recheck"):
+            continue
+        for r in ex._records([f], corr, xn, yn):
+            k = ex._key(r["held"], xn, yn)
+            if r.get("chi2") is not None:
+                col.setdefault(k[0], []).append((k[1], float(r["chi2"]), os.path.basename(f)))
+    refitted = set()                     # the pilot refitted some points above the cut: their own values stand
+    for f in glob.glob(os.path.join(out_dir, "rerun_rs.[0-9]*.jsonl")):
+        for line in open(f):
+            q = json.loads(line)
+            if q.get("chi2") is not None:
+                refitted.add((q["source"], json.dumps(q["held"], sort_keys=True)))
+    out = []
+    for r in rows:
+        if (r["source"], json.dumps(r["held"], sort_keys=True)) in refitted:
+            continue
+        lm = round(float(np.log10(r["held"][xn])), 6)
+        pts = col.get(lm, [])
+        cmin = min((c for _, c, _ in pts), default=np.nan)
+        lg_cut = np.log10(max_coupling) + (np.log10(r["held"][yn]) - np.log10(_coupling(cfg, r["held"])))
+        below = [(g, c) for g, c, _ in pts if g <= lg_cut + 1e-9]
+        if below and np.isfinite(cmin) and max(below)[1] - cmin >= ex.THRESHOLD:
+            out.append(dict(source=r["source"], held=r["held"], chi2=cmin + INFERRED_DCHI2, values=None,
+                            inferred=True, error=None))
+        else:
+            refit.append(dict(config=cfg, source=r["source"], held=r["held"], kind="transport",
+                              seconds=SECONDS[cfg.split("/")[-2]]))
+    if out:
+        with open(os.path.join(out_dir, "rerun_rs.inferred.jsonl"), "w") as fh:
+            for o in out:
+                fh.write(json.dumps(o) + "\n")
+        n_inf += len(out)
+    return refit, n_inf
+
+
 def infer(flags_path, data_root, manifest_out, max_coupling, n_tasks):
     """The transport points left out above max_coupling (plan --max-coupling): in each column (a plane's mass), when
     the refitted point with the largest coupling at or below max_coupling is excluded -- Delta chi^2 >= 3.84 from the
@@ -194,56 +251,11 @@ def infer(flags_path, data_root, manifest_out, max_coupling, n_tasks):
             continue
         left.setdefault(r["config"], []).append(r)
     refit, n_inf = [], 0
-    for cfg, rows in sorted(left.items()):
-        cfgp = os.path.join(REPO, cfg)
-        out_dir, _ = _out_dir(cfgp, data_root)
-        path = glob.glob(os.path.join(out_dir, "plane_*.json"))[0]
-        summ = json.load(open(path))
-        xn, yn = summ["names"]
-        corr = ex.corrected(out_dir, xn, yn)
-        # every value per column (log10 m), the corrections applied: the summary's grid and the refinement records
-        col = {}
-        x, y = np.array(summ["grids"][0]), np.array(summ["grids"][1])
-        for i, m in enumerate(x):
-            for j, g in enumerate(y):
-                c = summ["chi2"][i][j]
-                k = ("grid", (round(float(np.log10(m)), 6), round(float(np.log10(g)), 6)))
-                c = corr.get(k, c)
-                if c is not None:
-                    col.setdefault(k[1][0], []).append((k[1][1], float(c), "grid"))
-        for f in glob.glob(os.path.join(out_dir, "refine_*.jsonl")):
-            if os.path.basename(f).startswith("refine_recheck"):
-                continue
-            for r in ex._records([f], corr, xn, yn):
-                k = ex._key(r["held"], xn, yn)
-                if r.get("chi2") is not None:
-                    col.setdefault(k[0], []).append((k[1], float(r["chi2"]), os.path.basename(f)))
-        refitted = set()                     # the pilot refitted some points above the cut: their own values stand
-        for f in glob.glob(os.path.join(out_dir, "rerun_rs.[0-9]*.jsonl")):
-            for line in open(f):
-                q = json.loads(line)
-                if q.get("chi2") is not None:
-                    refitted.add((q["source"], json.dumps(q["held"], sort_keys=True)))
-        out = []
-        for r in rows:
-            if (r["source"], json.dumps(r["held"], sort_keys=True)) in refitted:
-                continue
-            lm = round(float(np.log10(r["held"][xn])), 6)
-            pts = col.get(lm, [])
-            cmin = min((c for _, c, _ in pts), default=np.nan)
-            lg_cut = np.log10(max_coupling) + (np.log10(r["held"][yn]) - np.log10(_coupling(cfg, r["held"])))
-            below = [(g, c) for g, c, _ in pts if g <= lg_cut + 1e-9]
-            if below and np.isfinite(cmin) and max(below)[1] - cmin >= ex.THRESHOLD:
-                out.append(dict(source=r["source"], held=r["held"], chi2=cmin + INFERRED_DCHI2, values=None,
-                                inferred=True, error=None))
-            else:
-                refit.append(dict(config=cfg, source=r["source"], held=r["held"], kind="transport",
-                                  seconds=SECONDS[cfg.split("/")[-2]]))
-        if out:
-            with open(os.path.join(out_dir, "rerun_rs.inferred.jsonl"), "w") as fh:
-                for o in out:
-                    fh.write(json.dumps(o) + "\n")
-            n_inf += len(out)
+    with get_context("spawn").Pool(32) as pool:
+        for r_refit, r_n in pool.imap_unordered(_infer_plane, [(cfg, rows, data_root, max_coupling)
+                                                               for cfg, rows in sorted(left.items())]):
+            refit += r_refit
+            n_inf += r_n
     tasks = [refit[k::n_tasks] for k in range(n_tasks)] if refit else []
     json.dump(dict(tasks=tasks, points=len(refit)), open(manifest_out, "w"))
     print(f"{n_inf} points marked excluded; {len(refit)} to refit -> {manifest_out}")
