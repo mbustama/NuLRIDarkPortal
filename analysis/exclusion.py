@@ -86,6 +86,12 @@ def corrected(here, xn, yn):
     for r in _records(glob.glob(os.path.join(here, "rerun_rs.*.jsonl"))):
         if r.get("chi2") is not None:
             out[(r["source"], _key(r["held"], xn, yn))] = float(r["chi2"])
+    # HESE + DR2's chi^2 with the nuisance profile from fixed starts (2026-10-24; tools/reeval_events.py): the lowest
+    # of the profile's minima, so it takes over where lower than the value it was evaluated against
+    for r in _records(glob.glob(os.path.join(here, "reeval_events.*.jsonl"))):
+        if r.get("chi2") is not None and r.get("stored") is not None:
+            k = (r["source"], _key(r["held"], xn, yn))
+            out[k] = min(out.get(k, float(r["stored"])), float(r["stored"]), float(r["chi2"]))
     return out
 
 
