@@ -13,8 +13,9 @@ transport:
   E   the shortcuts off (SOFT_JUMP_MIN = 0, SI_HARD_MIN_G = 0), where that changes the run
   F   decay alone (relic scatterings off) against the exact nu_3 survival averaged over the sources, at 100 TeV and
       1 PeV, where the decay is open and the potential negligible
-  GA  the Galactic sky average, default; GB its line-of-sight pieces x2; GC the per-pixel sweep where the vacuum
-      path was used (sub-grid units); GD the energy grid x2 (sub-grid units)
+  GA  the Galactic sky average, default; GB its line-of-sight pieces x2 (sub-grid units); GC the per-pixel sweep where
+      the vacuum path was used (every fourth column and row at m_lightest 1e-6 eV: 1000 s a point); GD the energy grid
+      x2 (sub-grid units)
 
 The grid: every point at m_lightest = 1e-6 eV; every second column and row at 1e-3, 1e-2, 0.1 eV. Each comparison:
 d = max over energies, sources and flavors of |F_X - F_A| / max(F_A,tot, 1e-3 F_std,tot) (F_std the flux without new
@@ -78,9 +79,14 @@ def plan(manifest, n_tasks, pilot):
                 sub = (ix % 2 == 0) and (iy % 2 == 0)
                 for ml in [ML_FULL] + (ML_SUB if sub else []):
                     # a rough cost for the balance: dp_si's runs ~20x the dark-portal phase's; the Galactic sweep
+                    # measured on the first map (2026-10-24): dp_si units ~200 s (x3 with the sub-grid's checks), the
+                    # Galactic sweeps of the lepton-number planes below 1 keV ~500 s, the dark-portal phase's ~25 s
                     heavy = (x >= 1e3) or (y * G_scale >= 1e-4)
-                    cost = (20.0 if heavy else 1.5) * (2.0 if sub else 1.0) + (6.0 if fam.startswith("le") and x < 1e3
-                                                                              else 0.5)
+                    cost = (200.0 if heavy else 25.0) * (3.0 if sub else 1.0)
+                    if x < 1e3 and fam.startswith("le"):
+                        cost += 500.0 if sub else 150.0
+                    if x < 1e3 and ix % 4 == 0 and iy % 4 == 0 and ml == ML_FULL:
+                        cost += 1000.0
                     units.append(dict(fam=fam, x=xn, y=yn, ix=ix, iy=iy, xv=float(x), yv=float(y), ml=ml, sub=sub,
                                       cost=cost))
     if pilot:
@@ -329,14 +335,14 @@ def _one(u):
                 res["F"] = dict(d=dev, exact={f"{e:.4e}": x for e, x in exact.items()}, code=rows)
 
         # Galactic: pieces x2; the sweep where the vacuum path was used; the energy grid x2
-        if gal and A["used"]:
+        if gal and A["used"] and u["sub"]:
             _W["split"][0] = 2
             try:
                 GB, _ = run("GB", galactic=True, ext=False)
             finally:
                 _W["split"][0] = 1
             res["GB"] = _cmp(A["G"], GB["G"], EA, GB["E"], std_gal)
-            if "vacuum_populations" in A["used"] and u["sub"]:
+            if "vacuum_populations" in A["used"] and u["ix"] % 4 == 0 and u["iy"] % 4 == 0 and u["ml"] == ML_FULL:
                 vac0 = dps.GALACTIC_PATH_VACUUM
                 try:
                     dps.GALACTIC_PATH_VACUUM = False
