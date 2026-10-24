@@ -290,3 +290,56 @@ def draw(ax, lx, G, F, color, fill, lw=1.8, ribbons=()):
         xs, ys = np.r_[r[:, 0], r[::-1, 0], r[0, 0]], np.r_[r[:, 2], r[::-1, 1], r[0, 2]]
         ax.fill(xs, ys, color=fill, lw=0, zorder=1)
         ax.plot(xs, ys, color=color, lw=0.6 * lw, zorder=5)
+
+def not_allowed_boundary(cfg_path):
+    """(slope, intercept) of the line log10 g = log10 m + c above which a plane's model is not perturbative
+    (2026-10-24; notes Sec. 12.8 item 3; Mauricio: marked, ranges kept): the longitudinal mode's Goldstone couplings
+    Y = i (G'_ij m_i + G'_ji m_j) / m_Zd break perturbative unitarity (src/dp_unitarity.py), with the neutrino masses
+    at the configuration's lightest mass (1e-6 eV: the widest region). The coupling matrix is linear in the plane's
+    coupling, so the measure scales as (g / m_Zd)^2: one evaluation fixes c = -log10 sqrt(r0), r0 the measure at
+    g = m_Zd = 1 (checked at a second coupling). Returns None for a plane whose coupling does not set G linearly."""
+    import copy
+    import json
+    import dark_portal_solver as dps
+    import dp_absorption
+    import dp_unitarity
+    from dp_core import construct_PMNS
+    from analysis import config as config_mod
+    raw = copy.deepcopy(json.load(open(cfg_path)))
+    raw.pop("exact_profile", None)
+    cfg = config_mod.from_dict(raw, cfg_path)
+    model = cfg.model()
+    pl = raw["planes"][0]
+
+    def measure(y):
+        v = {q.name: q.start for q in cfg.parameters}
+        v.update({pl["x"]: 1.0, pl["y"]: y})
+        _, pr = dps.build_solver_params(model._run_cfg(model._overrides(v)))
+        G = pr.get("G_coupling")
+        if G is None:
+            G = dp_absorption.dark_portal_coupling(pr["g_D"], np.array([pr["u_e"], pr["u_mu"], pr["u_tau"]],
+                                                                       dtype=np.complex128), 0.0)
+        G = np.asarray(G, dtype=np.complex128)
+        U = np.asarray(construct_PMNS(pr["th12"], pr["th13"], pr["th23"], pr["d_cp"]))
+        c = G[0, 0].real
+        Gp = U.conj().T @ (G - c * np.eye(3)) @ U + c * np.eye(3)
+        return dp_unitarity.neutrino_unitarity(Gp, np.asarray(pr["m_nu_bg_arr"], dtype=np.float64), 1.0)
+
+    r1, r2 = measure(1e-10), measure(1e-12)
+    if r1 <= 0.0 or not np.isclose(r1 / r2, 1e4, rtol=1e-6):
+        return None
+    r0 = r1 / 1e-20
+    return 1.0, -0.5 * np.log10(r0)
+
+
+def draw_not_allowed(ax, lx, G, boundary, color="0.45"):
+    """Hatch the region where the plane's model is not perturbative (not_allowed_boundary), over the plane's ranges."""
+    if boundary is None:
+        return
+    slope, c = boundary
+    lx = np.asarray(lx, dtype=np.float64)
+    edge = slope * lx + c
+    top = np.full_like(lx, max(G[-1], edge.max()) + 1.0)
+    ax.fill_between(lx, np.clip(edge, G[0], None), top, facecolor="none", edgecolor=color, hatch="////", lw=0.0,
+                    zorder=6)
+    ax.plot(lx, edge, color=color, lw=0.8, zorder=6)

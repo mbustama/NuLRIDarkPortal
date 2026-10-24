@@ -46,3 +46,31 @@ def test_goldstone_yukawa_matches_the_decay_rate():
     m = np.array([0.0, 8.6e-3, 0.05])
     Y = du.goldstone_yukawa(Gp, m, 1e-6)
     assert np.isclose(abs(Y[0, 2]), 2e-9 * 0.05 / 1e-6)
+
+
+def test_plane_boundary_matches_a_direct_evaluation():
+    """analysis.exclusion.not_allowed_boundary: the line log10 g = log10 m + c is where the measure crosses 1."""
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+    from analysis import exclusion as ex
+    p = os.path.join(os.path.dirname(__file__), "..", "analysis", "configs", "campaign_ml", "now_ic26", "dp_mu_ul.json")
+    slope, c = ex.not_allowed_boundary(p)
+    assert slope == 1.0
+    import copy, json
+    import dark_portal_solver as dps
+    import dp_absorption
+    from dp_core import construct_PMNS
+    from analysis import config as config_mod
+    raw = copy.deepcopy(json.load(open(p)))
+    raw.pop("exact_profile", None)
+    cfg = config_mod.from_dict(raw, p)
+    m = cfg.model()
+    for lm in (-12.0, -6.0):
+        for dy, side in ((0.01, True), (-0.01, False)):
+            v = {q.name: q.start for q in cfg.parameters}
+            v.update({"m_Zd_eV": 10.0 ** lm, "g_D_trace": 10.0 ** (lm + c + dy)})
+            _, pr = dps.build_solver_params(m._run_cfg(m._overrides(v)))
+            G = dp_absorption.dark_portal_coupling(pr["g_D"], np.array([pr["u_e"], pr["u_mu"], pr["u_tau"]], complex), 0.0)
+            U = construct_PMNS(pr["th12"], pr["th13"], pr["th23"], pr["d_cp"])
+            Gp = U.conj().T @ G @ U
+            r = du.neutrino_unitarity(Gp, np.asarray(pr["m_nu_bg_arr"]), 10.0 ** lm)
+            assert (r >= 1.0) == side

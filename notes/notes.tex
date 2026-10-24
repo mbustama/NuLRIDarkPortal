@@ -2280,6 +2280,15 @@ dp\_si's step, and through dp\_si wherever the drift exceeds $10^{-4}$ of $E$ ov
 energy (the routing extended below the present $10^{-4}$ coupling threshold). Item 2 as a loss of $\nu_i$ into
 $\nu_j$ at lower energies (both helicities, with their spectra) in the cosmological phase, plus $\nu_1$-only relics
 wherever the relics decay. Item 3 as a marked region on the planes' figures, from \file{src/dp\_unitarity.py}.
+Done (2026-10-24): item 2 (\file{src/dp\_decay.py}, both transports, and the relics' composition after their decays by
+$z = 1$, \texttt{dp\_decay.relic\_composition}: time-dilated rest rates, the daughters by branching; the code ties a
+state's density to its temperature, so the grown $\nu_1$ population is a hotter Fermi--Dirac gas, an approximation);
+item 1 (\file{src/dp\_relic\_loss.py}: $dE/dt = -C(z)(GG^\dagger)_{aa}$, a conservative shift of each bin's content per
+step, in both transports; at $\mzd = 10^{-9}$~eV, $\gd = 10^{-6}$, decay off, the flux at 100~TeV falls to 0.946 and
+0.940 in the two transports, at 10~TeV to 0.624 and 0.619); item 3 (\texttt{analysis.exclusion.not\_allowed\_boundary},
+\texttt{draw\_not\_allowed}: the coupling matrix is linear in the plane's coupling, so the boundary is the line
+$\log_{10} g = \log_{10}\mzd + c$, with $c = 2.46$, 1.76, 1.74 for the dark portal's $e$, $\mu$, $\tau$ textures and
+1.76, 1.75 for $L_e - L_\mu$, $L_e - L_\tau$).
 
 \textit{Checks (2026-10-24).}---Item 1, exact $2\to2$ kinematics in 60-digit arithmetic (beam at 100~TeV, relics in
 motion, up- and down-conversions, $|t| = 10^{-24}$~eV$^2$): $\omega_{rs}$ as above to $2\times10^{-11}$. The

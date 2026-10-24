@@ -283,10 +283,12 @@ small, not yet measured), **open** (decided to remove or change, not yet done).
 
 22. **Ultralight mediators: relic mass changes, neutrino decay, the models' range of validity, the potential planes
     (2026-10-24; notes Sec. 12.8).** (a) A soft scattering that leaves the relic in a heavier mass state costs the beam
-    Delta m^2/(2 p^-) per event; at 1e-9 eV and g_D = 1e-4 there are ~1e19 such events. Not yet in the transports:
-    **open** (to implement). (b) For m_Zd < m_i - m_j the heavier neutrinos decay into the lightest and the mediator
-    (Majorana rate twice the Dirac one); for g_D >~ 1e-7 the beam arrives as nu_1 and the relics are nu_1 only. Not yet
-    in the transports: **open** (to implement). (c) Where the couplings of the mediator's longitudinal mode (its
+    Delta m^2/(2 p^-) per event; at 1e-9 eV and g_D = 1e-4 there are ~1e19 such events. Implemented 2026-10-24
+    (src/dp_relic_loss.py, both transports): **to quantify** (validation on Tycho, stage 2). (b) For m_Zd < m_i - m_j the heavier neutrinos decay into the lightest and the mediator
+    (Majorana rate twice the Dirac one); for g_D >~ 1e-7 the beam arrives as nu_1 and the relics are nu_1 only.
+    Implemented 2026-10-24 (src/dp_decay.py, both transports; relics' composition after decays by z = 1, a hotter
+    Fermi-Dirac nu_1 gas standing for the daughters; the mediator invisible; daughter kernels from massless
+    kinematics; where the potential dominates, the incoherent split over eigenstates): **to quantify** (stage 2). (c) Where the couplings of the mediator's longitudinal mode (its
     Goldstone, Y_ij = i (G'_ij m_i + G'_ji m_j)/m_Zd) break perturbative unitarity (src/dp_unitarity.py, against
     Allwicher et al., JHEP 10 (2021) 129), the planes keep their ranges and the region is marked as not allowed
     (Mauricio, 2026-10-24); lightest mass 1e-6 eV (the widest region): **accepted**. (d) The 18 potential planes per
