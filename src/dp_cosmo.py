@@ -272,23 +272,37 @@ def _soft_jumps(E_bins: np.ndarray, zp1: float, J_table: np.ndarray, Gd_table: n
             rmax = max(rmax, -A[a, a])
         if rmax * dt <= 0.0:
             continue
-        vals, V = np.linalg.eigh(A)
-        # as a correction, F + V (e^(vals dt) - 1) V^T F: a slow step moves the populations by its own small amount
-        # only, never by the rounding of a full re-expansion (1e-16 of the bin's largest population, which rewrote
-        # populations far below it -- and the analysis interpolates fluxes in their logarithm); the uniform mode
-        # (vals = 0) keeps the total
-        x = np.zeros(3)
-        for k in range(3):
-            acc = 0.0
-            for a in range(3):
-                acc += V[a, k] * F[i, a]
-            x[k] = acc * np.expm1(min(vals[k], 0.0) * dt)
+        # as a correction, F + Q W (e^(-mu dt) - 1) W^T Q^T F, in the complement Q of the uniform mode (exact, 2026-10-24:
+        # through eigh the uniform mode's zero eigenvalue came out as ~1e-16 of the largest rate, which at rates x dt
+        # beyond ~1e16 (the Zeno-transition band, g ~ m^1/2) removed up to half of the total). On Q, the Laplacian of
+        # the rates is B = [[(4 r01 + r02 + r12)/2, sqrt(3)(r02 - r12)/2], [., 3 (r02 + r12)/2]]; its eigenvalues from
+        # tr B and det B = 3 (r01 r02 + r01 r12 + r02 r12) (no cancellation), the small one det/large. A slow step
+        # moves the populations by its own small amount only (the analysis interpolates fluxes in their logarithm)
+        r01 = A[0, 1]
+        r02 = A[0, 2]
+        r12 = A[1, 2]
+        b11 = 0.5 * (4.0 * r01 + r02 + r12)
+        b22 = 1.5 * (r02 + r12)
+        b12 = 0.8660254037844386 * (r02 - r12)
+        det = 3.0 * (r01 * r02 + r01 * r12 + r02 * r12)
+        mu1 = 0.5 * ((b11 + b22) + np.sqrt((b11 - b22) ** 2 + 4.0 * b12 * b12))
+        mu2 = det / mu1 if mu1 > 0.0 else 0.0
+        th = 0.5 * np.arctan2(2.0 * b12, b11 - b22)
+        c = np.cos(th)
+        sn = np.sin(th)
+        y1 = (F[i, 0] - F[i, 1]) * 0.7071067811865476
+        y2 = (F[i, 0] + F[i, 1] - 2.0 * F[i, 2]) * 0.4082482904638631
+        p1 = (c * y1 + sn * y2) * np.expm1(-mu1 * dt)
+        p2 = (-sn * y1 + c * y2) * np.expm1(-mu2 * dt)
+        d1 = c * p1 - sn * p2
+        d2 = sn * p1 + c * p2
+        x = np.empty(3)
+        x[0] = 0.7071067811865476 * d1 + 0.4082482904638631 * d2
+        x[1] = -0.7071067811865476 * d1 + 0.4082482904638631 * d2
+        x[2] = -0.8164965809277261 * d2
         clipped = False
         for a in range(3):
-            acc = 0.0
-            for k in range(3):
-                acc += V[a, k] * x[k]
-            F[i, a] += acc
+            F[i, a] += x[a]
             if F[i, a] < 0.0:
                 F[i, a] = 0.0
                 clipped = True

@@ -176,3 +176,27 @@ def test_stiff_bin_keeps_its_losses():
             pi /= pi.sum()
             ref = np.outer(pi, np.ones(3)) * np.exp(-(pi * lose).sum())
             assert np.abs(Em - ref).max() < 1e-6
+
+
+def test_jump_step_keeps_the_total_at_any_rate():
+    """_soft_jumps' step (2026-10-24): through eigh the uniform mode's zero eigenvalue came out as ~1e-16 of the
+    largest rate, which beyond rates x dt ~ 1e16 removed up to half of the flux (the Zeno-transition band). The exact
+    3-state solution keeps the total to rounding at every rate and matches expm of the rate matrix."""
+    from scipy.linalg import expm
+    rng = np.random.default_rng(3)
+    E = np.array([1e14])
+    for scale in (1e-3, 1.0, 1e3, 1e10, 1e16, 1e20, 1e30):
+        for _ in range(10):
+            R = scale * rng.uniform(0.0, 1.0, 3) * (rng.uniform(size=3) > 0.2)
+            J = np.zeros((2, 3, 3))
+            J[:, 1, 0] = J[:, 0, 1] = R[0]
+            J[:, 2, 0] = J[:, 0, 2] = R[1]
+            J[:, 2, 1] = J[:, 1, 2] = R[2]
+            F = rng.uniform(0.0, 1.0, (1, 3))
+            F0 = F.copy()
+            _soft_jumps(E, 1.0, J, np.zeros((2, 3)), np.zeros((2, 3)), np.zeros((2, 3)), 0.0, 1.0, 1.0, 1.0, 1.0, F)
+            assert abs(F.sum() - F0.sum()) <= 1e-14 * F0.sum()
+            A = np.array([[0, R[0], R[1]], [R[0], 0, R[2]], [R[1], R[2], 0]], dtype=float)
+            A -= np.diag(A.sum(axis=0))
+            if scale <= 1e3:
+                assert np.allclose(F[0], expm(A) @ F0[0], rtol=1e-10, atol=1e-14)
