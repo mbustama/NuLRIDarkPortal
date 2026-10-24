@@ -2123,9 +2123,9 @@ also where a plane switches transport.
 
 Neither transport contains two processes that the dark portal's couplings allow once the mediator is light. Both
 come from the off-diagonal entries of the couplings in the mass basis, $G' = U^\dagger G U$, which the dark portal
-has for any texture ($G' = \gd\,w w^\dagger + \kappa I$, $w = U^\dagger u$). Both are estimates, to be checked before
-they are implemented. Both change the ultralight dark-portal planes for $\gd \gtrsim 10^{-7}$ and leave the MeV
-planes alone.
+has for any texture ($G' = \gd\,w w^\dagger + \kappa I$, $w = U^\dagger u$). Mauricio agreed to implement both
+(2026-10-24), after the checks at the end of this subsection. Both change the ultralight dark-portal planes for
+$\gd \gtrsim 10^{-7}$ and leave the MeV planes alone.
 
 \textit{1. A soft scattering that changes the relic's mass state.}---A scattering can leave the relic in another
 mass state, $r \to s$, with amplitude $\propto G'_{ca}G'_{sr}/(t - M_t^2)$. Its forward peak survives the mass
@@ -2182,7 +2182,11 @@ $|G'_{31}| \simeq 0.3\,\gd$, the rate over the Hubble rate is:
 \end{tabular}
 \end{center}
 Even the transverse part alone makes the beam arrive as $\nu_1$, plus the daughters at lower energy, for
-$\gd \gtrsim 10^{-7}$. That is a large flavor signal, and IceCube already constrains it. The relics' $\nu_2$
+$\gd \gtrsim 10^{-7}$. That is a large flavor signal, and IceCube already constrains it. The daughter keeps the
+parent's helicity (a neutrino gives a neutrino, an antineutrino an antineutrino; with Weyl fields there is no second
+channel for Majorana neutrinos). It takes the fraction $z$ of the parent's energy with $dN/dz = 2(1-z)$ from the
+transverse part and $2z$ from the longitudinal part. The mediator is taken as invisible: it decays back to
+neutrinos only for $\mzd > 2m_1$, and then into the softest part of the spectrum. The relics' $\nu_2$
 and $\nu_3$ decay at rest, with rates above $H_0$ already for $\gd \gtrsim 10^{-14}$. They are gone long before
 today, so every relic effect (the Debye screening, the absorption by the relics' flavor content, the soft
 scatterings, item~1) acts with $\nu_1$ relics only.
@@ -2190,7 +2194,32 @@ scatterings, item~1) acts with $\nu_1$ relics only.
 \textit{A limit of the model.}---The longitudinal coupling, $\gd\,\Delta m/\mzd$, exceeds 1 for
 $\mzd \lesssim \gd \times 0.05$~eV. Below that, the theory with a bare (Stueckelberg) mass is not perturbative:
 the dark Higgs, whose vacuum value $\mzd/\gd$ would lie below the neutrino masses, has to be part of the
-calculation. The planes need either a stated cut there or a treatment that includes it.
+calculation. Decided (Mauricio, 2026-10-24): the planes are cut where
+$y_L = \max_{i\ne j}|G'_{ij}|\,|m_i - m_j|/\mzd \ge 1$, with the masses at the lightest mass $10^{-6}$~eV (the
+largest splittings, so the widest cut). In the allowed region, $\mzd > y_L$'s boundary lies above the Debye mass
+($m_D \approx 10^{-5}\gd$~eV against $0.05\,\gd$~eV), so the vacuum decay rates hold there.
+
+\textit{Where they fall in the campaign's planes (2026-10-24).}---\file{tools/check\_decay\_cut.py} (the stored
+limits per mass column, pion and fitted, IC26) and the rates with the identity part of $G$ taken out before the
+rotation (otherwise $U^\dagger(\kappa I)U$ leaves $10^{-16}\kappa$ off the diagonal, which in the potential planes,
+$\kappa$ up to 0.74 against $\gd\sum|U|^2 = 10^{-24}$, looks like decay; the implementation needs the same care).
+All 23 ultralight planes are touched; the MeV planes are not (Fig.~\ref{fig:decay-cut}).
+$L_e - L_\mu$, $L_e - L_\tau$: the stored limits run along $g \propto \mzd$ below $\sim10^{-13}$~eV, and the cut,
+$g \gtrsim \mzd/(|G'_{ij}/g|\,\Delta m)$, starts 0.8 decade below them: the whole stored exclusion there is in the
+unreliable region. Below 0.03~eV the beam decays far below the stored limits (down to $g\sim10^{-32}$ at
+$10^{-30}$~eV). Dark portal, ultralight: cut at every coupling of the plane below $\sim10^{-9}$~eV, and up to
+$10^{-4}$~eV at the largest couplings; decay everywhere else below 0.03~eV. Potential planes: the split fixes
+$\gd\sum|U|^2$, so decay acts at every coupling below 0.01~eV (split $10^{-8}$), $10^{-10}$~eV ($10^{-16}$),
+$10^{-17.5}$~eV ($10^{-24}$); the cut below $10^{-10}$, $10^{-18}$, $10^{-26}$~eV.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\textwidth]{../output/figures/decay_cut_planes.png}
+\caption{Where neutrino decay (rate above $0.01H_0$ at 100~TeV, red) and the perturbativity cut ($y_L \ge 1$, gray)
+fall, against the stored limits (blue; pion, IC26; the dark portal's flat edge at $10^{-4}$ is the bug of
+Sec.~\ref{sec:rounding-subkev}).}
+\label{fig:decay-cut}
+\end{figure}
 
 \textit{Beyond the dark portal.}---For $L_e - L_\mu$ and $L_e - L_\tau$, the mixing breaks the symmetry too
 ($G' = U^\dagger\,{\rm diag}(1,-1,0)\,U$, entries $\sim g$). Item 1 is negligible at their couplings. The
@@ -2204,6 +2233,19 @@ the path at the band's lowest energy (the routing extended below the present $10
 Item 2 as a loss of $\nu_i$ into $\nu_j$ at lower energies (the daughters' spectrum) in the cosmological phase,
 plus $\nu_1$-only relics wherever the relics decay. Whether to cut at $\mzd = \gd\,\Delta m$ or to include the
 dark Higgs is Mauricio's decision.
+
+\textit{Checks (2026-10-24).}---Item 1, exact $2\to2$ kinematics in 60-digit arithmetic (beam at 100~TeV, relics in
+motion, up- and down-conversions, $|t| = 10^{-24}$~eV$^2$): $\omega_{rs}$ as above to $2\times10^{-11}$. The
+direction average $\langle v_{\rm rel}\,\omega_{rs}\rangle = \frac12(m_s^2 - m_r^2)/E_r$: exact at
+$|p| = 10^{-5}$--$10^{-2}$~eV. The matrix element from the Dirac traces with explicit $\gamma$ matrices (left-handed
+currents at both vertices): $\sum|\mathcal{M}|^2 = 16\,(k\cdot p)(k'\cdot p')\,g^4/(t - M^2)^2$, with
+$k'\cdot p' = k\cdot p - \Delta m^2/2$, so $r \to s$ equals $r \to r$ at the same $t$ up to $\Delta m^2/s$
+($0.99986$ and $1.000024$ at $E = 1$~keV for up- and down-conversion). For Majorana relics the right-chiral piece of
+the current gives $16\,(k\cdot p')(k'\cdot p)$, the same in the forward limit; the mixed terms vanish there
+($\propto m_r m_s\,t$). Item 2, the trace with the massive polarization sum, $-g^{\mu\nu} + q^\mu q^\nu/M^2$:
+the rate above to six digits at $\mzd = 10^{-2}$--$10^{-4}$~eV. With the parent's spin along $\hat s$, the daughter
+is always left-chiral, with angular distribution $1 + \cos\theta_s$ (transverse) and $1 - \cos\theta_s$
+(longitudinal), which for a left-handed parent in flight gives the $dN/dz$ above (\file{tools/check\_relic\_mass\_change.py}, \file{tools/check\_decay\_rate.py}).
 
 %==============================================================================
 \section{Open items}
