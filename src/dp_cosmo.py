@@ -241,11 +241,12 @@ def _build_sigma_mass_table(Q: np.ndarray, Mp: np.ndarray, s: np.ndarray, floor:
 @njit(cache=True, parallel=True)
 def _soft_jumps(E_bins: np.ndarray, zp1: float, J_table: np.ndarray, Gd_table: np.ndarray, GG_table: np.ndarray,
                 lam_table: np.ndarray, log_s0: float, inv_dlogs: float, c_z: float, Gamma_unit: float, dt: float,
-                F: np.ndarray, Wd: np.ndarray, use_wd: bool):
+                F: np.ndarray, Wd: np.ndarray, use_wd: bool, clip: bool = True):
     """One z-step of the soft scatterings on the relics, applied to the eigenstate populations F (N_E, 3) in place.
     Wd (N_E, 3), with use_wd: the eigenstates' decay widths into the mediator (lab frame, eV; dp_decay, 2026-10-24),
     which damp the coherences too: D_ab += (Wd_a + Wd_b) / 2 (a state that decays fast is Zeno-protected from the
-    conversions into it).
+    conversions into it). clip (default): negative populations from rounding set to zero; off for the
+    sign-indefinite spectral bases dp_galactic_path evolves (the step is then exactly linear).
     Per energy (sigma = E c_z, the tables interpolated linearly in log sigma as _cosmo_projections), the populations
     relax with the rates a -> b
         R_ba = Gamma_unit J_ba w^2 / (w^2 + D^2),   w = (lam_a - lam_b) / 2E(1+z),
@@ -258,7 +259,11 @@ def _soft_jumps(E_bins: np.ndarray, zp1: float, J_table: np.ndarray, Gd_table: n
     N_sig = J_table.shape[0]
     for i in prange(N_E):
         tot = F[i, 0] + F[i, 1] + F[i, 2]
-        if tot <= 0.0:
+        if clip:
+            if tot <= 0.0:
+                continue
+        elif F[i, 0] == 0.0 and F[i, 1] == 0.0 and F[i, 2] == 0.0:
+            # a sign-indefinite basis can sum to zero or less and still move: skip only an empty bin
             continue
         sig = np.abs(E_bins[i] * c_z)
         f = 0.0 if sig <= 0.0 else (np.log(sig) - log_s0) * inv_dlogs
@@ -329,7 +334,7 @@ def _soft_jumps(E_bins: np.ndarray, zp1: float, J_table: np.ndarray, Gd_table: n
         clipped = False
         for a in range(3):
             F[i, a] += x[a]
-            if F[i, a] < 0.0:
+            if clip and F[i, a] < 0.0:
                 F[i, a] = 0.0
                 clipped = True
         if clipped:

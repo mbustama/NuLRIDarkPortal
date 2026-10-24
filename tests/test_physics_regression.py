@@ -1337,9 +1337,12 @@ def test_extreme_mediator_mass_flux_is_finite(tmp_path):
     """End-to-end contract for the formerly all-NaN domain: m_Zd_eV = 1e-6 (g_D = 1e-4,
     epsilon_prime = 0.1) with the full 500 Earth steps (the NaN trigger -- repeated
     application of the non-unitary propagator needed a few hundred steps to overflow)
-    must now return an all-finite, non-negative-total flux."""
+    must now return an all-finite, non-negative-total flux. The relic scatterings and the decays off (2026-10-24): with
+    the Z mixing's kappa in the relic mass-change loss's beam factor (the transport review's finding 3) eps' = 0.1
+    drains the beam entirely, which is right but not what this test is about."""
     cfg = dps.create_default_config(str(tmp_path / "cfg.json"))
-    cfg["dark_portal"].update(dict(m_Zd_eV=1e-6, g_D=1e-4, epsilon_prime=0.1))
+    cfg["dark_portal"].update(dict(m_Zd_eV=1e-6, g_D=1e-4, epsilon_prime=0.1, relic_scattering=False,
+                                   neutrino_decay=False))
     cfg["grid"].update(dict(n_E_bins=20, n_z_bins=20, n_sun_paths=2, n_earth_chords=2,
                             N_steps_earth=500))
     cfg["execution"].update(dict(n_cores=1, verbose=0))

@@ -1697,6 +1697,10 @@ STIFF_BIN = 1e12
 # before; a synthetic bin there is exact to 1e-6), and the conversions per step kept: CONVERSION_CAP, at least
 # CONVERSION_RATIO x the bin's largest loss and every state's at least CONVERSION_MIN (exact where the true ones are).
 BIN_ROUNDING_MAX = 1e8
+# _si_sweep_cols: the decay's events per step kept at most (DECAY_STEP_CAP, or DECAY_STEP_RATIO x the state's other
+# events if more): beyond, the state drains within the step and its events go to the decay alike (2026-10-24)
+DECAY_STEP_CAP = 1e9
+DECAY_STEP_RATIO = 1e7
 CONVERSION_GUARD = 1e10
 CONVERSION_CAP = 1e6
 CONVERSION_RATIO = 1e7
@@ -1788,14 +1792,17 @@ def _phi_functions(Mx):
 
 @njit(cache=True)
 def _si_sweep_cols(F, E, dE, S0, J, Nq, Lq, Dq, jt, w, qe, Ctau, Creg, tabB, tabO, node, dt, reg, diag, exact_bin,
-                   dec_rate, dec_br, zp1, use_dec):
+                   dec_rate, dec_br, dec_own, dec_kfull, dec_kex, dec_fex, dec_mom, zp1, use_dec):
     """_si_sweep for several sources at once (2026-10-18): F, S0 and reg are (N, n, C), one column per source, diag
     (C, 6). With use_dec (2026-10-24; dp_decay, Majorana): the decay into the mediator as one more channel of every
     bin -- state a decays at dec_rate[a] / (E zp1) (rest rate x mass over the energy, the lab rate), its daughter in
-    state c with dec_br[a, c]; for the one Majorana flux holding both kinds (the kept and the flipped halves) their
-    spectrum is flat in the share z of the parent's energy. The bin's own daughters enter its matrix (conversions and
-    decays solved together, exactly), those below go down by running sums before their bins are solved: a cascade of
-    conversion-decay cycles within the step, however fast. The rest of the docstring as before:
+    state c with dec_br[a, c]; for the one Majorana flux holding both kinds, the kept and the flipped halves' spectra
+    added, a + b z + c / z on the pair's window of z, the share of the parent's energy (dp_decay.daughter_spectra; flat
+    on [0, 1] for massless daughter and mediator): dec_own[a, c] the share in the parent's own bin, the rest through
+    dp_decay.window_plan's offsets (dec_kfull, dec_kex, dec_fex) and the moments dec_mom[a, c] = (c, a, b). The bin's own
+    daughters enter its matrix (conversions and decays solved together, exactly), those below go down by running sums
+    before their bins are solved: a cascade of conversion-decay cycles within the step, however fast. The rest of the
+    docstring as before:
     (C, 6). The collision operator of a bin does not depend on the source, so it is built once per bin for every
     column: the absorption rates, the own-bin secondaries, and (exact_bin) e^M, phi1(M) and phi2(M) of the bin's
     rate matrix M (the blocks of the 7 x 7 augmented exponential _si_sweep takes per source: F(dt) = e^M F + phi1 S dt,
@@ -1836,15 +1843,28 @@ def _si_sweep_cols(F, E, dE, S0, J, Nq, Lq, Dq, jt, w, qe, Ctau, Creg, tabB, tab
     dm = np.empty(nr, dtype=np.int64)
     Qn = np.empty((n, n))
     lose = np.empty(n)
-    Sdec = np.zeros((n, C))           # the decays' daughters per unit energy below the bins swept so far
     tdec = np.zeros(n)
     hgeo = np.sqrt(E[1] / E[0])
+    Lgeo = 2.0 * np.log(hgeo)
+    Nd = N if use_dec else 1
+    Sm = np.zeros((n, C, 3))          # the decays' daughters: running moments (c, a / E_p, b / E_p^2) of the parents
+    addm = np.zeros((Nd, n, C, 3))    # whose windows hold the bin wholly; entered at the window's top bin,
+    subm = np.zeros((Nd, n, C, 3))    # removed below its bottom bin
+    pend = np.zeros((Nd, n, C))       # the bins a window's edges cut: their exact numbers
     for j in range(N - 1, -1, -1):
         if use_dec:
-            # the daughters of the bins above, a flat density per unit energy below each parent
+            # the daughters of the bins above, per unit energy over this bin
+            elo = E[j] / hgeo
+            ehi = E[j] * hgeo
+            dEj = ehi - elo
+            q2j = 0.5 * (ehi * ehi - elo * elo)
             for c in range(n):
                 for k in range(C):
-                    reg[j, c, k] += Sdec[c, k]
+                    for mo in range(3):
+                        Sm[c, k, mo] += addm[j, c, k, mo]
+                    reg[j, c, k] += (Sm[c, k, 0] * Lgeo + Sm[c, k, 1] * dEj + Sm[c, k, 2] * q2j + pend[j, c, k]) / dEj
+                    for mo in range(3):
+                        Sm[c, k, mo] -= subm[j, c, k, mo]
         for a in range(n):
             t = 0.0
             tl = 0.0
@@ -1866,6 +1886,11 @@ def _si_sweep_cols(F, E, dE, S0, J, Nq, Lq, Dq, jt, w, qe, Ctau, Creg, tabB, tab
                         t += w[q] * sc * Jv * Nq[j, r, q]
                         tl += w[q] * sc * Jv * Nq[j, r, q]
             tdec[a] = dec_rate[a] / (E[j] * zp1) * dt if use_dec else 0.0
+            # a decay beyond DECAY_STEP_CAP per step and DECAY_STEP_RATIO x the state's other events drains it within
+            # the step whatever its value, and takes all but 1/DECAY_STEP_RATIO of its events: capped there (deep in the
+            # non-perturbative corner it reached 1e65 per step and overflowed the bin's exponential, 2026-10-24)
+            if tdec[a] > DECAY_STEP_CAP and tdec[a] > DECAY_STEP_RATIO * t:
+                tdec[a] = max(DECAY_STEP_CAP, DECAY_STEP_RATIO * t)
             tau[a] = t + tdec[a]
             lose[a] = tl + tdec[a]
         drift = False
@@ -1908,12 +1933,11 @@ def _si_sweep_cols(F, E, dE, S0, J, Nq, Lq, Dq, jt, w, qe, Ctau, Creg, tabB, tab
                         if qe[q] == 0:
                             Qn[c, a] += Wn[r, q, a, c] * b0
         if use_dec:
-            # the decays' daughters staying in the bin: z from E_lo / E_j to 1 of the flat spectrum
-            own_z = 1.0 - 1.0 / hgeo
+            # the decays' daughters staying in the bin (their share of the spectrum over z in [1/h, 1])
             for a in range(n):
                 if tdec[a] > 0.0 and tau[a] > 0.0:
                     for c in range(n):
-                        v = tdec[a] / tau[a] * dec_br[a, c] * own_z
+                        v = tdec[a] / tau[a] * dec_br[a, c] * dec_own[a, c]
                         Q[c, a] += v
                         Qn[c, a] += v
         for k in range(C):
@@ -1972,13 +1996,34 @@ def _si_sweep_cols(F, E, dE, S0, J, Nq, Lq, Dq, jt, w, qe, Ctau, Creg, tabB, tab
                     diag[k, 5] += S0[j, c, k] * dt * dE[j]
         if use_dec:
             # the decay rate of each state over the step (R carries every event: its decay share tdec / tau), its
-            # daughters below the bin: dN/dE = rate dE_j br / E_j for E < E_lo,j
+            # daughters below the bin: dN/dE = rate dE_j br (a + b E/E_j + c E_j/E) / E_j on the window
             for k in range(C):
                 for a in range(n):
                     if tdec[a] > 0.0 and tau[a] > 0.0:
                         rate = R[a, k] * tdec[a] / tau[a] * dE[j]
                         for c in range(n):
-                            Sdec[c, k] += rate * dec_br[a, c] / E[j]
+                            if dec_br[a, c] == 0.0:
+                                continue
+                            nd = rate * dec_br[a, c]
+                            for x in range(6):
+                                kk = dec_kex[a, c, x]
+                                if kk < 0:
+                                    break
+                                if kk >= 1 and j - kk >= 0:
+                                    pend[j - kk, c, k] += nd * dec_fex[a, c, x]
+                            k1 = dec_kfull[a, c, 0]
+                            k2 = dec_kfull[a, c, 1]
+                            if k1 <= k2 and j - k1 >= 0:
+                                v0 = nd * dec_mom[a, c, 0]
+                                v1 = nd * dec_mom[a, c, 1] / E[j]
+                                v2 = nd * dec_mom[a, c, 2] / (E[j] * E[j])
+                                addm[j - k1, c, k, 0] += v0
+                                addm[j - k1, c, k, 1] += v1
+                                addm[j - k1, c, k, 2] += v2
+                                if j - k2 >= 0:
+                                    subm[j - k2, c, k, 0] += v0
+                                    subm[j - k2, c, k, 1] += v1
+                                    subm[j - k2, c, k, 2] += v2
         for k in range(C):
             own = 0.0
             for c in range(n):
@@ -2806,21 +2851,6 @@ class batch_hint:
         _BATCH_HINT = self._old
 
 
-def _decay_columns(Fs, E, L_lo, L_hi, dt, decay, masses, majorana):
-    """Neutrino decay into the mediator over one step (dp_decay, 2026-10-24), after the step's collisions: the
-    visible states of every column, one Majorana flux holding both kinds with equal populations (the flipped
-    daughters into it too: dp_decay's fold)."""
-    import dp_decay
-    if not majorana:
-        raise NotImplementedError("neutrino decay in dp_si: Majorana neutrinos only")
-    zp1 = float(np.exp(0.5 * (L_lo + L_hi)))
-    none = np.zeros((1, 3, 3))
-    for Fk in Fs:
-        for c in range(Fk.shape[2]):
-            F = Fk[:, :3, c]
-            dp_decay.decay_step(E, zp1, dt, decay[0], decay[1], masses, F, F, none, none, False, True)
-
-
 def _loss_columns(Fs, E, L_lo, L_hi, dt, relic_loss):
     """The beam's energy loss in relic mass changes over one step (dp_relic_loss, 2026-10-24): relic_loss = (z nodes,
     C(z) on them, (G'G'^dag)_aa per mass state); each visible state's content shifts down by C (G'G'^dag)_aa dt/(1+z)."""
@@ -2923,15 +2953,37 @@ def _transport_columns(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu
     use_dec = decay is not None
     dec_rate = np.zeros(n_st)
     dec_br = np.zeros((n_st, n_st))
+    dec_own = np.zeros((n_st, n_st))
+    dec_kfull = np.zeros((n_st, n_st, 2), dtype=np.int64)
+    dec_kex = np.full((n_st, n_st, 6), -1, dtype=np.int64)
+    dec_fex = np.zeros((n_st, n_st, 6))
+    dec_mom = np.zeros((n_st, n_st, 3))
     if use_dec:
         if not majorana:
             raise NotImplementedError("neutrino decay in dp_si: Majorana neutrinos only")
+        import dp_decay
         Gam_d = np.asarray(decay[0], dtype=np.float64)
         tot_d = Gam_d.sum(axis=1)
         for a_ in range(3):
             if tot_d[a_] > 0.0:
                 dec_rate[a_] = tot_d[a_] * masses[a_]
                 dec_br[a_, :3] = Gam_d[a_] / tot_d[a_]
+        # the one Majorana flux: the kept and flipped spectra added (the neutrino parent's; the kinds are alike)
+        sp = np.asarray(decay[1], dtype=np.float64)
+        spf = np.zeros_like(sp)
+        spf[0, :, :, 0, :2] = sp[0, :, :, 0, :2]
+        spf[0, :, :, 0, 2:] = sp[0, :, :, 0, 2:] + sp[0, :, :, 1, 2:]
+        kf = np.zeros((2, 3, 3, 2, 2), dtype=np.int64)
+        kx = np.zeros((2, 3, 3, 2, 6), dtype=np.int64)
+        fx = np.zeros((2, 3, 3, 2, 6))
+        dp_decay.window_plan(spf, float(np.sqrt(E[1] / E[0])), len(E), kf, kx, fx)
+        dec_kfull[:3, :3] = kf[0, :, :, 0]
+        dec_kex[:3, :3] = kx[0, :, :, 0]
+        dec_fex[:3, :3] = fx[0, :, :, 0]
+        dec_mom[:3, :3, 0] = spf[0, :, :, 0, 4]
+        dec_mom[:3, :3, 1] = spf[0, :, :, 0, 2]
+        dec_mom[:3, :3, 2] = spf[0, :, :, 0, 3]
+        dec_own[:3, :3] = np.where(kx[0, :, :, 0] == 0, fx[0, :, :, 0], 0.0).sum(axis=-1)
     diags = [np.zeros((C, 6)) for _ in runs]
     reg = np.zeros((N, n_st, C))
     J = np.zeros((N, 3, 4))
@@ -2999,8 +3051,8 @@ def _transport_columns(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu
                 Rth = np.ascontiguousarray(np.concatenate([bl[3] for bl in blocks], axis=0))
             for k in range(len(runs)):
                 _si_sweep_cols(Fs[k], E, dE, S0, Jone, Nq, Lq, Dq, spec["jt"], spec["w"], spec["qe"], spec["Ctau"],
-                               Cregs[k], Rth, Oth, node_th, dt, reg, diags[k], prof == 1, dec_rate, dec_br,
-                               float(np.exp(0.5 * (L_lo + L_hi))), use_dec)
+                               Cregs[k], Rth, Oth, node_th, dt, reg, diags[k], prof == 1, dec_rate, dec_br, dec_own,
+                               dec_kfull, dec_kex, dec_fex, dec_mom, float(np.exp(0.5 * (L_lo + L_hi))), use_dec)
             if relic_loss is not None:
                 _loss_columns(Fs, E, L_lo, L_hi, 0.5 * dt, relic_loss)
             continue
@@ -3025,8 +3077,8 @@ def _transport_columns(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu
                 node[:, r] = 0
         for k in range(len(runs)):
             _si_sweep_cols(Fs[k], E, dE, S0, J, Nq, Lq, Dq, spec["jt"], spec["w"], spec["qe"], spec["Ctau"],
-                           Cregs[k], tB, tO, node, dt, reg, diags[k], prof == 1, dec_rate, dec_br,
-                           float(np.exp(0.5 * (L_lo + L_hi))), use_dec)
+                           Cregs[k], tB, tO, node, dt, reg, diags[k], prof == 1, dec_rate, dec_br, dec_own,
+                           dec_kfull, dec_kex, dec_fex, dec_mom, float(np.exp(0.5 * (L_lo + L_hi))), use_dec)
         if relic_loss is not None:
             _loss_columns(Fs, E, L_lo, L_hi, 0.5 * dt, relic_loss)
     if store is not None:

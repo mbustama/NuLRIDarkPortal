@@ -366,6 +366,9 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
     # item 1): dE/dt = -C(z) (G G^dag)_aa per state, C at each redshift node, or None where the loss over the path at
     # the grid's lowest energy is below 1e-6 of it (dp_relic_loss)
     loss_C = None
+    # the Z mixing's universal kappa I: no relic changes its mass state through it (C has the non-universal G), but the
+    # beam's factor ((G + kappa)(G + kappa)^dag)_aa has it (the review's finding 3; 0 in every plane below 1 keV today)
+    kappa_loss = 0.0 if G_coupling is not None else float(np.real(dp_absorption.kappa_z_mixing(eps_prime)))
     if relic_scattering and lagrangian and arrival_flavor is None:
         import dp_relic_loss
         G_loss = (np.asarray(G_coupling, dtype=np.complex128) if G_coupling is not None
@@ -374,7 +377,8 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
             G_loss, U_pmns, m_nu_bg_arr, eta_mass, T_nu0, zk, m_Zd,
             dp_absorption.debye_mass_sq(ab[0].G_mass_diag2, m_nu_bg_arr, T_nu0 * (1.0 + zk), eta_mass))
             for zk in z_bins])
-        Gm_loss = U_pmns.conj().T @ (G_loss - G_loss[0, 0].real * np.eye(3)) @ U_pmns + G_loss[0, 0].real * np.eye(3)
+        Gm_loss = (U_pmns.conj().T @ (G_loss - G_loss[0, 0].real * np.eye(3)) @ U_pmns
+                   + (G_loss[0, 0].real + kappa_loss) * np.eye(3))
         beam_max = float(np.max(np.real(np.diag(Gm_loss @ Gm_loss.conj().T))))
         dz_ = z_bins[0] - z_bins[1]
         path = sum(abs(C_k[k]) * beam_max * dz_ / (calc_H_Hubble(z_bins[k], H0, Omega_m, Omega_L) * (1.0 + z_bins[k]) ** 2)
@@ -392,23 +396,39 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         import dp_decay
         G_dec = (np.asarray(G_coupling, dtype=np.complex128) if G_coupling is not None
                  else dp_absorption.dark_portal_coupling(g_D, u_arr, 0.0))
-        Gam_d, fL_d = dp_decay.rest_rates(G_dec, U_pmns, m_nu_bg_arr, m_Zd)
+        Gam_d, _ = dp_decay.rest_rates(G_dec, U_pmns, m_nu_bg_arr, m_Zd)
         if float(np.max(dp_decay.total_lab_rate(Gam_d, m_nu_bg_arr, E_bins[0]))) > 1e-8 * H0:
-            decay_rates = (Gam_d, fL_d)
+            # the rates and the daughters' exact spectra (kept and flipped, per pair and kind)
+            decay_rates = (Gam_d, dp_decay.daughter_spectra(G_dec, U_pmns, m_nu_bg_arr, m_Zd))
     # per mass state, rest rate x mass: the lab width of state i at physical energy E is decay_width_unit[i] / E
     decay_width_unit = (decay_rates[0].sum(axis=1) * m_nu_bg_arr) if decay_rates is not None else None
     # the decays' optical depth per unit Gamma m / E_obs over each step, exactly: int dz / ((1+z)^2 H) between the
     # step's redshifts (8-point Gauss-Legendre; the end-point dt / (1+z) was first order, 1.5% low at half survival with
     # 200 steps)
     decay_I = None
-    if decay_rates is not None or loss_C is not None:
+    jump_I = None
+    if decay_rates is not None or loss_C is not None or jump_unit is not None:
         xg, wg = np.polynomial.legendre.leggauss(8)
         decay_I = np.zeros(len(z_bins))
+        jump_I = np.zeros(len(z_bins))
         for kk in range(1, len(z_bins)):
             a_, b_ = z_bins[kk], z_bins[kk - 1]
             zg = 0.5 * (b_ - a_) * xg + 0.5 * (a_ + b_)
-            decay_I[kk] = 0.5 * (b_ - a_) * float(np.sum(wg / ((1.0 + zg) ** 2 * calc_H_Hubble_vec(zg, H0, Omega_m,
-                                                                                               Omega_L))))
+            Hg = calc_H_Hubble_vec(zg, H0, Omega_m, Omega_L)
+            decay_I[kk] = 0.5 * (b_ - a_) * float(np.sum(wg / ((1.0 + zg) ** 2 * Hg)))
+            jump_I[kk] = 0.5 * (b_ - a_) * float(np.sum(wg / ((1.0 + zg) * Hg)))
+    # The new processes' rates over a step at its midpoint (2026-10-24): taken at the step's low-redshift end they were
+    # first order, and where the soft scatterings and the decays compete (the Zeno-suppressed conversions fall as
+    # ~(1+z)^-5) a few percent in the exponent became up to 17% of a drained flux at 200 steps. The rates' trapezoid
+    # average with the step's exact time int dz / ((1+z) H) (jumps) or int dz / ((1+z)^2 H) (decays, loss), the
+    # (1+z) of the widths and the sigma of the tables at the midpoint: second order.
+    ju_mid = None
+    if jump_unit is not None:
+        ju_mid = np.concatenate([[jump_unit[0]], 0.5 * (jump_unit[:-1] + jump_unit[1:])])
+    C_mid = None
+    if loss_C is not None:
+        C_mid = np.concatenate([[loss_C[0]], 0.5 * (loss_C[:-1] + loss_C[1:])])
+    z_mid = np.concatenate([[z_bins[0]], 0.5 * (z_bins[:-1] + z_bins[1:])])
     no_wd = np.zeros((1, 3))
 
     # Per kind: the vacuum matrix U M U^dag (computed once), the LRI and SM textures with the
@@ -462,6 +482,8 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                                                                                     else U_pmns)),
                                T_bins=np.zeros((N_E, 3, 3), dtype=np.float64))
     nu, nb = species
+    for sp in species:
+        sp["c_mid"] = np.concatenate([[sp["c_z"][0]], 0.5 * (sp["c_z"][:-1] + sp["c_z"][1:])])
 
     inv_sum_G = 1.0 / sum_G if sum_G > 0.0 else 0.0
 
@@ -500,24 +522,26 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                                    nu["R"], nb["R"], nu["c_inj"][k], nb["c_inj"][k], nu["P_inj"], nb["P_inj"],
                                    inj_w)
             continue
+        zm = z_mid[k]
         if decay_rates is not None:
             # the eigenstates' mass content at this step, and their decay widths (lab frame), which the jumps need too;
             # the decays in two halves around the step's collisions and injection (Strang): what the step injects
             # decays over half of it on average, not all of it (2026-10-24: 2% low at half survival otherwise)
             for sp in species:
-                _cosmo_projections(E_bins, sp["T_table"], sp["log_s0"], sp["inv_dlogs"], sp["c_z"][k], sp["T_bins"])
+                _cosmo_projections(E_bins, sp["T_table"], sp["log_s0"], sp["inv_dlogs"], sp["c_mid"][k], sp["T_bins"])
                 sp["Wd"] = np.ascontiguousarray(np.einsum("ima,m->ia", sp["T_bins"], decay_width_unit)
-                                                / (E_bins[:, None] * (1.0 + z)))
-            n_sub = _cycle_count(jump_unit, k, species, decay_width_unit, E_bins, z, dt, decay_I[k])
-            _jump_decay_cycles(species, None, k, z, 0.5 * dt, 0.5 * decay_I[k], n_sub, jump_unit, decay_rates,
-                               m_nu_bg_arr, E_bins)
+                                                / (E_bins[:, None] * (1.0 + zm)))
+            n_sub = _cycle_count(ju_mid, k, species, decay_width_unit, E_bins, zm,
+                                 jump_I[k] if jump_I is not None else dt, decay_I[k])
+            _jump_decay_cycles(species, None, k, zm, 0.5 * (jump_I[k] if jump_I is not None else dt), 0.5 * decay_I[k],
+                               n_sub, ju_mid, decay_rates, m_nu_bg_arr, E_bins)
             if ref is not None:
-                _jump_decay_cycles(species, ref, k, z, 0.5 * dt, 0.5 * decay_I[k], n_sub, jump_unit, decay_rates,
-                                   m_nu_bg_arr, E_bins)
+                _jump_decay_cycles(species, ref, k, zm, 0.5 * (jump_I[k] if jump_I is not None else dt),
+                                   0.5 * decay_I[k], n_sub, ju_mid, decay_rates, m_nu_bg_arr, E_bins)
         if loss_C is not None and jump_unit is not None:
             # the energy loss in two halves around the step's collisions and injection (as the decays), each with half
             # of the step's exact int dz / ((1+z)^2 H)
-            _loss_half(species, ref, k, loss_C, decay_I, E_bins, N_E)
+            _loss_half(species, ref, k, C_mid, decay_I, E_bins, N_E, kappa_loss)
         G_state = np.ascontiguousarray(Gamma_grid_all[k, :, :])
         Pis = []
         for sp in species:
@@ -539,21 +563,21 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                                     inj_w_ref)
         if jump_unit is not None and decay_rates is None:
             for i_s, sp in enumerate(species):
-                _soft_jumps(E_bins, 1.0 + z, sp["J_table"], sp["Gd_table"], sp["GG_table"], sp["lam_table"],
-                            sp["log_s0"], sp["inv_dlogs"], sp["c_z"][k], float(jump_unit[k]), dt, sp["F"],
+                _soft_jumps(E_bins, 1.0 + zm, sp["J_table"], sp["Gd_table"], sp["GG_table"], sp["lam_table"],
+                            sp["log_s0"], sp["inv_dlogs"], sp["c_mid"][k], float(ju_mid[k]), jump_I[k], sp["F"],
                             no_wd, False)
                 if ref is not None:
-                    _soft_jumps(E_bins, 1.0 + z, sp["J_table"], sp["Gd_table"], sp["GG_table"], sp["lam_table"],
-                                sp["log_s0"], sp["inv_dlogs"], sp["c_z"][k], float(jump_unit[k]), dt, ref[i_s]["F"],
-                                no_wd, False)
+                    _soft_jumps(E_bins, 1.0 + zm, sp["J_table"], sp["Gd_table"], sp["GG_table"], sp["lam_table"],
+                                sp["log_s0"], sp["inv_dlogs"], sp["c_mid"][k], float(ju_mid[k]), jump_I[k],
+                                ref[i_s]["F"], no_wd, False)
         if decay_rates is not None:
-            _jump_decay_cycles(species, None, k, z, 0.5 * dt, 0.5 * decay_I[k], n_sub, jump_unit, decay_rates,
-                               m_nu_bg_arr, E_bins)
+            _jump_decay_cycles(species, None, k, zm, 0.5 * (jump_I[k] if jump_I is not None else dt), 0.5 * decay_I[k],
+                               n_sub, ju_mid, decay_rates, m_nu_bg_arr, E_bins)
             if ref is not None:
-                _jump_decay_cycles(species, ref, k, z, 0.5 * dt, 0.5 * decay_I[k], n_sub, jump_unit, decay_rates,
-                                   m_nu_bg_arr, E_bins)
+                _jump_decay_cycles(species, ref, k, zm, 0.5 * (jump_I[k] if jump_I is not None else dt),
+                                   0.5 * decay_I[k], n_sub, ju_mid, decay_rates, m_nu_bg_arr, E_bins)
         if loss_C is not None and jump_unit is not None:
-            _loss_half(species, ref, k, loss_C, decay_I, E_bins, N_E)
+            _loss_half(species, ref, k, C_mid, decay_I, E_bins, N_E, kappa_loss)
     if verbose == 2:
         safe_print(f"Cosmological baseline finished at z = {z_bins[-1]:.4f}.")
 
@@ -726,30 +750,45 @@ def _cycle_count(jump_unit, k, species, decay_width_unit, E_bins, z, dt, I_k):
 
 
 def _jump_decay_cycles(species, ref, k, z, dt_half, I_half, n_sub, jump_unit, decay_rates, m_nu, E_bins):
-    """n_sub alternations of the jumps (dt_half / n_sub each) and the decays (optical depth I_half / n_sub each) on the
-    species' populations (ref: the reference populations of the 'combined' mode instead)."""
+    """At step k (z its midpoint, jump_unit the midpoint rates, the species' sigma at c_mid[k]): n_sub alternations of the jumps (dt_half / n_sub each) and the decays (optical depth I_half / n_sub each) on the
+    species' populations (ref: the reference populations of the 'combined' mode instead), symmetric (Strang, 2026-10-24:
+    half a sub-step's decays before the first jumps and after the last; the plain alternation was first order, 4% off
+    on the Galactic paths where the two compete)."""
     import dp_decay
     pops = [sp["F"] for sp in species] if ref is None else [r["F"] for r in ref]
-    for _ in range(n_sub):
+
+    def decays(f):
+        dp_decay.decay_step(E_bins, 1.0, f * I_half / n_sub, decay_rates[0], decay_rates[1], m_nu, pops[0], pops[1],
+                            species[0]["T_bins"], species[1]["T_bins"], True, False)
+
+    decays(0.5)
+    for s_ in range(n_sub):
         if jump_unit is not None:
             for i_s, sp in enumerate(species):
                 _soft_jumps(E_bins, 1.0 + z, sp["J_table"], sp["Gd_table"], sp["GG_table"], sp["lam_table"],
-                            sp["log_s0"], sp["inv_dlogs"], sp["c_z"][k], float(jump_unit[k]), dt_half / n_sub,
+                            sp["log_s0"], sp["inv_dlogs"], sp["c_mid"][k], float(jump_unit[k]), dt_half / n_sub,
                             pops[i_s], sp["Wd"], True)
-        dp_decay.decay_step(E_bins, 1.0, I_half / n_sub, decay_rates[0], decay_rates[1], m_nu, pops[0], pops[1],
-                            species[0]["T_bins"], species[1]["T_bins"], True, False)
+        decays(0.5 if s_ == n_sub - 1 else 1.0)
 
 
-def _loss_half(species, ref, k, loss_C, step_I, E_bins, N_E):
+def _loss_half(species, ref, k, loss_C, step_I, E_bins, N_E, kappa=0.0):
     """Half of a step's relic mass-change energy loss (dp_relic_loss): each state's content shifts down by
-    C(z_k) (G G^dag)_aa (the jumps' GG table at the step's sigma) times half of int dz / ((1+z)^2 H) over the step."""
+    C (G G^dag)_aa (C the step's midpoint value; the beam's factor from the jumps' tables at the midpoint sigma, with
+    the Z mixing's kappa I added back: ((G + kappa)(G + kappa)^dag)_aa = GG_aa + 2 kappa Gd_a + kappa^2, the review's
+    finding 3) times half of int dz / ((1+z)^2 H) over the step."""
     import dp_relic_loss
     for i_s, sp in enumerate(species):
         if "GG_bins" not in sp:
             sp["GG_bins"] = np.zeros((N_E, 3), dtype=np.float64)
-        dp_relic_loss.interp_sigma_table(E_bins, sp["GG_table"], sp["log_s0"], sp["inv_dlogs"], sp["c_z"][k],
+        dp_relic_loss.interp_sigma_table(E_bins, sp["GG_table"], sp["log_s0"], sp["inv_dlogs"], sp["c_mid"][k],
                                          sp["GG_bins"])
-        dE_obs = np.ascontiguousarray(float(loss_C[k]) * sp["GG_bins"] * 0.5 * step_I[k])
+        beam = sp["GG_bins"]
+        if kappa != 0.0:
+            Gd_bins = np.zeros((N_E, 3), dtype=np.float64)
+            dp_relic_loss.interp_sigma_table(E_bins, sp["Gd_table"], sp["log_s0"], sp["inv_dlogs"], sp["c_mid"][k],
+                                             Gd_bins)
+            beam = beam + 2.0 * kappa * Gd_bins + kappa * kappa
+        dE_obs = np.ascontiguousarray(float(loss_C[k]) * beam * 0.5 * step_I[k])
         dp_relic_loss.shift_step(E_bins, sp["F"], dE_obs)
         if ref is not None:
             dp_relic_loss.shift_step(E_bins, ref[i_s]["F"], dE_obs)
@@ -1078,6 +1117,7 @@ def _galactic_emission_populations(E_bins: np.ndarray, params: Dict, setup: Dict
     q_gas, q_src = dp_galactic.emission_weights(work)
     _, _, R, z = dp_galactic.emission_geometry(work)
     out = []
+    kind_info = []
     for anti in (False, True):
         u_s, M_rot, S_eff, _ = _species_matrices(setup['U_pmns_base'], setup['M_sq'], setup['u_arr_base'],
                                                  params.get('U_LRI_struct', None), params.get('V_SM_struct', None),
@@ -1107,6 +1147,8 @@ def _galactic_emission_populations(E_bins: np.ndarray, params: Dict, setup: Dict
             n_floor = dp_matter.cosmic_density(charge, params['n_n0_eV3'])
             n_emit = n_emit + n_floor * m_eff * m_eff * (yukawa_horizon_inv_m2(params['m_Zd_eV'] ** 2, R_H)
                                                          - yukawa_horizon_inv_m2(m_eff * m_eff, R_H))
+        kind_info.append(dict(anti=anti, M_rot=M_rot, S_signed=S_signed, tab=tab, coef2=2.0 * abs(Coef),
+                              n=np.asarray(n_emit, dtype=np.float64)))
         st = None
         if work != nside and GALACTIC_EMISSION_REGROUPED:
             # the emission's mixing-independent sums kept per density pattern (dp_galactic.emission_structure;
@@ -1124,8 +1166,123 @@ def _galactic_emission_populations(E_bins: np.ndarray, params: Dict, setup: Dict
             if work != nside:
                 F = dp_galactic.degrade_weighted(F, dp_galactic.intensity(gal['template'], E_GeV, work), work, nside)
         out.append(F)
-    return out
+    paths = _galactic_path_processes(E_bins, params, setup, kind_info, f_S, w_gas, q_gas, q_src, work, nside,
+                                     gal['template'])
+    return out if paths is None else paths
 
+
+def _galactic_path_processes(E_bins, params, setup, kind_info, f_S, w_gas, q_gas, q_src, work, nside, template):
+    """The Galactic emission's populations with the incoherent processes along each line of sight (dp_galactic_path,
+    2026-10-24): the soft scatterings, the decay into the mediator and the relic mass-change energy loss, at z = 0,
+    below 1 keV (the cosmological phase's regime for them; above it the Galactic part as before). None where none of
+    them acts over the Galaxy (30 kpc at the grid's lowest energy: jumps below SOFT_JUMP_MIN, decays and losses below
+    1e-6), the caller's populations then unchanged."""
+    import dp_absorption
+    import dp_decay
+    import dp_galactic
+    import dp_galactic_path
+    import dp_relic_loss
+    if params.get('absorption_model', 'lagrangian') != 'lagrangian' or params['m_Zd_eV'] >= SI_COSMOLOGY_MIN_M_EV:
+        return None
+    relic_sc = params.get('relic_scattering', True)
+    decay_on = params.get('neutrino_decay', True)
+    if not (relic_sc or decay_on):
+        return None
+    U = setup['U_pmns_base']
+    m = np.asarray(params['m_nu_bg_arr'], dtype=np.float64)
+    M = float(params['m_Zd_eV'])
+    T0 = float(params['T_nu0_eV'])
+    ab = _absorption_setup(params, U, setup['u_arr_base'])
+    G_full = np.asarray(ab.G, dtype=np.complex128)
+    G_nu = (np.asarray(params['G_coupling'], dtype=np.complex128) if params.get('G_coupling') is not None
+            else dp_absorption.dark_portal_coupling(params['g_D'], setup['u_arr_base'], 0.0))
+    eta = (np.abs(U) ** 2).T @ np.asarray(setup['eta_bg'], dtype=np.float64)
+    Gam = np.zeros((3, 3))
+    spec = np.zeros((2, 3, 3, 2, 5))
+    if decay_on:
+        Gam, _ = dp_decay.rest_rates(G_nu, U, m, M)
+        if np.any(Gam > 0.0):
+            spec = dp_decay.daughter_spectra(G_nu, U, m, M)
+        if np.any(Gam > 0.0):
+            eta = dp_decay.relic_composition(Gam, m, eta, T0, params['H0_eV'], params['Omega_m'], params['Omega_L'],
+                                             z_ref=0.0)
+    mD2 = dp_absorption.debye_mass_sq(ab.G_mass_diag2, m, T0, eta)
+    s_kpc, _, _, _ = dp_galactic.emission_geometry(work)
+    L_max = float(np.max(s_kpc)) * dp_galactic_path.KPC_EV_INV
+    E = np.asarray(E_bins, dtype=np.float64)
+    jump_unit = 0.0
+    loss_C = 0.0
+    if relic_sc:
+        Gm = U.conj().T @ G_full @ U
+        n_hel0 = 3.0 * 1.2020569031595942 * T0 ** 3 / (4.0 * np.pi ** 2)
+        relic = float(np.sum(eta * np.sum(np.abs(Gm) ** 2, axis=1)))
+        jump_unit = 2.0 * n_hel0 * relic / (4.0 * np.pi * (M * M + mD2))
+        g2 = float(np.max(np.abs(np.linalg.eigvalsh(G_nu - G_nu[0, 0].real * np.eye(3)))) ** 2) if np.any(G_nu) else 0.0
+        if jump_unit * g2 * L_max < SOFT_JUMP_MIN:
+            jump_unit = 0.0
+        loss_C = dp_relic_loss.loss_coefficient(G_nu, U, m, eta, T0, 0.0, M, mD2)
+        Gmn = U.conj().T @ G_nu @ U
+        if abs(loss_C) * float(np.max(np.real(np.diag(Gmn @ Gmn.conj().T)))) * L_max < 1e-6 * E[0]:
+            loss_C = 0.0
+    if decay_on and float(np.max(Gam.sum(axis=1) * m)) / E[0] * L_max < 1e-6:
+        Gam = np.zeros((3, 3))
+    if loss_C != 0.0 and params.get('G_coupling') is None and float(params.get('epsilon_prime', 0.0)) != 0.0:
+        # the beam's loss factor would need the Z mixing's kappa I (as the cosmological phase's _loss_half): not
+        # implemented on the Galactic paths, where no plane below 1 keV has a Z mixing (2026-10-24)
+        raise NotImplementedError("Galactic relic mass-change loss with a Z mixing (epsilon_prime != 0) below 1 keV")
+    if jump_unit == 0.0 and loss_C == 0.0 and not np.any(Gam > 0.0):
+        return None
+    E_GeV = E / 1e9
+    I = dp_galactic.intensity(template, E_GeV, work)
+    rates = dict(jump_unit=jump_unit, Gam=Gam, spec=spec, m=m, loss_C=loss_C)
+    if GALACTIC_PATH_VACUUM:
+        # the potential negligible along every line of sight (each kind's eigenbasis within GALACTIC_VACUUM_ROTATION
+        # of the vacuum one at the largest sigma): dp_galactic_path.vacuum_populations, the same evolution
+        import dp_transit
+        vac = True
+        for kd in kind_info:
+            _, s_t, _, _, sig_lo_t, sig_hi_t = dp_transit.texture_scales(kd['M_rot'], kd['S_signed'])
+            sig_max = E[-1] * abs(kd['coef2']) * float(np.max(kd['n']))
+            if sig_hi_t > 0.0 and sig_max > sig_lo_t * 1e9 * GALACTIC_VACUUM_ROTATION:
+                vac = False
+        if vac:
+            P_vac = np.zeros((2, len(E), 3))
+            tables = []
+            F_fl = np.ascontiguousarray(np.broadcast_to(np.asarray(f_S, dtype=np.float64), (len(E), 3)))
+            for kk, kd in enumerate(kind_info):
+                tab = kd['tab']
+                dp_transit.flavor_populations(E, F_fl, 0.0, 0.0, tab['Q'], tab['Mp'], tab['s'], tab['floor'], P_vac[kk])
+                U_k = np.conj(U) if kd['anti'] else U
+                G_k = np.conj(G_nu) if kd['anti'] else G_nu
+                tables.append(dp_galactic_path.build_tables(kd['M_rot'], kd['S_signed'], U_k, G_k, 0.0, 0.0, n_sigma=2))
+            out = dp_galactic_path.vacuum_populations(E, I, w_gas, q_gas, q_src, s_kpc, P_vac, tables, rates, work,
+                                                      nside)
+            return [out[0], out[1]]
+    kinds = []
+    for kd in kind_info:
+        P, j, t = dp_galactic_path.node_populations(E, f_S, kd['n'], kd['coef2'], kd['tab'],
+                                                    dp_galactic.NEFF_NODES_PER_DECADE)
+        n = kd['n']
+        sig_min = E[0] * kd['coef2'] * max(float(np.min(n)), 1e-300)
+        sig_max = E[-1] * kd['coef2'] * float(np.max(n))
+        U_k = np.conj(U) if kd['anti'] else U
+        G_k = np.conj(G_nu) if kd['anti'] else G_nu
+        tables = dp_galactic_path.build_tables(kd['M_rot'], kd['S_signed'], U_k, G_k, sig_min, sig_max)
+        kinds.append(dict(P=P, j=j, t=t, n=n, coef2=kd['coef2'], tables=tables))
+    out = dp_galactic_path.sweep_populations(E, I, w_gas, q_gas, q_src, s_kpc, kinds, rates)
+    res = []
+    for kk in range(2):
+        F = out[kk]
+        if work != nside:
+            F = dp_galactic.degrade_weighted(F, I, work, nside)
+        res.append(F)
+    return res
+
+
+# dp_galactic_path.vacuum_populations where the Galaxy's potential is negligible (False: the per-pixel sweep always;
+# the two are compared in tests/test_galactic_path.py), and the eigenbasis rotation below which it is
+GALACTIC_PATH_VACUUM = True
+GALACTIC_VACUUM_ROTATION = 1e-6
 
 # dp_galactic.emission_structure / emission_populations_degraded for the coarser maps (False: the direct path, as
 # before 2026-10-18; tests/test_speedups.py compares the two)

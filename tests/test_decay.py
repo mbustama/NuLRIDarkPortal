@@ -48,7 +48,7 @@ def test_number_conserved_and_survival():
     Fn[100, 2] = 1.0
     n0 = _number(E, Fn)
     zp1, dt = 1.0, 1e30
-    dd.decay_step(E, zp1, dt, Gam, fL, M_NU, Fn, Fb, np.zeros((1, 3, 3)), np.zeros((1, 3, 3)), False, False)
+    dd.decay_step(E, zp1, dt, Gam, dd.massless_spectra(fL), M_NU, Fn, Fb, np.zeros((1, 3, 3)), np.zeros((1, 3, 3)), False, False)
     lam = Gam[2, 0] * M_NU[2] / E[100] * dt
     assert np.isclose(Fn[100, 2], np.exp(-lam), rtol=1e-12)
     # kept, but for the daughters below the grid: z < E_lo,0 / E_100 (kernels <= 1 per unit z)
@@ -67,7 +67,7 @@ def test_daughter_spectra():
         Fb = np.zeros((len(E), 3))
         j = 399
         Fn[j, 2] = 1.0
-        dd.decay_step(E, 1.0, 1e40, Gam, fL, M_NU, Fn, Fb, np.zeros((1, 3, 3)), np.zeros((1, 3, 3)), False, False)
+        dd.decay_step(E, 1.0, 1e40, Gam, dd.massless_spectra(fL), M_NU, Fn, Fb, np.zeros((1, 3, 3)), np.zeros((1, 3, 3)), False, False)
         h = np.sqrt(E[1] / E[0])
         dEj = E[j] * h - E[j] / h
         # the daughters per bin against the kernels integrated over each bin (parent at E_j)
@@ -92,7 +92,7 @@ def test_chain_runs_within_a_step():
     Fb = np.zeros((len(E), 3))
     Fn[110, 2] = 1.0
     n0 = _number(E, Fn)
-    dd.decay_step(E, 1.0, 1e40, Gam, fL, M_NU, Fn, Fb, np.zeros((1, 3, 3)), np.zeros((1, 3, 3)), False, False)
+    dd.decay_step(E, 1.0, 1e40, Gam, dd.massless_spectra(fL), M_NU, Fn, Fb, np.zeros((1, 3, 3)), np.zeros((1, 3, 3)), False, False)
     assert Fn[:, 1:].sum() + Fb[:, 1:].sum() < 1e-12 * n0
     lost = n0 - (_number(E, Fn) + _number(E, Fb))
     assert lost >= -1e-12 * n0
@@ -105,7 +105,7 @@ def test_fold_is_flat():
     fL = np.full((3, 3), 0.8)
     F = np.zeros((len(E), 3))
     F[299, 2] = 1.0
-    dd.decay_step(E, 1.0, 1e40, Gam, fL, M_NU, F, F, np.zeros((1, 3, 3)), np.zeros((1, 3, 3)), False, True)
+    dd.decay_step(E, 1.0, 1e40, Gam, dd.massless_spectra(fL), M_NU, F, F, np.zeros((1, 3, 3)), np.zeros((1, 3, 3)), False, True)
     h = np.sqrt(E[1] / E[0])
     dEj = E[299] * h - E[299] / h
     lo, hi = np.minimum(E / h, E[299]), np.minimum(E * h, E[299])
@@ -127,7 +127,7 @@ def test_eigenstate_content():
     Fn = np.zeros((len(E), 3))
     Fb = np.zeros((len(E), 3))
     Fn[49, 2] = 1.0
-    dd.decay_step(E, 1.0, 1e40, Gam, fL, M_NU, Fn, Fb, T, T, True, False)
+    dd.decay_step(E, 1.0, 1e40, Gam, dd.massless_spectra(fL), M_NU, Fn, Fb, T, T, True, False)
     assert Fn[:, 2].sum() < 1e-12
     assert np.allclose(Fn[:, 0], Fn[:, 1])
 
@@ -208,3 +208,140 @@ def test_solver_uses_the_decayed_relics():
     finally:
         dp_absorption.debye_mass_sq = orig
     assert seen and all(np.allclose(e, [3.0, 0.0, 0.0], atol=1e-6) for e in seen), seen[:3]
+
+
+def test_exact_spectra_kinematics():
+    """daughter_spectra: the window [z-, z+] of two-body kinematics; averaged over the parent's helicity the
+    daughter's mean share is E*/m_i (the rest-frame angle averages out); the massless limit is the earlier kernels."""
+    G = 1e-8 * np.array([[0.3, 1, 0.5], [1, 0.2, 0.7j], [0.5, -0.7j, -0.4]])
+    for ml, M in ((1e-6, 1e-4), (1e-6, 0.03), (0.1, 1e-3), (0.1, 0.008)):
+        m = np.sqrt(np.array([0.0, 7.5e-5, 2.5e-3]) + ml * ml)
+        Gam, _ = dd.rest_rates(G, U, m, M)
+        sp = dd.daughter_spectra(G, U, m, M)
+        for i in range(3):
+            for j in range(3):
+                if Gam[i, j] == 0.0:
+                    assert not np.any(sp[:, i, j])
+                    continue
+                p = np.sqrt((m[i] ** 2 - (m[j] + M) ** 2) * (m[i] ** 2 - (m[j] - M) ** 2)) / (2 * m[i])
+                Ej = np.sqrt(p * p + m[j] ** 2)
+                zm, zp = sp[0, i, j, 0, :2]
+                assert np.isclose(zm, (Ej - p) / m[i], rtol=1e-9, atol=1e-15) and np.isclose(zp, (Ej + p) / m[i])
+                mean = 0.0
+                for s_ in range(2):
+                    tot = 0.0
+                    for rel in range(2):
+                        _, _, a, b, c = sp[s_, i, j, rel]
+                        tot += a * (zp - zm) + 0.5 * b * (zp ** 2 - zm ** 2) + (c * np.log(zp / zm) if c else 0.0)
+                        mean += 0.5 * (a * (zp ** 2 - zm ** 2) / 2 + b * (zp ** 3 - zm ** 3) / 3 + c * (zp - zm))
+                    assert np.isclose(tot, 1.0, rtol=1e-12)
+                assert np.isclose(mean, Ej / m[i], rtol=1e-6)
+    m0 = np.array([0.0, 8.68e-3, 0.0501])
+    G1 = 1e-8 * np.outer([0, 1, 0], [0, 1, 0]).astype(complex)
+    _, fL = dd.rest_rates(G1, U, m0, 1e-6)
+    sp, ref = dd.daughter_spectra(G1, U, m0, 1e-6), dd.massless_spectra(fL)
+    for i, j in ((1, 0), (2, 0)):
+        assert np.allclose(sp[:, i, j], ref[:, i, j], atol=1e-6)
+
+
+def _brute(E, Gam, spec, Fn, Fb):
+    """Every parent bin to every daughter bin by the exact integrals (parent at its bin's centre), all decaying,
+    one generation (no chains)."""
+    h = np.sqrt(E[1] / E[0])
+    dE = E * (h - 1 / h)
+    res = [np.zeros_like(Fn), np.zeros_like(Fb)]
+    for s_, F in ((0, Fn), (1, Fb)):
+        for b in range(len(E)):
+            for i in range(3):
+                tot = Gam[i].sum()
+                if F[b, i] == 0.0 or tot == 0.0:
+                    res[s_][b, i] += F[b, i]
+                    continue
+                for j in range(3):
+                    if Gam[i, j] == 0.0:
+                        continue
+                    nd = F[b, i] * dE[b] * Gam[i, j] / tot
+                    for rel in range(2):
+                        t = s_ if rel == 0 else 1 - s_
+                        for c in range(b, -1, -1):
+                            v = dd._spec_integral(*spec[s_, i, j, rel], E[c] / h / E[b], min(E[c] * h / E[b], 1.0))
+                            res[t][c, j] += nd * v / dE[c]
+    return res
+
+
+def test_windowed_kernel_matches_brute_force():
+    """decay_step's windows (running moments, exact edge bins) against the direct sum over all bin pairs."""
+    rng = np.random.default_rng(3)
+    E = _grid(N=150, lo=1e12, hi=3e16)
+    G = 1e-9 * np.array([[0.3, 1, 0.5], [1, 0.2, 0.7j], [0.5, -0.7j, -0.4]])
+    for ml, M in ((1e-6, 1e-4), (1e-6, 0.03), (0.1, 1e-3), (0.1, 0.008)):
+        m = np.sqrt(np.array([0.0, 7.5e-5, 2.5e-3]) + ml * ml)
+        Gam, _ = dd.rest_rates(G, U, m, M)
+        Gam[:2] = 0.0                                         # nu_3 alone decays: one generation
+        spec = dd.daughter_spectra(G, U, m, M)
+        Fn = np.zeros((len(E), 3))
+        Fb = np.zeros((len(E), 3))
+        Fn[:, 2] = rng.uniform(0.5, 1.0, len(E))
+        Fb[:, 2] = rng.uniform(0.5, 1.0, len(E))
+        rn, rb = _brute(E, Gam, spec, Fn, Fb)
+        a, b = Fn.copy(), Fb.copy()
+        dd.decay_step(E, 1.0, 1e60, Gam, spec, m, a, b, np.zeros((1, 3, 3)), np.zeros((1, 3, 3)), False, False)
+        assert np.max(np.abs(a - rn)) < 1e-10 * np.max(rn) and np.max(np.abs(b - rb)) < 1e-10 * np.max(rb)
+        # the fold (dp_si's one flux) gets both halves
+        F = Fn.copy()
+        dd.decay_step(E, 1.0, 1e60, Gam, spec, m, F, F, np.zeros((1, 3, 3)), np.zeros((1, 3, 3)), False, True)
+        sp1 = spec.copy()
+        sp1[:, :, :, 0, 2:] += sp1[:, :, :, 1, 2:]
+        sp1[:, :, :, 1, 2:] = 0.0
+        rf, _ = _brute(E, Gam, sp1, Fn, np.zeros_like(Fn))
+        assert np.max(np.abs(F - rf)) < 1e-10 * np.max(rf)
+
+
+def test_dp_si_decay_channel_matches_the_kernel():
+    """dp_si's sweep with every collision off: its decay channel (the windows, the own bin in the bin's matrix) moves
+    the populations as dp_decay.decay_step's fold, for slow and fast decays and the four kinematic regimes (the
+    transport review 2, 2026-10-24)."""
+    import dp_si
+    G = 1e-9 * np.array([[0.3, 1, 0.5], [1, 0.2, 0.7j], [0.5, -0.7j, -0.4]])
+    N = 120
+    E = np.geomspace(1e12, 3e16, N)
+    h = np.sqrt(E[1] / E[0])
+    dE = E * (h - 1 / h)
+    rng = np.random.default_rng(1)
+    n = nr = 3
+    C = P = 1
+    for ml, M, lam0 in ((1e-6, 1e-4, 1e-4), (1e-6, 0.03, 1e-4), (0.1, 1e-3, 1e-4), (0.1, 0.008, 1e-4), (1e-6, 0.03, 1e3)):
+        m = np.sqrt(np.array([0.0, 7.537e-5, 2.511e-3]) + ml * ml)
+        Gam, _ = dd.rest_rates(G, U, m, M)
+        spec = dd.daughter_spectra(G, U, m, M)
+        Gam = Gam * lam0 / np.max(Gam.sum(1) * m / E[0])
+        tot = Gam.sum(1)
+        dec_rate = np.where(tot > 0, tot * m, 0.0)
+        dec_br = np.divide(Gam, tot[:, None], out=np.zeros((3, 3)), where=tot[:, None] > 0)
+        spf = np.zeros_like(spec)
+        spf[0, :, :, 0, :2] = spec[0, :, :, 0, :2]
+        spf[0, :, :, 0, 2:] = spec[0, :, :, 0, 2:] + spec[0, :, :, 1, 2:]
+        kf = np.zeros((2, 3, 3, 2, 2), np.int64)
+        kx = np.zeros((2, 3, 3, 2, 6), np.int64)
+        fx = np.zeros((2, 3, 3, 2, 6))
+        dd.window_plan(spf, float(h), N, kf, kx, fx)
+        mom = np.stack([spf[0, :, :, 0, 4], spf[0, :, :, 0, 2], spf[0, :, :, 0, 3]], axis=-1)
+        own = np.where(kx[0, :, :, 0] == 0, fx[0, :, :, 0], 0.0).sum(-1)
+        F0 = (E ** -2.0)[:, None] * rng.uniform(0.5, 1.5, (N, 3))
+        F = np.ascontiguousarray(F0[:, :, None].copy())
+        z3 = np.zeros((N, nr, P))
+        dp_si._si_sweep_cols(F, E, dE, np.zeros((N, n, C)), np.zeros((N, nr, 4)), z3, z3.copy(), z3.copy(),
+                             np.zeros(P, np.int64), np.zeros(P), np.zeros(P, np.int64), np.zeros((P, n, nr, n)),
+                             np.zeros((P, n, nr, n)), np.zeros((nr, 2, P)), np.zeros((nr, 2), np.int64),
+                             np.zeros((N, nr), np.int64), 1.0, np.zeros((N, n, C)), np.zeros((C, 6)), True,
+                             dec_rate, dec_br, own, np.ascontiguousarray(kf[0, :, :, 0]),
+                             np.ascontiguousarray(kx[0, :, :, 0]), np.ascontiguousarray(fx[0, :, :, 0]),
+                             np.ascontiguousarray(mom), 1.0, True)
+        Fd = F0.copy()
+        sp1 = spec.copy()
+        sp1[:, :, :, 0, 2:] += sp1[:, :, :, 1, 2:]
+        sp1[:, :, :, 1, 2:] = 0.0
+        dd.decay_step(E, 1.0, 1.0, Gam, sp1, m, Fd, Fd, np.zeros((1, 3, 3)), np.zeros((1, 3, 3)), False, True)
+        d_si, d_dd = F[:, :, 0] - F0, Fd - F0
+        assert np.max(np.abs(d_si - d_dd)) < 1e-6 * np.max(np.abs(d_dd)), (ml, M, lam0)
+        assert np.isclose(np.sum(F[:, :, 0] * dE[:, None]), np.sum(Fd * dE[:, None]), rtol=1e-9)

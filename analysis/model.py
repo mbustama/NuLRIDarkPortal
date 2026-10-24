@@ -223,10 +223,52 @@ def spline_weights(nodes, p: float) -> np.ndarray:
     return w
 
 
+# spline_log_interp: elements whose log bends more than this across the index nodes (the largest second difference of
+# log F over consecutive nodes) take the linear interpolation of the values instead (2026-10-24). A power law's log is
+# linear in the index (the spline exact); an element where one node's run is zero -- the upper piece of a broken power
+# law below the break, where the exact decay kinematics leave nothing (the daughters keep at least z- of the parent's
+# energy) -- floored at 1e-300 next to ~1e-39 made the spline through (-690, -89, -89) peak at e^-14: a 1e-5 flux out
+# of nothing.
+LOG_SPLINE_BEND_MAX = 5.0
+
+
+def _linear_weights(nodes, p: float):
+    """Piecewise-linear interpolation weights in p on the nodes, and their derivatives."""
+    x = np.asarray(nodes, dtype=np.float64)
+    k = int(np.clip(np.searchsorted(x, float(p)) - 1, 0, len(x) - 2))
+    t = (float(p) - x[k]) / (x[k + 1] - x[k])
+    w = np.zeros(len(x))
+    w1 = np.zeros(len(x))
+    w[k], w[k + 1] = 1.0 - t, t
+    w1[k], w1[k + 1] = -1.0 / (x[k + 1] - x[k]), 1.0 / (x[k + 1] - x[k])
+    return w, w1
+
+
+def spline_log_interp_dlog(nodes, p: float, arrays, derivative: bool = False):
+    """exp of the cubic spline in p through log(arrays) (stacked along a new first axis; floored at 1e-300), and
+    (derivative) d log F / dp; elements bending beyond LOG_SPLINE_BEND_MAX across the nodes interpolated linearly in
+    the values (their d log F / dp then the linear one's over F, 0 where F = 0)."""
+    V = np.stack(arrays)
+    L = np.log(np.maximum(V, 1e-300))
+    F = np.exp(np.tensordot(spline_weights(nodes, p), L, axes=(0, 0)))
+    dl = np.tensordot(spline_weight_derivatives(nodes, p), L, axes=(0, 0)) if derivative else None
+    if V.shape[0] >= 3:
+        bend = np.max(np.abs(L[2:] - 2.0 * L[1:-1] + L[:-2]), axis=0)
+        bad = bend > LOG_SPLINE_BEND_MAX
+        if np.any(bad):
+            wl, wl1 = _linear_weights(nodes, p)
+            lin = np.maximum(np.tensordot(wl, V, axes=(0, 0)), 0.0)
+            F = np.where(bad, lin, F)
+            if derivative:
+                dlin = np.tensordot(wl1, V, axes=(0, 0))
+                dl = np.where(bad, np.where(lin > 0.0, dlin / np.where(lin > 0.0, lin, 1.0), 0.0), dl)
+    return (F, dl) if derivative else F
+
+
 def spline_log_interp(nodes, p: float, arrays) -> np.ndarray:
-    """exp of the cubic spline in p through log(arrays) (stacked along a new first axis; floored at 1e-300)."""
-    L = np.log(np.maximum(np.stack(arrays), 1e-300))
-    return np.exp(np.tensordot(spline_weights(nodes, p), L, axes=(0, 0)))
+    """exp of the cubic spline in p through log(arrays) (stacked along a new first axis; floored at 1e-300), the
+    elements that bend beyond LOG_SPLINE_BEND_MAX across the nodes interpolated linearly (spline_log_interp_dlog)."""
+    return spline_log_interp_dlog(nodes, p, arrays)
 
 
 _SPLINE_DERIVATIVES: Dict[tuple, np.ndarray] = {}
@@ -1140,8 +1182,7 @@ class FlavorModel:
             K = float(np.exp(np.tensordot(w, lK, axes=(0, 0))))
             out = []
             for key in ("bands_nu", "bands_nb"):
-                L = np.log(np.maximum(np.stack([r[key] for r in runs]), 1e-300))
-                out.append((np.exp(np.tensordot(w, L, axes=(0, 0))), np.tensordot(w1, L, axes=(0, 0))))
+                out.append(spline_log_interp_dlog(nodes, p, [r[key] for r in runs], derivative=True))
             b_nu, b_nb, run = out[0][0], out[1][0], runs[0]
             dl_nu, dl_nb, dlK = out[0][1], out[1][1], float(np.dot(w1, lK))
         dt = {}

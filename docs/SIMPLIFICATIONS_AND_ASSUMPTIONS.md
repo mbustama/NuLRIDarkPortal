@@ -288,7 +288,21 @@ small, not yet measured), **open** (decided to remove or change, not yet done).
     (Majorana rate twice the Dirac one); for g_D >~ 1e-7 the beam arrives as nu_1 and the relics are nu_1 only.
     Implemented 2026-10-24 (src/dp_decay.py, both transports; relics' composition after decays by z = 1, a hotter
     Fermi-Dirac nu_1 gas standing for the daughters; the mediator invisible; daughter kernels from massless
-    kinematics; where the potential dominates, the incoherent split over eigenstates): **to quantify** (stage 2). (c) Where the couplings of the mediator's longitudinal mode (its
+    kinematics; where the potential dominates, the incoherent split over eigenstates): **to quantify** (stage 2).
+    Bounded so far (2026-10-24): the time the relics' composition is taken at is immaterial -- it enters only through the soft
+    scatterings and the energy loss, and where those act at all the relics have long decayed: their decay exponent
+    grows as g^2 (m/m_Zd)^2, the scatterings as g^4 / m_Zd^2 (at g = 1e-8 the exponent is already >= 1e7 wherever the
+    decay is open, m_Zd up to 0.999 of the threshold, from z = 1 or from today); the daughters' kinematics are exact since 2026-10-24 evening
+    (dp_decay.daughter_spectra: the energy window set by the mediator's and the daughter's masses, the kept and flipped
+    helicities from light-front traces; the earlier massless kernels, claimed here to be within (m_j/m_i)^2 = 3%, were
+    wrong near the thresholds and for nearly degenerate masses, where the daughter keeps 80-100% of the energy and the
+    kept share is 1/3-0.6, not 1/2 -- the review's finding 1); an antineutrino's flipped daughter
+    that lands in its parent's own energy bin can decay only from the next step on (dark-portal phase, 200 steps;
+    the Galaxy, one sub-cycle). Open: the relic
+    population where the decay is open is modelled as all nu_1 with three times the number, a Fermi-Dirac gas at
+    3^(1/3) T; the true one depends on the dark sector's history (the mediator decays back into nu_1 pairs when
+    m_Zd > 2 m_1, the daughters are colder than that gas). The jumps scale with the relics' number, the energy loss
+    with number x <1/E>: **to bracket** in stage 2 (number x1 to x3, <1/E> x1/2 to x2). (c) Where the couplings of the mediator's longitudinal mode (its
     Goldstone, Y_ij = i (G'_ij m_i + G'_ji m_j)/m_Zd) break perturbative unitarity (src/dp_unitarity.py, against
     Allwicher et al., JHEP 10 (2021) 129), the planes keep their ranges and the region is marked as not allowed
     (Mauricio, 2026-10-24); lightest mass 1e-6 eV (the widest region): **accepted**. (d) The 18 potential planes per

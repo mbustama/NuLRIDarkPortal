@@ -409,7 +409,12 @@ def transport_columns_ref(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T
         for k in range(len(runs)):
             dp_si._si_sweep_cols(Fs[k], E, dE, S0, Jone, Nab, Lab, Dab, jt, spec["w"], spec["qe"], spec["Ctau"],
                                  Cregs[k], R, O, node, dt, reg, diags[k], prof == 1,
-                                 np.zeros(Fs[k].shape[1]), np.zeros((Fs[k].shape[1], Fs[k].shape[1])), 1.0, False)
+                                 np.zeros(Fs[k].shape[1]), np.zeros((Fs[k].shape[1], Fs[k].shape[1])),
+                                 np.zeros((Fs[k].shape[1], Fs[k].shape[1])),
+                                 np.zeros((Fs[k].shape[1], Fs[k].shape[1], 2), dtype=np.int64),
+                                 np.full((Fs[k].shape[1], Fs[k].shape[1], 6), -1, dtype=np.int64),
+                                 np.zeros((Fs[k].shape[1], Fs[k].shape[1], 6)),
+                                 np.zeros((Fs[k].shape[1], Fs[k].shape[1], 3)), 1.0, False)
     F_all = sum(wt * Fk for (_, wt), Fk in zip(runs, Fs))
     outs = []
     for k in range(C):

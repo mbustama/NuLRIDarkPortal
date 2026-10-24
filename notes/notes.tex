@@ -2344,6 +2344,61 @@ inside the region the quasi-elastic conversions already exclude ($4.4\times10^{-
 Sec.~\ref{sec:si_models}). So the secret-interaction transport needs neither; the redo's checks include them (their
 fluxes unchanged by the new code, and the pilot).
 
+\textit{Exact decay kinematics, the steps, and two numerical guards (2026-10-24, evening; the transport reviews,
+docs/dev/TRANSPORT\_REVIEW*.md).}---(i) The daughters' spectra above took the daughter and the mediator as massless,
+so that the daughter's share $z$ of the parent's energy ran over $[0,1]$. With every mass kept it runs over
+$[z_-, z_+] = [(E^* - p^*)/m_i, (E^* + p^*)/m_i]$ (rest-frame $E^*$, $p^*$; the mediator takes the rest), which near
+the thresholds and for nearly degenerate masses (the lightest mass is profiled up to 0.1~eV) is narrow and close to 1:
+$[0.80, 1.00]$ at $m_i = 0.112$, $m_j = 0.1$, $\mzd = 10^{-3}$~eV. For a parent in flight helicity is light-front
+helicity, so each (parent, daughter) helicity rate is a covariant trace with the light-front spin vector
+$s = k/m - m\,n/(n\cdot k)$, $n = (1, 0, 0, -1)$, evaluated in the parent's rest frame with $z = k^+/p^+$
+(\texttt{dp\_decay.daughter\_spectra}, \file{tools/derive\_decay\_kinematics.py}). On the window
+$d\Gamma/dz = a + b z + c/z$ exactly (fitted at nine angles, residual $10^{-15}$; $10^{-7}$ for $m_j \sim 10^{-6}$~eV),
+the four helicity rates add up to $\Gamma_{ij}$ of the formula above (to $10^{-6}$), the massless limit is the earlier
+kernels, and averaged over the parent's helicity $\langle z\rangle = E^*/m_i$ (a test). With massive daughters the
+kept share is not $1/2$: $1/3$ at $m_i = 0.112$, $m_j = 0.1$~eV for real couplings, and it depends on the coupling's
+phase. Both transports deposit a parent's daughters over the bins its window covers: running sums of the spectrum's
+three moments for the bins wholly inside (entered at the window's top, removed below its bottom), the cut bins and the
+own bin by their exact integrals; against a brute-force sum over all bin pairs $10^{-14}$ ($10^{-11}$ for degenerate
+masses), and dp\_si's decay channel with every collision off moves the populations as \texttt{decay\_step} to
+$10^{-6}$ (tests). (ii) The new processes' rates over a step were taken at its low-redshift end: first order, and where
+the soft scatterings and the decays compete the Zeno-suppressed conversions fall steeply with redshift; at 200 steps a
+drained flux came out up to 17\% off (the redshift steps $\times16$ as reference; dp\_si, converged, within 1\% of the
+latter). Now every one is the step's trapezoid average with the step's exact time ($\int dz/((1+z)H)$ for the jumps,
+$\int dz/((1+z)^2H)$ for the decays and the loss) and the widths' $(1+z)$ and the tables' $\sigma$ at the midpoint.
+(iii) The loss's beam factor has the Z mixing's $\kappa$: $((G+\kappa)(G+\kappa)^\dagger)_{aa}$ (none below 1~keV in the
+planes). (iv) Deep in the not-allowed corner ($\gtrsim 8$ decades of coupling beyond the line) the decay reached
+$10^{65}$ per dp\_si step and overflowed the bin's exponential: a decay beyond $10^9$ per step and $10^7$ times the
+state's other events is kept there (the state drains within the step, the decay takes its events); with it the
+results there agree for caps $10^7$--$10^{13}$ and move by 0.5\% between ratios $10^7$ and $10^9$ (by 50\% at $10^5$),
+and at the allowed points tested it does not act (bit for bit). (v) Below the break,
+the upper piece of a broken power law now has no flux at energies its daughters cannot reach; the analysis
+interpolates the solver's runs in the spectral index with a spline in $\log F$, and a zero next to $10^{-39}$ made it
+peak at $e^{-14}$: elements whose $\log F$ bends by more than 5 across the index nodes are now interpolated linearly
+(\texttt{analysis.model.LOG\_SPLINE\_BEND\_MAX}), and \texttt{decay\_step} leaves no rounding residue (a state's
+survivors are put back as $N(1 - \sum_i w_i (1 - e^{-\lambda_i}))$, never below zero).
+
+\textit{The Galactic component (2026-10-24).}---The three processes act on the neutrinos emitted in the Galaxy too, over
+their 0.05--30~kpc to the Sun, at $z = 0$: \file{src/dp\_galactic\_path.py}, called by
+\texttt{\_galactic\_emission\_populations} below 1~keV wherever one of them acts over 30~kpc at the grid's lowest
+energy (jumps above \texttt{SOFT\_JUMP\_MIN}, decays and losses above $10^{-6}$). Each line of sight (the work map's 3072
+pixels) is swept from its farthest emission bin to the Sun: at each of the 97 distance bins its emission is added (the
+emission's populations, gas and sources weighted as before), then the populations evolve over the segment to the next
+bin, in the eigenstates of the local potential at the segment's midpoint, with the jumps and the decays alternating
+symmetrically (as in the cosmological phase) and the energy loss in two halves around them; both kinds together, since a
+flipped daughter changes kind. The relics' composition is the one after their decays by today. Where the potential
+rotates the eigenstates by less than $10^{-6}$ along every line of sight (the dark-portal planes, and the lepton-number
+planes at the smallest couplings), every line of sight evolves alike but for its length: the emission, scaled per energy
+by the sky-mean intensity and split into a few spectral shapes (an SVD over the pixels, kept to $10^{-10}$ of the largest
+singular value), is evolved once through the distance bins and combined per pixel with the distance weights, at the
+output resolution (\texttt{vacuum\_populations}; 1~s against 80--150~s on one core). Checks: the two paths agree to
+$8\times10^{-6}$ (dark-portal points; an unscaled SVD lost $3\times10^{-4}$ at the faint highest energies, and a step
+that skipped bins whose spectral shapes summed to zero had made them differ by a factor of two at a strongly processing
+point; both fixed); with the segments cut into 16 pieces as reference, the default is within $1.3\times10^{-5}$ at
+moderate points and within $0.6$--$3\%$ where the processes drain the Galactic flux (first order before the alternation
+was made symmetric: 4\%); tests \file{tests/test\_galactic\_path.py} (the fast path equals the sweep to rounding with equal
+segments; the jumps keep the number).
+
 \subsection{Processes below 1~keV: the catalogue (2026-10-24)}
 \label{sec:process-catalogue}
 
