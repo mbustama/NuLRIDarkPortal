@@ -311,7 +311,7 @@ def _fractions(scale, m, P, eps=1e-20, grid=(60, 40)):
     u = 0.0316227766
     g = P / (eps * u * u) if eps > 0 else P / (u * u)
     cfg = {"dark_portal": dict(m_Zd_eV=m, g_D=g, epsilon_prime=eps, u_e=u, u_mu=u, u_tau=0.0,
-                               use_debye_screening=False),
+                               use_debye_screening=False, neutrino_decay=False),   # decay: tests/test_decay.py
            "source": {"host_galaxy_scale": scale},
            "execution": {"n_cores": 1, "verbose": 0}, "grid": dict(n_E_bins=grid[0], n_z_bins=grid[1])}
     old = sys.stdout

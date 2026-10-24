@@ -107,7 +107,9 @@ def _cfg(**over):
     cfg = {"grid": {"n_E_bins": 8, "n_z_bins": 40, "n_sun_paths": 2, "N_steps_earth": 8, "E_min_eV": 1e13,
                     "E_max_eV": 1e16},
            "execution": {"n_cores": 1, "verbose": 0}, "sky": {"output": "healpix", "nside": 8},
-           "galactic": {"enabled": True, "emission": "local", "f_e_S_gal": 0.3}}
+           "galactic": {"enabled": True, "emission": "local", "f_e_S_gal": 0.3},
+           # the decay into the mediator off (2026-10-24): these check the Galaxy's paths (tests/test_decay.py has it)
+           "dark_portal": {"neutrino_decay": False}}
     for k, v in over.items():
         cfg.setdefault(k, {}).update(v)
     return cfg

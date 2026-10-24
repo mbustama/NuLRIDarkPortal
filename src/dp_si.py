@@ -2677,14 +2677,16 @@ def propagate_si(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta
     step. With return_diagnostics the source is transported as given (one column), its bookkeeping returned."""
     E_bins = np.asarray(E_bins, dtype=np.float64)
     g_arr = np.ascontiguousarray(g_mass, dtype=np.complex128)
+    # the 2026-10-24 processes only when set (a substituted _transport_columns, as the tests' reference, need not
+    # know them)
+    extra = {k: v for k, v in (("decay", decay), ("relic_loss", relic_loss)) if v is not None}
     if return_diagnostics or not np.any(g_arr):
         P_src = (np.abs(np.asarray(U_pmns)) ** 2).T @ np.asarray(rho_src, dtype=np.float64)
         out = _transport_columns(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta_mass, rho_evol, M,
                                  g_arr, majorana, channels, phiphi, z_substeps, E_extension, n_u, regeneration,
                                  mediator, dirac_sterile, Gamma_vis, thermal,
                                  [(P_src, float(p_index), (float(inj_window[0]), float(inj_window[1])), float(Phi_0),
-                                   np.asarray(rho_src, dtype=np.float64))], return_diagnostics, decay=decay,
-                                 relic_loss=relic_loss)
+                                   np.asarray(rho_src, dtype=np.float64))], return_diagnostics, **extra)
         return out[0]
     phys = _physics_key(E_bins, z_max, H0, Omega_m, Omega_L, masses, T_nu0, eta_mass, rho_evol, M, g_arr, majorana,
                         channels, phiphi, z_substeps, E_extension, n_u, regeneration, mediator, dirac_sterile,
@@ -2697,8 +2699,7 @@ def propagate_si(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta
         specs = [(unit[j], c[0], (c[1], c[2]), 1.0, None) for c in want for j in range(3)]
         Fs = _transport_columns(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta_mass, rho_evol, M,
                                 g_arr, majorana, channels, phiphi, z_substeps, E_extension, n_u, regeneration,
-                                mediator, dirac_sterile, Gamma_vis, thermal, specs, False, decay=decay,
-                                relic_loss=relic_loss)
+                                mediator, dirac_sterile, Gamma_vis, thermal, specs, False, **extra)
         for i, c in enumerate(want):
             _COLUMNS[(phys, c)] = np.stack(Fs[3 * i:3 * i + 3])          # (3 unit sources, N_E, 3)
         while len(_COLUMNS) > _COLUMNS_MAX:

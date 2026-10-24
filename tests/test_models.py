@@ -95,7 +95,10 @@ def test_potential_dominated_limit_per_model(model):
     # whole path potential-dominated with one texture
     g = 1e-15 if MD.spec(model)[0] == "direct" else 1e-10
     eps = 1e-20 if MD.spec(model)[0] == "mixing" else 0.0
-    cfg = {"model": {"name": model}, "dark_portal": {"g_D": g, "epsilon_prime": eps, "m_Zd_eV": 1e-20},
+    # the decay into the mediator off (2026-10-24): it acts here too (the longitudinal mode at 1e-20 eV), physics the
+    # closed form leaves out (tests/test_decay.py has it)
+    cfg = {"model": {"name": model}, "dark_portal": {"g_D": g, "epsilon_prime": eps, "m_Zd_eV": 1e-20,
+                                                      "neutrino_decay": False},
            "grid": {"n_E_bins": 6, "n_z_bins": 30, "n_sun_paths": 2, "n_earth_chords": 4, "N_steps_earth": 10},
            "execution": {"n_cores": 1, "verbose": 0}, "source": {"f_e_S": 1 / 3, "f_mu_S": 2 / 3, "f_tau_S": 0.0}}
     E, params = dps.build_solver_params(cfg)

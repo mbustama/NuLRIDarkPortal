@@ -35,6 +35,9 @@ def _raw():
         raw["parameters"][n] = {"start": c, "bounds": list(BOUNDS[n])}
         raw["priors"].append({"name": n, "type": "gaussian", "centre": c, "width": w})
     raw["priors"].append({"name": "sum_masses_eV", "type": "half_gaussian", "limit": 0.09, "cl": 0.95, "quantile": "half"})
+    # the decay into the mediator off (2026-10-24): a potential plane (since dropped) at a point where it acts; this
+    # checks the profile's machinery
+    raw["solver"].setdefault("dark_portal", {})["neutrino_decay"] = False
     return exact_config(raw)
 
 
