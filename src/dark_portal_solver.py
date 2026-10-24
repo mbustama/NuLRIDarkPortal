@@ -257,6 +257,15 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         raise ValueError(f"absorption_model must be 'lagrangian' or 'theory_notes', got {absorption_model!r}")
     lagrangian = absorption_model == "lagrangian"
     sum_G, sum_G_alpha, eta_mass = compute_gamma_grid_inputs(U_pmns, u_arr, g_D, eps_prime, eta_bg)
+    # The relics decay too (2026-10-24; notes Sec. 12.8 item 2): their occupation per mass state after the decays by
+    # z = 1, which every relic effect below uses (the Debye mass, the absorption grid, the jumps, dp_si's targets)
+    if neutrino_decay and absorption_model == "lagrangian" and arrival_flavor is None:
+        import dp_decay
+        G_rel = (np.asarray(G_coupling, dtype=np.complex128) if G_coupling is not None
+                 else dp_absorption.dark_portal_coupling(g_D, u_arr, 0.0))
+        Gam_rel, _ = dp_decay.rest_rates(G_rel, U_pmns, m_nu_bg_arr, m_Zd)
+        if np.any(Gam_rel > 0.0):
+            eta_mass = dp_decay.relic_composition(Gam_rel, m_nu_bg_arr, eta_mass, T_nu0, H0, Omega_m, Omega_L)
     BR = np.zeros(3, dtype=np.float64)
     if sum_G > 0:
         BR = sum_G_alpha / sum_G

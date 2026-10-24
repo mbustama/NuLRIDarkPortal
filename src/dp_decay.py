@@ -163,3 +163,39 @@ def decay_step(E, zp1, dt, Gam, fL, m, F_nu, F_nb, T_nu, T_nb, use_T, fold):
                             _add(Ft, b, j, nd * own / dEb, Tt, use_T)
                             S1[tt, j] += nd * A / Eb
                             S2[tt, j] += nd * B / (Eb * Eb)
+
+
+def _mean_m_over_E(m, T, n=400):
+    """<m/E> over a Fermi-Dirac momentum distribution at temperature T (eV) for mass m (eV)."""
+    x = np.linspace(1e-4, 40.0, n)
+    f = x * x / (np.exp(x) + 1.0)
+    p = x * T
+    return float(np.trapz(f * m / np.sqrt(p * p + m * m), x) / np.trapz(f, x))
+
+
+def relic_composition(Gam, masses, eta, T_nu0, H0, Omega_m, Omega_L, z_ref=1.0, Omega_r=9.1e-5):
+    """The relics' occupation per mass state after their decays by z_ref (2026-10-24; notes Sec. 12.8 item 2): each
+    state i decays with D_i = Gamma_i int_{z_ref}^inf <m_i/E_i>(z) dz / ((1+z) H(z)) (time-dilated while
+    relativistic; H with radiation), heaviest first, its daughters to the lighter states by branching (the number
+    kept). Returns eta' (3,); unchanged where nothing decays. The code ties a state's density to its temperature
+    (T_r = T eta^(1/3)), so the grown nu_1 population is a hotter Fermi-Dirac gas: an approximation (docs item 22)."""
+    Gam = np.asarray(Gam, dtype=np.float64)
+    m = np.asarray(masses, dtype=np.float64)
+    eta = np.asarray(eta, dtype=np.float64).copy()
+    tot = Gam.sum(axis=1)
+    if not np.any(tot > 0.0):
+        return eta
+    u = np.linspace(np.log1p(z_ref), np.log(1e8), 600)
+    zp1 = np.exp(u)
+    H = H0 * np.sqrt(Omega_r * zp1 ** 4 + Omega_m * zp1 ** 3 + Omega_L)
+    for i in np.argsort(m)[::-1]:
+        if tot[i] <= 0.0 or eta[i] <= 0.0:
+            continue
+        mE = np.array([_mean_m_over_E(m[i], T_nu0 * x) for x in zp1])
+        D = tot[i] * float(np.trapz(mE / H, u))
+        dec = eta[i] * (-np.expm1(-D))
+        eta[i] -= dec
+        for j in range(3):
+            if Gam[i, j] > 0.0:
+                eta[j] += dec * Gam[i, j] / tot[i]
+    return eta

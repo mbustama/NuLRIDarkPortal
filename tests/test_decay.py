@@ -130,3 +130,15 @@ def test_eigenstate_content():
     dd.decay_step(E, 1.0, 1e40, Gam, fL, M_NU, Fn, Fb, T, T, True, False)
     assert Fn[:, 2].sum() < 1e-12
     assert np.allclose(Fn[:, 0], Fn[:, 1])
+
+
+def test_relic_composition():
+    H0, Om, OL, T0 = 1.4377e-33, 0.315, 0.685, 1.676e-4
+    eta = np.ones(3)
+    assert np.allclose(dd.relic_composition(np.zeros((3, 3)), M_NU, eta, T0, H0, Om, OL), eta)
+    Gam = np.zeros((3, 3))
+    Gam[2, 1] = Gam[2, 0] = Gam[1, 0] = 1e-20           # ~1e13 H0 at rest: all decayed long before z = 1
+    out = dd.relic_composition(Gam, M_NU, eta, T0, H0, Om, OL)
+    assert np.allclose(out, [3.0, 0.0, 0.0], atol=1e-9)
+    Gam_slow = Gam * 1e-40                              # nothing decays
+    assert np.allclose(dd.relic_composition(Gam_slow, M_NU, eta, T0, H0, Om, OL), eta, atol=1e-9)
