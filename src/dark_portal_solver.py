@@ -362,6 +362,27 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         jump_unit = _soft_scattering_rates(ab[0], U_pmns, m_Zd, m_nu_bg_arr, T_nu0, eta_mass, z_bins, H0, Omega_m,
                                            Omega_L, G_jump=G_jump)
 
+    # The beam's energy loss in the soft scatterings that change the relic's mass state (2026-10-24; notes Sec. 12.8
+    # item 1): dE/dt = -C(z) (G G^dag)_aa per state, C at each redshift node, or None where the loss over the path at
+    # the grid's lowest energy is below 1e-6 of it (dp_relic_loss)
+    loss_C = None
+    if relic_scattering and lagrangian and arrival_flavor is None:
+        import dp_relic_loss
+        G_loss = (np.asarray(G_coupling, dtype=np.complex128) if G_coupling is not None
+                  else dp_absorption.dark_portal_coupling(g_D, u_arr, 0.0))
+        C_k = np.array([dp_relic_loss.loss_coefficient(
+            G_loss, U_pmns, m_nu_bg_arr, eta_mass, T_nu0, zk, m_Zd,
+            dp_absorption.debye_mass_sq(ab[0].G_mass_diag2, m_nu_bg_arr, T_nu0 * (1.0 + zk), eta_mass))
+            for zk in z_bins])
+        Gm_loss = U_pmns.conj().T @ (G_loss - G_loss[0, 0].real * np.eye(3)) @ U_pmns + G_loss[0, 0].real * np.eye(3)
+        beam_max = float(np.max(np.real(np.diag(Gm_loss @ Gm_loss.conj().T))))
+        dz_ = z_bins[0] - z_bins[1]
+        path = sum(abs(C_k[k]) * beam_max * dz_ / (calc_H_Hubble(z_bins[k], H0, Omega_m, Omega_L) * (1.0 + z_bins[k]) ** 2)
+                   for k in range(1, len(z_bins)))
+        if path > 1e-6 * E_bins[0]:
+            loss_C = C_k
+            loss_beam = np.real(np.diag(Gm_loss @ Gm_loss.conj().T)).copy()      # (G'G'^dag)_aa, mass basis (dp_si)
+
     # Neutrino decay into the mediator below the mass gaps (2026-10-24; notes Sec. 12.8 item 2, Sec. 12.9 (e)): the
     # rest-frame rates from the non-universal coupling (kappa I cannot change a mass state, and added to G it rounds the
     # small entries away), or None where they act on nothing over the path (the lab rate at the grid's lowest energy
@@ -508,6 +529,16 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
             if ref is not None:
                 dp_decay.decay_step(E_bins, 1.0 + z, dt, decay_rates[0], decay_rates[1], m_nu_bg_arr, ref[0]["F"],
                                     ref[1]["F"], nu["T_bins"], nb["T_bins"], True, False)
+        if loss_C is not None and jump_unit is not None:
+            for i_s, sp in enumerate(species):
+                if "GG_bins" not in sp:
+                    sp["GG_bins"] = np.zeros((N_E, 3), dtype=np.float64)
+                dp_relic_loss.interp_sigma_table(E_bins, sp["GG_table"], sp["log_s0"], sp["inv_dlogs"], sp["c_z"][k],
+                                                 sp["GG_bins"])
+                dE_obs = np.ascontiguousarray(float(loss_C[k]) * sp["GG_bins"] * dt / (1.0 + z))
+                dp_relic_loss.shift_step(E_bins, sp["F"], dE_obs)
+                if ref is not None:
+                    dp_relic_loss.shift_step(E_bins, ref[i_s]["F"], dE_obs)
     if verbose == 2:
         safe_print(f"Cosmological baseline finished at z = {z_bins[-1]:.4f}.")
 
@@ -531,7 +562,9 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                                     z_substeps=int(st["z_substeps"]), E_extension=float(st["E_extension"]),
                                     Gamma_vis=ab[0].Gamma_vis,
                                     inj_window=(0.0, np.inf) if si_combined else (inj_lo, inj_hi),
-                                    thermal="full" if st.get("thermal_products") else True, decay=decay_rates)
+                                    thermal="full" if st.get("thermal_products") else True, decay=decay_rates,
+                                    relic_loss=(None if loss_C is None else
+                                                (np.asarray(z_bins, dtype=np.float64), loss_C, loss_beam)))
         if si_combined:
             # below 1 keV with both a potential and hard scatterings (2026-10-22; notes, 'Soft scatterings on the
             # relics'): the dark-portal phase's eigenstate populations (the potential, the soft scatterings) rescaled
