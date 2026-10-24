@@ -42,17 +42,15 @@ def rates(G, U, m, M):
     return yl, beam, relic
 
 
-def main(campaign, out_path):
+def _plane(args):
+    p, campaign = args
     import dark_portal_solver as dps
     import dp_absorption
     from analysis import config as config_mod
     from analysis import exclusion as ex
     from dp_core import construct_PMNS
-    out = {}
-    for p in sorted(glob.glob(os.path.join(REPO, "analysis", "configs", "campaign_ml", "now_ic26", "*.json"))):
-        name = os.path.basename(p)[:-5]
-        if name.endswith("_fx") or "_mev" in name or name == "campaign":
-            continue
+    name = os.path.basename(p)[:-5]
+    if True:
         raw = copy.deepcopy(json.load(open(p)))
         raw.pop("exact_profile", None)
         cfg = config_mod.from_dict(raw, p)
@@ -95,7 +93,6 @@ def main(campaign, out_path):
                     logm=float(lm), lowest_excluded=low,
                     decay_from=float(dec.min()) if len(dec) else None,
                     cut_from=float(cut.min()) if len(cut) else None))
-        out[name] = res
         c = res["cols"].get("pion", [])
         hit_d = [r["logm"] for r in c if r["decay_from"] is not None and (r["lowest_excluded"] is None
                                                                          or r["decay_from"] < r["lowest_excluded"])]
@@ -104,6 +101,18 @@ def main(campaign, out_path):
         print(f"{name}: decay reaches the allowed region at log m {min(hit_d) if hit_d else '-'}..{max(hit_d) if hit_d else '-'}"
               f" ({len(hit_d)} cols); cut at {min(hit_c) if hit_c else '-'}..{max(hit_c) if hit_c else '-'} ({len(hit_c)} cols)",
               flush=True)
+    return name, res
+
+
+def main(campaign, out_path):
+    from multiprocessing import get_context
+    todo = [(p, campaign) for p in sorted(glob.glob(os.path.join(REPO, "analysis", "configs", "campaign_ml", "now_ic26",
+                                                                 "*.json")))
+            if not (p.endswith("_fx.json") or "_mev" in p or p.endswith("campaign.json"))]
+    out = {}
+    with get_context("spawn").Pool(min(32, len(todo))) as pool:
+        for name, res in pool.imap_unordered(_plane, todo):
+            out[name] = res
     json.dump(out, open(out_path, "w"))
     return 0
 
