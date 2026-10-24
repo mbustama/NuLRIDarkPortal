@@ -218,9 +218,11 @@ class AnalysisConfig:
                          events=events)
 
     def _truth_model(self) -> FlavorModel:
-        """The model the Asimov data come from: this one with dark_portal.relic_scattering off."""
+        """The model the Asimov data come from: this one with dark_portal.relic_scattering and neutrino_decay off
+        (the Standard Model's data; neutrino decay added 2026-10-24)."""
         raw = copy.deepcopy(self.raw)
         raw.setdefault("solver", {}).setdefault("dark_portal", {})["relic_scattering"] = False
+        raw["solver"]["dark_portal"]["neutrino_decay"] = False
         return from_dict(raw, self.path).model()
 
     def digest(self) -> str:

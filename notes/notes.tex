@@ -2261,6 +2261,20 @@ Sec.~\ref{sec:rounding-subkev}).}
 \label{fig:decay-cut}
 \end{figure}
 
+\textit{Decay in the code (2026-10-24).}---\file{src/dp\_decay.py}, called once per redshift step after the
+collisions, in both transports: the dark-portal phase (eigenstate populations through their mass content,
+$|\langle i|a\rangle|^2$, tabulated on the $\sigma$ nodes like the jumps' tables; each mass component decays on its own,
+and a daughter in mass state $j$ is split over the eigenstates by the same content) and dp\_si (mass states; one
+Majorana flux holding both kinds, so the two daughter halves add to a flat spectrum). The decay widths also damp the
+coherences in the jumps, $D_{ab} \to D_{ab} + (\Gamma_a + \Gamma_b)/2$ (lab frame): a state that decays fast is
+Zeno-protected from the conversions into it. Switch: \texttt{dark\_portal.neutrino\_decay} (default on); the
+projections' Asimov data have it off (the Standard Model). Where the potential dominates, the eigenstates are not mass
+states and the incoherent split is an approximation; those points lie beyond the models' range (item 3).
+A consequence: where the soft scatterings convert $\nu_1$ back into $\nu_2$, $\nu_3$ faster than the expansion and those
+decay, every conversion--decay cycle costs the beam energy. At $\mzd = 10^{-6}$~eV, $\gd = 10^{-6}$ (the $\mu$ texture)
+the flux between 10~TeV and 3~PeV falls to 0.015 of the no-effect flux with both (both transports agree: 0.0145 and
+0.0149), to 0.50 with the decay alone, all of it $\nu_1$ at Earth.
+
 \textit{How they enter the code.}---Item 1 as a drift in $\ln E$, per relic pair with $\langle 1/E_r\rangle$: in
 dp\_si's step, and through dp\_si wherever the drift exceeds $10^{-4}$ of $E$ over the path at the band's lowest
 energy (the routing extended below the present $10^{-4}$ coupling threshold). Item 2 as a loss of $\nu_i$ into

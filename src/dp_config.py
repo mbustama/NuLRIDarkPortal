@@ -151,6 +151,7 @@ def _build_default_config() -> Dict:
             # ones in the dark-portal phase, the hard ones through dp_si. False leaves them out (the code before then):
             # the analysis generates its Asimov data -- the Standard Model -- that way (analysis/config.objective).
             "relic_scattering": True,
+            "neutrino_decay": True,
             "U_LRI_struct": None
         },
         "secret_interactions": {

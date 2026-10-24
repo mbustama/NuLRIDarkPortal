@@ -42,7 +42,7 @@ def test_jumps_conserve_number_and_equalize():
     E = np.array([1e14])
     for G_unit, expect_equal in ((1e-20, True), (1e-40, False)):
         F = np.array([[0.7, 0.2, 0.1]])
-        _soft_jumps(E, 2.0, J2, Gd2, GG2, lam2, 0.0, 1.0, 1e-30, G_unit, 1e30, F)
+        _soft_jumps(E, 2.0, J2, Gd2, GG2, lam2, 0.0, 1.0, 1e-30, G_unit, 1e30, F, np.zeros((1, 3)), False)
         assert abs(F.sum() - 1.0) < 1e-12
         if expect_equal:
             assert np.allclose(F, 1.0 / 3.0, atol=1e-12)
@@ -59,11 +59,11 @@ def test_jumps_zeno_suppressed():
     G_unit = 1e-10
     J2, Gd2, GG2, lam2 = _tables(J, lam, Gd=np.array([1.0, 0.0, 0.0]), GG=np.array([1.0, 0.0, 0.0]))
     F = np.array([[0.7, 0.2, 0.1]])
-    _soft_jumps(E, 2.0, J2, Gd2, GG2, lam2, 0.0, 1.0, 1e-30, G_unit, 1e3, F)   # undamped pair 1-2: rate x dt 1e-7
+    _soft_jumps(E, 2.0, J2, Gd2, GG2, lam2, 0.0, 1.0, 1e-30, G_unit, 1e3, F, np.zeros((1, 3)), False)   # undamped pair 1-2: rate x dt 1e-7
     assert np.allclose(F, [[0.7, 0.2, 0.1]], atol=1e-7)
     J2, Gd2, GG2, lam2 = _tables(J, lam)
     F = np.array([[0.7, 0.2, 0.1]])
-    _soft_jumps(E, 2.0, J2, Gd2, GG2, lam2, 0.0, 1.0, 1e-30, G_unit, 1e12, F)
+    _soft_jumps(E, 2.0, J2, Gd2, GG2, lam2, 0.0, 1.0, 1e-30, G_unit, 1e12, F, np.zeros((1, 3)), False)
     assert np.allclose(F, 1.0 / 3.0, atol=1e-9)
 
 
@@ -122,8 +122,9 @@ def test_negligible_scatterings_bit_for_bit():
 
 def test_fast_scatterings_equalize():
     """g_D sum|U|^2 = 1e-8 at 1e-20 eV (screened, rate ~1e10 H0): equal flavor fractions at 100 TeV whatever the
-    potential."""
-    E, p = _point("dp_mu_pot_x1m08_pos.json", 1e-20, 1e-34)
+    potential. The decay into the mediator off (it acts there too, 2026-10-24; the point is beyond the models' range
+    and in a dropped potential plane): this checks the jumps."""
+    E, p = _point("dp_mu_pot_x1m08_pos.json", 1e-20, 1e-34, neutrino_decay=False)
     _, f = _flux(E, p)
     assert np.allclose(f, 1.0 / 3.0, atol=2e-3)
 
@@ -194,7 +195,8 @@ def test_jump_step_keeps_the_total_at_any_rate():
             J[:, 2, 1] = J[:, 1, 2] = R[2]
             F = rng.uniform(0.0, 1.0, (1, 3))
             F0 = F.copy()
-            _soft_jumps(E, 1.0, J, np.zeros((2, 3)), np.zeros((2, 3)), np.zeros((2, 3)), 0.0, 1.0, 1.0, 1.0, 1.0, F)
+            _soft_jumps(E, 1.0, J, np.zeros((2, 3)), np.zeros((2, 3)), np.zeros((2, 3)), 0.0, 1.0, 1.0, 1.0, 1.0, F,
+                        np.zeros((1, 3)), False)
             assert abs(F.sum() - F0.sum()) <= 1e-14 * F0.sum()
             A = np.array([[0, R[0], R[1]], [R[0], 0, R[2]], [R[1], R[2], 0]], dtype=float)
             A -= np.diag(A.sum(axis=0))

@@ -2637,7 +2637,7 @@ def propagate_si(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta
                  p_index, rho_evol, Phi_0, M, g_mass, majorana=True, channels="full",
                  phiphi="coherent", z_substeps=1, E_extension=10.0, n_u=4096,
                  return_diagnostics=False, regeneration=True, mediator="scalar", dirac_sterile="track",
-                 Gamma_vis=0.0, thermal=False, inj_window=(0.0, np.inf)):
+                 Gamma_vis=0.0, thermal=False, inj_window=(0.0, np.inf), decay=None):
     """Cosmological transport of the astrophysical neutrinos under secret interactions.
 
     Arguments: E_bins -- the (geometric) energy grid of the result, eV; z_max, H0 (eV),
@@ -2683,11 +2683,11 @@ def propagate_si(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta
                                  g_arr, majorana, channels, phiphi, z_substeps, E_extension, n_u, regeneration,
                                  mediator, dirac_sterile, Gamma_vis, thermal,
                                  [(P_src, float(p_index), (float(inj_window[0]), float(inj_window[1])), float(Phi_0),
-                                   np.asarray(rho_src, dtype=np.float64))], return_diagnostics)
+                                   np.asarray(rho_src, dtype=np.float64))], return_diagnostics, decay=decay)
         return out[0]
     phys = _physics_key(E_bins, z_max, H0, Omega_m, Omega_L, masses, T_nu0, eta_mass, rho_evol, M, g_arr, majorana,
                         channels, phiphi, z_substeps, E_extension, n_u, regeneration, mediator, dirac_sterile,
-                        Gamma_vis, thermal)
+                        Gamma_vis, thermal, decay)
     col = _column_key(p_index, inj_window)
     T = _COLUMNS.get((phys, col))
     if T is None:
@@ -2696,7 +2696,7 @@ def propagate_si(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta
         specs = [(unit[j], c[0], (c[1], c[2]), 1.0, None) for c in want for j in range(3)]
         Fs = _transport_columns(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta_mass, rho_evol, M,
                                 g_arr, majorana, channels, phiphi, z_substeps, E_extension, n_u, regeneration,
-                                mediator, dirac_sterile, Gamma_vis, thermal, specs, False)
+                                mediator, dirac_sterile, Gamma_vis, thermal, specs, False, decay=decay)
         for i, c in enumerate(want):
             _COLUMNS[(phys, c)] = np.stack(Fs[3 * i:3 * i + 3])          # (3 unit sources, N_E, 3)
         while len(_COLUMNS) > _COLUMNS_MAX:
@@ -2722,13 +2722,17 @@ def _column_key(p_index, inj_window):
 
 def _physics_key(E_bins, z_max, H0, Omega_m, Omega_L, masses, T_nu0, eta_mass, rho_evol, M, g_mass, majorana,
                  channels, phiphi, z_substeps, E_extension, n_u, regeneration, mediator, dirac_sterile, Gamma_vis,
-                 thermal):
+                 thermal, decay=None):
     """Everything a unit-source transport depends on (propagate_si's arguments but the source's composition,
     spectral index, normalization and emission window)."""
     import hashlib
     h = hashlib.sha256()
     for a in (E_bins, masses, eta_mass, g_mass):
         h.update(np.ascontiguousarray(a).tobytes())
+    if decay is not None:
+        h.update(b"decay")
+        for a in decay:
+            h.update(np.ascontiguousarray(a, dtype=np.float64).tobytes())
     h.update(repr((float(z_max), float(H0), float(Omega_m), float(Omega_L), float(T_nu0), float(rho_evol), float(M),
                    bool(majorana), str(channels), str(phiphi), int(z_substeps), float(E_extension), int(n_u),
                    bool(regeneration), str(mediator), str(dirac_sterile), float(Gamma_vis),
@@ -2756,9 +2760,24 @@ class batch_hint:
         _BATCH_HINT = self._old
 
 
+def _decay_columns(Fs, E, L_lo, L_hi, dt, decay, masses, majorana):
+    """Neutrino decay into the mediator over one step (dp_decay, 2026-10-24), after the step's collisions: the
+    visible states of every column, one Majorana flux holding both kinds with equal populations (the flipped
+    daughters into it too: dp_decay's fold)."""
+    import dp_decay
+    if not majorana:
+        raise NotImplementedError("neutrino decay in dp_si: Majorana neutrinos only")
+    zp1 = float(np.exp(0.5 * (L_lo + L_hi)))
+    none = np.zeros((1, 3, 3))
+    for Fk in Fs:
+        for c in range(Fk.shape[2]):
+            F = Fk[:, :3, c]
+            dp_decay.decay_step(E, zp1, dt, decay[0], decay[1], masses, F, F, none, none, False, True)
+
+
 def _transport_columns(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta_mass, rho_evol, M, g_mass,
                        majorana, channels, phiphi, z_substeps, E_extension, n_u, regeneration, mediator,
-                       dirac_sterile, Gamma_vis, thermal, columns, return_diagnostics=False):
+                       dirac_sterile, Gamma_vis, thermal, columns, return_diagnostics=False, decay=None):
     """The transport (propagate_si's physics) of several sources at once: columns is a list of (P_src (3,) the
     mass-state composition, p_index, inj_window (eV), Phi_0, rho_src (3,) or None -- the flavor composition, used only
     without a coupling, by the free-streaming closed form). Returns the list of (N_E, 3) fluxes, or with
@@ -2903,6 +2922,8 @@ def _transport_columns(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu
             for k in range(len(runs)):
                 _si_sweep_cols(Fs[k], E, dE, S0, Jone, Nq, Lq, Dq, spec["jt"], spec["w"], spec["qe"], spec["Ctau"],
                                Cregs[k], Rth, Oth, node_th, dt, reg, diags[k], prof == 1)
+            if decay is not None:
+                _decay_columns(Fs, E, L_lo, L_hi, dt, decay, masses, majorana)
             continue
         if steps is not None:
             J, Nq, Lq, Dq = steps[K - 1 - m]
@@ -2926,6 +2947,8 @@ def _transport_columns(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu
         for k in range(len(runs)):
             _si_sweep_cols(Fs[k], E, dE, S0, J, Nq, Lq, Dq, spec["jt"], spec["w"], spec["qe"], spec["Ctau"],
                            Cregs[k], tB, tO, node, dt, reg, diags[k], prof == 1)
+        if decay is not None:
+            _decay_columns(Fs, E, L_lo, L_hi, dt, decay, masses, majorana)
     if store is not None:
         _STEP_TERMS.clear()
         _STEP_TERMS[skey] = store

@@ -54,7 +54,7 @@ from dp_cosmo import (  # noqa: F401
     calc_H_Hubble, calc_R_source, calc_V_LRI_cosmo, get_adiabatic_mixing_cosmo, yukawa_horizon_inv_m2,
     _build_sigma_projection_table, step_cosmological_pair, cascade_kernel_weights, cross_kernel_weights,
     _build_sigma_coupling_tables, _cosmo_coherent_rates, _cosmo_projections, step_cosmological_rates,
-    _build_sigma_jump_table, _soft_jumps,
+    _build_sigma_jump_table, _soft_jumps, _build_sigma_mass_table,
 )
 from dp_spatial import (  # noqa: F401
     calc_MW_neutron_density, calc_earth_density, get_baseline_earth,
@@ -123,7 +123,7 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                        absorption_model: str = "lagrangian", G_coupling=None, Gamma_vis=None,
                        si_cosmology: bool = False, si_combined: bool = False, si_settings=None,
                        potential_product=None, relic_scattering: bool = True,
-                       inj_window=(0.0, np.inf), earth_transfer: str = "off"):
+                       inj_window=(0.0, np.inf), earth_transfer: str = "off", neutrino_decay: bool = True):
     """
     Executes the complete spectrum integration, driving the underlying JIT kernels.
     Neutrinos and antineutrinos are evolved together through the cosmological phase (an
@@ -353,6 +353,22 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         jump_unit = _soft_scattering_rates(ab[0], U_pmns, m_Zd, m_nu_bg_arr, T_nu0, eta_mass, z_bins, H0, Omega_m,
                                            Omega_L, G_jump=G_jump)
 
+    # Neutrino decay into the mediator below the mass gaps (2026-10-24; notes Sec. 12.8 item 2, Sec. 12.9 (e)): the
+    # rest-frame rates from the non-universal coupling (kappa I cannot change a mass state, and added to G it rounds the
+    # small entries away), or None where they act on nothing over the path (the lab rate at the grid's lowest energy
+    # below 1e-8 of the Hubble rate)
+    decay_rates = None
+    if neutrino_decay and lagrangian and arrival_flavor is None:
+        import dp_decay
+        G_dec = (np.asarray(G_coupling, dtype=np.complex128) if G_coupling is not None
+                 else dp_absorption.dark_portal_coupling(g_D, u_arr, 0.0))
+        Gam_d, fL_d = dp_decay.rest_rates(G_dec, U_pmns, m_nu_bg_arr, m_Zd)
+        if float(np.max(dp_decay.total_lab_rate(Gam_d, m_nu_bg_arr, E_bins[0]))) > 1e-8 * H0:
+            decay_rates = (Gam_d, fL_d)
+    # per mass state, rest rate x mass: the lab width of state i at physical energy E is decay_width_unit[i] / E
+    decay_width_unit = (decay_rates[0].sum(axis=1) * m_nu_bg_arr) if decay_rates is not None else None
+    no_wd = np.zeros((1, 3))
+
     # Per kind: the vacuum matrix U M U^dag (computed once), the LRI and SM textures with the
     # antineutrino transform (U -> conj U, u -> conj u, V -> -conj V) applied here, centrally,
     # and the sigma-table of the cosmological mixing.
@@ -398,6 +414,11 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                                                              np.ascontiguousarray(np.conj(G_jump) if anti
                                                                                   else G_jump))
             species[-1].update(J_table=J_t, Gd_table=Gd_t, GG_table=GG_t, lam_table=lam_t)
+        if decay_rates is not None and not si_cosmology:
+            species[-1].update(T_table=_build_sigma_mass_table(Q_t, Mp_t, s_t, floor_t, sigma_nodes,
+                                                               np.ascontiguousarray(np.conj(U_pmns) if anti
+                                                                                    else U_pmns)),
+                               T_bins=np.zeros((N_E, 3, 3), dtype=np.float64))
     nu, nb = species
 
     inv_sum_G = 1.0 / sum_G if sum_G > 0.0 else 0.0
@@ -456,13 +477,28 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                                     nu["G_step"], nb["G_step"], nu["brp_step"], nb["brp_step"], p_index, Phi_0,
                                     W3, pref3, self_same, W1, W2, c1, c2, self_cross, ref[0]["R"], ref[1]["R"],
                                     inj_w_ref)
+        if decay_rates is not None:
+            # the eigenstates' mass content at this step, and their decay widths (lab frame), which the jumps need too
+            for sp in species:
+                _cosmo_projections(E_bins, sp["T_table"], sp["log_s0"], sp["inv_dlogs"], sp["c_z"][k], sp["T_bins"])
+                sp["Wd"] = np.ascontiguousarray(np.einsum("ima,m->ia", sp["T_bins"], decay_width_unit)
+                                                / (E_bins[:, None] * (1.0 + z)))
         if jump_unit is not None:
             for i_s, sp in enumerate(species):
+                Wd_s = sp["Wd"] if decay_rates is not None else no_wd
                 _soft_jumps(E_bins, 1.0 + z, sp["J_table"], sp["Gd_table"], sp["GG_table"], sp["lam_table"],
-                            sp["log_s0"], sp["inv_dlogs"], sp["c_z"][k], float(jump_unit[k]), dt, sp["F"])
+                            sp["log_s0"], sp["inv_dlogs"], sp["c_z"][k], float(jump_unit[k]), dt, sp["F"],
+                            Wd_s, decay_rates is not None)
                 if ref is not None:
                     _soft_jumps(E_bins, 1.0 + z, sp["J_table"], sp["Gd_table"], sp["GG_table"], sp["lam_table"],
-                                sp["log_s0"], sp["inv_dlogs"], sp["c_z"][k], float(jump_unit[k]), dt, ref[i_s]["F"])
+                                sp["log_s0"], sp["inv_dlogs"], sp["c_z"][k], float(jump_unit[k]), dt, ref[i_s]["F"],
+                                Wd_s, decay_rates is not None)
+        if decay_rates is not None:
+            dp_decay.decay_step(E_bins, 1.0 + z, dt, decay_rates[0], decay_rates[1], m_nu_bg_arr, nu["F"], nb["F"],
+                                nu["T_bins"], nb["T_bins"], True, False)
+            if ref is not None:
+                dp_decay.decay_step(E_bins, 1.0 + z, dt, decay_rates[0], decay_rates[1], m_nu_bg_arr, ref[0]["F"],
+                                    ref[1]["F"], nu["T_bins"], nb["T_bins"], True, False)
     if verbose == 2:
         safe_print(f"Cosmological baseline finished at z = {z_bins[-1]:.4f}.")
 
@@ -486,7 +522,7 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                                     z_substeps=int(st["z_substeps"]), E_extension=float(st["E_extension"]),
                                     Gamma_vis=ab[0].Gamma_vis,
                                     inj_window=(0.0, np.inf) if si_combined else (inj_lo, inj_hi),
-                                    thermal="full" if st.get("thermal_products") else True)
+                                    thermal="full" if st.get("thermal_products") else True, decay=decay_rates)
         if si_combined:
             # below 1 keV with both a potential and hard scatterings (2026-10-22; notes, 'Soft scatterings on the
             # relics'): the dark-portal phase's eigenstate populations (the potential, the soft scatterings) rescaled
@@ -858,6 +894,7 @@ def _flux_from_setup(E_bins: np.ndarray, params: Dict, setup: Dict, injection,
         G_coupling=params.get('G_coupling', None), Gamma_vis=params.get('Gamma_vis', None),
         si_cosmology=setup.get('si_cosmology', False), si_combined=setup.get('si_combined', False),
         relic_scattering=params.get('relic_scattering', True),
+        neutrino_decay=params.get('neutrino_decay', True),
         si_settings=dict(z_substeps=params.get('si', {}).get('z_substeps', 1),
                          E_extension=params.get('si', {}).get('E_extension', 10.0),
                          thermal_products=params.get('thermal_products', False)),
@@ -1433,6 +1470,7 @@ def build_solver_params(config: Dict) -> Tuple[np.ndarray, Dict]:
     # resonance: off by default
     params['thermal_products'] = bool(config['dark_portal'].get('thermal_products', False))
     params['relic_scattering'] = bool(config['dark_portal'].get('relic_scattering', True))
+    params['neutrino_decay'] = bool(config['dark_portal'].get('neutrino_decay', True))
     if params['absorption_model'] not in ('lagrangian', 'theory_notes'):
         raise ValueError(f"dark_portal.absorption_model must be 'lagrangian' or 'theory_notes', got "
                          f"{config['dark_portal']['absorption_model']!r}")
