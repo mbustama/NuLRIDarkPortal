@@ -2275,6 +2275,20 @@ decay, every conversion--decay cycle costs the beam energy. At $\mzd = 10^{-6}$~
 the flux between 10~TeV and 3~PeV falls to 0.015 of the no-effect flux with both (both transports agree: 0.0145 and
 0.0149), to 0.50 with the decay alone, all of it $\nu_1$ at Earth.
 
+\textit{Checked against exact results (2026-10-24).}---With the relic scatterings off nothing decays into $\nu_3$, so
+its share at Earth is its survival averaged over the sources (star-formation evolution), $\langle\exp[-\Gamma_3 m_3/E
+\int_0^{z}dz'/((1+z')^2H)]\rangle$. At $\mzd = 10^{-2}$~eV, $\gd = 10^{-7.5}$ ($\mu$ texture), 100~TeV and 1~PeV:
+exact 0.5266 and 0.9337; dp\_si 0.5266 and 0.9337; the dark-portal phase 0.5257 with its 200 redshift steps (0.5263
+with 800). Two fixes came out of it: the decays are applied in two halves around each step's collisions and injection
+(Strang; what a step injects decays over half of it on average, not all of it), and the dark-portal phase takes each
+step's optical depth $\int dz/((1+z)^2H)$ exactly (its end-point $dt/(1+z)$ was first order: 0.5148 with 200 steps).
+The energy loss of item 1, decay off: at $\mzd = 10^{-9}$~eV, $\gd = 10^{-6}$, the flux at 100~TeV falls to 0.9458
+against 0.9455 for the same source average of $(1 + \Delta E(z)/E)^{-p}$ with the states' mean $(GG^\dagger)_{aa}$
+(the scatterings equalize them); the shifts the transport applies match $\int C(z)(GG^\dagger)_{aa}\,dz/((1+z)^2H)$ to
+0.2\%. Tests (\file{tests/test\_decay.py}): the jumps' protection by the decay widths ($\omega^2/(\omega^2 + D^2)$ with
+$D$ grown by them), the Asimov data without decay, the solver's relics after their decays ($\eta' = (3, 0, 0)$ where
+they all decay).
+
 \textit{How they enter the code.}---Item 1 as a drift in $\ln E$, per relic pair with $\langle 1/E_r\rangle$: in
 dp\_si's step, and through dp\_si wherever the drift exceeds $10^{-4}$ of $E$ over the path at the band's lowest
 energy (the routing extended below the present $10^{-4}$ coupling threshold). Item 2 as a loss of $\nu_i$ into
