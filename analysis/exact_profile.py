@@ -207,6 +207,7 @@ class ExactProfiler:
         self.eta = [n for n in ETA if n in cfg.free_names]
         self.w = widths(cfg, self.eta)
         self.bounds = {p.name: tuple(p.bounds) for p in cfg.parameters}
+        self._ml_bounds0 = self.bounds.get("m_lightest_eV")
         fs = dict(vars(cfg.fit))
         # the fits' differences: forward ones of step 1e-5 (internal units; the campaign's 1e-3 stops short in
         # norm_astro, fitting.FitSettings.fd_central) or central ones; ~150 gradients each
@@ -299,7 +300,7 @@ class ExactProfiler:
                 continue
             if p.name in self.eta:
                 c, w = float(centre[p.name]), self.w[p.name]
-                lo, hi = max(p.bounds[0], c - radius * w), min(p.bounds[1], c + radius * w)
+                lo, hi = max(self.bounds[p.name][0], c - radius * w), min(self.bounds[p.name][1], c + radius * w)
                 if not lo < hi:
                     lo, hi = min(lo, c) - 1e-12 * max(1.0, abs(c)), max(hi, c) + 1e-12 * max(1.0, abs(c))
                 free.append(Parameter(p.name, min(max(c, lo), hi), (lo, hi), "linear"))
@@ -516,6 +517,49 @@ class ExactProfiler:
             self.use(self.exact_model)
         return f, v, self._runs(model) - n0
 
+    # ------------------------------------------------------------------ where the model holds (2026-10-24)
+    def lightest_cap(self, held: Mapping) -> Optional[float]:
+        """The largest lightest mass at which the plane's model is perturbative at the point held (Mauricio
+        2026-10-24: the fits use only the lightest masses where the model holds; analysis.exclusion.not_allowed_boundary
+        per lightest mass, the line log10 g = log10 m_Zd + c(m_lightest), c falling with the mass): None where every
+        mass in the bounds is allowed (or the point is not one of a plane with that boundary), 0.0 where none is."""
+        if self._ml_bounds0 is None or "m_lightest_eV" not in self.eta or not self.cfg.planes:
+            return None
+        pl = self.cfg.planes[0]
+        if pl.x not in held or pl.y not in held or held[pl.x] <= 0.0 or held[pl.y] <= 0.0:
+            return None
+        tab = getattr(self, "_cap_table", None)
+        if tab is None:
+            from .exclusion import not_allowed_boundary
+            lo, hi = self._ml_bounds0
+            nodes = np.geomspace(max(lo, M_LIGHTEST_MIN), hi, 25)
+            cs = []
+            for m in nodes:
+                b = not_allowed_boundary(self.cfg.path, float(m))
+                if b is None or b[0] != 1.0:
+                    cs = None
+                    break
+                cs.append(float(b[1]))
+            tab = self._cap_table = False if cs is None else (np.log10(nodes), np.array(cs))
+        if tab is False:
+            return None
+        lm, cs = tab
+        t = float(np.log10(held[pl.y]) - np.log10(held[pl.x]))
+        if t < cs[-1]:
+            return None
+        if t >= cs[0]:
+            return 0.0
+        k = int(np.nonzero(cs > t)[0][-1])
+        f = (cs[k] - t) / (cs[k] - cs[k + 1])
+        return float(10.0 ** (lm[k] + f * (lm[k + 1] - lm[k])))
+
+    def set_lightest_cap(self, cap: Optional[float]) -> None:
+        """Bound m_lightest above by cap for the point to come (None: its configured bounds)."""
+        if self._ml_bounds0 is None:
+            return
+        lo, hi = self._ml_bounds0
+        self.bounds["m_lightest_eV"] = (lo, hi if cap is None else min(hi, max(float(cap), lo)))
+
     def _ml_grid(self) -> List[float]:
         lo, hi = self.bounds["m_lightest_eV"]
         return sorted({float(min(max(m, lo), hi)) for m in self.settings.ml_scan})
@@ -700,6 +744,8 @@ class ExactProfiler:
         t0 = time.perf_counter()
         held = {k: float(v) for k, v in held.items()}
         eta = {n: float(anchor["values"][n]) for n in self.eta}
+        if any(not self.bounds[n][0] <= eta[n] <= self.bounds[n][1] for n in self.eta):
+            return None                     # the anchor's solution is outside this point's bounds (lightest_cap)
         model = self.centre_model(eta)
         try:
             runs = self._runs_at(model, held, anchor["values"])

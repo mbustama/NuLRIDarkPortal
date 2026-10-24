@@ -133,6 +133,7 @@ def _run_chain(task) -> List[dict]:
         """The held-back points (increasing coupling): the scan probed from the top down until it is flat."""
         for j in range(len(pending) - 1, -1, -1):
             index, held, r_inh = pending[j]
+            prof.set_lightest_cap(prof.lightest_cap(held))
             runs, k, sec = prof.scan_runs(held, mixing, best)
             flat, worst = prof.scan_flat(runs, ref)
             if flat:
@@ -158,6 +159,20 @@ def _run_chain(task) -> List[dict]:
 
     for index, held in chain:
         r = None
+        if prof is not None:
+            cap = prof.lightest_cap(held)
+            if cap is not None and cap <= 0.0:
+                # not perturbative at any lightest mass: shaded on the plots, not fitted (Mauricio 2026-10-24)
+                rec = dict(index=list(index), held=held, values={}, chi2=float("nan"), nfev=0, seconds=0.0,
+                           message="not allowed: perturbative unitarity fails at every lightest mass",
+                           not_allowed=True, t=time.time())
+                if sink is not None:
+                    rec["pass"] = 0
+                    rec["id"] = sink[1]
+                    _append_jsonl(sink[0], [rec])
+                out.append(rec)
+                continue
+            prof.set_lightest_cap(cap)
         if prof is not None and anchor is not None:
             if not ml:
                 r = prof.inherit(held, anchor)
@@ -195,6 +210,14 @@ def _run_repair(task) -> Optional[dict]:
     index, held, own_values, own_chi2, candidates, nb_mean, force, settings, own_certified = task
     obj = _W["objective"]
     prof = _W.get("exact")
+    if prof is not None:
+        # only the lightest masses where the model holds at this point (2026-10-24): a neighbour's solution beyond
+        # them is not a candidate
+        cap = prof.lightest_cap(held)
+        prof.set_lightest_cap(cap)
+        if cap is not None:
+            lo_ml, hi_ml = prof.bounds["m_lightest_eV"]
+            candidates = [c for c in candidates if lo_ml <= float(c.get("m_lightest_eV", lo_ml)) <= hi_ml]
     better, trials = [], []
     for c in candidates:
         if prof is not None and own_certified and prof.within_certificate(own_values, c):
@@ -558,7 +581,9 @@ def _scan(cfg: AnalysisConfig, names: List[str], grids: List[np.ndarray], best: 
                 if ix not in changed and not any(nb in changed for nb in nbs):
                     continue
                 own = done[ix]
-                cands = [done[nb]["values"] for nb in nbs if nb in done]
+                if own.get("not_allowed"):
+                    continue
+                cands = [done[nb]["values"] for nb in nbs if nb in done and not done[nb].get("not_allowed")]
                 # the profile interpolated between the two neighbours along each axis that has them
                 mids = []
                 for ax in range(len(shape)):

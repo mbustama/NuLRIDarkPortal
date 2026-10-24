@@ -74,3 +74,29 @@ def test_plane_boundary_matches_a_direct_evaluation():
             Gp = U.conj().T @ G @ U
             r = du.neutrino_unitarity(Gp, np.asarray(pr["m_nu_bg_arr"]), 10.0 ** lm)
             assert (r >= 1.0) == side
+
+
+def test_lightest_cap_follows_the_boundary():
+    """exact_profile.ExactProfiler.lightest_cap (2026-10-24, the fits only where the model holds): 0 above the
+    1e-6 eV line, None below the 0.1 eV one, and in between the mass where the line crosses the point."""
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+    import copy
+    import json
+    from types import SimpleNamespace
+    from analysis import config as config_mod
+    from analysis import exclusion as ex
+    from analysis.exact_profile import ExactProfiler
+    p = os.path.join(os.path.dirname(__file__), "..", "analysis", "configs", "campaign_ml", "now_ic26", "dp_mu_ul.json")
+    raw = copy.deepcopy(json.load(open(p)))
+    raw.pop("exact_profile", None)
+    cfg = config_mod.from_dict(raw, p)
+    me = SimpleNamespace(_ml_bounds0=(1e-6, 0.1), eta=["m_lightest_eV"], cfg=cfg)
+    pl = cfg.planes[0]
+    c6, c1 = ex.not_allowed_boundary(p, 1e-6)[1], ex.not_allowed_boundary(p, 0.1)[1]
+    m = 1e-4
+    assert ExactProfiler.lightest_cap(me, {pl.x: m, pl.y: m * 10 ** (c6 + 0.01)}) == 0.0
+    assert ExactProfiler.lightest_cap(me, {pl.x: m, pl.y: m * 10 ** (c1 - 0.01)}) is None
+    t = 0.5 * (c6 + c1)
+    cap = ExactProfiler.lightest_cap(me, {pl.x: m, pl.y: m * 10 ** t})
+    assert 1e-6 < cap < 0.1
+    assert ex.not_allowed_boundary(p, cap / 1.2)[1] > t > ex.not_allowed_boundary(p, cap * 1.2)[1]

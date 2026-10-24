@@ -305,7 +305,10 @@ small, not yet measured), **open** (decided to remove or change, not yet done).
     with number x <1/E>: **to bracket** in stage 2 (number x1 to x3, <1/E> x1/2 to x2). (c) Where the couplings of the mediator's longitudinal mode (its
     Goldstone, Y_ij = i (G'_ij m_i + G'_ji m_j)/m_Zd) break perturbative unitarity (src/dp_unitarity.py, against
     Allwicher et al., JHEP 10 (2021) 129), the planes keep their ranges and the region is marked as not allowed
-    (Mauricio, 2026-10-24); lightest mass 1e-6 eV (the widest region): **accepted**. (d) The 18 potential planes per
+    (Mauricio, 2026-10-24). The boundary falls with the lightest mass (c from 2.46 to 1.25 for the e texture between
+    1e-6 and 0.1 eV; 1e-6 eV gives the narrowest region, not the widest as first stated): the fits use only the
+    lightest masses where the model holds at each point (exact_profile.lightest_cap; Mauricio, 2026-10-24), and the
+    points where none does (the 1e-6 eV line) are shaded and not fitted: **accepted**. (d) The 18 potential planes per
     data set are dropped (Mauricio, 2026-10-24): in the model followed (Jana & Swain, arXiv:2607.04441) the Z mixing
     obeys eps' <= (v_phi/v_H) m_Zd/m_Z (tree level, their Eq. 6; the loop, their Eq. 20, is smaller), and every
     stored ultralight exclusion needs eps' 8-30 orders of magnitude above it (tools/check_zd_mixing_bound.py):
