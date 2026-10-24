@@ -2188,8 +2188,10 @@ Even the transverse part alone makes the beam arrive as $\nu_1$, plus the daught
 $\gd \gtrsim 10^{-7}$: a large flavor signal, which IceCube already constrains. Half of the daughters keep the
 parent's helicity (the $P_L$ piece); for those, the fraction $z$ of the parent's energy follows $dN/dz = 2(1-z)$
 from the transverse part and $2z$ from the longitudinal part (checked below). The other half have the opposite
-helicity (the $P_R$ piece: a neutrino gives an antineutrino); their spectra are still to be derived, with the
-implementation. The mediator is taken as invisible: it decays back to neutrinos only for $\mzd > 2m_1$, and then into
+helicity (the $P_R$ piece: a neutrino gives an antineutrino), with the mirrored spectra: $2z$ from the transverse part
+and $2(1-z)$ from the longitudinal part. Where $\mzd \ll m_i$ (the longitudinal part dominates), a neutrino in the
+beam thus gives a hard neutrino ($2z$) or a soft antineutrino ($2(1-z)$) with equal rates; an antineutrino, the
+CP mirror. The mediator is taken as invisible: it decays back to neutrinos only for $\mzd > 2m_1$, and then into
 the softest part of the spectrum. The relics' $\nu_2$ and $\nu_3$ decay at rest, with rates above $H_0$ already for
 $\gd \gtrsim 10^{-14}$. They are gone long before today, so every relic effect (the Debye screening, the absorption
 by the relics' flavor content, the soft scatterings, item~1) acts with $\nu_1$ relics only.
@@ -2276,7 +2278,9 @@ the current gives $16\,(k\cdot p')(k'\cdot p)$, the same in the forward limit; t
 ($\propto m_r m_s\,t$). Item 2, the trace with the massive polarization sum, $-g^{\mu\nu} + q^\mu q^\nu/M^2$, for a
 Dirac neutrino with a left-handed coupling: the Dirac rate to six digits at $\mzd = 10^{-2}$--$10^{-4}$~eV, a
 left-chiral daughter with angular distribution $1 + \cos\theta_s$ (transverse) and $1 - \cos\theta_s$ (longitudinal)
-about the parent's spin, which for a left-handed parent in flight gives the $dN/dz$ above. (An earlier version of this
+about the parent's spin, which for a left-handed parent in flight gives the $dN/dz$ above. The Majorana vertex's
+$P_R$ piece: the same rate to six digits (so twice the Dirac rate in all), a right-chiral daughter, and the mirrored
+distributions, $1 - \cos\theta_s$ (transverse) and $1 + \cos\theta_s$ (longitudinal). (An earlier version of this
 subsection read that check as covering Majorana neutrinos, with no second channel; corrected above.) Item 3, the
 tests above; the Goldstone couplings match the decay rate ($|Y_{31}|^2 m_3/16\pi$ for $m_1 = 0$ is the Majorana rate's
 longitudinal part). Item 4, the mass-matrix check above (\file{tools/check\_relic\_mass\_change.py},
