@@ -18,6 +18,9 @@ overlaps -- the number kept exactly (what crosses the grid's lower edge leaves i
 import numpy as np
 from numba import njit
 
+# NumPy 2 renamed trapz to trapezoid (CI runs NumPy 2, the pinned environment 1.26)
+_trapz = getattr(np, "trapezoid", None) or getattr(np, "trapz")
+
 ZETA3 = 1.2020569031595942
 
 
@@ -26,7 +29,7 @@ def mean_inv_E(m, T, n=600):
     x = np.linspace(1e-5, 40.0, n)
     f = x * x / (np.exp(x) + 1.0)
     p = x * T
-    return float(np.trapz(f / np.sqrt(p * p + m * m), x) / np.trapz(f, x))
+    return float(_trapz(f / np.sqrt(p * p + m * m), x) / _trapz(f, x))
 
 
 def loss_coefficient(G_flavor, U, masses, eta, T_nu0, z, M, mD2):

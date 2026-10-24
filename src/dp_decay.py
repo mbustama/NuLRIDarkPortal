@@ -27,6 +27,9 @@ eigenstates by T[b, j, :].
 import numpy as np
 from numba import njit
 
+# NumPy 2 renamed trapz to trapezoid (CI runs NumPy 2, the pinned environment 1.26)
+_trapz = getattr(np, "trapezoid", None) or getattr(np, "trapz")
+
 
 def rest_rates(G_flavor, U, masses, M, majorana=True):
     """(Gam, fL): Gam[i, j] the rest-frame rate (eV) of nu_i -> nu_j + Z_D, fL[i, j] its longitudinal share.
@@ -170,7 +173,7 @@ def _mean_m_over_E(m, T, n=400):
     x = np.linspace(1e-4, 40.0, n)
     f = x * x / (np.exp(x) + 1.0)
     p = x * T
-    return float(np.trapz(f * m / np.sqrt(p * p + m * m), x) / np.trapz(f, x))
+    return float(_trapz(f * m / np.sqrt(p * p + m * m), x) / _trapz(f, x))
 
 
 def relic_composition(Gam, masses, eta, T_nu0, H0, Omega_m, Omega_L, z_ref=1.0, Omega_r=9.1e-5):
@@ -192,7 +195,7 @@ def relic_composition(Gam, masses, eta, T_nu0, H0, Omega_m, Omega_L, z_ref=1.0, 
         if tot[i] <= 0.0 or eta[i] <= 0.0:
             continue
         mE = np.array([_mean_m_over_E(m[i], T_nu0 * x) for x in zp1])
-        D = tot[i] * float(np.trapz(mE / H, u))
+        D = tot[i] * float(_trapz(mE / H, u))
         dec = eta[i] * (-np.expm1(-D))
         eta[i] -= dec
         for j in range(3):
