@@ -401,7 +401,7 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
     # step's redshifts (8-point Gauss-Legendre; the end-point dt / (1+z) was first order, 1.5% low at half survival with
     # 200 steps)
     decay_I = None
-    if decay_rates is not None:
+    if decay_rates is not None or loss_C is not None:
         xg, wg = np.polynomial.legendre.leggauss(8)
         decay_I = np.zeros(len(z_bins))
         for kk in range(1, len(z_bins)):
@@ -514,6 +514,10 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
             if ref is not None:
                 _jump_decay_cycles(species, ref, k, z, 0.5 * dt, 0.5 * decay_I[k], n_sub, jump_unit, decay_rates,
                                    m_nu_bg_arr, E_bins)
+        if loss_C is not None and jump_unit is not None:
+            # the energy loss in two halves around the step's collisions and injection (as the decays), each with half
+            # of the step's exact int dz / ((1+z)^2 H)
+            _loss_half(species, ref, k, loss_C, decay_I, E_bins, N_E)
         G_state = np.ascontiguousarray(Gamma_grid_all[k, :, :])
         Pis = []
         for sp in species:
@@ -549,15 +553,7 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                 _jump_decay_cycles(species, ref, k, z, 0.5 * dt, 0.5 * decay_I[k], n_sub, jump_unit, decay_rates,
                                    m_nu_bg_arr, E_bins)
         if loss_C is not None and jump_unit is not None:
-            for i_s, sp in enumerate(species):
-                if "GG_bins" not in sp:
-                    sp["GG_bins"] = np.zeros((N_E, 3), dtype=np.float64)
-                dp_relic_loss.interp_sigma_table(E_bins, sp["GG_table"], sp["log_s0"], sp["inv_dlogs"], sp["c_z"][k],
-                                                 sp["GG_bins"])
-                dE_obs = np.ascontiguousarray(float(loss_C[k]) * sp["GG_bins"] * dt / (1.0 + z))
-                dp_relic_loss.shift_step(E_bins, sp["F"], dE_obs)
-                if ref is not None:
-                    dp_relic_loss.shift_step(E_bins, ref[i_s]["F"], dE_obs)
+            _loss_half(species, ref, k, loss_C, decay_I, E_bins, N_E)
     if verbose == 2:
         safe_print(f"Cosmological baseline finished at z = {z_bins[-1]:.4f}.")
 
@@ -742,6 +738,21 @@ def _jump_decay_cycles(species, ref, k, z, dt_half, I_half, n_sub, jump_unit, de
                             pops[i_s], sp["Wd"], True)
         dp_decay.decay_step(E_bins, 1.0, I_half / n_sub, decay_rates[0], decay_rates[1], m_nu, pops[0], pops[1],
                             species[0]["T_bins"], species[1]["T_bins"], True, False)
+
+
+def _loss_half(species, ref, k, loss_C, step_I, E_bins, N_E):
+    """Half of a step's relic mass-change energy loss (dp_relic_loss): each state's content shifts down by
+    C(z_k) (G G^dag)_aa (the jumps' GG table at the step's sigma) times half of int dz / ((1+z)^2 H) over the step."""
+    import dp_relic_loss
+    for i_s, sp in enumerate(species):
+        if "GG_bins" not in sp:
+            sp["GG_bins"] = np.zeros((N_E, 3), dtype=np.float64)
+        dp_relic_loss.interp_sigma_table(E_bins, sp["GG_table"], sp["log_s0"], sp["inv_dlogs"], sp["c_z"][k],
+                                         sp["GG_bins"])
+        dE_obs = np.ascontiguousarray(float(loss_C[k]) * sp["GG_bins"] * 0.5 * step_I[k])
+        dp_relic_loss.shift_step(E_bins, sp["F"], dE_obs)
+        if ref is not None:
+            dp_relic_loss.shift_step(E_bins, ref[i_s]["F"], dE_obs)
 
 
 def calc_H_Hubble_vec(z, H0, Omega_m, Omega_L):

@@ -1438,6 +1438,10 @@ def _bin_matrix(tau, lose, Q, Qn, Mx):
     sc = 1.0
     if cmax > cap:
         sc = max(cap / cmax, CONVERSION_MIN / cmin)
+        # a state converting far more slowly than the others (cmax / cmin beyond 1e7) keeps CONVERSION_MIN only as far
+        # as the largest stays within CONVERSION_GUARD per step, where the rounding is still ~1e-6 (2026-10-24; never
+        # met in the campaign's planes, whose spread is at most 10)
+        sc = min(sc, max(cap, CONVERSION_GUARD) / cmax)
         if sc > 1.0:
             sc = 1.0
     for a in range(n):
@@ -1693,6 +1697,7 @@ STIFF_BIN = 1e12
 # before; a synthetic bin there is exact to 1e-6), and the conversions per step kept: CONVERSION_CAP, at least
 # CONVERSION_RATIO x the bin's largest loss and every state's at least CONVERSION_MIN (exact where the true ones are).
 BIN_ROUNDING_MAX = 1e8
+CONVERSION_GUARD = 1e10
 CONVERSION_CAP = 1e6
 CONVERSION_RATIO = 1e7
 CONVERSION_MIN = 1e3
@@ -2977,6 +2982,9 @@ def _transport_columns(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu
         for k, (P_c, p_c, w_c, phi_c, rho_c) in enumerate(columns):
             dt, T_inj = _step_time_and_injection(L_lo, L_hi, H0, Omega_m, Omega_L, p_c, rho_evol, phi_c)
             S0[:, :3, k] = np.outer(Eps[k] * (T_inj / dt), np.asarray(P_c, dtype=np.float64))
+        if relic_loss is not None:
+            # the energy loss in two halves around the step's collisions and injection
+            _loss_columns(Fs, E, L_lo, L_hi, 0.5 * dt, relic_loss)
         if full:
             chunk = numba.set_parallel_chunksize(1)
             for b, (Nb, Lb, Db, Rb) in enumerate(blocks):
@@ -2994,7 +3002,7 @@ def _transport_columns(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu
                                Cregs[k], Rth, Oth, node_th, dt, reg, diags[k], prof == 1, dec_rate, dec_br,
                                float(np.exp(0.5 * (L_lo + L_hi))), use_dec)
             if relic_loss is not None:
-                _loss_columns(Fs, E, L_lo, L_hi, dt, relic_loss)
+                _loss_columns(Fs, E, L_lo, L_hi, 0.5 * dt, relic_loss)
             continue
         if steps is not None:
             J, Nq, Lq, Dq = steps[K - 1 - m]
@@ -3020,7 +3028,7 @@ def _transport_columns(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu
                            Cregs[k], tB, tO, node, dt, reg, diags[k], prof == 1, dec_rate, dec_br,
                            float(np.exp(0.5 * (L_lo + L_hi))), use_dec)
         if relic_loss is not None:
-            _loss_columns(Fs, E, L_lo, L_hi, dt, relic_loss)
+            _loss_columns(Fs, E, L_lo, L_hi, 0.5 * dt, relic_loss)
     if store is not None:
         _STEP_TERMS.clear()
         _STEP_TERMS[skey] = store
