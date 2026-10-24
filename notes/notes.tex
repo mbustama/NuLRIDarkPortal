@@ -2077,7 +2077,8 @@ of $H$ (Hubble-slow; they turn at $\omega_{ab}$ and are damped at $D_{ab} = \Gam
 G^2_{bb})/2 - G_{aa}G_{bb}]$) leaves rates between populations $R_{ba} = \Gamma_{\rm u}|G_{ba}|^2\,
 \omega_{ab}^2/(\omega_{ab}^2 + D_{ab}^2)$: the secular rates where $D \ll \omega$, the Zeno-suppressed
 $\omega^2/D$ where not (Stodolsky's damping). They are applied per redshift step in the dark-portal phase
-(\file{dp\_cosmo.\_soft\_jumps}, exactly through the symmetric rate matrix's eigenbasis) wherever they add up
+(\file{dp\_cosmo.\_soft\_jumps}, exactly, in closed form on the complement of the uniform mode;
+Sec.~\ref{sec:rounding-subkev}) wherever they add up
 to $10^{-4}$ over the path. Fast, they equalize the flavors (the states they connect end with equal shares):
 the flavor fractions go to $1/3$ each, a shift of only $\sim0.01$ from the standard ones for pion sources
 ($|\Delta\chi^2| < 1$ alone, fitted: $\le0.1$ MESE, $\le0.75$ HESE+DR2, $-0.47$ the projection, at 100~eV).
@@ -2116,6 +2117,93 @@ read against its own best fit, which absorbs that offset.
 dark-portal phase's 200 linear redshift steps overcount the sources by 0.5\% (against 800), dp\_si's steps,
 uniform in $\ln(1+z)$, undercount by 0.17\%. The flux normalization floats in every fit, so no $\chi^2$ moves,
 also where a plane switches transport.
+
+\subsection{Relic mass changes and neutrino decay below 0.05~eV (2026-10-24)}
+\label{sec:mass-change-decay}
+
+Neither transport contains two processes that the dark portal's couplings allow once the mediator is light. Both
+come from the off-diagonal entries of the couplings in the mass basis, $G' = U^\dagger G U$, which the dark portal
+has for any texture ($G' = \gd\,w w^\dagger + \kappa I$, $w = U^\dagger u$). Both are estimates, to be checked before
+they are implemented. Both change the ultralight dark-portal planes for $\gd \gtrsim 10^{-7}$ and leave the MeV
+planes alone.
+
+\textit{1. A soft scattering that changes the relic's mass state.}---A scattering can leave the relic in another
+mass state, $r \to s$, with amplitude $\propto G'_{ca}G'_{sr}/(t - M_t^2)$. Its forward peak survives the mass
+change. For a beam along $z$, $t \to 0$ conserves the relic's light-cone momentum $p^- = E - p_z$, so the relic
+leaves with $p_s^- = p_r^-$ and the beam gives up
+\begin{equation}
+  \omega_{rs} = \frac{m_s^2 - m_r^2}{2\,p_r^-}
+  \qquad\Big(\text{relic at rest: } \frac{\Delta m^2_{sr}}{2m_r}\Big).
+\end{equation}
+The relic current's light-cone component is unchanged, $J^- = 2\sqrt{p_s^-p_r^-} = 2p_r^-$, so the
+$1/M_t^2$ peak of the cross section is the elastic one. These events are already inside the jumps' $\Gamma_{\rm u}$
+(the sum over $s$ in $(G'G'^\dagger)_{rr}$) and inside dp\_si's quasi-elastic conversions, but at no energy cost.
+Weighted with the flux factor $v_{\rm rel} = p_r^-/E_r$, the cost per unit time is exact over the relic's
+directions, $\langle v_{\rm rel}\,\omega_{rs}\rangle = \frac12(m_s^2 - m_r^2)\langle 1/E_r\rangle$. So a
+neutrino in state $a$ loses energy at a rate that does not depend on its energy:
+\begin{equation}
+  \frac{dE}{dt} = -\sum_{r\ne s} \frac{2n_{\rm hel}(1+z)^3\,\eta_r\,(GG^\dagger)_{aa}\,|G'_{sr}|^2}{4\pi M_t^2}\;
+  \frac{m_s^2 - m_r^2}{2}\,\Big\langle\frac{1}{E_r}\Big\rangle_{T(z)} .
+\end{equation}
+Up-conversions cost energy and down-conversions return it; the light relic, moving with $E_r \sim 3T$, costs
+the most. Relative to $E$ the loss grows toward low energies ($\propto 1/E$). Estimate for the $\mu$ texture
+($G'$ and $m_D$ from the solver at $\gd = 10^{-4}$, both scaled $\propto\gd$; lightest mass $10^{-6}$~eV;
+$z \le 4$). The table gives the energy lost before arrival as a fraction of $E$ at 100~TeV, to first order
+(1 or more: the beam is drained):
+\begin{center}
+\begin{tabular}{lccccc}
+  $\gd$ & $\mzd = 10^{-20}$ & $10^{-12}$ & $10^{-9}$ & $10^{-6}$ & $10^{-3}$~eV \\ \hline
+  $10^{-4}$ & $1.4\times10^{6}$ & $1.4\times10^{6}$ & $1.0\times10^{6}$ & 6 & $6\times10^{-6}$ \\
+  $10^{-5}$ & $1.4\times10^{4}$ & $1.4\times10^{4}$ & $5.6\times10^{2}$ & $6\times10^{-4}$ & $6\times10^{-10}$ \\
+  $10^{-6}$ & $1.4\times10^{2}$ & $1.4\times10^{2}$ & $0.06$ & $6\times10^{-8}$ & --- \\
+  $10^{-7}$ & 1.4 & 1.0 & $6\times10^{-6}$ & --- & --- \\
+\end{tabular}
+\end{center}
+Below $\mzd \approx m_D \propto \gd$ the loss scales as $\gd^2$, and above it as $\gd^4/\mzd^2$. If this holds,
+the ultralight exclusion reaches $\gd \sim 10^{-7}$ at the smallest masses.
+
+\textit{2. Neutrino decay into the mediator.}---For $\mzd < m_i - m_j$ the heavier mass states decay,
+$\nu_i \to \nu_j + Z_D$, both in the beam and among the relics. For a vector coupled to a current that the
+neutrino masses do not conserve ($\partial_\mu J^\mu \propto m_i - m_j$), the rest-frame rate is the one of
+$t \to bW$:
+\begin{equation}
+  \Gamma_{i\to j} \simeq \frac{|G'_{ji}|^2\,m_i^3}{32\pi\,\mzd^2}\Big(1 + \frac{2\mzd^2}{m_i^2}\Big)
+  \Big(1 - \frac{\mzd^2}{m_i^2}\Big)^2 ,
+\end{equation}
+that is, $|G'_{ji}|^2 m_i/16\pi$ from the transverse polarizations plus the longitudinal part
+$\propto m_i^3/\mzd^2$. In flight it is slower by $m_i/E$. For $\nu_3\to\nu_1$ at 100~TeV, with
+$|G'_{31}| \simeq 0.3\,\gd$, the rate over the Hubble rate is:
+\begin{center}
+\begin{tabular}{lccccc}
+  $\gd$ & transverse & $\mzd = 10^{-12}$ & $10^{-8}$ & $10^{-4}$ & $10^{-2}$~eV (longitudinal) \\ \hline
+  $10^{-8}$ & $3\times10^{-3}$ & $4\times10^{18}$ & $4\times10^{10}$ & $4\times10^{2}$ & 0.04 \\
+  $10^{-6}$ & 31 & $4\times10^{22}$ & $4\times10^{14}$ & $4\times10^{6}$ & $4\times10^{2}$ \\
+  $10^{-4}$ & $3\times10^{5}$ & $4\times10^{26}$ & $4\times10^{18}$ & $4\times10^{10}$ & $4\times10^{6}$ \\
+\end{tabular}
+\end{center}
+Even the transverse part alone makes the beam arrive as $\nu_1$, plus the daughters at lower energy, for
+$\gd \gtrsim 10^{-7}$. That is a large flavor signal, and IceCube already constrains it. The relics' $\nu_2$
+and $\nu_3$ decay at rest, with rates above $H_0$ already for $\gd \gtrsim 10^{-14}$. They are gone long before
+today, so every relic effect (the Debye screening, the absorption by the relics' flavor content, the soft
+scatterings, item~1) acts with $\nu_1$ relics only.
+
+\textit{A limit of the model.}---The longitudinal coupling, $\gd\,\Delta m/\mzd$, exceeds 1 for
+$\mzd \lesssim \gd \times 0.05$~eV. Below that, the theory with a bare (Stueckelberg) mass is not perturbative:
+the dark Higgs, whose vacuum value $\mzd/\gd$ would lie below the neutrino masses, has to be part of the
+calculation. The planes need either a stated cut there or a treatment that includes it.
+
+\textit{Beyond the dark portal.}---For $L_e - L_\mu$ and $L_e - L_\tau$, the mixing breaks the symmetry too
+($G' = U^\dagger\,{\rm diag}(1,-1,0)\,U$, entries $\sim g$). Item 1 is negligible at their couplings. The
+longitudinal decay is not negligible at the smallest masses: at $g = 10^{-27}$ and $\mzd = 10^{-20}$~eV the
+relics decay ($\Gamma/H_0 \sim 10^{12}$), and the beam does so at $\sim10^{-3}H_0$, a rate that grows as
+$\mzd^{-2}$. To check against the ultralight $L$ planes.
+
+\textit{How they would enter the code.}---Item 1 as a drift in $\ln E$, per relic pair with
+$\langle 1/E_r\rangle$: in dp\_si's step, and through dp\_si wherever the drift exceeds $10^{-4}$ of $E$ over
+the path at the band's lowest energy (the routing extended below the present $10^{-4}$ coupling threshold).
+Item 2 as a loss of $\nu_i$ into $\nu_j$ at lower energies (the daughters' spectrum) in the cosmological phase,
+plus $\nu_1$-only relics wherever the relics decay. Whether to cut at $\mzd = \gd\,\Delta m$ or to include the
+dark Higgs is Mauricio's decision.
 
 %==============================================================================
 \section{Open items}
@@ -2805,6 +2893,53 @@ $10^{-4.96}$ to $10^{-4.6}$. A few columns where $\Delta\chi^2$ hovers within ab
 wide range of couplings changed their reading; and the potential planes gained their 1--10~keV columns.
 Along the way: the HESE+DR2 $\chi^2$ is not exactly reproducible on re-evaluation at 0.6\% of points
 (by up to about 1.5, its inner fit of the detector nuisances). \note{Look at the HESE+DR2 reproducibility}
+
+\subsection{Two rounding failures below 1~keV (2026-10-24)}
+\label{sec:rounding-subkev}
+
+Both came from the work of 2026-10-22, and both removed flux that the physics keeps. In both, the rates far exceed
+the losses, and a quantity that should vanish exactly (a rate matrix's zero mode) came out as $10^{-16}$ of the
+largest rate.
+
+\textit{dp\_si's bins.}---Within a bin, the quasi-elastic conversions between mass states reach $10^{16}$--$10^{30}$
+per step below $\mzd\sim10^{-5}$~eV, against losses of order 1. In the diagonal, $-\text{col} - \text{loss}$ rounded
+to $-\text{col}$, and the exponential kept only the rounding. The October 22 fix had removed the NaN and the
+overflow but left this loss. It reached 99.9\% at $\gd \ge 10^{-4}$ (band-mean flux 0.001 at
+$10^{-30}$--$10^{-6}$~eV). Fix (\file{dp\_si.\_bin\_matrix}): beyond $10^{8}$ events per step the conversions are
+scaled down to $10^{6}$ per step, at least $10^{7}$ times the bin's largest loss and $10^{3}$ per state. That keeps
+their equilibrium within the bin, and the bin's loss rate on it, to about $10^{-7}$. Below $10^{8}$ per step, which
+covers every MeV plane, nothing changed.
+
+\textit{The jumps' step.}---Through \texttt{eigh}, the zero eigenvalue of the uniform mode (the total) came out as
+about $-10^{-16}$ of the largest rate. Beyond rates $\times\,dt \sim 10^{16}$ it removed up to half of the flux
+(0.53 at 12~TeV for the $\mu$ texture at $10^{-8}$~eV, $\gd = 2\times10^{-5}$). That happens along a diagonal band,
+$\gd \propto \mzd^{1/2}$, where the Zeno suppression sets in and the effective rates peak. Fix
+(\file{dp\_cosmo.\_soft\_jumps}): the step is taken on the complement of the uniform mode, with the $2\times2$
+eigensystem in closed form and its determinant, $3(r_{01}r_{02} + r_{01}r_{12} + r_{02}r_{12})$, taken from the
+rates without cancellation. CI had flagged the step on 2026-10-24: a conservation test lost $9\times10^{-8}$ under
+CI's NumPy.
+
+\textit{How they were found and checked.}---The preview plots showed the dark portal's ultralight exclusion flat at
+exactly $\gd = 10^{-4}$, where the routing switches to dp\_si. A transport audit followed
+(\file{tools/audit\_transport.py}: 19\,466 fluxes over every family, at 22 masses, about 15 couplings and each mode,
+plus the rerun's code at the 7\,648 routed points, 2\,000--3\,200 cores for about 30~min). Checks: a synthetic bin
+against the fast-mixing limit $\pi e^{-\pi\cdot l}1^T$ to $10^{-7}$ at $10^{8}$--$10^{30}$ per step; the jump step
+against \texttt{expm} to $10^{-10}$, with the total kept to $10^{-14}$ at rates $10^{-3}$--$10^{30}$ (both now in
+\file{tests/test\_relic\_scattering.py}); at the worst points, flux 1.0000 where it had been 0.001 and 0.53.
+
+\textit{What they touched.}---The dark-portal ultralight planes for $\gd \gtrsim 10^{-7.3}$, at masses up to
+0.1~eV, and the ultralight $L$ rows with $g \ge 10^{-4.5}$, which are deep inside the excluded region. The
+potential planes and the MeV planes are unchanged, to $10^{-14}$. The rerun and refinement there were stopped on
+2026-10-24 and will be redone once Sec.~\ref{sec:mass-change-decay} is settled.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.85\textwidth]{../output/figures/audit_dp_mu_ul.png}
+\caption{The dark portal's $\mu$-texture ultralight plane: band-mean flux (10~TeV--3~PeV) over the no-effect flux.
+Left, the code the rerun used: the block at $\gd \ge 10^{-4}$ is dp\_si's bins; the faint bands and the
+diagonal edge are the jumps' step. Right, both corrected. Only the true energy losses at $\gd \ge 10^{-2.7}$
+remain. White: points not yet evaluated when the figure was made.}
+\end{figure}
 
 \subsection{Earlier corrections}
 
