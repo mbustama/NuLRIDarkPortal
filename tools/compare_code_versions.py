@@ -2,7 +2,9 @@
 compare_code_versions.py -- the fluxes of two versions of the code at the same points (stage 2, 2026-10-24): the MeV
 planes (dark portal e, mu, tau; L_e - L_mu, L_e - L_tau) and the secret-interaction planes, which the ultralight work
 must leave unchanged. Each version computes what the analysis computes (analysis.model's _fluxes_compute: the
-pure-flavor sources, the Galactic sky average) with its own src/ and analysis/, from the same configuration files.
+pure-flavor sources, the Galactic sky average; F, G) and the model's fluxes between its spectral-index nodes
+(analysis.model.fluxes at p_index 2.63, p_index_low 1.13: the index spline and the broken power law's join; MF, MG)
+with its own src/ and analysis/, from the same configuration files.
 
   plan <units.json> [--per-plane 40]
   run <units.json> <task> <n_tasks> <out_dir> --root <repository> [--workers 32]
@@ -81,6 +83,18 @@ def _one(u):
         out["F"] = F
         if m.galactic:
             out["G"] = np.asarray(dps.galactic_allsky(E, params))
+        # the analysis model's fluxes between its spectral-index nodes (the index spline and the broken power law's
+        # join, analysis.model.fluxes): p_index 2.63, p_index_low 1.13 where they are parameters
+        names = {q.name for q in cfg.parameters}
+        vm = dict(v)
+        if "p_index" in names:
+            vm["p_index"] = 2.63
+        if "p_index_low" in names:
+            vm["p_index_low"] = 1.13
+        _, Fa, _, gal = m.fluxes(vm)
+        out["MF"] = np.asarray(Fa)
+        if gal is not None and gal.get("G") is not None:
+            out["MG"] = np.asarray(gal["G"])
     except Exception as e:
         out["error"] = repr(e)[:300]
     out["seconds"] = time.time() - t
@@ -107,7 +121,7 @@ def run(path, task, n_tasks, out_dir, root, workers):
     meta = {}
     for i, r in res.items():
         meta[i] = dict(error=r.get("error"), seconds=r["seconds"])
-        for key in ("F", "G"):
+        for key in ("F", "G", "MF", "MG"):
             if key in r:
                 arrays[f"{i}|{key}"] = r[key]
     np.savez_compressed(os.path.join(out_dir, f"fluxes.{task}.npz"), **arrays)
