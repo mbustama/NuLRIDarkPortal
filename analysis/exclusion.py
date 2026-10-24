@@ -291,11 +291,13 @@ def draw(ax, lx, G, F, color, fill, lw=1.8, ribbons=()):
         ax.fill(xs, ys, color=fill, lw=0, zorder=1)
         ax.plot(xs, ys, color=color, lw=0.6 * lw, zorder=5)
 
-def not_allowed_boundary(cfg_path):
+def not_allowed_boundary(cfg_path, m_lightest=None):
     """(slope, intercept) of the line log10 g = log10 m + c above which a plane's model is not perturbative
     (2026-10-24; notes Sec. 12.8 item 3; Mauricio: marked, ranges kept): the longitudinal mode's Goldstone couplings
     Y = i (G'_ij m_i + G'_ji m_j) / m_Zd break perturbative unitarity (src/dp_unitarity.py), with the neutrino masses
-    at the configuration's lightest mass (1e-6 eV: the widest region). The coupling matrix is linear in the plane's
+    at the lightest mass m_lightest (eV; default the configuration's, 1e-6 eV: the narrowest region -- the couplings
+    grow with the masses, c falls from 1.76 to 1.23 for the mu texture at 0.1 eV; the fits use only the lightest masses
+    where the model holds, Mauricio 2026-10-24, so the region where none does is this line's). The coupling matrix is linear in the plane's
     coupling, so the measure scales as (g / m_Zd)^2: one evaluation fixes c = -log10 sqrt(r0), r0 the measure at
     g = m_Zd = 1 (checked at a second coupling). Returns None for a plane whose coupling does not set G linearly."""
     import copy
@@ -314,6 +316,8 @@ def not_allowed_boundary(cfg_path):
     def measure(y):
         v = {q.name: q.start for q in cfg.parameters}
         v.update({pl["x"]: 1.0, pl["y"]: y})
+        if m_lightest is not None:
+            v["m_lightest_eV"] = float(m_lightest)
         _, pr = dps.build_solver_params(model._run_cfg(model._overrides(v)))
         G = pr.get("G_coupling")
         if G is None:

@@ -17,7 +17,8 @@ transport:
       the vacuum path was used (every fourth column and row at m_lightest 1e-6 eV: 1000 s a point); GD the energy grid
       x2 (sub-grid units)
 
-The grid: every point at m_lightest = 1e-6 eV; every second column and row at 1e-3, 1e-2, 0.1 eV. Each comparison:
+The grid: every point at m_lightest = 1e-6 eV; every second column and row at 1e-3, 1e-2, 0.1 eV; only the points
+allowed at their lightest mass (exclusion.not_allowed_boundary): the final run fits no other. Each comparison:
 d = max over energies, sources and flavors of |F_X - F_A| / max(F_A,tot, 1e-3 F_std,tot) (F_std the flux without new
 physics), and the range of F_X,tot / F_A,tot. Workers single-threaded, as in the campaign.
 
@@ -75,15 +76,24 @@ def _threaded(u):
 
 
 def plan(manifest, n_tasks, pilot, part="all"):
+    from analysis import exclusion as ex
     units = []
+    skipped = 0
     for fam in FAMILIES:
         raw, cfg = _load(fam)
         xn, yn, xs, ys = _axes(cfg)
+        # only the points the final run fits: allowed at the unit's own lightest mass (Mauricio 2026-10-24, the fits
+        # use only the lightest masses where the model holds; where none does the point is shaded, not fitted)
+        bnd = {ml: ex.not_allowed_boundary(os.path.join(CONFIGS, f"{fam}.json"), ml) for ml in [ML_FULL] + ML_SUB}
         G_scale = 1.0
         for ix, x in enumerate(xs):
             for iy, y in enumerate(ys):
                 sub = (ix % 2 == 0) and (iy % 2 == 0)
                 for ml in [ML_FULL] + (ML_SUB if sub else []):
+                    sl, cb = bnd[ml]
+                    if np.log10(y) >= sl * np.log10(x) + cb:
+                        skipped += 1
+                        continue
                     # a rough cost for the balance: dp_si's runs ~20x the dark-portal phase's; the Galactic sweep
                     # measured on the first map (2026-10-24): dp_si units ~200 s (x3 with the sub-grid's checks), the
                     # Galactic sweeps of the lepton-number planes below 1 keV ~500 s, the dark-portal phase's ~25 s
@@ -108,7 +118,8 @@ def plan(manifest, n_tasks, pilot, part="all"):
         tasks[k].append(units[i])
         loads[k] += units[i]["cost"]
     json.dump(dict(tasks=tasks, units=len(units)), open(manifest, "w"))
-    print(f"{len(units)} units -> {manifest}; load per task {loads.min():.0f}-{loads.max():.0f}")
+    print(f"{len(units)} units -> {manifest} ({skipped} not allowed, skipped); load per task "
+          f"{loads.min():.0f}-{loads.max():.0f}")
     return 0
 
 
