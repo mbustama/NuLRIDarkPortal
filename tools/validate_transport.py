@@ -21,7 +21,7 @@ The grid: every point at m_lightest = 1e-6 eV; every second column and row at 1e
 d = max over energies, sources and flavors of |F_X - F_A| / max(F_A,tot, 1e-3 F_std,tot) (F_std the flux without new
 physics), and the range of F_X,tot / F_A,tot. Workers single-threaded, as in the campaign.
 
-  plan <manifest.json> --tasks N [--pilot K]
+  plan <manifest.json> --tasks N [--pilot K] [--part all|threaded|single]   (VT_THREADS: numba threads per worker)
   run <manifest.json> <task> <out_dir> [--workers 32]
   summarize <out_dir> <figure.png>
 """
@@ -68,7 +68,12 @@ def _axes(cfg):
     return names[0], names[1], arrays[0], arrays[1]
 
 
-def plan(manifest, n_tasks, pilot):
+def _threaded(u):
+    """The units carrying the per-pixel sweep check (GC: ~1000 s a point on one core), run with numba threads."""
+    return u["xv"] < 1e3 and u["ix"] % 4 == 0 and u["iy"] % 4 == 0 and u["ml"] == ML_FULL
+
+
+def plan(manifest, n_tasks, pilot, part="all"):
     units = []
     for fam in FAMILIES:
         raw, cfg = _load(fam)
@@ -89,6 +94,8 @@ def plan(manifest, n_tasks, pilot):
                         cost += 1000.0
                     units.append(dict(fam=fam, x=xn, y=yn, ix=ix, iy=iy, xv=float(x), yv=float(y), ml=ml, sub=sub,
                                       cost=cost))
+    if part != "all":
+        units = [u for u in units if _threaded(u) == (part == "threaded")]
     if pilot:
         rng = np.random.default_rng(11)
         units = [units[i] for i in rng.choice(len(units), size=pilot, replace=False)]
@@ -116,7 +123,7 @@ def _flux(m, solver_cfg, params_mod=None, galactic=False, ext=True):
     import dark_portal_solver as dps
     E, params = dps.build_solver_params(solver_cfg)
     params["show_progress"] = False
-    params["n_cores"] = 1
+    params["n_cores"] = int(os.environ.get("VT_THREADS", 1))
     if params_mod:
         params.update(params_mod)
     sources = None if m.basis is None else [np.eye(3)[i] for i in m.basis]
@@ -451,6 +458,8 @@ def main(argv=None):
     a.add_argument("manifest")
     a.add_argument("--tasks", type=int, required=True)
     a.add_argument("--pilot", type=int, default=0)
+    a.add_argument("--part", choices=("all", "threaded", "single"), default="all",
+                   help="threaded: the per-pixel sweep checks' units (run with VT_THREADS and fewer workers)")
     a = sp.add_parser("run")
     a.add_argument("manifest")
     a.add_argument("task", type=int)
@@ -461,7 +470,7 @@ def main(argv=None):
     a.add_argument("figure", nargs="?", default=None)
     args = ap.parse_args(argv)
     if args.cmd == "plan":
-        return plan(args.manifest, args.tasks, args.pilot)
+        return plan(args.manifest, args.tasks, args.pilot, args.part)
     if args.cmd == "run":
         return run(args.manifest, args.task, args.out_dir, args.workers)
     return summarize(args.out_dir, args.figure)
