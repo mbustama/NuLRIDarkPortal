@@ -508,11 +508,12 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                 _cosmo_projections(E_bins, sp["T_table"], sp["log_s0"], sp["inv_dlogs"], sp["c_z"][k], sp["T_bins"])
                 sp["Wd"] = np.ascontiguousarray(np.einsum("ima,m->ia", sp["T_bins"], decay_width_unit)
                                                 / (E_bins[:, None] * (1.0 + z)))
-            dp_decay.decay_step(E_bins, 1.0, 0.5 * decay_I[k], decay_rates[0], decay_rates[1], m_nu_bg_arr, nu["F"],
-                                nb["F"], nu["T_bins"], nb["T_bins"], True, False)
+            n_sub = _cycle_count(jump_unit, k, species, decay_width_unit, E_bins, z, dt, decay_I[k])
+            _jump_decay_cycles(species, None, k, z, 0.5 * dt, 0.5 * decay_I[k], n_sub, jump_unit, decay_rates,
+                               m_nu_bg_arr, E_bins)
             if ref is not None:
-                dp_decay.decay_step(E_bins, 1.0, 0.5 * decay_I[k], decay_rates[0], decay_rates[1], m_nu_bg_arr,
-                                    ref[0]["F"], ref[1]["F"], nu["T_bins"], nb["T_bins"], True, False)
+                _jump_decay_cycles(species, ref, k, z, 0.5 * dt, 0.5 * decay_I[k], n_sub, jump_unit, decay_rates,
+                                   m_nu_bg_arr, E_bins)
         G_state = np.ascontiguousarray(Gamma_grid_all[k, :, :])
         Pis = []
         for sp in species:
@@ -532,22 +533,21 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                                     nu["G_step"], nb["G_step"], nu["brp_step"], nb["brp_step"], p_index, Phi_0,
                                     W3, pref3, self_same, W1, W2, c1, c2, self_cross, ref[0]["R"], ref[1]["R"],
                                     inj_w_ref)
-        if jump_unit is not None:
+        if jump_unit is not None and decay_rates is None:
             for i_s, sp in enumerate(species):
-                Wd_s = sp["Wd"] if decay_rates is not None else no_wd
                 _soft_jumps(E_bins, 1.0 + z, sp["J_table"], sp["Gd_table"], sp["GG_table"], sp["lam_table"],
                             sp["log_s0"], sp["inv_dlogs"], sp["c_z"][k], float(jump_unit[k]), dt, sp["F"],
-                            Wd_s, decay_rates is not None)
+                            no_wd, False)
                 if ref is not None:
                     _soft_jumps(E_bins, 1.0 + z, sp["J_table"], sp["Gd_table"], sp["GG_table"], sp["lam_table"],
                                 sp["log_s0"], sp["inv_dlogs"], sp["c_z"][k], float(jump_unit[k]), dt, ref[i_s]["F"],
-                                Wd_s, decay_rates is not None)
+                                no_wd, False)
         if decay_rates is not None:
-            dp_decay.decay_step(E_bins, 1.0, 0.5 * decay_I[k], decay_rates[0], decay_rates[1], m_nu_bg_arr, nu["F"],
-                                nb["F"], nu["T_bins"], nb["T_bins"], True, False)
+            _jump_decay_cycles(species, None, k, z, 0.5 * dt, 0.5 * decay_I[k], n_sub, jump_unit, decay_rates,
+                               m_nu_bg_arr, E_bins)
             if ref is not None:
-                dp_decay.decay_step(E_bins, 1.0, 0.5 * decay_I[k], decay_rates[0], decay_rates[1], m_nu_bg_arr,
-                                    ref[0]["F"], ref[1]["F"], nu["T_bins"], nb["T_bins"], True, False)
+                _jump_decay_cycles(species, ref, k, z, 0.5 * dt, 0.5 * decay_I[k], n_sub, jump_unit, decay_rates,
+                                   m_nu_bg_arr, E_bins)
         if loss_C is not None and jump_unit is not None:
             for i_s, sp in enumerate(species):
                 if "GG_bins" not in sp:
@@ -709,6 +709,39 @@ SI_HARD_MIN_G = 1e-4
 # (they then move at most that fraction of the flux between states: the potential planes at g_D sum|U|^2 <= 1e-16
 # reach ~5e-6, and stay bit for bit as before)
 SOFT_JUMP_MIN = 1e-4
+
+
+# The soft scatterings and the decays together (2026-10-24): applied one after the other once per step, at most about
+# one conversion-decay cycle fits in a step, where the physics may hold many (a nu_1 converted to nu_3 and decaying,
+# again and again, each time at lower energy). Within each half step they alternate n_sub times, n_sub from the
+# smaller of the two rates times the half step (the cycles' pace), CYCLE_STEP per sub-step, at most CYCLE_MAX.
+CYCLE_STEP = 0.25
+CYCLE_MAX = 64
+
+
+def _cycle_count(jump_unit, k, species, decay_width_unit, E_bins, z, dt, I_k):
+    """Sub-steps per half step for the jumps and the decays (CYCLE_STEP, CYCLE_MAX)."""
+    if jump_unit is None:
+        return 1
+    r_jump = float(jump_unit[k]) * max(float(np.max(sp["J_table"])) for sp in species)
+    r_dec = float(np.max(decay_width_unit)) / float(E_bins[0])
+    pace = min(r_jump * 0.5 * dt, r_dec * 0.5 * I_k)
+    return int(min(CYCLE_MAX, max(1, np.ceil(pace / CYCLE_STEP))))
+
+
+def _jump_decay_cycles(species, ref, k, z, dt_half, I_half, n_sub, jump_unit, decay_rates, m_nu, E_bins):
+    """n_sub alternations of the jumps (dt_half / n_sub each) and the decays (optical depth I_half / n_sub each) on the
+    species' populations (ref: the reference populations of the 'combined' mode instead)."""
+    import dp_decay
+    pops = [sp["F"] for sp in species] if ref is None else [r["F"] for r in ref]
+    for _ in range(n_sub):
+        if jump_unit is not None:
+            for i_s, sp in enumerate(species):
+                _soft_jumps(E_bins, 1.0 + z, sp["J_table"], sp["Gd_table"], sp["GG_table"], sp["lam_table"],
+                            sp["log_s0"], sp["inv_dlogs"], sp["c_z"][k], float(jump_unit[k]), dt_half / n_sub,
+                            pops[i_s], sp["Wd"], True)
+        dp_decay.decay_step(E_bins, 1.0, I_half / n_sub, decay_rates[0], decay_rates[1], m_nu, pops[0], pops[1],
+                            species[0]["T_bins"], species[1]["T_bins"], True, False)
 
 
 def calc_H_Hubble_vec(z, H0, Omega_m, Omega_L):
