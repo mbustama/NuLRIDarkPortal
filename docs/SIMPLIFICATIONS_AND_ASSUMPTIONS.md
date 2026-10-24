@@ -30,8 +30,16 @@ small, not yet measured), **open** (decided to remove or change, not yet done).
    The atmospheric neutrinos crossing the Earth would also feel the new potential; leaving that out can only weaken
    the bounds.
 
-5. **No t-channel scattering on the relic neutrinos below 1 keV.** *Fixed in code (branch relic-scattering,
-   2026-10-22); the affected planes to rerun.* Until then the dark-portal phase (below 1 keV) had the resonance only,
+5. **No t-channel scattering on the relic neutrinos below 1 keV.** *Fixed (2026-10-22, merged 895e760); the
+   affected points rerun 2026-10-23.* Validation (tools/validate_relic_scattering.py): every stored solution flagged by
+   what the new code changes there; 4,080 sampled old against new -- unflagged points Delta chi^2 exactly 0 (all MeV
+   planes), the 1e-16 potential planes' soft-scattering-only points <= 0.07 (not rerun). Rerun
+   (tools/rerun_relic_scattering.py, rerun_rs.*.jsonl, which replace the stored values): 151,546 refits (dark portal
+   ultralight below 1 keV, the 1e-8 potential planes' flagged points, the top rows of every potential plane below
+   1 keV up to eps' = 1e-2, the L_e-L_mu/L_e-L_tau ultralight planes' flagged points), all successful; above
+   eps' (or g) = 1e-2 the 82,352 transport points were marked excluded where their column's refitted 1e-2 point is
+   excluded (the energy losses only grow with the coupling), and the 273 elsewhere refitted. Then the refinement
+   along the new edges (refine_grid tasks 3000-3699). Until then the dark-portal phase (below 1 keV) had the resonance only,
    and the split variants stopped at g_D sum|U|^2 = 1e-8 on the grounds that the t channel matters above ~1e-7; that
    reckoning left out the Z mixing's coupling to every neutrino, kappa = eps' g / c_W = 0.74 eps', which in the
    potential planes reaches 0.74. Now (notes, 'Soft scatterings on the relics'):
