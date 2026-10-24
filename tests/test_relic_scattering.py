@@ -150,3 +150,29 @@ def test_switch_off_and_standard_model_asimov():
     truth = cfg._truth_model()
     assert truth.base["dark_portal"]["relic_scattering"] is False
     assert cfg.model().base["dark_portal"].get("relic_scattering", True) is True
+
+
+def test_stiff_bin_keeps_its_losses():
+    """dp_si._bin_matrix (2026-10-24): in-bin conversions at 1e8-1e30 per step against losses of order 1e-2 used to
+    leave only their rounding in the bin's exponential (flux loss up to 100% at m_Zd < 1e-5 eV); rescaled, e^M is
+    the fast-mixing limit pi e^{-pi.l} 1^T to ~1e-7 at every rate."""
+    import dp_si
+    from scipy.linalg import expm, null_space
+    rng = np.random.default_rng(2)
+    for big in (1e10, 1e16, 1e20, 1e30):
+        for _ in range(10):
+            tau = big * rng.uniform(0.05, 1.0, 3)
+            lose = rng.uniform(1e-3, 0.5, 3)
+            Qh = rng.uniform(0.0, 1.0, (3, 3))
+            np.fill_diagonal(Qh, 0.0)
+            Qh /= Qh.sum(axis=0)
+            Mx = np.zeros((7, 7))
+            dp_si._bin_matrix(tau, lose, Qh * (1.0 - lose / tau), np.zeros((3, 3)), Mx)
+            A = np.ascontiguousarray(Mx[:3, :3])
+            Em = dp_si._phi_eig(A)[0] if np.abs(A).max() > dp_si.STIFF_BIN else expm(A)
+            C = Qh * tau
+            np.fill_diagonal(C, -tau)
+            pi = null_space(C / big)[:, 0]
+            pi /= pi.sum()
+            ref = np.outer(pi, np.ones(3)) * np.exp(-(pi * lose).sum())
+            assert np.abs(Em - ref).max() < 1e-6

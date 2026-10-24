@@ -1406,20 +1406,47 @@ def _bin_matrix(tau, lose, Q, Qn, Mx):
     big = 0.0
     for a in range(n):
         big = max(big, tau[a])
-    if big <= STIFF_BIN:
+    if big <= BIN_ROUNDING_MAX:
         # every MeV plane: the matrix as it was formed before, bit for bit
         for a in range(n):
             Ga = max(tau[a], 0.0)
             for c in range(n):
                 Mx[c, a] = -(Ga if c == a else 0.0) + Q[c, a] * Ga
         return
+    # beyond it the conversions within the bin, rescaled (2026-10-24): at 1e16-1e30 per step against losses of order
+    # one, the losses vanish in the diagonal's rounding (-col - loss == -col) and the exponential keeps only its
+    # rounding -- 1e-16 of the conversions, a flux loss of up to 100% (synthetic bin: 1e12 per step +-1.5e-4 per step,
+    # 1e16 a mean 0.22 for 0.99). Scaled down to CONVERSION_CAP per step (at least CONVERSION_RATIO x the bin's
+    # largest loss, every state's own at least CONVERSION_MIN): their equilibrium within the bin is the same (the
+    # ratios kept), reached within the step as before, and the bin's loss rate on it the same to ~loss/conversions.
+    cmax = 0.0
+    cmin = np.inf
+    lmax = 0.0
     for a in range(n):
         Ga = max(tau[a], 0.0)
         col = 0.0
         gain = 0.0
         for c in range(n):
             if c != a:
-                Mx[c, a] = Q[c, a] * Ga
+                col += Q[c, a] * Ga
+            gain += Qn[c, a] * Ga
+        cmax = max(cmax, col)
+        if col > 0.0:
+            cmin = min(cmin, col)
+        lmax = max(lmax, lose[a] - gain)
+    cap = max(CONVERSION_CAP, CONVERSION_RATIO * lmax)
+    sc = 1.0
+    if cmax > cap:
+        sc = max(cap / cmax, CONVERSION_MIN / cmin)
+        if sc > 1.0:
+            sc = 1.0
+    for a in range(n):
+        Ga = max(tau[a], 0.0)
+        col = 0.0
+        gain = 0.0
+        for c in range(n):
+            if c != a:
+                Mx[c, a] = sc * Q[c, a] * Ga
                 col += Mx[c, a]
             gain += Qn[c, a] * Ga
         Mx[a, a] = -col - max(lose[a] - gain, 0.0)
@@ -1662,6 +1689,13 @@ def _si_sweep(F, E, dE, S0, J, Nq, Lq, Dq, jt, w, qe, Ctau, Creg, tabB, tabO, no
 # be zero -- e^+1e14 in plain scaling and squaring (2026-10-22). Well below it (every MeV plane), the augmented
 # exponential as before.
 STIFF_BIN = 1e12
+# _bin_matrix: events per step beyond which the conversions within the bin are rescaled (below it, bit for bit as
+# before; a synthetic bin there is exact to 1e-6), and the conversions per step kept: CONVERSION_CAP, at least
+# CONVERSION_RATIO x the bin's largest loss and every state's at least CONVERSION_MIN (exact where the true ones are).
+BIN_ROUNDING_MAX = 1e8
+CONVERSION_CAP = 1e6
+CONVERSION_RATIO = 1e7
+CONVERSION_MIN = 1e3
 
 
 @njit(cache=True)
