@@ -51,3 +51,17 @@ for pol in ("trans", "long"):
             v.append(amp2(pi, pj, q, mi, mj, M, spin=s, proj=proj, pol=pol, V=PR))
         tot = v[0] + v[1]
         print(f"P_R vertex, {pol:5s} {name}: share {(v[0]+v[1])/2:.3e}, alpha = {(v[0]-v[1])/tot if tot else 0:+.3f}, linear check {v[2]/((v[0]+v[1])/2) if tot else 0:.3f}")
+
+# massive daughter, the full Majorana vertex gamma^mu (G P_L - G* P_R) (2026-10-24): the trace against
+# Gamma = |p| / (16 pi m_i^2) [2|G|^2 (m_i^2 + m_j^2 - 2M^2 + (m_i^2 - m_j^2)^2/M^2) + 12 Re(G^2) m_i m_j]
+for G in (1.0 + 0j, np.exp(0.6j), 1j):
+    for mi, mj, M in ((0.05, 8.6e-3, 1e-3), (0.05, 0.03, 1e-4), (0.0087, 1e-3, 1e-5)):
+        pf = np.sqrt((mi**2 - (mj + M)**2) * (mi**2 - (mj - M)**2)) / (2 * mi)
+        Ej = np.sqrt(pf**2 + mj**2)
+        pi = np.array([mi, 0, 0, 0]); pj = np.array([Ej, 0, 0, pf]); q = pi - pj
+        Vtx = G * PL - np.conj(G) * PR
+        T = np.array([[np.trace((sl(pj) + mj * I4) @ gam[m] @ Vtx @ ((sl(pi) + mi * I4) / 2) @ gam[0] @ (gam[n] @ Vtx).conj().T @ gam[0]) for n in range(4)] for m in range(4)])
+        Pm = -eta + np.outer(eta @ q, eta @ q) / M**2
+        Gam_tr = pf / (8 * np.pi * mi**2) * np.real(np.einsum("mn,mn->", T, Pm))
+        Gam_f = pf / (16 * np.pi * mi**2) * (2 * abs(G)**2 * (mi**2 + mj**2 - 2 * M**2 + (mi**2 - mj**2)**2 / M**2) + 12 * np.real(G**2) * mi * mj)
+        print(f"G {G:.2f} m_i {mi} m_j {mj} M {M:.0e}: trace / formula = {Gam_tr / Gam_f:.6f}")
