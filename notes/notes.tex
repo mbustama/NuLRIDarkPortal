@@ -5,6 +5,7 @@
 \usepackage{graphicx}
 \usepackage{multirow}
 \usepackage{array}
+\usepackage[compat=1.1.0]{tikz-feynman}
 \usepackage[margin=1in]{geometry}
 \usepackage[hidelinks]{hyperref}
 
@@ -2280,6 +2281,84 @@ subsection read that check as covering Majorana neutrinos, with no second channe
 tests above; the Goldstone couplings match the decay rate ($|Y_{31}|^2 m_3/16\pi$ for $m_1 = 0$ is the Majorana rate's
 longitudinal part). Item 4, the mass-matrix check above (\file{tools/check\_relic\_mass\_change.py},
 \file{tools/check\_decay\_rate.py}, \file{tools/check\_zd\_mixing\_bound.py}).
+
+
+\newcommand{\fdscat}[4]{%
+\begin{tikzpicture}[baseline=(b)]\begin{feynman}
+\vertex (a) at (0,0); \vertex (b) at (0,-1.3);
+\vertex (i1) at (-1.3,0.45) {\(#1\)}; \vertex (f1) at (1.3,0.45) {\(#2\)};
+\vertex (i2) at (-1.3,-1.75) {\(#3\)}; \vertex (f2) at (1.3,-1.75) {\(#4\)};
+\diagram*{(i1) -- [fermion] (a) -- [fermion] (f1), (i2) -- [fermion] (b) -- [fermion] (f2),
+(a) -- [boson, edge label'=\(Z_D\)] (b)};
+\end{feynman}\end{tikzpicture}}
+
+\subsection{Processes below 1~keV: the catalogue (2026-10-24)}
+\label{sec:process-catalogue}
+
+Every process the ultralight planes involve, with its diagram, what it does to the beam, where it lives in the code,
+and its status. Neutrino lines are mass states unless a flavor is written; $G'$ are the couplings in the mass basis;
+the relics are Majorana. For the potential planes (dropped, Sec.~\ref{sec:mass-change-decay}) the matter lines would
+also couple through the $Z$ mixing.
+
+\begin{center}
+\begin{tabular}{m{0.30\textwidth} m{0.62\textwidth}}
+\toprule
+\fdscat{\nu_a}{\nu_a}{f}{f} &
+\textbf{(a) Coherent forward scattering on matter ($t \to 0$).} The potential from neutrons (dark portal through
+$\epsp$; dropped) or electrons ($L_e - L_\mu$, $L_e - L_\tau$) in the Earth, Sun, Galaxy and the cosmos; flavor
+oscillations. \emph{In the code}: dp\_spatial, dp\_cosmo (the cosmological potential), dp\_transit. \\[14pt]
+\begin{tikzpicture}[baseline=(c)]\begin{feynman}
+\vertex (a) at (-1.4,0); \vertex (b) at (-0.5,0); \vertex (c) at (0.5,0); \vertex (d) at (1.4,0);
+\diagram*{(a) -- [boson, edge label=\(Z_D\)] (b) -- [fermion, half left, edge label=\(\nu_r\)] (c)
+-- [fermion, half left] (b), (c) -- [boson] (d)};
+\end{feynman}\end{tikzpicture} &
+\textbf{(b) Debye screening by the relics.} The relic loop gives the mediator the mass $m_D \propto \gd T$
+(Majorana: $v$-suppressed for slow relics); it cuts the range of (a) and the forward peak of (c). \emph{In the code}:
+dp\_absorption.debye\_mass\_sq. \\[14pt]
+\fdscat{\nu_a}{\nu_c}{\nu_r}{\nu_r} &
+\textbf{(c) $t$-channel scattering on a relic, $r \to r$.} Soft ($|t| \lesssim M_t^2$, $\sim10^{19}$ events at
+$10^{-9}$~eV, $\gd = 10^{-4}$): jumps between eigenstates, flavors equalized, no energy cost
+(Sec.~\ref{sec:soft-scatterings}). Hard: energy loss, mass-independent. Majorana relics add the crossed diagram,
+not forward-peaked. \emph{In the code}: dp\_cosmo.\_soft\_jumps; dp\_si. \\[14pt]
+\fdscat{\nu_a}{\nu_c}{\nu_r}{\nu_s} &
+\textbf{(c$'$) The same with a mass change, $r \to s$.} Same forward peak, but the beam pays
+$\omega_{rs} = (m_s^2 - m_r^2)/2p_r^-$ per event: energy loss $\propto 1/E$ (Sec.~\ref{sec:mass-change-decay},
+item 1). \emph{Status}: \textbf{new}, to implement (dp\_si drift; routing). \\[14pt]
+\begin{tikzpicture}[baseline=(v)]\begin{feynman}
+\vertex (i1) at (-1.3,0.6) {\(\nu_a\)}; \vertex (i2) at (-1.3,-0.6) {\(\nu_r\)};
+\vertex (v) at (-0.3,0); \vertex (w) at (0.7,0); \vertex (f1) at (1.6,0.6) {\(\nu\)}; \vertex (f2) at (1.6,-0.6) {\(\nu\)};
+\diagram*{(i1) -- [fermion] (v), (i2) -- [fermion] (v), (v) -- [boson, edge label=\(Z_D\)] (w),
+(w) -- [fermion] (f1), (w) -- [fermion] (f2)};
+\end{feynman}\end{tikzpicture} &
+\textbf{(d) $s$-channel absorption on a relic.} The resonance at $s = 2E m_r = \mzd^2$: in the band only for
+$\mzd \gtrsim$ MeV; below 1~keV its energy is far below the band. \emph{In the code}: dp\_cosmo (resonant absorption),
+dp\_si; the MeV planes. \\[14pt]
+\begin{tikzpicture}[baseline=(v)]\begin{feynman}
+\vertex (i) at (-1.3,0) {\(\nu_i\)}; \vertex (v) at (0,0); \vertex (f) at (1.3,0.55) {\(\nu_j,\ \bar\nu_j\)};
+\vertex (z) at (1.3,-0.65) {\(Z_D\)};
+\diagram*{(i) -- [fermion] (v) -- [fermion] (f), (v) -- [boson] (z)};
+\end{feynman}\end{tikzpicture} &
+\textbf{(e) Decay, $\nu_i \to \nu_j + Z_D$} ($\mzd < m_i - m_j$). Majorana vertex
+$\gamma^\mu(G'_{ji}P_L - G'^*_{ji}P_R)$: half the daughters keep the helicity, half flip it. In the beam: the flux
+arrives as $\nu_1$ for $\gd \gtrsim 10^{-7}$; among the relics: $\nu_1$ only. The longitudinal mode dominates for
+$\mzd \ll m_i$ (Sec.~\ref{sec:mass-change-decay}, item 2). \emph{Status}: \textbf{new}, to implement. \\[14pt]
+\begin{tikzpicture}[baseline=(v)]\begin{feynman}
+\vertex (i1) at (-1.3,0.6) {\(\chi_i\)}; \vertex (i2) at (-1.3,-0.6) {\(\chi_j\)};
+\vertex (v) at (-0.3,0); \vertex (w) at (0.7,0); \vertex (f1) at (1.6,0.6) {\(\chi_k\)}; \vertex (f2) at (1.6,-0.6) {\(\chi_l\)};
+\diagram*{(i1) -- [plain] (v), (i2) -- [plain] (v), (v) -- [scalar, edge label=\(\phi\)] (w),
+(w) -- [plain] (f1), (w) -- [plain] (f2)};
+\end{feynman}\end{tikzpicture} &
+\textbf{(f) The longitudinal mode as a Goldstone boson.} Couplings
+$Y_{ij} = i(G'_{ij}m_i + G'_{ji}m_j)/\mzd$; $\chi\chi \to \chi\chi$ in the $s$, $t$, $u$ channels sets where the models
+hold (perturbative unitarity, Sec.~\ref{sec:mass-change-decay}, item 3). Not a propagation process: it marks the
+not-allowed region. \emph{Status}: \file{src/dp\_unitarity.py}; marking on the plots to implement. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Left out, with reasons: the mediator's own decay back to neutrinos (only for $\mzd > 2m_1$, into the softest part of
+the spectrum; taken as invisible), relic--relic scattering (no effect on the beam beyond the relics' composition,
+which (e) sets), and processes through the $Z$ mixing (the potential planes are dropped).
 
 %==============================================================================
 \section{Open items}
