@@ -2929,6 +2929,9 @@ def _transport_columns(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu
         for k, (P_c, p_c, w_c, phi_c, rho_c) in enumerate(columns):
             dt, T_inj = _step_time_and_injection(L_lo, L_hi, H0, Omega_m, Omega_L, p_c, rho_evol, phi_c)
             S0[:, :3, k] = np.outer(Eps[k] * (T_inj / dt), np.asarray(P_c, dtype=np.float64))
+        if decay is not None:
+            # the decays in two halves around the step's collisions and injection (Strang; dark_portal_solver)
+            _decay_columns(Fs, E, L_lo, L_hi, 0.5 * dt, decay, masses, majorana)
         if full:
             chunk = numba.set_parallel_chunksize(1)
             for b, (Nb, Lb, Db, Rb) in enumerate(blocks):
@@ -2945,7 +2948,7 @@ def _transport_columns(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu
                 _si_sweep_cols(Fs[k], E, dE, S0, Jone, Nq, Lq, Dq, spec["jt"], spec["w"], spec["qe"], spec["Ctau"],
                                Cregs[k], Rth, Oth, node_th, dt, reg, diags[k], prof == 1)
             if decay is not None:
-                _decay_columns(Fs, E, L_lo, L_hi, dt, decay, masses, majorana)
+                _decay_columns(Fs, E, L_lo, L_hi, 0.5 * dt, decay, masses, majorana)
             if relic_loss is not None:
                 _loss_columns(Fs, E, L_lo, L_hi, dt, relic_loss)
             continue
@@ -2972,7 +2975,7 @@ def _transport_columns(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu
             _si_sweep_cols(Fs[k], E, dE, S0, J, Nq, Lq, Dq, spec["jt"], spec["w"], spec["qe"], spec["Ctau"],
                            Cregs[k], tB, tO, node, dt, reg, diags[k], prof == 1)
         if decay is not None:
-            _decay_columns(Fs, E, L_lo, L_hi, dt, decay, masses, majorana)
+            _decay_columns(Fs, E, L_lo, L_hi, 0.5 * dt, decay, masses, majorana)
         if relic_loss is not None:
             _loss_columns(Fs, E, L_lo, L_hi, dt, relic_loss)
     if store is not None:

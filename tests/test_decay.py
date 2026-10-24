@@ -142,3 +142,69 @@ def test_relic_composition():
     assert np.allclose(out, [3.0, 0.0, 0.0], atol=1e-9)
     Gam_slow = Gam * 1e-40                              # nothing decays
     assert np.allclose(dd.relic_composition(Gam_slow, M_NU, eta, T0, H0, Om, OL), eta, atol=1e-9)
+
+
+def test_jumps_zeno_protected_by_decay_widths():
+    """dp_cosmo._soft_jumps with the decay widths (2026-10-24): a pair at frequency omega with a damping D converts at
+    Gamma J omega^2 / (omega^2 + D^2); widths Wd add (Wd_a + Wd_b) / 2 to D."""
+    from dp_cosmo import _soft_jumps
+    E = np.array([1e14])
+    J = np.zeros((2, 3, 3))
+    J[:, 0, 1] = J[:, 1, 0] = 1.0
+    lam = np.zeros((2, 3))
+    lam[:, 1] = 2.0 * 1e14 * 1e-20             # omega_01 = 1e-20 eV at zp1 = 1
+    zeros = np.zeros((2, 3))
+    for wd in (0.0, 3e-20):
+        F = np.array([[1.0, 0.0, 0.0]])
+        Wd = np.array([[wd, wd, 0.0]])
+        rate_dt = 1e-6
+        _soft_jumps(E, 1.0, J, zeros, zeros, lam, 0.0, 1.0, 0.0, 1.0, rate_dt, F, Wd, True)
+        om, D = 1e-20, wd
+        expect = 0.5 * (1.0 - np.exp(-2.0 * rate_dt * om * om / (om * om + D * D))) if wd else 0.5 * (1.0 - np.exp(-2.0 * rate_dt))
+        assert np.isclose(F[0, 1], expect, rtol=1e-6)
+
+
+def test_truth_model_has_no_decay():
+    """The projections' Asimov data come from the Standard Model: relic scatterings and decay both off."""
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+    import json
+    from analysis import config as config_mod
+    p = os.path.join(os.path.dirname(__file__), "..", "analysis", "configs", "campaign_ml", "proj_future", "dp_mu_ul.json")
+    raw = json.load(open(p))
+    raw.pop("exact_profile", None)
+    cfg = config_mod.from_dict(raw, p)
+    truth = cfg._truth_model()
+    E, params = __import__("dark_portal_solver").build_solver_params(truth._run_cfg(truth._overrides(
+        {q.name: q.start for q in cfg.parameters})))
+    assert params["neutrino_decay"] is False and params["relic_scattering"] is False
+
+
+def test_solver_uses_the_decayed_relics():
+    """propagate_spectrum: where the relics decay, every relic effect sees their composition after the decays (the
+    Debye mass and the jumps' rates get eta' = (3, 0, 0)-like)."""
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+    import json, copy
+    import dark_portal_solver as dps
+    import dp_absorption
+    from analysis import config as config_mod
+    p = os.path.join(os.path.dirname(__file__), "..", "analysis", "configs", "campaign_ml", "now_ic26", "dp_mu_ul.json")
+    raw = copy.deepcopy(json.load(open(p)))
+    raw.pop("exact_profile", None)
+    cfg = config_mod.from_dict(raw, p)
+    m = cfg.model()
+    v = {q.name: q.start for q in cfg.parameters}
+    v.update({"m_Zd_eV": 1e-6, "g_D_trace": 1e-6})
+    E, params = dps.build_solver_params(m._run_cfg(m._overrides(v)))
+    params["show_progress"] = False
+    params["cosmo_transport"] = "dark_portal"
+    seen = []
+    orig = dp_absorption.debye_mass_sq
+    def spy(G2, m_nu, T, eta, *a, **kw):
+        seen.append(np.array(eta, dtype=float))
+        return orig(G2, m_nu, T, eta, *a, **kw)
+    dp_absorption.debye_mass_sq = spy
+    try:
+        dps.propagate_weighted(np.asarray(E), params, sources=[np.array([1.0, 2.0, 0.0]) / 3.0])
+    finally:
+        dp_absorption.debye_mass_sq = orig
+    assert seen and all(np.allclose(e, [3.0, 0.0, 0.0], atol=1e-6) for e in seen), seen[:3]

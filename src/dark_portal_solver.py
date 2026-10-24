@@ -397,6 +397,18 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
             decay_rates = (Gam_d, fL_d)
     # per mass state, rest rate x mass: the lab width of state i at physical energy E is decay_width_unit[i] / E
     decay_width_unit = (decay_rates[0].sum(axis=1) * m_nu_bg_arr) if decay_rates is not None else None
+    # the decays' optical depth per unit Gamma m / E_obs over each step, exactly: int dz / ((1+z)^2 H) between the
+    # step's redshifts (8-point Gauss-Legendre; the end-point dt / (1+z) was first order, 1.5% low at half survival with
+    # 200 steps)
+    decay_I = None
+    if decay_rates is not None:
+        xg, wg = np.polynomial.legendre.leggauss(8)
+        decay_I = np.zeros(len(z_bins))
+        for kk in range(1, len(z_bins)):
+            a_, b_ = z_bins[kk], z_bins[kk - 1]
+            zg = 0.5 * (b_ - a_) * xg + 0.5 * (a_ + b_)
+            decay_I[kk] = 0.5 * (b_ - a_) * float(np.sum(wg / ((1.0 + zg) ** 2 * calc_H_Hubble_vec(zg, H0, Omega_m,
+                                                                                               Omega_L))))
     no_wd = np.zeros((1, 3))
 
     # Per kind: the vacuum matrix U M U^dag (computed once), the LRI and SM textures with the
@@ -488,6 +500,19 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                                    nu["R"], nb["R"], nu["c_inj"][k], nb["c_inj"][k], nu["P_inj"], nb["P_inj"],
                                    inj_w)
             continue
+        if decay_rates is not None:
+            # the eigenstates' mass content at this step, and their decay widths (lab frame), which the jumps need too;
+            # the decays in two halves around the step's collisions and injection (Strang): what the step injects
+            # decays over half of it on average, not all of it (2026-10-24: 2% low at half survival otherwise)
+            for sp in species:
+                _cosmo_projections(E_bins, sp["T_table"], sp["log_s0"], sp["inv_dlogs"], sp["c_z"][k], sp["T_bins"])
+                sp["Wd"] = np.ascontiguousarray(np.einsum("ima,m->ia", sp["T_bins"], decay_width_unit)
+                                                / (E_bins[:, None] * (1.0 + z)))
+            dp_decay.decay_step(E_bins, 1.0, 0.5 * decay_I[k], decay_rates[0], decay_rates[1], m_nu_bg_arr, nu["F"],
+                                nb["F"], nu["T_bins"], nb["T_bins"], True, False)
+            if ref is not None:
+                dp_decay.decay_step(E_bins, 1.0, 0.5 * decay_I[k], decay_rates[0], decay_rates[1], m_nu_bg_arr,
+                                    ref[0]["F"], ref[1]["F"], nu["T_bins"], nb["T_bins"], True, False)
         G_state = np.ascontiguousarray(Gamma_grid_all[k, :, :])
         Pis = []
         for sp in species:
@@ -507,12 +532,6 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                                     nu["G_step"], nb["G_step"], nu["brp_step"], nb["brp_step"], p_index, Phi_0,
                                     W3, pref3, self_same, W1, W2, c1, c2, self_cross, ref[0]["R"], ref[1]["R"],
                                     inj_w_ref)
-        if decay_rates is not None:
-            # the eigenstates' mass content at this step, and their decay widths (lab frame), which the jumps need too
-            for sp in species:
-                _cosmo_projections(E_bins, sp["T_table"], sp["log_s0"], sp["inv_dlogs"], sp["c_z"][k], sp["T_bins"])
-                sp["Wd"] = np.ascontiguousarray(np.einsum("ima,m->ia", sp["T_bins"], decay_width_unit)
-                                                / (E_bins[:, None] * (1.0 + z)))
         if jump_unit is not None:
             for i_s, sp in enumerate(species):
                 Wd_s = sp["Wd"] if decay_rates is not None else no_wd
@@ -524,11 +543,11 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                                 sp["log_s0"], sp["inv_dlogs"], sp["c_z"][k], float(jump_unit[k]), dt, ref[i_s]["F"],
                                 Wd_s, decay_rates is not None)
         if decay_rates is not None:
-            dp_decay.decay_step(E_bins, 1.0 + z, dt, decay_rates[0], decay_rates[1], m_nu_bg_arr, nu["F"], nb["F"],
-                                nu["T_bins"], nb["T_bins"], True, False)
+            dp_decay.decay_step(E_bins, 1.0, 0.5 * decay_I[k], decay_rates[0], decay_rates[1], m_nu_bg_arr, nu["F"],
+                                nb["F"], nu["T_bins"], nb["T_bins"], True, False)
             if ref is not None:
-                dp_decay.decay_step(E_bins, 1.0 + z, dt, decay_rates[0], decay_rates[1], m_nu_bg_arr, ref[0]["F"],
-                                    ref[1]["F"], nu["T_bins"], nb["T_bins"], True, False)
+                dp_decay.decay_step(E_bins, 1.0, 0.5 * decay_I[k], decay_rates[0], decay_rates[1], m_nu_bg_arr,
+                                    ref[0]["F"], ref[1]["F"], nu["T_bins"], nb["T_bins"], True, False)
         if loss_C is not None and jump_unit is not None:
             for i_s, sp in enumerate(species):
                 if "GG_bins" not in sp:
@@ -690,6 +709,12 @@ SI_HARD_MIN_G = 1e-4
 # (they then move at most that fraction of the flux between states: the potential planes at g_D sum|U|^2 <= 1e-16
 # reach ~5e-6, and stay bit for bit as before)
 SOFT_JUMP_MIN = 1e-4
+
+
+def calc_H_Hubble_vec(z, H0, Omega_m, Omega_L):
+    """H(z) for an array of redshifts (flat LCDM, as dp_cosmo.calc_H_Hubble)."""
+    z = np.asarray(z, dtype=np.float64)
+    return H0 * np.sqrt(Omega_m * (1.0 + z) ** 3 + Omega_L)
 
 
 def _soft_scattering_rates(ab0, U_pmns: np.ndarray, m_Zd: float, m_nu: np.ndarray, T_nu0: float,
