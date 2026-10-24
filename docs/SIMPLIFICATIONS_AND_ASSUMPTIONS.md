@@ -280,3 +280,17 @@ small, not yet measured), **open** (decided to remove or change, not yet done).
     mismatched controls flips. *Open, planned:* one re-evaluation pass at the end of the campaign, from fixed starts,
     keeping the lowest chi^2, at the planes' reference points and within ~2 of the threshold; the fitting code is
     left as it is (changing it would slow every HESE+DR2 fit).
+
+22. **Ultralight mediators: relic mass changes, neutrino decay, the models' range of validity, the potential planes
+    (2026-10-24; notes Sec. 12.8).** (a) A soft scattering that leaves the relic in a heavier mass state costs the beam
+    Delta m^2/(2 p^-) per event; at 1e-9 eV and g_D = 1e-4 there are ~1e19 such events. Not yet in the transports:
+    **open** (to implement). (b) For m_Zd < m_i - m_j the heavier neutrinos decay into the lightest and the mediator
+    (Majorana rate twice the Dirac one); for g_D >~ 1e-7 the beam arrives as nu_1 and the relics are nu_1 only. Not yet
+    in the transports: **open** (to implement). (c) Where the couplings of the mediator's longitudinal mode (its
+    Goldstone, Y_ij = i (G'_ij m_i + G'_ji m_j)/m_Zd) break perturbative unitarity (src/dp_unitarity.py, against
+    Allwicher et al., JHEP 10 (2021) 129), the planes keep their ranges and the region is marked as not allowed
+    (Mauricio, 2026-10-24); lightest mass 1e-6 eV (the widest region): **accepted**. (d) The 18 potential planes per
+    data set are dropped (Mauricio, 2026-10-24): in the model followed (Jana & Swain, arXiv:2607.04441) the Z mixing
+    obeys eps' <= (v_phi/v_H) m_Zd/m_Z (tree level, their Eq. 6; the loop, their Eq. 20, is smaller), and every
+    stored ultralight exclusion needs eps' 8-30 orders of magnitude above it (tools/check_zd_mixing_bound.py):
+    **accepted**.
