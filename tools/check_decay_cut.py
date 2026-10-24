@@ -104,11 +104,15 @@ def _plane(args):
     return name, res
 
 
-def main(campaign, out_path):
+def main(campaign, out_path, only=None):
     from multiprocessing import get_context
     todo = [(p, campaign) for p in sorted(glob.glob(os.path.join(REPO, "analysis", "configs", "campaign_ml", "now_ic26",
                                                                  "*.json")))
             if not (p.endswith("_fx.json") or "_mev" in p or p.endswith("campaign.json"))]
+    if only is not None:                     # one plane per array task: <out_path>.<k>
+        name, res = _plane(todo[only])
+        json.dump({name: res}, open(f"{out_path}.{only}", "w"))
+        return 0
     out = {}
     with get_context("spawn").Pool(min(32, len(todo))) as pool:
         for name, res in pool.imap_unordered(_plane, todo):
@@ -118,4 +122,4 @@ def main(campaign, out_path):
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1], sys.argv[2]))
+    sys.exit(main(sys.argv[1], sys.argv[2], int(sys.argv[3]) if len(sys.argv) > 3 else None))
