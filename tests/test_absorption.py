@@ -224,6 +224,7 @@ def test_debye_mass_limits():
         assert abs(got / direct - 1) < 1e-9, (maj, got, direct)
 
 
+@pytest.mark.slow     # 30-90 s on CI's runners (2026-10-24): Tycho's suite runs it
 def test_lagrangian_absorption_end_to_end():
     """The solver with the corrected absorption: no coupling at all (u = 0, eps' = 0) is standard propagation;
     with only the Z mixing (u = 0, eps' > 0) the mediator still couples to every neutrino and absorbs them flavor-

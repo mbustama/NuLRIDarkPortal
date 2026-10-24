@@ -525,6 +525,7 @@ def test_future_detector_configs_run_on_asimov_data():
         assert run.asimov_only(config_mod.load(path)) is expected, path
 
 
+@pytest.mark.slow     # 30-90 s on CI's runners (2026-10-24): Tycho's suite runs it
 def test_command_line_end_to_end(tmp_path):
     """Fit, a three-point profile and a 2 x 2 plane with the real solver at a tiny grid:
     the outputs exist, intervals are reported, and Delta chi^2 is measured from the lowest

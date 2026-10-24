@@ -58,6 +58,7 @@ INTERIOR = dict(m_Zd_eV=1e-13, g_D_eps_trace=1e-40, norm_astro=1.1, norm_gal=0.9
                 f_e_S=0.36, f_e_S_gal=0.30)
 
 
+@pytest.mark.slow     # 30-90 s on CI's runners (2026-10-24): Tycho's suite runs it
 def test_site_jacobian_matches_finite_differences(setup):
     """The model's flux per site and its closed-form derivatives: the flux equals site_band_fluxes', each derivative
     the central difference of site_band_fluxes (a pole site and a mid-latitude one; the broken power law, both

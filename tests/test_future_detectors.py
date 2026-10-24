@@ -81,6 +81,7 @@ def test_site_galactic_bands(case):
     assert W[0, edges[:-1] >= 0.0].sum() == 0.0
 
 
+@pytest.mark.slow     # 30-90 s on CI's runners (2026-10-24): Tycho's suite runs it
 def test_future_event_likelihood_end_to_end():
     """A projection with the future detectors' events alone (data.events.future, All8_base): the model provides each
     site's per-zenith flux, the Asimov data close (chi^2 = 0 at the truth), the profile's gradient is the finite
@@ -118,6 +119,7 @@ def test_future_event_likelihood_end_to_end():
     assert far > 25.0, far                                        # 10 yr of eight detectors see the composition
 
 
+@pytest.mark.slow     # 30-90 s on CI's runners (2026-10-24): Tycho's suite runs it
 def test_newton_profile_equals_lbfgsb():
     """The nuisances' profile by Newton's method (the expectation is linear in them: exact Hessian) gives the
     L-BFGS-B profile's chi^2, at the Asimov point and away from it; its Hessian is the gradient's finite difference."""
@@ -157,6 +159,7 @@ def test_newton_profile_equals_lbfgsb():
     assert np.max(np.abs(g_dev - g)) < 1e-9 * max(1.0, np.max(np.abs(g)))
 
 
+@pytest.mark.slow     # 30-90 s on CI's runners (2026-10-24): Tycho's suite runs it
 def test_vectorized_signals_equal_the_per_key_sums():
     """The signals from the stacked responses and the vectorized interpolation (2026-10-17) equal the sums over each
     (flavor, kind) of np.interp-ed fluxes times the per-key responses, to rounding."""

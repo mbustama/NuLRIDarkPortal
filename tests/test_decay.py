@@ -3,6 +3,7 @@ import os
 import sys
 
 import numpy as np
+import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
@@ -179,6 +180,7 @@ def test_truth_model_has_no_decay():
     assert params["neutrino_decay"] is False and params["relic_scattering"] is False
 
 
+@pytest.mark.slow     # 30-90 s on CI's runners (2026-10-24): Tycho's suite runs it
 def test_solver_uses_the_decayed_relics():
     """propagate_spectrum: where the relics decay, every relic effect sees their composition after the decays (the
     Debye mass and the jumps' rates get eta' = (3, 0, 0)-like)."""

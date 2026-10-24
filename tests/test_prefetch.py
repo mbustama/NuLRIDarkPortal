@@ -59,6 +59,7 @@ def _flat(x):
     return [] if x is None else [np.asarray(x)]
 
 
+@pytest.mark.slow     # 30-90 s on CI's runners (2026-10-24): Tycho's suite runs it
 @pytest.mark.parametrize("mode", ["sky", "flux"])
 def test_prefetched_runs_equal_runs_one_by_one(mode, monkeypatch):
     monkeypatch.delenv("NULRI_FLUX_CACHE", raising=False)

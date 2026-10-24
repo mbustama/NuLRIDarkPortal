@@ -13,7 +13,7 @@ jobs:
     # removed np.trapz, and the unpinned job alone failed from 2026-10-13 until it was noticed).
     name: pytest (${{ matrix.deps.name }})
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:

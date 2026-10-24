@@ -3,6 +3,7 @@ import os
 import sys
 
 import numpy as np
+import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
@@ -48,6 +49,7 @@ def _setup(seed=1, decay=True, jumps=True, loss=True):
     return E, I, w, q_gas, q_src, s, kinds, tables, P_vac, rates
 
 
+@pytest.mark.slow     # 30-90 s on CI's runners (2026-10-24): Tycho's suite runs it
 def test_vacuum_path_matches_the_sweep():
     """Equal segments (the order of the path's pieces then immaterial): the spectral-basis path equals the
     per-pixel sweep to rounding, with all three processes on."""

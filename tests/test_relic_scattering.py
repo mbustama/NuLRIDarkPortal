@@ -129,6 +129,7 @@ def test_fast_scatterings_equalize():
     assert np.allclose(f, 1.0 / 3.0, atol=2e-3)
 
 
+@pytest.mark.slow     # 30-90 s on CI's runners (2026-10-24): Tycho's suite runs it
 @pytest.mark.parametrize("log_g", [-4.5, -4.25, -4.0])
 def test_jumps_against_dp_si(log_g):
     """eps' = 0 at 100 eV, where the soft scatterings are partial and the hard ones negligible: the dark-portal phase's

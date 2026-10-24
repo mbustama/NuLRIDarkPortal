@@ -98,6 +98,7 @@ def test_config_frees_m_lightest():
     assert all("template" not in s for s in raw["parameters"].values())
 
 
+@pytest.mark.slow     # 30-90 s on CI's runners (2026-10-24): Tycho's suite runs it
 def test_centred_model_is_the_exact_model(prof):
     """At its centre the centred model is the exact model, bit for bit, and makes no template run."""
     v = dict(_start(prof), **POINT, norm_astro=1.1, p_index=2.6, s12sq=0.31, d_cp_deg=200.0, m_lightest_eV=0.01)
