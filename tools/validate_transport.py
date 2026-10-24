@@ -8,7 +8,7 @@ transport:
   A   the default (what the final run computes); finiteness, negativity, the mode used
   B   time steps refined: the dark-portal phase's redshift steps x4, dp_si's substeps x2
   C   energy grid refined x2 (877 bins, every other one the default's): the sub-grid units and every dark-portal one
-  H   the grid extended a decade above 30 PeV (the inflow from above): the same units; GH its Galactic part
+  H   the grid extended a decade above 30 PeV (the inflow from above): the same units, the extragalactic flux
   D   the other transport(s) below 1 keV (dark-portal phase <-> dp_si; both where 'combined')
   E   the shortcuts off (SOFT_JUMP_MIN = 0, SI_HARD_MIN_G = 0), where that changes the run
   F   decay alone (relic scatterings off) against the exact nu_3 survival averaged over the sources, at 100 TeV and
@@ -33,6 +33,7 @@ sys.path[:0] = [os.path.join(REPO, "src"), REPO]
 os.environ.pop("NULRI_FLUX_CACHE", None)          # every flux computed, none read from a disk cache
 
 import argparse  # noqa: E402
+import contextlib  # noqa: E402
 import copy  # noqa: E402
 import glob  # noqa: E402
 import json  # noqa: E402
@@ -262,35 +263,45 @@ def _one(u):
         sub_keV = u["xv"] < dps.SI_COSMOLOGY_MIN_M_EV
         res = {}
 
+        @contextlib.contextmanager
+        def check(key):
+            """One check's failure recorded as res[key + '_error'], the unit's other checks kept."""
+            try:
+                yield
+            except Exception as e:
+                res[key + "_error"] = repr(e)[:200]
+
         # B: time steps
-        n0 = int(base["grid"]["n_z_bins"])
-        cB = copy.deepcopy(base)
-        cB["grid"]["n_z_bins"] = (n0 - 1) * 4 + 1
-        pmB = dict(si=dict(z_substeps=2, E_extension=10.0)) if A["mode"] in ("si", "combined") else None
-        if A["mode"] == "si":
-            cB = None
-        B, _ = run("B", solver_cfg=cB, params_mod=pmB)
-        res["B"] = _cmp(A["F"], B["F"], EA, B["E"], std_tot)
+        with check("B"):
+            n0 = int(base["grid"]["n_z_bins"])
+            cB = copy.deepcopy(base)
+            cB["grid"]["n_z_bins"] = (n0 - 1) * 4 + 1
+            pmB = dict(si=dict(z_substeps=2, E_extension=10.0)) if A["mode"] in ("si", "combined") else None
+            if A["mode"] == "si":
+                cB = None
+            B, _ = run("B", solver_cfg=cB, params_mod=pmB)
+            res["B"] = _cmp(A["F"], B["F"], EA, B["E"], std_tot)
 
         # C: energy grid (sub-grid units, and every unit whose run is the dark-portal phase alone)
         if u["sub"] or A["mode"] == "dark_portal":
-            cC = copy.deepcopy(base)
-            cC["grid"]["n_E_bins"] = 2 * (int(base["grid"]["n_E_bins"]) - 1) + 1
-            C, _ = run("C", solver_cfg=cC)
-            res["C"] = _cmp(A["F"], C["F"], EA, C["E"], std_tot)
+            with check("C"):
+                cC = copy.deepcopy(base)
+                cC["grid"]["n_E_bins"] = 2 * (int(base["grid"]["n_E_bins"]) - 1) + 1
+                C, _ = run("C", solver_cfg=cC)
+                res["C"] = _cmp(A["F"], C["F"], EA, C["E"], std_tot)
 
         # H: the grid extended a decade above its top (115 more bins of the same width: the grids nest), what comes
-        # down from above 30 PeV (decay daughters, the energy loss, secondaries) the default leaves out
+        # down from above 30 PeV (decay daughters, the energy loss, secondaries) the default leaves out; the
+        # extragalactic flux only (the Galactic template stops at 1e8 GeV)
         if u["sub"] or A["mode"] == "dark_portal":
-            cH = copy.deepcopy(base)
-            nE0 = int(base["grid"]["n_E_bins"])
-            r = (float(base["grid"]["E_max_eV"]) / float(base["grid"]["E_min_eV"])) ** (1.0 / (nE0 - 1))
-            cH["grid"]["E_max_eV"] = float(base["grid"]["E_max_eV"]) * r ** 115
-            cH["grid"]["n_E_bins"] = nE0 + 115
-            Hx, _ = run("H", solver_cfg=cH, galactic=gal and bool(A["used"]))
-            res["H"] = _cmp(A["F"], Hx["F"], EA, Hx["E"], std_tot)
-            if gal and A["used"]:
-                res["GH"] = _cmp(A["G"], Hx["G"], EA, Hx["E"], std_gal)
+            with check("H"):
+                cH = copy.deepcopy(base)
+                nE0 = int(base["grid"]["n_E_bins"])
+                r = (float(base["grid"]["E_max_eV"]) / float(base["grid"]["E_min_eV"])) ** (1.0 / (nE0 - 1))
+                cH["grid"]["E_max_eV"] = float(base["grid"]["E_max_eV"]) * r ** 115
+                cH["grid"]["n_E_bins"] = nE0 + 115
+                Hx, _ = run("H", solver_cfg=cH)
+                res["H"] = _cmp(A["F"], Hx["F"], EA, Hx["E"], std_tot)
 
         # D: the other transport below 1 keV, where both hold (dp_si has no potential: not where the potential acts,
         # 'combined' or the dark-portal phase with a potential)
@@ -306,58 +317,63 @@ def _one(u):
                       "combined": ["dark_portal"]}[A["mode"]]
             Dres = {}
             for mode in others:
-                D, _ = run("D_" + mode, params_mod=dict(cosmo_transport=mode))
-                res["D_" + mode] = _cmp(A["F"], D["F"], EA, D["E"], std_tot)
-                Dres[mode] = D
+                with check("D_" + mode):
+                    D, _ = run("D_" + mode, params_mod=dict(cosmo_transport=mode))
+                    res["D_" + mode] = _cmp(A["F"], D["F"], EA, D["E"], std_tot)
+                    Dres[mode] = D
 
             # E: the shortcuts off, where that changes the run
-            s0, h0 = dps.SOFT_JUMP_MIN, dps.SI_HARD_MIN_G
-            try:
-                dps.SOFT_JUMP_MIN, dps.SI_HARD_MIN_G = 0.0, 0.0
-                if mode_E == "si" and "si" in Dres:
-                    res["E"] = dict(res["D_si"], same_as="D_si")
-                elif not (mode_E == "si" and A["mode"] == "si"):            # si alone: no shortcut acts
-                    Ex, _ = run("E")
-                    res["E"] = _cmp(A["F"], Ex["F"], EA, Ex["E"], std_tot)
-                    res["E"]["mode"] = mode_E
-            finally:
-                dps.SOFT_JUMP_MIN, dps.SI_HARD_MIN_G = s0, h0
+            with check("E"):
+                s0, h0 = dps.SOFT_JUMP_MIN, dps.SI_HARD_MIN_G
+                try:
+                    dps.SOFT_JUMP_MIN, dps.SI_HARD_MIN_G = 0.0, 0.0
+                    if mode_E == "si" and "si" in Dres:
+                        res["E"] = dict(res["D_si"], same_as="D_si")
+                    elif not (mode_E == "si" and A["mode"] == "si"):            # si alone: no shortcut acts
+                        Ex, _ = run("E")
+                        res["E"] = _cmp(A["F"], Ex["F"], EA, Ex["E"], std_tot)
+                        res["E"]["mode"] = mode_E
+                finally:
+                    dps.SOFT_JUMP_MIN, dps.SI_HARD_MIN_G = s0, h0
 
             # F: decay alone against the exact nu_3 survival
-            kF = [int(np.argmin(np.abs(EA - e))) for e in E_CHECK]
-            exact, U = _survival_exact(pA, [EA[k] for k in kF])
-            if exact is not None and pot_negligible:
-                F1, _ = run("F1", params_mod=dict(relic_scattering=False, neutrino_decay=True))
-                F0, _ = run("F0", params_mod=dict(relic_scattering=False, neutrino_decay=False))
-                inv = np.linalg.inv(np.abs(U) ** 2)
-                dev = 0.0
-                rows = {}
-                for k in kF:
-                    for s in range(F1["F"].shape[0]):
-                        a1, a0 = (inv @ F1["F"][s, k])[2], (inv @ F0["F"][s, k])[2]
-                        if a0 > 1e-6 * F0["F"][s, k].sum():
-                            ratio = a1 / a0
-                            rows[f"{EA[k]:.4e}/{s}"] = ratio
-                            dev = max(dev, abs(ratio - exact[float(EA[k])]))
-                res["F"] = dict(d=dev, exact={f"{e:.4e}": x for e, x in exact.items()}, code=rows)
+            with check("F"):
+                kF = [int(np.argmin(np.abs(EA - e))) for e in E_CHECK]
+                exact, U = _survival_exact(pA, [EA[k] for k in kF])
+                if exact is not None and pot_negligible:
+                    F1, _ = run("F1", params_mod=dict(relic_scattering=False, neutrino_decay=True))
+                    F0, _ = run("F0", params_mod=dict(relic_scattering=False, neutrino_decay=False))
+                    inv = np.linalg.inv(np.abs(U) ** 2)
+                    dev = 0.0
+                    rows = {}
+                    for k in kF:
+                        for s in range(F1["F"].shape[0]):
+                            a1, a0 = (inv @ F1["F"][s, k])[2], (inv @ F0["F"][s, k])[2]
+                            if a0 > 1e-6 * F0["F"][s, k].sum():
+                                ratio = a1 / a0
+                                rows[f"{EA[k]:.4e}/{s}"] = ratio
+                                dev = max(dev, abs(ratio - exact[float(EA[k])]))
+                    res["F"] = dict(d=dev, exact={f"{e:.4e}": x for e, x in exact.items()}, code=rows)
 
         # Galactic: pieces x2; the sweep where the vacuum path was used; the energy grid x2
         if gal and A["used"] and u["sub"]:
-            _W["split"][0] = 2
-            try:
-                GB, _ = run("GB", galactic=True, ext=False)
-            finally:
-                _W["split"][0] = 1
-            res["GB"] = _cmp(A["G"], GB["G"], EA, GB["E"], std_gal)
-            if "vacuum_populations" in A["used"] and u["ix"] % 4 == 0 and u["iy"] % 4 == 0 and u["ml"] == ML_FULL:
-                vac0 = dps.GALACTIC_PATH_VACUUM
+            with check("GB"):
+                _W["split"][0] = 2
                 try:
-                    dps.GALACTIC_PATH_VACUUM = False
-                    GC, _ = run("GC", galactic=True, ext=False)
+                    GB, _ = run("GB", galactic=True, ext=False)
                 finally:
-                    dps.GALACTIC_PATH_VACUUM = vac0
-                res["GC"] = _cmp(A["G"], GC["G"], EA, GC["E"], std_gal)
-            if u["sub"]:
+                    _W["split"][0] = 1
+                res["GB"] = _cmp(A["G"], GB["G"], EA, GB["E"], std_gal)
+            if "vacuum_populations" in A["used"] and u["ix"] % 4 == 0 and u["iy"] % 4 == 0 and u["ml"] == ML_FULL:
+                with check("GC"):
+                    vac0 = dps.GALACTIC_PATH_VACUUM
+                    try:
+                        dps.GALACTIC_PATH_VACUUM = False
+                        GC, _ = run("GC", galactic=True, ext=False)
+                    finally:
+                        dps.GALACTIC_PATH_VACUUM = vac0
+                    res["GC"] = _cmp(A["G"], GC["G"], EA, GC["E"], std_gal)
+            with check("GD"):
                 cG = copy.deepcopy(base)
                 cG["grid"]["n_E_bins"] = 2 * (int(base["grid"]["n_E_bins"]) - 1) + 1
                 GD, _ = run("GD", solver_cfg=cG, galactic=True, ext=False)
@@ -399,6 +415,11 @@ def summarize(out_dir, fig):
     print(f"{len(rows)} units")
     errs = [r for r in rows if r.get("error")]
     print(f"errors: {len(errs)}")
+    import collections as _c
+    ce = _c.Counter((k, v[:60]) for r in rows if not r.get("error") for k, v in r.get("res", {}).items()
+                    if k.endswith("_error"))
+    for (k, v), n in ce.most_common(10):
+        print(f"   check error {k}: {n}  {v}")
     for r in errs[:10]:
         print("  ", r["fam"], r["ix"], r["iy"], r["ml"], r["error"])
     from analysis import exclusion as ex
@@ -406,7 +427,7 @@ def summarize(out_dir, fig):
     for r in rows:
         sl, c = bnd[r["fam"]]
         r["not_allowed"] = bool(np.log10(r["yv"]) >= sl * np.log10(r["xv"]) + c)
-    keys = ["B", "C", "H", "D_si", "D_dark_portal", "E", "F", "GB", "GC", "GD", "GH"]
+    keys = ["B", "C", "H", "D_si", "D_dark_portal", "E", "F", "GB", "GC", "GD"]
     for k in keys:
         for meas in ("d", "d_shape", "d_flavor"):
             ds = [r["res"][k][meas] for r in rows if not r.get("error") and k in r.get("res", {})
