@@ -204,5 +204,7 @@
  },
  "flux_basis": "pure_flavors",
  "output_dir": "output/analysis/campaign_ml/now_events/le_lmu_ul_fx",
- "exact_profile": {}
+ "exact_profile": {
+  "chain_length": 8
+ }
 }

@@ -186,5 +186,7 @@
  },
  "flux_basis": "pure_flavors",
  "output_dir": "output/analysis/campaign_ml/now_ic26/le_ltau_ul",
- "exact_profile": {}
+ "exact_profile": {
+  "chain_length": 8
+ }
 }
