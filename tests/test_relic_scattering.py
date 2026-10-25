@@ -245,6 +245,8 @@ def test_combined_mode_with_decays():
 
     dp_si.propagate_si, dps.propagate_earth_spatial = si, earth
     cross = dps.EXTRAGALACTIC_CROSSING
+    gold = dps._goldstone_on
+    dps._goldstone_on = lambda params: False    # its own dp_si runs would overwrite the handover's captured input
     try:
         dps.EXTRAGALACTIC_CROSSING = False          # the handover sees the populations themselves
         p["inj_window_eV"] = (0.0, np.inf)
@@ -253,6 +255,7 @@ def test_combined_mode_with_decays():
     finally:
         dp_si.propagate_si, dps.propagate_earth_spatial = orig_si, orig_earth
         dps.EXTRAGALACTIC_CROSSING = cross
+        dps._goldstone_on = gold
     tot_si = 0.5 * got["F_mass"].sum(axis=1)
     for anti in (False, True):
         tot = got[anti].sum(axis=1)
