@@ -291,7 +291,7 @@ def draw(ax, lx, G, F, color, fill, lw=1.8, ribbons=()):
         ax.fill(xs, ys, color=fill, lw=0, zorder=1)
         ax.plot(xs, ys, color=color, lw=0.6 * lw, zorder=5)
 
-def not_allowed_boundary(cfg_path, m_lightest=None):
+def not_allowed_boundary(cfg, m_lightest=None):
     """(slope, intercept) of the line log10 g = log10 m + c above which a plane's model is not perturbative
     (2026-10-24; notes Sec. 12.8 item 3; Mauricio: marked, ranges kept): the longitudinal mode's Goldstone couplings
     Y = i (G'_ij m_i + G'_ji m_j) / m_Zd break perturbative unitarity (src/dp_unitarity.py), with the neutrino masses
@@ -299,7 +299,8 @@ def not_allowed_boundary(cfg_path, m_lightest=None):
     grow with the masses, c falls from 1.76 to 1.23 for the mu texture at 0.1 eV; the fits use only the lightest masses
     where the model holds, Mauricio 2026-10-24, so the region where none does is this line's). The coupling matrix is linear in the plane's
     coupling, so the measure scales as (g / m_Zd)^2: one evaluation fixes c = -log10 sqrt(r0), r0 the measure at
-    g = m_Zd = 1 (checked at a second coupling). Returns None for a plane whose coupling does not set G linearly."""
+    g = m_Zd = 1 (checked at a second coupling). Returns None for a plane whose coupling does not set G linearly.
+    cfg: a configuration file's path, a loaded configuration (analysis.config.AnalysisConfig) or its raw dict."""
     import copy
     import json
     import dark_portal_solver as dps
@@ -307,9 +308,15 @@ def not_allowed_boundary(cfg_path, m_lightest=None):
     import dp_unitarity
     from dp_core import construct_PMNS
     from analysis import config as config_mod
-    raw = copy.deepcopy(json.load(open(cfg_path)))
+    if isinstance(cfg, (str, os.PathLike)):
+        raw, path = json.load(open(cfg)), str(cfg)
+    elif hasattr(cfg, "raw"):
+        raw, path = cfg.raw, getattr(cfg, "path", "")
+    else:
+        raw, path = cfg, ""
+    raw = copy.deepcopy(dict(raw))
     raw.pop("exact_profile", None)
-    cfg = config_mod.from_dict(raw, cfg_path)
+    cfg = config_mod.from_dict(raw, path)
     model = cfg.model()
     pl = raw["planes"][0]
 
@@ -319,6 +326,16 @@ def not_allowed_boundary(cfg_path, m_lightest=None):
         if m_lightest is not None:
             v["m_lightest_eV"] = float(m_lightest)
         _, pr = dps.build_solver_params(model._run_cfg(model._overrides(v)))
+        if pr.get("si"):
+            # the secret interactions (2026-10-25): the vector's Goldstone couplings, Majorana or Dirac
+            # (dp_si_light.goldstone_measure); the scalar has no such line (its relic field: not_modelled_measure)
+            import dp_si_light
+            si = pr["si"]
+            if si["mediator"] != "vector":
+                return None
+            U = np.asarray(construct_PMNS(pr["th12"], pr["th13"], pr["th23"], pr["d_cp"]))
+            return dp_si_light.goldstone_measure(si["g_flavor"], U, np.asarray(pr["m_nu_bg_arr"], dtype=np.float64),
+                                                 si["m_phi_eV"], si["majorana"])
         G = pr.get("G_coupling")
         if G is None:
             G = dp_absorption.dark_portal_coupling(pr["g_D"], np.array([pr["u_e"], pr["u_mu"], pr["u_tau"]],
@@ -330,10 +347,75 @@ def not_allowed_boundary(cfg_path, m_lightest=None):
         return dp_unitarity.neutrino_unitarity(Gp, np.asarray(pr["m_nu_bg_arr"], dtype=np.float64), 1.0)
 
     r1, r2 = measure(1e-10), measure(1e-12)
-    if r1 <= 0.0 or not np.isclose(r1 / r2, 1e4, rtol=1e-6):
+    if r1 is None or r2 is None or r1 <= 0.0 or not np.isclose(r1 / r2, 1e4, rtol=1e-6):
         return None
     r0 = r1 / 1e-20
     return 1.0, -0.5 * np.log10(r0)
+
+
+def not_modelled_measure(cfg):
+    """For planes whose model fails where no single line marks it (2026-10-25: the secret-interaction scalar's background
+    field sourced by the relics, Mauricio's decision (a); dp_si_light.scalar_field_measure), a callable
+    f(x, y, m_lightest) -> the measure (>= 1: not modelled) at the plane's point (x, y) with that lightest mass; None
+    for every other plane (their region is not_allowed_boundary's line). cfg as not_allowed_boundary's."""
+    import copy
+    import dark_portal_solver as dps
+    import dp_si_light
+    from dp_core import construct_PMNS
+    from analysis import config as config_mod
+    if isinstance(cfg, (str, os.PathLike)):
+        raw, path = json.load(open(cfg)), str(cfg)
+    elif hasattr(cfg, "raw"):
+        raw, path = cfg.raw, getattr(cfg, "path", "")
+    else:
+        raw, path = cfg, ""
+    raw = copy.deepcopy(dict(raw))
+    si = (raw.get("solver", {}) or {}).get("secret_interactions", {}) or {}
+    if not si.get("enabled", False) or str(si.get("mediator", "scalar")).strip().lower() != "scalar":
+        return None
+    raw.pop("exact_profile", None)
+    acfg = config_mod.from_dict(raw, path)
+    model = acfg.model()
+    pl = raw["planes"][0]
+    base = {q.name: q.start for q in acfg.parameters}
+
+    def f(x, y, m_lightest=None):
+        v = dict(base)
+        v.update({pl["x"]: float(x), pl["y"]: float(y)})
+        if m_lightest is not None:
+            v["m_lightest_eV"] = float(m_lightest)
+        _, pr = dps.build_solver_params(model._run_cfg(model._overrides(v)))
+        sp = pr["si"]
+        U = np.asarray(construct_PMNS(pr["th12"], pr["th13"], pr["th23"], pr["d_cp"]))
+        return dp_si_light.scalar_field_measure(sp["g_flavor"], U, np.asarray(pr["m_nu_bg_arr"], dtype=np.float64),
+                                                sp["m_phi_eV"], sp["majorana"], pr["T_nu0_eV"],
+                                                (np.abs(U) ** 2).T @ np.asarray(pr["eta_bg"], dtype=np.float64),
+                                                pr["H0_eV"], pr["Omega_m"], pr["Omega_L"], pr["z_max"], pr["dm21_sq"],
+                                                decay_on=pr.get("neutrino_decay", True))
+    return f
+
+
+def not_modelled_mask(cfg, lx, ly, m_lightest=None):
+    """(N_y, N_x) booleans: where the plane's model is not modelled at the lightest mass given (default the
+    configuration's): not_allowed_boundary's line, or not_modelled_measure's region. lx, ly: log10 of the axes."""
+    lx = np.asarray(lx, dtype=np.float64)
+    ly = np.asarray(ly, dtype=np.float64)
+    f = not_modelled_measure(cfg)
+    if f is None:
+        b = not_allowed_boundary(cfg, m_lightest)
+        if b is None:
+            return np.zeros((len(ly), len(lx)), dtype=bool)
+        return ly[:, None] >= b[0] * lx[None, :] + b[1]
+    return np.array([[f(10.0 ** x, 10.0 ** y, m_lightest) >= 1.0 for x in lx] for y in ly])
+
+
+def draw_not_modelled(ax, lx, ly, mask, color="0.45"):
+    """Hatch a not_modelled_mask region (cells of the grid lx x ly, log10 axes), as draw_not_allowed."""
+    mask = np.asarray(mask, dtype=float)
+    if not np.any(mask):
+        return
+    ax.contourf(lx, ly, mask, levels=[0.5, 1.5], colors="none", hatches=["////"], zorder=6)
+    ax.contour(lx, ly, mask, levels=[0.5], colors=color, linewidths=0.8, zorder=6)
 
 
 def draw_not_allowed(ax, lx, G, boundary, color="0.45"):

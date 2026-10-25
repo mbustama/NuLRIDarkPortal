@@ -1004,6 +1004,10 @@ def _vv_g(u, beta, delta, mu):
     return g, gL, x
 
 
+# _vv_nu_bins: the pair spectrum's moments are not formed below this energy fraction (x^3 underflows below ~1e-103)
+VV_X_FLOOR = 1e-100
+
+
 @njit(cache=True)
 def _cum_left(f, h):
     """Cumulative integral from the left on a uniform grid: trapezoid with the Euler-Maclaurin end
@@ -1076,6 +1080,18 @@ def _vv_nu_bins(mu, edges, n_u, out):
         gk, gL, x = _vv_g(-U + k * h, beta, delta, mu)
         gT = gk - gL
         g[k] = gk
+        if x < VV_X_FLOOR:
+            # (2026-10-25, the secret interactions below 1 keV) for mu below ~1e-48 the grid in u reaches x < 1e-100,
+            # where x^3 underflows (a division by zero at mu = 1e-50); the moments there enter only the cumulative
+            # integrals at nodes far below every bin edge used (edges >= 1e-10, nodes bracketing an edge within a
+            # factor e^-h of it), so they are set to zero: the bins are unchanged, and bit for bit wherever no node
+            # lies below the floor (every mu where this ran before)
+            t1[k] = 0.0
+            t2[k] = 0.0
+            t3[k] = 0.0
+            l2[k] = 0.0
+            l3[k] = 0.0
+            continue
         t1[k] = gT / x
         t2[k] = gT / (x * x)
         t3[k] = gT / (x * x * x)
@@ -1846,6 +1862,7 @@ def _si_sweep_cols(F, E, dE, S0, J, Nq, Lq, Dq, jt, w, qe, Ctau, Creg, tabB, tab
     tdec = np.zeros(n)
     hgeo = np.sqrt(E[1] / E[0])
     Lgeo = 2.0 * np.log(hgeo)
+    uinv = Lgeo / (hgeo - 1.0 / hgeo)       # <1/u> over a parent's bin (dp_decay.window_plan: spread over it)
     Nd = N if use_dec else 1
     Sm = np.zeros((n, C, 3))          # the decays' daughters: running moments (c, a / E_p, b / E_p^2) of the parents
     addm = np.zeros((Nd, n, C, 3))    # whose windows hold the bin wholly; entered at the window's top bin,
@@ -2005,7 +2022,7 @@ def _si_sweep_cols(F, E, dE, S0, J, Nq, Lq, Dq, jt, w, qe, Ctau, Creg, tabB, tab
                             if dec_br[a, c] == 0.0:
                                 continue
                             nd = rate * dec_br[a, c]
-                            for x in range(6):
+                            for x in range(dec_kex.shape[2]):
                                 kk = dec_kex[a, c, x]
                                 if kk < 0:
                                     break
@@ -2015,7 +2032,7 @@ def _si_sweep_cols(F, E, dE, S0, J, Nq, Lq, Dq, jt, w, qe, Ctau, Creg, tabB, tab
                             k2 = dec_kfull[a, c, 1]
                             if k1 <= k2 and j - k1 >= 0:
                                 v0 = nd * dec_mom[a, c, 0]
-                                v1 = nd * dec_mom[a, c, 1] / E[j]
+                                v1 = nd * dec_mom[a, c, 1] * uinv / E[j]
                                 v2 = nd * dec_mom[a, c, 2] / (E[j] * E[j])
                                 addm[j - k1, c, k, 0] += v0
                                 addm[j - k1, c, k, 1] += v1
@@ -2221,7 +2238,7 @@ def _profile_tables(prof, M, masses, E0, N, dlnE, q, K, top_full, L_top_mid, n_u
 
 
 def model_spec(g_mass, mediator="scalar", majorana=True, phiphi="coherent", channels="full",
-               dirac_sterile="track", polarized=False):
+               dirac_sterile="track", polarized=False, sterile_states=False):
     """The transport's description of a model: dict(prof, jt, w, qe, Ctau, runs, G2, pols, n) where runs is a
     list of (Creg, weight), the visible flux being sum weight * F(run) over the first three states. Scalar and
     Majorana: one run; scalar and Dirac: 'track' -> runs (Cvis + Cinv, 1/2) and (Cvis - Cinv, 1/2) (sum and difference
@@ -2235,9 +2252,36 @@ def model_spec(g_mass, mediator="scalar", majorana=True, phiphi="coherent", chan
     rho_L alone (only the left-chiral component couples; at rest rho_L = rho/2, the earlier kappa). Scalar: the chiral
     tensors (dirac_scalar_chiral_tensors) on both; 'track' transports the visible (states 0-2) and the sterile (3-5)
     neutrinos together -- a polarized background breaks the parity that ran them as sum and difference -- and 'drop'
-    the visible ones."""
+    the visible ones.
+
+    sterile_states (Dirac, 2026-10-25: the decays into the mediator below 1 keV, dp_si_light): the sterile neutrinos
+    as states 3-5 of one run, n = 6, since a decay's flipped daughter is sterile and a sterile neutrino decays back
+    into visible ones. Scalar: a visible incident's secondaries Cv (visible) and Ci (sterile), a sterile one's the
+    same with visibility swapped (the parity mirror behind the sum and difference runs; on polarized relics the 6-state
+    'track' tensors as they are). Vector: the sterile states do not scatter (the vector couples to left-chiral
+    neutrinos) and no secondary is sterile: the 3-state tensors embedded in the visible block."""
     med = str(mediator).strip().lower()
     pol = bool(polarized) and not majorana
+    if sterile_states and not majorana:
+        base = model_spec(g_mass, mediator, majorana, phiphi, channels, dirac_sterile, polarized, False)
+        if base["n"] == 6:
+            return base
+        if med == "scalar":
+            if str(dirac_sterile).strip().lower() != "track":
+                raise NotImplementedError("secret interactions: decays with Dirac neutrinos need dirac_sterile 'track'")
+            if pol:
+                raise NotImplementedError("secret interactions: polarized relics with the scalar's 'track' are 6-state")
+            Cv, Ci, G2 = dirac_scalar_tensors(g_mass, channels)
+            C = np.zeros((N_PROFILES, 6, 3, 6))
+            C[:, 0:3, :, 0:3], C[:, 0:3, :, 3:6] = Cv, Ci
+            C[:, 3:6, :, 0:3], C[:, 3:6, :, 3:6] = Ci, Cv
+            C = np.ascontiguousarray(C)
+            return dict(base, Ctau=C, runs=[(C, 1.0)], n=6)
+        C3 = base["Ctau"]
+        C = np.zeros((C3.shape[0], 6, C3.shape[2], 6))
+        C[:, 0:3, :, 0:3] = C3
+        C = np.ascontiguousarray(C)
+        return dict(base, Ctau=C, runs=[(C, 1.0)], n=6)
     if med == "scalar":
         if majorana:
             _, C, G2 = coupling_tensors(g_mass, phiphi, channels)
@@ -2807,6 +2851,12 @@ def _column_key(p_index, inj_window):
     return (float(p_index), float(inj_window[0]), float(inj_window[1]))
 
 
+def dp_decay_nslot():
+    """dp_decay.NSLOT (the decay windows' slots)."""
+    import dp_decay
+    return dp_decay.NSLOT
+
+
 def _physics_key(E_bins, z_max, H0, Omega_m, Omega_L, masses, T_nu0, eta_mass, rho_evol, M, g_mass, majorana,
                  channels, phiphi, z_substeps, E_extension, n_u, regeneration, mediator, dirac_sterile, Gamma_vis,
                  thermal, decay=None, relic_loss=None):
@@ -2818,6 +2868,10 @@ def _physics_key(E_bins, z_max, H0, Omega_m, Omega_L, masses, T_nu0, eta_mass, r
         h.update(np.ascontiguousarray(a).tobytes())
     if decay is not None:
         h.update(b"decay")
+        if isinstance(decay, dict):
+            # dp_si_light's (2026-10-25): its rates, spectra and the neutrinos' kind
+            h.update(b"maj" if decay["majorana"] else b"dir")
+            decay = (decay["Gam"], decay["spec"])
         for a in decay:
             h.update(np.ascontiguousarray(a, dtype=np.float64).tobytes())
     if relic_loss is not None:
@@ -2913,7 +2967,8 @@ def _transport_columns(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu
     MG = M * Gam
     full = thermal == "full"
     # thermal="full" with Dirac neutrinos: the relics' chiral shares as separate relic slots (model_spec, polarized)
-    spec = model_spec(g_mass, mediator, majorana, phiphi, channels, dirac_sterile, polarized=full)
+    spec = model_spec(g_mass, mediator, majorana, phiphi, channels, dirac_sterile, polarized=full,
+                      sterile_states=decay is not None and not majorana)
     pols = spec["pols"]
     n_st = spec["n"]
     n_rel = 3 * len(pols)
@@ -2955,35 +3010,27 @@ def _transport_columns(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu
     dec_br = np.zeros((n_st, n_st))
     dec_own = np.zeros((n_st, n_st))
     dec_kfull = np.zeros((n_st, n_st, 2), dtype=np.int64)
-    dec_kex = np.full((n_st, n_st, 6), -1, dtype=np.int64)
-    dec_fex = np.zeros((n_st, n_st, 6))
+    dec_kex = np.full((n_st, n_st, dp_decay_nslot()), -1, dtype=np.int64)
+    dec_fex = np.zeros((n_st, n_st, dp_decay_nslot()))
     dec_mom = np.zeros((n_st, n_st, 3))
     if use_dec:
-        if not majorana:
-            raise NotImplementedError("neutrino decay in dp_si: Majorana neutrinos only")
-        import dp_decay
-        Gam_d = np.asarray(decay[0], dtype=np.float64)
-        tot_d = Gam_d.sum(axis=1)
-        for a_ in range(3):
-            if tot_d[a_] > 0.0:
-                dec_rate[a_] = tot_d[a_] * masses[a_]
-                dec_br[a_, :3] = Gam_d[a_] / tot_d[a_]
-        # the one Majorana flux: the kept and flipped spectra added (the neutrino parent's; the kinds are alike)
-        sp = np.asarray(decay[1], dtype=np.float64)
-        spf = np.zeros_like(sp)
-        spf[0, :, :, 0, :2] = sp[0, :, :, 0, :2]
-        spf[0, :, :, 0, 2:] = sp[0, :, :, 0, 2:] + sp[0, :, :, 1, 2:]
-        kf = np.zeros((2, 3, 3, 2, 2), dtype=np.int64)
-        kx = np.zeros((2, 3, 3, 2, 6), dtype=np.int64)
-        fx = np.zeros((2, 3, 3, 2, 6))
-        dp_decay.window_plan(spf, float(np.sqrt(E[1] / E[0])), len(E), kf, kx, fx)
-        dec_kfull[:3, :3] = kf[0, :, :, 0]
-        dec_kex[:3, :3] = kx[0, :, :, 0]
-        dec_fex[:3, :3] = fx[0, :, :, 0]
-        dec_mom[:3, :3, 0] = spf[0, :, :, 0, 4]
-        dec_mom[:3, :3, 1] = spf[0, :, :, 0, 2]
-        dec_mom[:3, :3, 2] = spf[0, :, :, 0, 3]
-        dec_own[:3, :3] = np.where(kx[0, :, :, 0] == 0, fx[0, :, :, 0], 0.0).sum(axis=-1)
+        # decay: (Gam, spec) -- the vector with Majorana neutrinos (the dark-portal model's runs) -- or dp_si_light's
+        # dict(Gam, spec, majorana) for any of the four models (2026-10-25). Majorana: the one flux holding both kinds,
+        # the kept and flipped spectra added (the neutrino parent's; the kinds are alike); Dirac: six states, the
+        # flipped daughters sterile (dp_si_light.transport_arrays)
+        import dp_si_light
+        if isinstance(decay, dict):
+            Gam_d, sp_d, maj_d = decay["Gam"], decay["spec"], bool(decay["majorana"])
+        else:
+            Gam_d, sp_d, maj_d = decay[0], decay[1], True
+        if maj_d != bool(majorana):
+            raise ValueError("dp_si: the decay tables are for the other kind of neutrino")
+        if not majorana and n_st != 6:
+            raise ValueError("dp_si: decays of Dirac neutrinos need the six states (model_spec sterile_states)")
+        arr = dp_si_light.transport_arrays(np.asarray(Gam_d, dtype=np.float64), np.asarray(sp_d, dtype=np.float64),
+                                           masses, E, majorana)
+        dec_rate, dec_br, dec_own = arr["rate"], arr["br"], arr["own"]
+        dec_kfull, dec_kex, dec_fex, dec_mom = arr["kfull"], arr["kex"], arr["fex"], arr["mom"]
     diags = [np.zeros((C, 6)) for _ in runs]
     reg = np.zeros((N, n_st, C))
     J = np.zeros((N, 3, 4))

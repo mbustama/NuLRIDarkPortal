@@ -29,9 +29,10 @@ first, so a chain nu_3 -> nu_2 -> nu_1 runs within the step. A parent's daughter
 z E_parent, z in its window: the bins inside the window through running sums of the spectrum's three moments (entered
 at the window's top bin, removed below its bottom bin), the one or two bins its edges cut and the parent's own bin by
 their exact integrals (the parent at its bin's centre). The number of neutrinos is kept exactly, except what falls
-below the grid. The populations are either mass states (dp_si) or eigenstates of the potential (the dark-portal
-phase), with T[b, i, a] = |<i|a>|^2 their mass content: each mass component decays on its own (incoherently), and a
-daughter in mass state j is split over the eigenstates by T[b, j, :].
+below the grid. The populations are mass states (dp_si, and the tests). In a potential the decays act between the
+propagation eigenstates with their own kinematics: dp_medium (2026-10-25); the model that made each eigenstate decay
+as a whole at its mass content's mean rate, with vacuum kinematics, is removed (it let the most stable eigenstate decay
+into itself).
 """
 import numpy as np
 from numba import njit
@@ -204,13 +205,57 @@ def _spec_integral(zm, zp, a, b, c, z1, z2):
     return v
 
 
+# window_plan's slots for the bins a window cuts (its own bin, the edges' bins with the parent spread over its bin)
+NSLOT = 10
+
+
+@njit(cache=True)
+def _spec_G(z, a, b, c):
+    """The spectrum's antiderivative a z + b z^2/2 + c ln z (c = 0 where z may be 0)."""
+    v = a * z + 0.5 * b * z * z
+    if c != 0.0:
+        v += c * np.log(z)
+    return v
+
+
+@njit(cache=True)
+def _cdf_int(alpha, u1, u2, zm, zp, a, b, c):
+    """int_{u1}^{u2} F(alpha / u) du, F the spectrum's cumulative integral from zm (0 below zm, its total above zp),
+    in closed form (the parent's energy u E_b spread over its bin, a daughter bin edge at alpha E_b)."""
+    if u2 <= u1:
+        return 0.0
+    Gm = _spec_G(zm, a, b, c) if zm > 0.0 else 0.0
+    tot = _spec_G(zp, a, b, c) - Gm
+    # alpha / u >= zp for u <= alpha / zp: the whole spectrum below the edge
+    ua = alpha / zp
+    ub = alpha / zm if zm > 0.0 else np.inf
+    out = 0.0
+    lo, hi = u1, min(u2, ua)
+    if hi > lo:
+        out += tot * (hi - lo)
+    lo, hi = max(u1, ua), min(u2, ub)
+    if hi > lo:
+        # int (G(alpha/u) - G(zm)) du: a alpha ln u - b alpha^2 / (2u) + c u (ln alpha - ln u + 1) - G(zm) u
+        def_hi = a * alpha * np.log(hi) - 0.5 * b * alpha * alpha / hi - Gm * hi
+        def_lo = a * alpha * np.log(lo) - 0.5 * b * alpha * alpha / lo - Gm * lo
+        if c != 0.0:
+            def_hi += c * hi * (np.log(alpha) - np.log(hi) + 1.0)
+            def_lo += c * lo * (np.log(alpha) - np.log(lo) + 1.0)
+        out += def_hi - def_lo
+    return out
+
+
 @njit(cache=True)
 def window_plan(spec, h, N, kfull, kex, fex):
-    """For a parent at its bin's centre on a geometric grid (half-bin ratio h): kfull[s, i, j, rel] = (k1, k2), the
-    offsets (parent bin - daughter bin) of the bins wholly inside the window (k1 > k2: none); kex/fex[s, i, j, rel, :6]
-    the other offsets the window touches and their exact integrals (kex -1: unused). Offset k covers z in
-    [h^(-2k-1), h^(-2k+1)], the own bin (k = 0) z in [1/h, 1]."""
+    """For a parent spread uniformly over its bin (2026-10-25, the convergence audit's finding 3: at the bin's centre a
+    daughter keeping more than 1/h of the energy never left it, and nearly degenerate decays lost no energy per cycle)
+    on a geometric grid (half-bin ratio h): kfull[s, i, j, rel] = (k1, k2), the offsets (parent bin - daughter bin) of
+    the bins inside the window wherever the parent sits in its bin (k1 > k2: none); kex/fex[s, i, j, rel, :NSLOT] the
+    other offsets the window touches and their exact fractions (kex -1: unused). Offset k covers the daughter energies
+    [h^(-2k-1), h^(-2k+1)] E_b, the own bin (k = 0) included."""
     lh = np.log(h)
+    span = h - 1.0 / h
+    nslot = kex.shape[4]
     for s in range(2):
         for i in range(3):
             for j in range(3):
@@ -220,40 +265,40 @@ def window_plan(spec, h, N, kfull, kex, fex):
                     a = spec[s, i, j, rel, 2]
                     b = spec[s, i, j, rel, 3]
                     c = spec[s, i, j, rel, 4]
-                    for x in range(6):
+                    for x in range(nslot):
                         kex[s, i, j, rel, x] = -1
                         fex[s, i, j, rel, x] = 0.0
                     kfull[s, i, j, rel, 0] = 1
                     kfull[s, i, j, rel, 1] = 0
                     if zp <= zm:
                         continue
-                    # wholly inside: h^(-2k+1) <= zp and h^(-2k-1) >= zm
-                    k1 = int(np.ceil(0.5 * (1.0 - np.log(zp) / lh) - 1e-12))
+                    # inside for every parent position u in [1/h, h]: h^(-2k+1) h <= zp and h^(-2k-1) / h >= zm
+                    k1 = int(np.ceil(1.0 - 0.5 * np.log(zp) / lh - 1e-12))
                     if k1 < 1:
                         k1 = 1
                     if zm > 0.0:
-                        k2 = int(np.floor(0.5 * (-np.log(zm) / lh - 1.0) + 1e-12))
+                        k2 = int(np.floor(-1.0 - 0.5 * np.log(zm) / lh + 1e-12))
                     else:
                         k2 = N + 1
                     if k2 > N + 1:
                         k2 = N + 1
                     kfull[s, i, j, rel, 0] = k1
                     kfull[s, i, j, rel, 1] = k2
-                    # the offsets touched but not wholly inside: from the one holding zp to the one holding zm
-                    ktop = int(np.floor(0.5 * (1.0 - np.log(zp) / lh)))
-                    if ktop < 0:
-                        ktop = 0
-                    kbot = N + 1 if zm <= 0.0 else int(np.floor(0.5 * (1.0 - np.log(zm) / lh)))
+                    # the lowest daughter energy zm E_b / h: the deepest offset touched
+                    kbot = N + 1 if zm <= 0.0 else int(np.floor(0.5 * (1.0 - np.log(zm / h) / lh))) + 1
                     x = 0
-                    k = ktop
+                    k = 0
                     while k <= kbot and k <= N + 1:
                         if k >= k1 and k <= k2:
                             k = k2 + 1
                             continue
-                        z1 = h ** (-2.0 * k - 1.0)
-                        z2 = 1.0 if k == 0 else h ** (-2.0 * k + 1.0)
-                        v = _spec_integral(zm, zp, a, b, c, z1, z2)
-                        if v != 0.0 and x < 6:
+                        a_hi = h ** (-2.0 * k + 1.0)
+                        a_lo = h ** (-2.0 * k - 1.0)
+                        v = (_cdf_int(a_hi, 1.0 / h, h, zm, zp, a, b, c)
+                             - _cdf_int(a_lo, 1.0 / h, h, zm, zp, a, b, c)) / span
+                        if v > 0.0:
+                            if x >= nslot:
+                                raise ValueError("window_plan: more cut bins than NSLOT")
                             kex[s, i, j, rel, x] = k
                             fex[s, i, j, rel, x] = v
                             x += 1
@@ -264,9 +309,11 @@ def window_plan(spec, h, N, kfull, kex, fex):
 def decay_step(E, zp1, dt, Gam, spec, m, F_nu, F_nb, T_nu, T_nb, use_T, fold):
     """One step of the decays, in place. E (N,) observed energies on a geometric grid (eV), zp1 = 1 + z, dt the step
     (eV^-1), Gam from rest_rates, spec from daughter_spectra (2, 3, 3, 2, 5), m (3,) masses (eV); F_nu, F_nb (N, 3)
-    populations per unit energy (eigenstates with mass content T_nu, T_nb (N, 3, 3) if use_T, else mass states);
-    fold: one population holding both kinds (dp_si's Majorana flux, equal kinds), the flipped daughters into it too
-    (F_nb, T_nb unused)."""
+    populations per unit energy of the mass states; fold: one population holding both kinds (dp_si's Majorana flux,
+    equal kinds), the flipped daughters into it too (F_nb unused). T_nu, T_nb, use_T: kept for the signature; use_T
+    True (eigenstates decaying as wholes) was removed on 2026-10-25 -- in a potential, dp_medium."""
+    if use_T:
+        raise ValueError("dp_decay.decay_step: eigenstates decay through dp_medium (2026-10-25)")
     N = E.shape[0]
     tot = np.zeros(3)
     for i in range(3):
@@ -278,9 +325,10 @@ def decay_step(E, zp1, dt, Gam, spec, m, F_nu, F_nb, T_nu, T_nb, use_T, fold):
     Lb = 2.0 * np.log(h)
     nsp = 1 if fold else 2
     kfull = np.zeros((2, 3, 3, 2, 2), dtype=np.int64)
-    kex = np.zeros((2, 3, 3, 2, 6), dtype=np.int64)
-    fex = np.zeros((2, 3, 3, 2, 6))
+    kex = np.zeros((2, 3, 3, 2, NSLOT), dtype=np.int64)
+    fex = np.zeros((2, 3, 3, 2, NSLOT))
     window_plan(spec, h, N, kfull, kex, fex)
+    uinv = 2.0 * np.log(h) / (h - 1.0 / h)      # <1/u> over the parent's bin (the a-moment; <1/u^2> = 1)
     S = np.zeros((2, 3, 3))                 # running moments per kind and daughter state: c, a / E_p, b / E_p^2
     add = np.zeros((2, 3, 3, N))
     sub = np.zeros((2, 3, 3, N))
@@ -326,22 +374,21 @@ def decay_step(E, zp1, dt, Gam, spec, m, F_nu, F_nb, T_nu, T_nb, use_T, fold):
                 Na = F[b, a] * dEb
                 if Na == 0.0:
                     continue
-                # the state's content out of the bin first, its survivors back at the end (Na times the share of no
-                # decay, never below zero): no subtraction leaves a rounding residue (2026-10-24: residues of -1e-40
-                # where the exact kinematics leave nothing broke the analysis' log-spline in the spectral index)
-                keep = 1.0
-                any_dec = False
+                # the state's content out of the bin first, its survivors back at the end (Na (1 - p), never below
+                # zero): no subtraction leaves a rounding residue (2026-10-24: residues of -1e-40 where the exact
+                # kinematics leave nothing broke the analysis' log-spline in the spectral index)
+                Lam = 0.0
                 for i in range(3):
                     if tot[i] == 0.0:
                         continue
                     w = T[b, i, a] if use_T else (1.0 if i == a else 0.0)
                     if w <= 0.0:
                         continue
-                    lam = tot[i] * m[i] / (Eb * zp1) * dt
-                    if lam > 0.0:
-                        any_dec = True
-                if not any_dec:
+                    Lam += w * tot[i] * m[i] / (Eb * zp1) * dt
+                if not Lam > 0.0:
                     continue
+                ptot = -np.expm1(-Lam)
+                keep = 1.0 - ptot
                 F[b, a] = 0.0
                 for i in range(3):
                     if tot[i] == 0.0:
@@ -350,9 +397,7 @@ def decay_step(E, zp1, dt, Gam, spec, m, F_nu, F_nb, T_nu, T_nb, use_T, fold):
                     if w <= 0.0:
                         continue
                     lam = tot[i] * m[i] / (Eb * zp1) * dt
-                    pdec = -np.expm1(-lam)
-                    dec = Na * w * pdec
-                    keep -= w * pdec
+                    dec = Na * ptot * (w * lam / Lam)
                     if dec == 0.0:
                         continue
                     for j in range(3):
@@ -363,7 +408,7 @@ def decay_step(E, zp1, dt, Gam, spec, m, F_nu, F_nb, T_nu, T_nb, use_T, fold):
                             tt = s if (rel == 0 or fold) else 1 - s
                             Ft = F_nu if tt == 0 else F_nb
                             Tt = T_nu if tt == 0 else T_nb
-                            for x in range(6):
+                            for x in range(NSLOT):
                                 k = kex[s, i, j, rel, x]
                                 if k < 0:
                                     break
@@ -375,7 +420,7 @@ def decay_step(E, zp1, dt, Gam, spec, m, F_nu, F_nb, T_nu, T_nb, use_T, fold):
                             k2 = kfull[s, i, j, rel, 1]
                             if k1 <= k2 and b - k1 >= 0:
                                 v0 = nd * spec[s, i, j, rel, 4]
-                                v1 = nd * spec[s, i, j, rel, 2] / Eb
+                                v1 = nd * spec[s, i, j, rel, 2] * uinv / Eb
                                 v2 = nd * spec[s, i, j, rel, 3] / (Eb * Eb)
                                 add[tt, j, 0, b - k1] += v0
                                 add[tt, j, 1, b - k1] += v1

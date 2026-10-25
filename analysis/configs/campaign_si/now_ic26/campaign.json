@@ -1,0 +1,262 @@
+{
+ "dataset": "now_ic26",
+ "planes": [
+  {
+   "name": "si_scalar_majorana_e",
+   "points": 2401
+  },
+  {
+   "name": "si_scalar_majorana_e_ul",
+   "points": 2618
+  },
+  {
+   "name": "si_scalar_majorana_mu",
+   "points": 2401
+  },
+  {
+   "name": "si_scalar_majorana_mu_ul",
+   "points": 2618
+  },
+  {
+   "name": "si_scalar_majorana_tau",
+   "points": 2401
+  },
+  {
+   "name": "si_scalar_majorana_tau_ul",
+   "points": 2618
+  },
+  {
+   "name": "si_scalar_majorana_universal",
+   "points": 2401
+  },
+  {
+   "name": "si_scalar_majorana_universal_ul",
+   "points": 2618
+  },
+  {
+   "name": "si_scalar_dirac_e",
+   "points": 2401
+  },
+  {
+   "name": "si_scalar_dirac_e_ul",
+   "points": 2618
+  },
+  {
+   "name": "si_scalar_dirac_mu",
+   "points": 2401
+  },
+  {
+   "name": "si_scalar_dirac_mu_ul",
+   "points": 2618
+  },
+  {
+   "name": "si_scalar_dirac_tau",
+   "points": 2401
+  },
+  {
+   "name": "si_scalar_dirac_tau_ul",
+   "points": 2618
+  },
+  {
+   "name": "si_scalar_dirac_universal",
+   "points": 2401
+  },
+  {
+   "name": "si_scalar_dirac_universal_ul",
+   "points": 2618
+  },
+  {
+   "name": "si_vector_majorana_e",
+   "points": 2401
+  },
+  {
+   "name": "si_vector_majorana_e_ul",
+   "points": 2618
+  },
+  {
+   "name": "si_vector_majorana_mu",
+   "points": 2401
+  },
+  {
+   "name": "si_vector_majorana_mu_ul",
+   "points": 2618
+  },
+  {
+   "name": "si_vector_majorana_tau",
+   "points": 2401
+  },
+  {
+   "name": "si_vector_majorana_tau_ul",
+   "points": 2618
+  },
+  {
+   "name": "si_vector_majorana_universal",
+   "points": 2401
+  },
+  {
+   "name": "si_vector_majorana_universal_ul",
+   "points": 2618
+  },
+  {
+   "name": "si_vector_dirac_e",
+   "points": 2401
+  },
+  {
+   "name": "si_vector_dirac_e_ul",
+   "points": 2618
+  },
+  {
+   "name": "si_vector_dirac_mu",
+   "points": 2401
+  },
+  {
+   "name": "si_vector_dirac_mu_ul",
+   "points": 2618
+  },
+  {
+   "name": "si_vector_dirac_tau",
+   "points": 2401
+  },
+  {
+   "name": "si_vector_dirac_tau_ul",
+   "points": 2618
+  },
+  {
+   "name": "si_vector_dirac_universal",
+   "points": 2401
+  },
+  {
+   "name": "si_vector_dirac_universal_ul",
+   "points": 2618
+  },
+  {
+   "name": "si_scalar_majorana_e_fx",
+   "points": 2401
+  },
+  {
+   "name": "si_scalar_majorana_e_ul_fx",
+   "points": 2618
+  },
+  {
+   "name": "si_scalar_majorana_mu_fx",
+   "points": 2401
+  },
+  {
+   "name": "si_scalar_majorana_mu_ul_fx",
+   "points": 2618
+  },
+  {
+   "name": "si_scalar_majorana_tau_fx",
+   "points": 2401
+  },
+  {
+   "name": "si_scalar_majorana_tau_ul_fx",
+   "points": 2618
+  },
+  {
+   "name": "si_scalar_majorana_universal_fx",
+   "points": 2401
+  },
+  {
+   "name": "si_scalar_majorana_universal_ul_fx",
+   "points": 2618
+  },
+  {
+   "name": "si_scalar_dirac_e_fx",
+   "points": 2401
+  },
+  {
+   "name": "si_scalar_dirac_e_ul_fx",
+   "points": 2618
+  },
+  {
+   "name": "si_scalar_dirac_mu_fx",
+   "points": 2401
+  },
+  {
+   "name": "si_scalar_dirac_mu_ul_fx",
+   "points": 2618
+  },
+  {
+   "name": "si_scalar_dirac_tau_fx",
+   "points": 2401
+  },
+  {
+   "name": "si_scalar_dirac_tau_ul_fx",
+   "points": 2618
+  },
+  {
+   "name": "si_scalar_dirac_universal_fx",
+   "points": 2401
+  },
+  {
+   "name": "si_scalar_dirac_universal_ul_fx",
+   "points": 2618
+  },
+  {
+   "name": "si_vector_majorana_e_fx",
+   "points": 2401
+  },
+  {
+   "name": "si_vector_majorana_e_ul_fx",
+   "points": 2618
+  },
+  {
+   "name": "si_vector_majorana_mu_fx",
+   "points": 2401
+  },
+  {
+   "name": "si_vector_majorana_mu_ul_fx",
+   "points": 2618
+  },
+  {
+   "name": "si_vector_majorana_tau_fx",
+   "points": 2401
+  },
+  {
+   "name": "si_vector_majorana_tau_ul_fx",
+   "points": 2618
+  },
+  {
+   "name": "si_vector_majorana_universal_fx",
+   "points": 2401
+  },
+  {
+   "name": "si_vector_majorana_universal_ul_fx",
+   "points": 2618
+  },
+  {
+   "name": "si_vector_dirac_e_fx",
+   "points": 2401
+  },
+  {
+   "name": "si_vector_dirac_e_ul_fx",
+   "points": 2618
+  },
+  {
+   "name": "si_vector_dirac_mu_fx",
+   "points": 2401
+  },
+  {
+   "name": "si_vector_dirac_mu_ul_fx",
+   "points": 2618
+  },
+  {
+   "name": "si_vector_dirac_tau_fx",
+   "points": 2401
+  },
+  {
+   "name": "si_vector_dirac_tau_ul_fx",
+   "points": 2618
+  },
+  {
+   "name": "si_vector_dirac_universal_fx",
+   "points": 2401
+  },
+  {
+   "name": "si_vector_dirac_universal_ul_fx",
+   "points": 2618
+  }
+ ],
+ "total_points": 160608
+}

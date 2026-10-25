@@ -218,27 +218,6 @@ def _build_sigma_jump_table(Q: np.ndarray, Mp: np.ndarray, s: np.ndarray, floor:
 
 
 @njit(cache=True, parallel=True)
-def _build_sigma_mass_table(Q: np.ndarray, Mp: np.ndarray, s: np.ndarray, floor: float,
-                            sigma_nodes: np.ndarray, U: np.ndarray):
-    """The eigenstates' mass content on the sigma nodes (2026-10-24; dp_decay): T[k, i, a] = |(U^dag W)_ia|^2, W the
-    eigenvectors of M_rot + sigma S (flavor basis, ascending eigenvalues; dp_transit.frame_at), U the mixing matrix of
-    the kind (conj U for antineutrinos). Interpolated per step like the projections (_cosmo_projections)."""
-    n = len(sigma_nodes)
-    T = np.zeros((n, 3, 3), dtype=np.float64)
-    for k in prange(n):
-        vals = np.empty(3)
-        W = np.empty((3, 3), dtype=np.complex128)
-        frame_at(Q, Mp, s, floor, sigma_nodes[k], vals, W)
-        for i in range(3):
-            for a in range(3):
-                acc = 0.0 + 0.0j
-                for f in range(3):
-                    acc += np.conj(U[f, i]) * W[f, a]
-                T[k, i, a] = acc.real ** 2 + acc.imag ** 2
-    return T
-
-
-@njit(cache=True, parallel=True)
 def _soft_jumps(E_bins: np.ndarray, zp1: float, J_table: np.ndarray, Gd_table: np.ndarray, GG_table: np.ndarray,
                 lam_table: np.ndarray, log_s0: float, inv_dlogs: float, c_z: float, Gamma_unit: float, dt: float,
                 F: np.ndarray, Wd: np.ndarray, use_wd: bool, clip: bool = True):

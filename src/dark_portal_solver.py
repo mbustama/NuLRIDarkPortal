@@ -54,7 +54,7 @@ from dp_cosmo import (  # noqa: F401
     calc_H_Hubble, calc_R_source, calc_V_LRI_cosmo, get_adiabatic_mixing_cosmo, yukawa_horizon_inv_m2,
     _build_sigma_projection_table, step_cosmological_pair, cascade_kernel_weights, cross_kernel_weights,
     _build_sigma_coupling_tables, _cosmo_coherent_rates, _cosmo_projections, step_cosmological_rates,
-    _build_sigma_jump_table, _soft_jumps, _build_sigma_mass_table,
+    _build_sigma_jump_table, _soft_jumps,
 )
 from dp_spatial import (  # noqa: F401
     calc_MW_neutron_density, calc_earth_density, get_baseline_earth,
@@ -122,8 +122,10 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                        arrival_flavor=None, arrival_basis: str = "flavor", matter_charge=None,
                        absorption_model: str = "lagrangian", G_coupling=None, Gamma_vis=None,
                        si_cosmology: bool = False, si_combined: bool = False, si_settings=None,
+                       goldstone: bool = False,
                        potential_product=None, relic_scattering: bool = True,
-                       inj_window=(0.0, np.inf), earth_transfer: str = "off", neutrino_decay: bool = True):
+                       inj_window=(0.0, np.inf), earth_transfer: str = "off", neutrino_decay: bool = True,
+                       phi_cache=None, arrival_only: bool = False):
     """
     Executes the complete spectrum integration, driving the underlying JIT kernels.
     Neutrinos and antineutrinos are evolved together through the cosmological phase (an
@@ -400,8 +402,6 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         if float(np.max(dp_decay.total_lab_rate(Gam_d, m_nu_bg_arr, E_bins[0]))) > 1e-8 * H0:
             # the rates and the daughters' exact spectra (kept and flipped, per pair and kind)
             decay_rates = (Gam_d, dp_decay.daughter_spectra(G_dec, U_pmns, m_nu_bg_arr, m_Zd))
-    # per mass state, rest rate x mass: the lab width of state i at physical energy E is decay_width_unit[i] / E
-    decay_width_unit = (decay_rates[0].sum(axis=1) * m_nu_bg_arr) if decay_rates is not None else None
     # the decays' optical depth per unit Gamma m / E_obs over each step, exactly: int dz / ((1+z)^2 H) between the
     # step's redshifts (8-point Gauss-Legendre; the end-point dt / (1+z) was first order, 1.5% low at half survival with
     # 200 steps)
@@ -417,6 +417,21 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
             Hg = calc_H_Hubble_vec(zg, H0, Omega_m, Omega_L)
             decay_I[kk] = 0.5 * (b_ - a_) * float(np.sum(wg / ((1.0 + zg) ** 2 * Hg)))
             jump_I[kk] = 0.5 * (b_ - a_) * float(np.sum(wg / ((1.0 + zg) * Hg)))
+    # where the decays act (dp_sweep), the sources' emission over each step exactly too (2026-10-25): int R(z)
+    # (1+z)^-p dz / H, the step's mean rate inj_I / dt (at the step's low-redshift end it was first order, and where the
+    # decays filter the redshifts differently at each energy, not a mere normalization)
+    # 2026-10-25 (the review's finding 8): for every run below 1 keV, so that no seam is left where the decays switch
+    # on (the end-point injection is high by 0.4-0.8% at 200 steps); the MeV planes as before
+    inj_I = None
+    if decay_rates is not None or float(m_Zd) < SI_COSMOLOGY_MIN_M_EV:
+        xg, wg = np.polynomial.legendre.leggauss(8)
+        inj_I = np.zeros(len(z_bins))
+        for kk in range(1, len(z_bins)):
+            a_, b_ = z_bins[kk], z_bins[kk - 1]
+            zg = 0.5 * (b_ - a_) * xg + 0.5 * (a_ + b_)
+            Hg = calc_H_Hubble_vec(zg, H0, Omega_m, Omega_L)
+            Rg = np.array([calc_R_source(float(q), rho_evol) for q in zg])
+            inj_I[kk] = 0.5 * (b_ - a_) * float(np.sum(wg * Rg * (1.0 + zg) ** (-p_index) / Hg))
     # The new processes' rates over a step at its midpoint (2026-10-24): taken at the step's low-redshift end they were
     # first order, and where the soft scatterings and the decays compete (the Zeno-suppressed conversions fall as
     # ~(1+z)^-5) a few percent in the exponent became up to 17% of a drained flux at 200 steps. The rates' trapezoid
@@ -476,14 +491,21 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                                                              np.ascontiguousarray(np.conj(G_jump) if anti
                                                                                   else G_jump))
             species[-1].update(J_table=J_t, Gd_table=Gd_t, GG_table=GG_t, lam_table=lam_t)
-        if decay_rates is not None and not si_cosmology:
-            species[-1].update(T_table=_build_sigma_mass_table(Q_t, Mp_t, s_t, floor_t, sigma_nodes,
-                                                               np.ascontiguousarray(np.conj(U_pmns) if anti
-                                                                                    else U_pmns)),
-                               T_bins=np.zeros((N_E, 3, 3), dtype=np.float64))
+        species[-1].update(S_signed=S_signed)
     nu, nb = species
     for sp in species:
         sp["c_mid"] = np.concatenate([[sp["c_z"][0]], 0.5 * (sp["c_z"][:-1] + sp["c_z"][1:])])
+    # The decays between the eigenstates of the potential (dp_medium, 2026-10-25): every parent's plan on a ladder of
+    # sigma values, built once; each step interpolates between its two rungs
+    ladder = None
+    if decay_rates is not None and not si_cosmology:
+        import dp_medium
+        G_full = (np.asarray(G_coupling, dtype=np.complex128) if G_coupling is not None
+                  else dp_absorption.dark_portal_coupling(g_D, u_arr, eps_prime))
+        cabs = np.abs(nu["c_mid"][1:])
+        ladder = dp_medium.Ladder(E_bins, G_full, U_pmns, m_nu_bg_arr, m_Zd,
+                                  [(sp["M_rot"], sp["S_signed"]) for sp in species], float(np.max(cabs)))
+        ladder.work = ladder.buffers()
 
     inv_sum_G = 1.0 / sum_G if sum_G > 0.0 else 0.0
 
@@ -523,24 +545,9 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                                    inj_w)
             continue
         zm = z_mid[k]
-        if decay_rates is not None:
-            # the eigenstates' mass content at this step, and their decay widths (lab frame), which the jumps need too;
-            # the decays in two halves around the step's collisions and injection (Strang): what the step injects
-            # decays over half of it on average, not all of it (2026-10-24: 2% low at half survival otherwise)
-            for sp in species:
-                _cosmo_projections(E_bins, sp["T_table"], sp["log_s0"], sp["inv_dlogs"], sp["c_mid"][k], sp["T_bins"])
-                sp["Wd"] = np.ascontiguousarray(np.einsum("ima,m->ia", sp["T_bins"], decay_width_unit)
-                                                / (E_bins[:, None] * (1.0 + zm)))
-            n_sub = _cycle_count(ju_mid, k, species, decay_width_unit, E_bins, zm,
-                                 jump_I[k] if jump_I is not None else dt, decay_I[k])
-            _jump_decay_cycles(species, None, k, zm, 0.5 * (jump_I[k] if jump_I is not None else dt), 0.5 * decay_I[k],
-                               n_sub, ju_mid, decay_rates, m_nu_bg_arr, E_bins)
-            if ref is not None:
-                _jump_decay_cycles(species, ref, k, zm, 0.5 * (jump_I[k] if jump_I is not None else dt),
-                                   0.5 * decay_I[k], n_sub, ju_mid, decay_rates, m_nu_bg_arr, E_bins)
         if loss_C is not None and jump_unit is not None:
-            # the energy loss in two halves around the step's collisions and injection (as the decays), each with half
-            # of the step's exact int dz / ((1+z)^2 H)
+            # the energy loss in two halves around the step's other processes, each with half of the step's exact
+            # int dz / ((1+z)^2 H)
             _loss_half(species, ref, k, C_mid, decay_I, E_bins, N_E, kappa_loss)
         G_state = np.ascontiguousarray(Gamma_grid_all[k, :, :])
         Pis = []
@@ -549,35 +556,53 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                                   sp["inv_dlogs"], sp["c_z"][k], G_state, inv_sum_G, sp["P_all"], sp["G_step"],
                                   sp["brp_step"])
             Pi = sp["P_all"]
-            if sp["c_inj"][k] != sp["c_z"][k]:
+            if decay_rates is not None:
+                # the injection spread over the step (dp_sweep): the eigenstates' flavor content at the step's
+                # midpoint (2026-10-25: at its end first order, which the decays turn from a flavor error, 5e-4 at 200
+                # steps, into one of the total, the eigenstates decaying at different rates: 6% at 200 steps)
+                _cosmo_projections(E_bins, sp["P_table"], sp["log_s0"], sp["inv_dlogs"],
+                                   0.5 * (sp["c_inj"][k - 1] + sp["c_inj"][k]), sp["P_inj"])
+                Pi = sp["P_inj"]
+            elif sp["c_inj"][k] != sp["c_z"][k]:
                 _cosmo_projections(E_bins, sp["P_table"], sp["log_s0"], sp["inv_dlogs"], sp["c_inj"][k], sp["P_inj"])
                 Pi = sp["P_inj"]
             Pis.append(Pi)
-        step_cosmological_rates(z, dt, R_z, E_bins, nu["F"], nb["F"], w_nu, w_nb, rho_src, Pis[0], Pis[1],
-                                nu["G_step"], nb["G_step"], nu["brp_step"], nb["brp_step"], p_index, Phi_0,
-                                W3, pref3, self_same, W1, W2, c1, c2, self_cross, nu["R"], nb["R"], inj_w)
-        if ref is not None:
-            step_cosmological_rates(z, dt, R_z, E_bins, ref[0]["F"], ref[1]["F"], 0.5, 0.5, rho_ref, Pis[0], Pis[1],
-                                    nu["G_step"], nb["G_step"], nu["brp_step"], nb["brp_step"], p_index, Phi_0,
-                                    W3, pref3, self_same, W1, W2, c1, c2, self_cross, ref[0]["R"], ref[1]["R"],
-                                    inj_w_ref)
-        if jump_unit is not None and decay_rates is None:
-            for i_s, sp in enumerate(species):
-                _soft_jumps(E_bins, 1.0 + zm, sp["J_table"], sp["Gd_table"], sp["GG_table"], sp["lam_table"],
-                            sp["log_s0"], sp["inv_dlogs"], sp["c_mid"][k], float(ju_mid[k]), jump_I[k], sp["F"],
-                            no_wd, False)
-                if ref is not None:
-                    _soft_jumps(E_bins, 1.0 + zm, sp["J_table"], sp["Gd_table"], sp["GG_table"], sp["lam_table"],
-                                sp["log_s0"], sp["inv_dlogs"], sp["c_mid"][k], float(ju_mid[k]), jump_I[k],
-                                ref[i_s]["F"], no_wd, False)
         if decay_rates is not None:
-            _jump_decay_cycles(species, None, k, zm, 0.5 * (jump_I[k] if jump_I is not None else dt), 0.5 * decay_I[k],
-                               n_sub, ju_mid, decay_rates, m_nu_bg_arr, E_bins)
+            # the soft scatterings, the decays, the absorption and the injection solved together in each bin, exactly
+            # over the step (dp_sweep, 2026-10-25: the alternation before was first order where they cycle, 9-76% off)
+            inj_rate = (inj_I[k] / dt if EXACT_STEP_INJECTION else R_z * (1.0 + z) ** (1.0 - p_index))
+            _decay_sweep_step(species, None, k, inj_rate, dt, zm, jump_I, decay_I, ju_mid, ladder, E_bins, w_nu,
+                              w_nb, rho_src, Pis, p_index, Phi_0, W3, pref3, self_same, W1, W2, c1, c2, self_cross,
+                              inj_w, phi_cache)
             if ref is not None:
-                _jump_decay_cycles(species, ref, k, zm, 0.5 * (jump_I[k] if jump_I is not None else dt),
-                                   0.5 * decay_I[k], n_sub, ju_mid, decay_rates, m_nu_bg_arr, E_bins)
+                _decay_sweep_step(species, ref, k, inj_rate, dt, zm, jump_I, decay_I, ju_mid, ladder, E_bins, 0.5,
+                                  0.5, rho_ref, Pis, p_index, Phi_0, W3, pref3, self_same, W1, W2, c1, c2,
+                                  self_cross, inj_w_ref, phi_cache)
+        else:
+            if inj_I is not None and EXACT_STEP_INJECTION:
+                # the step's exact emission (as R_z (1+z)^(1-p) dt, step_cosmological_rates' injection)
+                R_z = inj_I[k] / (dt * (1.0 + z) ** (1.0 - p_index))
+            step_cosmological_rates(z, dt, R_z, E_bins, nu["F"], nb["F"], w_nu, w_nb, rho_src, Pis[0], Pis[1],
+                                    nu["G_step"], nb["G_step"], nu["brp_step"], nb["brp_step"], p_index, Phi_0,
+                                    W3, pref3, self_same, W1, W2, c1, c2, self_cross, nu["R"], nb["R"], inj_w)
+            if ref is not None:
+                step_cosmological_rates(z, dt, R_z, E_bins, ref[0]["F"], ref[1]["F"], 0.5, 0.5, rho_ref, Pis[0],
+                                        Pis[1], nu["G_step"], nb["G_step"], nu["brp_step"], nb["brp_step"], p_index,
+                                        Phi_0, W3, pref3, self_same, W1, W2, c1, c2, self_cross, ref[0]["R"],
+                                        ref[1]["R"], inj_w_ref)
+            if jump_unit is not None:
+                for i_s, sp in enumerate(species):
+                    _soft_jumps(E_bins, 1.0 + zm, sp["J_table"], sp["Gd_table"], sp["GG_table"], sp["lam_table"],
+                                sp["log_s0"], sp["inv_dlogs"], sp["c_mid"][k], float(ju_mid[k]), jump_I[k], sp["F"],
+                                no_wd, False)
+                    if ref is not None:
+                        _soft_jumps(E_bins, 1.0 + zm, sp["J_table"], sp["Gd_table"], sp["GG_table"],
+                                    sp["lam_table"], sp["log_s0"], sp["inv_dlogs"], sp["c_mid"][k], float(ju_mid[k]),
+                                    jump_I[k], ref[i_s]["F"], no_wd, False)
         if loss_C is not None and jump_unit is not None:
             _loss_half(species, ref, k, C_mid, decay_I, E_bins, N_E, kappa_loss)
+    if ladder is not None:
+        _zeta_note("cosmological", ladder.diag[0])
     if verbose == 2:
         safe_print(f"Cosmological baseline finished at z = {z_bins[-1]:.4f}.")
 
@@ -621,6 +646,35 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
             order = np.argsort(np.real(np.diag(M_sq)))
             for sp, w_s in zip(species, (w_nu, w_nb)):
                 sp["F"] = np.ascontiguousarray(F_mass[:, order] * (w_s / w_tot if w_tot > 0 else 0.0))
+    if goldstone and arrival_flavor is None and lagrangian and G_coupling is not None \
+            and float(m_Zd) < SI_COSMOLOGY_MIN_M_EV:
+        # the vector's longitudinal-mode scatterings (2026-10-25, Mauricio: the lepton-number planes; notes 'Secret
+        # interactions below 1 keV'): per-mass-state factors from dp_si with and without the Goldstone channels, the
+        # decays in both (dp_si_light.goldstone_factors), applied to each eigenstate through its mass content at z = 0;
+        # exact where the potential leaves the eigenstates mass states at the energies where they absorb: the bound
+        # max_E theta(E) (1 - R_tot(E)), theta the potential's sigma / Delta m^2_21 averaged over redshift with the
+        # absorption's weight (1+z)/H, recorded as meta['zeta']['goldstone']
+        import dp_si_light
+        gf = dp_si_light.goldstone_factors(E_bins, G_coupling, U_pmns, m_nu_bg_arr, m_Zd, T_nu0, eta_mass, H0,
+                                           Omega_m, Omega_L, float(z_bins[0]), p_index, rho_evol, decay_rates)
+        if gf is not None:
+            R_gs, Rt_gs = gf
+            wz = (1.0 + z_bins) / calc_H_Hubble_vec(z_bins, H0, Omega_m, Omega_L)
+            cz_w = float(np.sum(wz * np.abs(c_z_arr)) / np.sum(wz))
+            dm21 = float(np.real(M_sq[1, 1]))
+            _zeta_note("goldstone", float(np.max(E_bins * cz_w / dm21 * np.abs(1.0 - Rt_gs))))
+            for sp in species:
+                S_sig = -sp["S_eff"] if sp["anti"] else sp["S_eff"]
+                if q_sign * np.sign(pp) < 0.0:
+                    S_sig = -S_sig
+                _, V0 = np.linalg.eigh(sp["M_rot"])                  # the mass states, ascending
+                sig0 = np.abs(E_bins * sp["c_z"][-1])
+                fac = np.empty((N_E, 3))
+                for j in range(N_E):
+                    _, W = np.linalg.eigh(sp["M_rot"] + sig0[j] * S_sig)
+                    T = np.abs(V0.conj().T @ W) ** 2                # T[i, a]: eigenstate a's mass content
+                    fac[j] = R_gs[j] @ T
+                sp["F"] = np.ascontiguousarray(sp["F"] * fac)
     if arrival_flavor is not None:
         f_arr = np.asarray(arrival_flavor, dtype=np.float64)
         if f_arr.shape != (3,) or np.any(f_arr < 0.0):
@@ -631,6 +685,23 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
             sp["F"] = np.ascontiguousarray(np.broadcast_to(w_s * f_arr, (N_E, 3)))
         arrival = arrival_basis
 
+    if arrival_only:
+        # the populations at z = 0 and each kind's handover (its arguments but the populations), for the caller to
+        # carry the beam across the Galaxy first (_flux_runs)
+        hand = []
+        for sp in species:
+            hand.append(((sp["M_rot"], sp["u"], m_Zd, g_D, eps_prime, T_nu0, use_debye_screening, eta_bg,
+                          detector_depth_km, use_SM_potential, n_e_earth, sp["anti"], n_sun_paths, n_earth_chords),
+                         dict(transit_dtheta=transit_dtheta, n_n0_eV3=n_n0, R_H_eV_inv=1.0 / H0,
+                              show_progress=show_progress, verbose=verbose, n_cores=n_cores,
+                              N_steps_earth=N_steps_earth, external_pool=external_pool, U_LRI_struct=sp["S_eff"],
+                              V_SM_struct=sp["V_SM_eff"], use_gpu=use_gpu, earth_step_scheme=earth_step_scheme,
+                              earth_zenith_average=earth_zenith_average, earth_sky=earth_sky,
+                              earth_band_costh=earth_band_costh, earth_nodes_per_band=earth_nodes_per_band,
+                              sun_path_cos=sun_path_cos, arrival=arrival, matter_charge=matter_charge,
+                              debye_sq_z0=(debye_sq(T_nu0) if lagrangian else None), potential_product=pp,
+                              earth_transfer=earth_transfer)))
+        return dict(P=[np.array(sp["F"], dtype=np.float64) for sp in species], handover=hand)
     out = []
     bands = []
     n_b = 0 if earth_band_costh is None else len(earth_band_costh) - 1
@@ -731,44 +802,100 @@ SI_HARD_MIN_G = 1e-4
 SOFT_JUMP_MIN = 1e-4
 
 
-# The soft scatterings and the decays together (2026-10-24): applied one after the other once per step, at most about
-# one conversion-decay cycle fits in a step, where the physics may hold many (a nu_1 converted to nu_3 and decaying,
-# again and again, each time at lower energy). Within each half step they alternate n_sub times, n_sub from the
-# smaller of the two rates times the half step (the cycles' pace), CYCLE_STEP per sub-step, at most CYCLE_MAX.
-CYCLE_STEP = 0.25
-CYCLE_MAX = 64
+# the decay steps' injection: the step's exact emission (False: at its low-redshift end, as step_cosmological_rates;
+# the convergence checks)
+EXACT_STEP_INJECTION = True
+# the pieces each decay step is cut into (1: the step as it is; the convergence checks)
+DECAY_STEP_PIECES = 1
 
 
-def _cycle_count(jump_unit, k, species, decay_width_unit, E_bins, z, dt, I_k):
-    """Sub-steps per half step for the jumps and the decays (CYCLE_STEP, CYCLE_MAX)."""
-    if jump_unit is None:
-        return 1
-    r_jump = float(jump_unit[k]) * max(float(np.max(sp["J_table"])) for sp in species)
-    r_dec = float(np.max(decay_width_unit)) / float(E_bins[0])
-    pace = min(r_jump * 0.5 * dt, r_dec * 0.5 * I_k)
-    return int(min(CYCLE_MAX, max(1, np.ceil(pace / CYCLE_STEP))))
+# dp_medium's validity measure, the largest decay width over its kind's smallest splitting (zeta = 2 E Gamma / min
+# |mu_a - mu_b|), met by the runs since the last _zeta_reset: the cosmological phase's ladder (or the vacuum value where
+# dp_si takes the decays) and the Galactic lines of sight; propagate_sky and propagate_sky_basis return it in
+# meta['zeta'] (2026-10-25, the review's finding 2)
+_ZETA = {"cosmological": 0.0, "galactic": 0.0, "goldstone": 0.0}
 
 
-def _jump_decay_cycles(species, ref, k, z, dt_half, I_half, n_sub, jump_unit, decay_rates, m_nu, E_bins):
-    """At step k (z its midpoint, jump_unit the midpoint rates, the species' sigma at c_mid[k]): n_sub alternations of the jumps (dt_half / n_sub each) and the decays (optical depth I_half / n_sub each) on the
-    species' populations (ref: the reference populations of the 'combined' mode instead), symmetric (Strang, 2026-10-24:
-    half a sub-step's decays before the first jumps and after the last; the plain alternation was first order, 4% off
-    on the Galactic paths where the two compete)."""
+def _zeta_reset():
+    for key in _ZETA:
+        _ZETA[key] = 0.0
+
+
+def _zeta_note(key, value):
+    _ZETA[key] = max(_ZETA[key], float(value))
+
+
+def vacuum_zeta(params: Dict) -> float:
+    """zeta in vacuum: max over the mass states of 2 m_i Gamma_i / min_j |m_i^2 - m_j^2| (Gamma_i the rest rates,
+    dp_decay), 0 without decays."""
+    if not params.get('neutrino_decay', True) or float(params['m_Zd_eV']) >= SI_COSMOLOGY_MIN_M_EV:
+        return 0.0
     import dp_decay
-    pops = [sp["F"] for sp in species] if ref is None else [r["F"] for r in ref]
+    U = np.asarray(construct_PMNS(params['th12'], params['th13'], params['th23'], params['d_cp']), dtype=np.complex128)
+    m = np.asarray(params['m_nu_bg_arr'], dtype=np.float64)
+    G = params.get('G_coupling', None)
+    if G is None:
+        u = np.array([params['u_e'], params['u_mu'], params['u_tau']], dtype=np.complex128)
+        G = dp_absorption.dark_portal_coupling(params['g_D'], u, params['epsilon_prime'])
+    Gam, _ = dp_decay.rest_rates(np.asarray(G, dtype=np.complex128), U, m, float(params['m_Zd_eV']))
+    out = 0.0
+    for i in range(3):
+        gaps = [abs(m[i] ** 2 - m[j] ** 2) for j in range(3) if j != i]
+        if min(gaps) > 0.0:
+            out = max(out, 2.0 * m[i] * float(np.sum(Gam[i])) / min(gaps))
+    return out
 
-    def decays(f):
-        dp_decay.decay_step(E_bins, 1.0, f * I_half / n_sub, decay_rates[0], decay_rates[1], m_nu, pops[0], pops[1],
-                            species[0]["T_bins"], species[1]["T_bins"], True, False)
 
-    decays(0.5)
-    for s_ in range(n_sub):
-        if jump_unit is not None:
-            for i_s, sp in enumerate(species):
-                _soft_jumps(E_bins, 1.0 + z, sp["J_table"], sp["Gd_table"], sp["GG_table"], sp["lam_table"],
-                            sp["log_s0"], sp["inv_dlogs"], sp["c_mid"][k], float(jump_unit[k]), dt_half / n_sub,
-                            pops[i_s], sp["Wd"], True)
-        decays(0.5 if s_ == n_sub - 1 else 1.0)
+def _zeta_record(params: Dict, E_bins: np.ndarray) -> Dict:
+    """meta['zeta'] of propagate_sky(_basis): the largest validity measure of the run's cosmological phase (the vacuum
+    value where dp_si takes the decays) and of its Galactic lines of sight."""
+    cosmo = _ZETA["cosmological"]
+    if not params.get('si') and _cosmology_mode(params, E_bins) == 'si':
+        cosmo = max(cosmo, vacuum_zeta(params))
+    return dict(cosmological=float(cosmo), galactic=float(_ZETA["galactic"]),
+                goldstone=float(_ZETA["goldstone"]))
+
+
+_NO_PHI_CACHE = (np.zeros((1, 4, 6, 6)), np.zeros(1, dtype=np.bool_))     # step_full's cache, unused
+_NO_SOURCE = np.zeros((1, 2, 3))         # dp_sweep.step_full's external source, unused in the cosmology
+_NO_JUMP_TABLES = (np.zeros((2, 3, 3)), np.zeros((2, 3)), np.zeros((2, 3)), np.zeros((2, 3)))
+
+
+def _decay_sweep_step(species, ref, k, inj_rate, dt, zm, jump_I, decay_I, ju_mid, ladder, E_bins, w_nu, w_nb,
+                      rho_src, Pis, p_index, Phi_0, W3, pref3, self_same, W1, W2, c1, c2, self_cross, inj_w, phi_cache=None):
+    """Step k of the dark-portal phase where the neutrinos decay (dp_sweep.step_full, the decays between the
+    eigenstates of the potential by dp_medium's ladder) on the species' populations (ref: the 'combined' mode's
+    reference populations instead); the species carry this step's rates (G_step, brp_step)."""
+    import dp_sweep
+    nu, nb = species
+    use_jumps = ju_mid is not None and "J_table" in nu
+    tabs = []
+    for sp in species:
+        if use_jumps:
+            tabs.append((sp["J_table"], sp["Gd_table"], sp["GG_table"], sp["lam_table"], float(sp["log_s0"]),
+                         float(sp["inv_dlogs"]), float(sp["c_mid"][k])))
+        else:
+            tabs.append(_NO_JUMP_TABLES + (0.0, 1.0, 0.0))
+    F_nu, F_nb = (nu["F"], nb["F"]) if ref is None else (ref[0]["F"], ref[1]["F"])
+    R_nu, R_nb = (nu["R"], nb["R"]) if ref is None else (ref[0]["R"], ref[1]["R"])
+    x0 = ladder.coord(nu["c_mid"][k])
+    n = int(DECAY_STEP_PIECES)
+    N = len(E_bins)
+    for piece in range(n):
+        if phi_cache is None:
+            cache, have, use_cache = _NO_PHI_CACHE[0], _NO_PHI_CACHE[1], False
+        else:
+            key = (k, piece, n, N)
+            if key not in phi_cache:
+                phi_cache[key] = (np.zeros((N, 4, 6, 6)), np.zeros(N, dtype=np.bool_))
+            (cache, have), use_cache = phi_cache[key], True
+        dp_sweep.step_full(float(inj_rate), float(dt) / n, 1.0 + float(zm), float(jump_I[k]) / n,
+                           float(decay_I[k]) / n, E_bins, F_nu, F_nb, float(w_nu), float(w_nb), rho_src, Pis[0],
+                           Pis[1], nu["G_step"], nb["G_step"], nu["brp_step"], nb["brp_step"], float(p_index),
+                           float(Phi_0), W3, pref3, self_same, W1, W2, c1, c2, self_cross, R_nu, R_nb, inj_w,
+                           use_jumps, float(ju_mid[k]) if use_jumps else 0.0, *tabs[0], *tabs[1],
+                           ladder.arrays, x0, True, True, ladder.diag, *ladder.work, _NO_SOURCE, False, cache, have,
+                           use_cache)
 
 
 def _loss_half(species, ref, k, loss_C, step_I, E_bins, N_E, kappa=0.0):
@@ -861,7 +988,13 @@ def _cosmology_mode(params: Dict, E_bins: np.ndarray) -> str:
         if G_c is None:
             u = np.array([params['u_e'], params['u_mu'], params['u_tau']], dtype=np.complex128)
             G_c = dp_absorption.dark_portal_coupling(params['g_D'], u, params['epsilon_prime'])
-        if float(np.max(np.abs(np.linalg.eigvalsh(np.asarray(G_c, dtype=np.complex128))))) < SI_HARD_MIN_G:
+        hard = float(np.max(np.abs(np.linalg.eigvalsh(np.asarray(G_c, dtype=np.complex128))))) >= SI_HARD_MIN_G
+        if not hard:
+            # below SI_HARD_MIN_G the dark-portal phase, decays or not (2026-10-25): since dp_sweep it solves the
+            # conversions and the decays of a bin together, exactly over a step (as dp_si; within 1.7e-3 of it where
+            # both apply), with the decays between the medium's eigenstates (dp_medium); dp_si's profile tables
+            # divide by zero below mu = M^2 / s ~ 1e-60 (mediators below ~1e-18 eV), which the decay points reached
+            # when routed there (the le pilot, 2026-10-25)
             return 'dark_portal'
     K = (4.0 * 0.88 * (91.18 * GeV) ** 2 / 0.65) * (np.sqrt(2.0) / 2.0 * G_F)
     n_q0 = dp_matter.cosmic_density(params.get('matter_charge', None), params['n_n0_eV3'])
@@ -877,6 +1010,42 @@ def _cosmology_mode(params: Dict, E_bins: np.ndarray) -> str:
     if sigma_max < 1e-4 * float(params['dm21_sq']):
         return 'si'
     return 'combined' if sub_keV else 'dark_portal'
+
+
+def _dark_portal_si_settings(params: Dict) -> Dict:
+    """dp_si's settings for the dark-portal model's runs (2026-10-25): below 1 keV 2 substeps (1 left 0.5-1.1% where
+    the decays and the conversions cycle; 2 are within 0.2% of 4) and the relics' full thermal products only at
+    couplings where the hard scatterings act (SI_HARD_MIN_G): the soft conversions, the decays and the relic loss do
+    not depend on the relics' motion, and at the tiny screened masses below it the products' lattice underflowed. At
+    1 keV and above as before (1 substep, thermal_products as configured)."""
+    si = params.get('si', {}) or {}
+    sub_keV = float(params['m_Zd_eV']) < SI_COSMOLOGY_MIN_M_EV
+    thermal = bool(params.get('thermal_products', False))
+    if sub_keV and thermal:
+        G_c = params.get('G_coupling', None)
+        if G_c is None:
+            G_c = dp_absorption.dark_portal_coupling(params['g_D'], np.array([params['u_e'], params['u_mu'],
+                                                                              params['u_tau']], dtype=np.complex128),
+                                                     params['epsilon_prime'])
+        thermal = float(np.max(np.abs(np.linalg.eigvalsh(np.asarray(G_c, dtype=np.complex128))))) >= SI_HARD_MIN_G
+    return dict(z_substeps=si.get('z_substeps', 2 if sub_keV else 1), E_extension=si.get('E_extension', 10.0),
+                thermal_products=thermal)
+
+
+def _decay_acts(params: Dict, E_bins: np.ndarray) -> bool:
+    """Whether the neutrinos decay into the mediator over the path (propagate_spectrum's criterion: the lab rate at
+    the grid's lowest energy above 1e-8 of the Hubble rate), with the run's decay switch."""
+    if not params.get('neutrino_decay', True):
+        return False
+    import dp_decay
+    G_c = params.get('G_coupling', None)
+    G = (np.asarray(G_c, dtype=np.complex128) if G_c is not None
+         else dp_absorption.dark_portal_coupling(params['g_D'], np.array([params['u_e'], params['u_mu'], params['u_tau']],
+                                                                         dtype=np.complex128), 0.0))
+    U = construct_PMNS(params['th12'], params['th13'], params['th23'], params['d_cp'])
+    m = np.asarray(params['m_nu_bg_arr'], dtype=np.float64)
+    Gam, _ = dp_decay.rest_rates(G, U, m, float(params['m_Zd_eV']))
+    return float(np.max(dp_decay.total_lab_rate(Gam, m, float(E_bins[0])))) > 1e-8 * float(params['H0_eV'])
 
 
 def _use_si_cosmology(params: Dict, E_bins: np.ndarray) -> bool:
@@ -896,6 +1065,10 @@ def _absorption_setup(params: Dict, U_pmns: np.ndarray, u_arr: np.ndarray, anti:
     return dp_absorption.AbsorptionSetup(G_c, U_pmns, params['m_Zd_eV'], G_vis, anti=anti)
 
 
+# the redshift steps of the dark-portal phase where the neutrinos decay, per configured step (_flux_setup)
+DECAY_Z_REFINE = 2
+
+
 def _flux_setup(E_bins: np.ndarray, params: Dict) -> Dict:
     """Per-run quantities shared by every flux of one parameter point: the redshift grid,
     the source vector, the mass and mixing matrices and the thermal-rate grid (identical
@@ -904,7 +1077,13 @@ def _flux_setup(E_bins: np.ndarray, params: Dict) -> Dict:
     Arguments: E_bins -- energy grid (eV); params -- the dict built by build_solver_params.
     Returns: a dict of those quantities for _flux_from_setup.
     """
-    z_bins = np.linspace(params['z_max'], 0.0, int(params['n_z_bins']))
+    n_z = int(params['n_z_bins'])
+    if DECAY_Z_REFINE > 1 and _cosmology_mode(params, E_bins) != 'si' and _decay_acts(params, E_bins):
+        # where the neutrinos decay in the dark-portal phase, DECAY_Z_REFINE times the redshift steps (Mauricio,
+        # 2026-10-25: where the decays and the soft scatterings cycle, 200 steps left up to 6e-3 in the spectrum's
+        # shape, 400 at most 1.7e-3; docs/dev/DECAY_IN_MEDIUM_2026-10-25.md)
+        n_z = DECAY_Z_REFINE * (n_z - 1) + 1
+    z_bins = np.linspace(params['z_max'], 0.0, n_z)
     rho_src = np.array([params['f_e_S'], params['f_mu_S'], params['f_tau_S']], dtype=np.float64)
     
     ordering = str(params.get('mass_ordering', 'normal')).strip().lower()
@@ -966,7 +1145,7 @@ def _flux_setup(E_bins: np.ndarray, params: Dict) -> Dict:
 
 def _flux_from_setup(E_bins: np.ndarray, params: Dict, setup: Dict, injection,
                      rho_src: np.ndarray = None, band_costh=None, arrival_flavor=None,
-                     arrival_basis: str = "flavor"):
+                     arrival_basis: str = "flavor", arrival_only: bool = False):
     """The neutrino and antineutrino fluxes at the detector, each (N_E, 3), from a _flux_setup.
 
     Arguments: E_bins, params, setup -- as for _flux_setup; injection -- (w_nu, w_nb), the
@@ -996,15 +1175,22 @@ def _flux_from_setup(E_bins: np.ndarray, params: Dict, setup: Dict, injection,
             return z, z.copy()
         si_p = params['si']
         U = setup['U_pmns_base']
+        # below 1 keV (2026-10-25; notes, 'Secret interactions below 1 keV'): the decays into the mediator, the relics
+        # after their own decays, the vector's Debye-screened mass and relic mass-change loss, the scalar's collision
+        # mass floored at the heaviest neutrino (dp_si_light.subkev_inputs); 1 keV and above as before
+        sub = _si_subkev(E_bins, params, setup)
+        kw_sub = {} if sub is None else dict(decay=sub['decay'], relic_loss=sub['relic_loss'])
         F_mass = dp_si.propagate_si(E_bins, params['z_max'], params['H0_eV'], params['Omega_m'], params['Omega_L'],
-                                    U, params['m_nu_bg_arr'], params['T_nu0_eV'], setup['eta_mass'], rho_src,
+                                    U, params['m_nu_bg_arr'], params['T_nu0_eV'],
+                                    setup['eta_mass'] if sub is None else sub['eta'], rho_src,
                                     params['p_index'], params['rho_evol'], params['Phi_0'] * w_tot,
-                                    si_p['m_phi_eV'], setup['g_mass'], majorana=si_p['majorana'],
+                                    si_p['m_phi_eV'] if sub is None else sub['M_coll'], setup['g_mass'],
+                                    majorana=si_p['majorana'],
                                     channels=si_p['channels'], phiphi=si_p['phiphi'],
                                     z_substeps=si_p['z_substeps'], E_extension=si_p['E_extension'],
                                     mediator=si_p['mediator'], dirac_sterile=si_p['dirac_sterile'],
                                     thermal=si_p.get('thermal', False),
-                                    inj_window=params.get('inj_window_eV', (0.0, np.inf)))
+                                    inj_window=params.get('inj_window_eV', (0.0, np.inf)), **kw_sub)
         F_fl = np.ascontiguousarray(F_mass @ (np.abs(U) ** 2).T)
         if not np.isfinite(F_fl).all():
             raise ValueError(f"Non-finite flux from the secret-interaction transport at m_phi_eV="
@@ -1043,15 +1229,70 @@ def _flux_from_setup(E_bins: np.ndarray, params: Dict, setup: Dict, injection,
         absorption_model=params.get('absorption_model', 'lagrangian'),
         G_coupling=params.get('G_coupling', None), Gamma_vis=params.get('Gamma_vis', None),
         si_cosmology=setup.get('si_cosmology', False), si_combined=setup.get('si_combined', False),
+        goldstone=_goldstone_on(params),
         relic_scattering=params.get('relic_scattering', True),
         neutrino_decay=params.get('neutrino_decay', True),
-        si_settings=dict(z_substeps=params.get('si', {}).get('z_substeps', 1),
-                         E_extension=params.get('si', {}).get('E_extension', 10.0),
-                         thermal_products=params.get('thermal_products', False)),
+        # the decay steps' per-bin exponentials, shared by the runs of this setup (one parameter point; they differ only
+        # in their sources): dp_sweep.step_full reuses a bin's only where its matrix is the same to the last bit
+        phi_cache=setup.setdefault('phi_cache', {}),
+        si_settings=_dark_portal_si_settings(params),
         potential_product=params.get('potential_product', None),
         inj_window=params.get('inj_window_eV', (0.0, np.inf)),
-        earth_transfer=params.get('earth_transfer', 'off')
+        earth_transfer=params.get('earth_transfer', 'off'), arrival_only=arrival_only
     )
+
+
+def _goldstone_on(params: Dict) -> bool:
+    """Whether the run carries the vector's longitudinal-mode scatterings (dp_si_light.GOLDSTONE_MODELS below 1 keV;
+    Mauricio 2026-10-25): the lepton-number planes, with relic scattering on."""
+    import dp_si_light
+    return (str(params.get('model', '')).strip() in dp_si_light.GOLDSTONE_MODELS
+            and float(params['m_Zd_eV']) < SI_COSMOLOGY_MIN_M_EV and bool(params.get('relic_scattering', True)))
+
+
+def _si_subkev(E_bins: np.ndarray, params: Dict, setup: Dict):
+    """The secret interactions' inputs below 1 keV (dp_si_light.subkev_inputs; 2026-10-25), kept in the setup per grid
+    bottom (the decays' threshold), or None at 1 keV and above."""
+    si_p = params['si']
+    if float(si_p['m_phi_eV']) >= SI_COSMOLOGY_MIN_M_EV:
+        return None
+    key = float(E_bins[0])
+    sub = setup.setdefault('si_subkev', {})
+    if key not in sub:
+        import dp_si_light
+        sub[key] = dp_si_light.subkev_inputs(si_p['g_flavor'], setup['U_pmns_base'], params['m_nu_bg_arr'],
+                                             si_p['m_phi_eV'], si_p['mediator'], si_p['majorana'],
+                                             params['T_nu0_eV'], setup['eta_mass'], params['H0_eV'],
+                                             params['Omega_m'], params['Omega_L'], params['z_max'], float(E_bins[0]),
+                                             decay_on=params.get('neutrino_decay', True),
+                                             relic_scattering=params.get('relic_scattering', True))
+    return sub[key]
+
+
+def _si_galactic_pixels(E_bins: np.ndarray, params: Dict, setup: Dict, nside: int, compositions):
+    """The secret interactions' Galactic component per output pixel below 1 keV (2026-10-25): a list, per source
+    composition, of (N_pix, N_E, 3) flavor fluxes at the Sun per unit emitted all-flavor flux per kind, with the decays,
+    the vector's conversions and its relic loss along each line of sight (dp_si_light.galactic_transfer); None where
+    none acts over the Galaxy (or at 1 keV and above): the averaged transfer, unattenuated, as before."""
+    si_p = params['si']
+    if float(si_p['m_phi_eV']) >= SI_COSMOLOGY_MIN_M_EV:
+        return None
+    import dp_si_light
+    E = np.asarray(E_bins, dtype=np.float64)
+    key = (E.tobytes(), int(nside))
+    cache = setup.setdefault('si_galactic', {})
+    if key not in cache:
+        cache[key] = dp_si_light.galactic_rates(E, si_p['g_flavor'], setup['U_pmns_base'], params['m_nu_bg_arr'],
+                                                si_p['m_phi_eV'], si_p['mediator'], si_p['majorana'],
+                                                params['T_nu0_eV'], setup['eta_mass'], params['H0_eV'],
+                                                params['Omega_m'], params['Omega_L'],
+                                                decay_on=params.get('neutrino_decay', True),
+                                                relic_scattering=params.get('relic_scattering', True))
+    rates = cache[key]
+    if rates is None:
+        return None
+    return dp_si_light.galactic_transfer(E, setup['U_pmns_base'], rates, params['galactic']['template'], int(nside),
+                                         [np.asarray(c, dtype=np.float64) for c in compositions])
 
 
 def _galactic_transfer(E_bins: np.ndarray, params: Dict, setup: Dict, band_costh, nside: int = 16, f_S=None):
@@ -1073,6 +1314,17 @@ def _galactic_transfer(E_bins: np.ndarray, params: Dict, setup: Dict, band_costh
     f_S = dp_galactic.source_composition(gal['f_e_S_gal']) if f_S is None else np.asarray(f_S, dtype=np.float64)
     n_b = len(band_costh) - 1
     if setup.get('si', False):
+        pix = _si_galactic_pixels(E_bins, params, setup, nside, [f_S])
+        if pix is not None:
+            # below 1 keV where the processes act (2026-10-25): each band's emission-weighted mean, in the order of
+            # band_costh (cos(zenith) = -sin(dec), increasing: the declination bands reversed)
+            import dp_sky
+            grid = dp_sky.SkyGrid(nside, (params.get('sky') or {}).get('dec_band_edges'))
+            em = dp_galactic.emitted(gal['template'], np.asarray(E_bins, dtype=np.float64) / 1e9, nside, 1.0)
+            num = dp_galactic.band_means(em[:, :, None] * pix[0], grid.band, grid.n_bands)
+            den = dp_galactic.band_means(em, grid.band, grid.n_bands)[:, :, None]
+            T = np.divide(num, den, out=np.zeros_like(num), where=den > 0)[::-1]
+            return np.ascontiguousarray(T), np.ascontiguousarray(T)
         T = np.broadcast_to(dp_galactic.averaged_transfer(setup['U_pmns_base']) @ f_S, (n_b, len(E_bins), 3))
         return np.ascontiguousarray(T), np.ascontiguousarray(T)
     if gal['emission'] == 'local':
@@ -1098,25 +1350,33 @@ def _galactic_responses(E_bins: np.ndarray, params: Dict, setup: Dict, band_cost
     return R[0], R[1]
 
 
-def _galactic_emission_populations(E_bins: np.ndarray, params: Dict, setup: Dict, nside: int, f_S=None):
-    """(F_nu, F_nb), each (N_pix, N_E, 3): per pixel, the local-eigenstate populations of the Galactic flux
-    emitted at its line of sight's emission points (dp_galactic.emission_populations), each kind with its
-    own potential sign, texture and frame table -- the same ones the transit uses (lri_coefficient,
+def _relics_today(params: Dict, setup: Dict):
+    """The relics' mass-state composition today (eta per mass state): the cosmic one, after the relics' own decays
+    into the mediator by z = 0 where the dark portal opens them (dp_decay.relic_composition, as the transport's)."""
+    import dp_absorption
+    import dp_decay
+    U = setup['U_pmns_base']
+    eta = (np.abs(U) ** 2).T @ np.asarray(setup['eta_bg'], dtype=np.float64)
+    if params.get('neutrino_decay', True) and float(params['m_Zd_eV']) < SI_COSMOLOGY_MIN_M_EV:
+        m = np.asarray(params['m_nu_bg_arr'], dtype=np.float64)
+        G_nu = (np.asarray(params['G_coupling'], dtype=np.complex128) if params.get('G_coupling') is not None
+                else dp_absorption.dark_portal_coupling(params['g_D'], setup['u_arr_base'], 0.0))
+        Gam, _ = dp_decay.rest_rates(G_nu, U, m, float(params['m_Zd_eV']))
+        if np.any(Gam > 0.0):
+            eta = dp_decay.relic_composition(Gam, m, eta, float(params['T_nu0_eV']), params['H0_eV'],
+                                             params['Omega_m'], params['Omega_L'], z_ref=0.0)
+    return eta
+
+
+def _galactic_kinds(params: Dict, setup: Dict, work: int):
+    """Per kind (neutrinos, antineutrinos): anti, M_rot, S_signed, the frame table, coef2 = 2 |Coef| and the
+    Yukawa-smoothed densities n (N_pix, N_s) along the lines of sight of the emission sky (N_side work): the potential
+    the Galactic paths and the extragalactic beam's crossing see, the same as the transit's (lri_coefficient,
     _species_matrices, dp_transit.frame_table)."""
     import dp_galactic
     import dp_transit
     from dp_spatial import lri_coefficient
-    gal = params['galactic']
-    f_S = dp_galactic.source_composition(gal['f_e_S_gal']) if f_S is None else np.asarray(f_S, dtype=np.float64)
-    E_GeV = np.asarray(E_bins, dtype=np.float64) / 1e9
-    # Coarser maps (e.g. N_side 8 for cascades) are averaged from the stored resolution's pixels, each along its
-    # own line of sight and weighted by its emitted intensity: a coarse pixel's centre can lie degrees off the
-    # plane its gas column contains, which would misplace its emission points.
-    work = max(int(nside), 16)
-    w_gas = dp_galactic.gas_share(gal['template'], E_GeV, work)
-    q_gas, q_src = dp_galactic.emission_weights(work)
     _, _, R, z = dp_galactic.emission_geometry(work)
-    out = []
     kind_info = []
     for anti in (False, True):
         u_s, M_rot, S_eff, _ = _species_matrices(setup['U_pmns_base'], setup['M_sq'], setup['u_arr_base'],
@@ -1126,7 +1386,8 @@ def _galactic_emission_populations(E_bins: np.ndarray, params: Dict, setup: Dict
         if params.get('absorption_model', 'lagrangian') == 'lagrangian':
             import dp_absorption as _dpa
             ab = _absorption_setup(params, setup['U_pmns_base'], setup['u_arr_base'])
-            eta_m = (np.abs(setup['U_pmns_base']) ** 2).T @ np.asarray(setup['eta_bg'], dtype=np.float64)
+            # the relics' composition today, after their decays where they decay (as every other relic effect)
+            eta_m = _relics_today(params, setup)
             debye = _dpa.debye_mass_sq(ab.G_mass_diag2, params['m_nu_bg_arr'], params['T_nu0_eV'], eta_m)
         Coef, m_eff = lri_coefficient(params['m_Zd_eV'], params['g_D'], params['epsilon_prime'], u_s,
                                       params['T_nu0_eV'], params['use_debye_screening'], setup['eta_bg'], anti,
@@ -1149,34 +1410,70 @@ def _galactic_emission_populations(E_bins: np.ndarray, params: Dict, setup: Dict
                                                          - yukawa_horizon_inv_m2(m_eff * m_eff, R_H))
         kind_info.append(dict(anti=anti, M_rot=M_rot, S_signed=S_signed, tab=tab, coef2=2.0 * abs(Coef),
                               n=np.asarray(n_emit, dtype=np.float64)))
-        st = None
-        if work != nside and GALACTIC_EMISSION_REGROUPED:
-            # the emission's mixing-independent sums kept per density pattern (dp_galactic.emission_structure;
-            # 2026-10-18): the same result to rounding, without re-averaging the full-resolution map per run
-            import hashlib
-            n_c = np.ascontiguousarray(n_emit, dtype=np.float64)
-            key = (gal['template'], hashlib.blake2b(E_GeV.tobytes(), digest_size=16).digest(), work, int(nside),
-                   n_c.shape, hashlib.blake2b(n_c.tobytes(), digest_size=16).digest())
-            st = dp_galactic.emission_structure(key, w_gas, q_gas, q_src, n_c,
-                                                dp_galactic.intensity(gal['template'], E_GeV, work), work, nside)
-        if work != nside and GALACTIC_EMISSION_REGROUPED and st is not None:
-            F = dp_galactic.emission_populations_degraded(E_bins, f_S, n_c, 2.0 * abs(Coef), tab, st)
-        else:
-            F = dp_galactic.emission_populations(E_bins, f_S, w_gas, q_gas, q_src, n_emit, 2.0 * abs(Coef), tab)
-            if work != nside:
-                F = dp_galactic.degrade_weighted(F, dp_galactic.intensity(gal['template'], E_GeV, work), work, nside)
-        out.append(F)
-    paths = _galactic_path_processes(E_bins, params, setup, kind_info, f_S, w_gas, q_gas, q_src, work, nside,
-                                     gal['template'])
-    return out if paths is None else paths
+    return kind_info
 
 
-def _galactic_path_processes(E_bins, params, setup, kind_info, f_S, w_gas, q_gas, q_src, work, nside, template):
-    """The Galactic emission's populations with the incoherent processes along each line of sight (dp_galactic_path,
-    2026-10-24): the soft scatterings, the decay into the mediator and the relic mass-change energy loss, at z = 0,
-    below 1 keV (the cosmological phase's regime for them; above it the Galactic part as before). None where none of
-    them acts over the Galaxy (30 kpc at the grid's lowest energy: jumps below SOFT_JUMP_MIN, decays and losses below
-    1e-6), the caller's populations then unchanged."""
+def _galactic_emission_populations(E_bins: np.ndarray, params: Dict, setup: Dict, nside: int, f_S=None,
+                                   compositions=None):
+    """(F_nu, F_nb), each (N_pix, N_E, 3): per pixel, the local-eigenstate populations of the Galactic flux
+    emitted at its line of sight's emission points (dp_galactic.emission_populations), each kind with its
+    own potential sign, texture and frame table -- the same ones the transit uses (lri_coefficient,
+    _species_matrices, dp_transit.frame_table). With compositions (a sequence of (3,) source compositions) a list of
+    them, one per composition, from one sweep of the Galactic paths (2026-10-25: the compositions share every bin's
+    exponentials)."""
+    import dp_galactic
+    gal = params['galactic']
+    if compositions is None:
+        comps = [dp_galactic.source_composition(gal['f_e_S_gal']) if f_S is None else np.asarray(f_S, dtype=np.float64)]
+    else:
+        comps = [np.asarray(c, dtype=np.float64) for c in compositions]
+    E_GeV = np.asarray(E_bins, dtype=np.float64) / 1e9
+    # Coarser maps (e.g. N_side 8 for cascades) are averaged from the stored resolution's pixels, each along its
+    # own line of sight and weighted by its emitted intensity: a coarse pixel's centre can lie degrees off the
+    # plane its gas column contains, which would misplace its emission points.
+    work = max(int(nside), 16)
+    w_gas = dp_galactic.gas_share(gal['template'], E_GeV, work)
+    q_gas, q_src = dp_galactic.emission_weights(work)
+    kind_info = _galactic_kinds(params, setup, work)
+    outs = []
+    for f_c in comps:
+        out = []
+        for kd in kind_info:
+            n_emit, tab, coef2 = kd['n'], kd['tab'], kd['coef2']
+            st = None
+            if work != nside and GALACTIC_EMISSION_REGROUPED:
+                # the emission's mixing-independent sums kept per density pattern (dp_galactic.emission_structure;
+                # 2026-10-18): the same result to rounding, without re-averaging the full-resolution map per run
+                import hashlib
+                n_c = np.ascontiguousarray(n_emit, dtype=np.float64)
+                key = (gal['template'], hashlib.blake2b(E_GeV.tobytes(), digest_size=16).digest(), work, int(nside),
+                       n_c.shape, hashlib.blake2b(n_c.tobytes(), digest_size=16).digest())
+                st = dp_galactic.emission_structure(key, w_gas, q_gas, q_src, n_c,
+                                                    dp_galactic.intensity(gal['template'], E_GeV, work), work, nside)
+            if work != nside and GALACTIC_EMISSION_REGROUPED and st is not None:
+                F = dp_galactic.emission_populations_degraded(E_bins, f_c, n_c, coef2, tab, st)
+            else:
+                F = dp_galactic.emission_populations(E_bins, f_c, w_gas, q_gas, q_src, n_emit, coef2, tab)
+                if work != nside:
+                    F = dp_galactic.degrade_weighted(F, dp_galactic.intensity(gal['template'], E_GeV, work), work,
+                                                     nside)
+            out.append(F)
+        outs.append(out)
+    paths = _galactic_path_processes(E_bins, params, setup, kind_info, comps, w_gas, q_gas, q_src, work, nside,
+                                     gal['template'], fine=outs)
+    res = outs if paths is None else paths
+    return res if compositions is not None else res[0]
+
+
+def _galactic_rates(E_bins, params, setup, kind_info, work, crossing=False):
+    """The incoherent processes along the Galaxy's lines of sight (dp_galactic_path, 2026-10-24): None where none acts
+    over the Galaxy (30 kpc at the grid's lowest energy: jumps below SOFT_JUMP_MIN, decays and losses below 1e-6) or
+    outside their regime (absorption model, 1 keV and above); else dict(rates, edges_kpc, vac, U, G_nu), rates the
+    jumps' unit, the decays' dp_medium.Ladder (None without decays) and the loss's coefficient; vac where the
+    potential is negligible along every line of sight (each kind's eigenbasis within GALACTIC_VACUUM_ROTATION of the
+    vacuum one at the largest sigma). crossing: for the extragalactic beam's crossing, where a Z mixing below 1 keV
+    leaves the loss out instead of raising (its kappa I is not implemented on the Galactic paths; over 30 kpc the loss
+    is 7e-6 of the cosmological one, c / H0 = 4 Gpc; no plane below 1 keV has a Z mixing)."""
     import dp_absorption
     import dp_decay
     import dp_galactic
@@ -1198,17 +1495,15 @@ def _galactic_path_processes(E_bins, params, setup, kind_info, f_S, w_gas, q_gas
             else dp_absorption.dark_portal_coupling(params['g_D'], setup['u_arr_base'], 0.0))
     eta = (np.abs(U) ** 2).T @ np.asarray(setup['eta_bg'], dtype=np.float64)
     Gam = np.zeros((3, 3))
-    spec = np.zeros((2, 3, 3, 2, 5))
     if decay_on:
         Gam, _ = dp_decay.rest_rates(G_nu, U, m, M)
-        if np.any(Gam > 0.0):
-            spec = dp_decay.daughter_spectra(G_nu, U, m, M)
         if np.any(Gam > 0.0):
             eta = dp_decay.relic_composition(Gam, m, eta, T0, params['H0_eV'], params['Omega_m'], params['Omega_L'],
                                              z_ref=0.0)
     mD2 = dp_absorption.debye_mass_sq(ab.G_mass_diag2, m, T0, eta)
-    s_kpc, _, _, _ = dp_galactic.emission_geometry(work)
-    L_max = float(np.max(s_kpc)) * dp_galactic_path.KPC_EV_INV
+    s_kpc, ds_kpc, _, _ = dp_galactic.emission_geometry(work)
+    edges_kpc = dp_galactic_path.edges_from_geometry(s_kpc, ds_kpc)
+    L_max = float(edges_kpc[-1]) * dp_galactic_path.KPC_EV_INV
     E = np.asarray(E_bins, dtype=np.float64)
     jump_unit = 0.0
     loss_C = 0.0
@@ -1229,15 +1524,13 @@ def _galactic_path_processes(E_bins, params, setup, kind_info, f_S, w_gas, q_gas
     if loss_C != 0.0 and params.get('G_coupling') is None and float(params.get('epsilon_prime', 0.0)) != 0.0:
         # the beam's loss factor would need the Z mixing's kappa I (as the cosmological phase's _loss_half): not
         # implemented on the Galactic paths, where no plane below 1 keV has a Z mixing (2026-10-24)
-        raise NotImplementedError("Galactic relic mass-change loss with a Z mixing (epsilon_prime != 0) below 1 keV")
+        if not crossing:
+            raise NotImplementedError("Galactic relic mass-change loss with a Z mixing (epsilon_prime != 0) below 1 keV")
+        loss_C = 0.0
     if jump_unit == 0.0 and loss_C == 0.0 and not np.any(Gam > 0.0):
         return None
-    E_GeV = E / 1e9
-    I = dp_galactic.intensity(template, E_GeV, work)
-    rates = dict(jump_unit=jump_unit, Gam=Gam, spec=spec, m=m, loss_C=loss_C)
+    vac = False
     if GALACTIC_PATH_VACUUM:
-        # the potential negligible along every line of sight (each kind's eigenbasis within GALACTIC_VACUUM_ROTATION
-        # of the vacuum one at the largest sigma): dp_galactic_path.vacuum_populations, the same evolution
         import dp_transit
         vac = True
         for kd in kind_info:
@@ -1245,44 +1538,232 @@ def _galactic_path_processes(E_bins, params, setup, kind_info, f_S, w_gas, q_gas
             sig_max = E[-1] * abs(kd['coef2']) * float(np.max(kd['n']))
             if sig_hi_t > 0.0 and sig_max > sig_lo_t * 1e9 * GALACTIC_VACUUM_ROTATION:
                 vac = False
-        if vac:
-            P_vac = np.zeros((2, len(E), 3))
-            tables = []
-            F_fl = np.ascontiguousarray(np.broadcast_to(np.asarray(f_S, dtype=np.float64), (len(E), 3)))
-            for kk, kd in enumerate(kind_info):
-                tab = kd['tab']
-                dp_transit.flavor_populations(E, F_fl, 0.0, 0.0, tab['Q'], tab['Mp'], tab['s'], tab['floor'], P_vac[kk])
-                U_k = np.conj(U) if kd['anti'] else U
-                G_k = np.conj(G_nu) if kd['anti'] else G_nu
-                tables.append(dp_galactic_path.build_tables(kd['M_rot'], kd['S_signed'], U_k, G_k, 0.0, 0.0, n_sigma=2))
-            out = dp_galactic_path.vacuum_populations(E, I, w_gas, q_gas, q_src, s_kpc, P_vac, tables, rates, work,
-                                                      nside)
-            return [out[0], out[1]]
-    kinds = []
+    rates = dict(jump_unit=jump_unit, ladder=None, loss_C=loss_C)
+    if np.any(Gam > 0.0):
+        # the decays between the eigenstates of the local potential (dp_medium, 2026-10-25): the plans on a ladder
+        # over the Galaxy's sigma range (the whole coupling: the flips nu_i -> nubar_i need its diagonal)
+        import dp_medium
+        G_dec_full = (np.asarray(params['G_coupling'], dtype=np.complex128) if params.get('G_coupling') is not None
+                      else dp_absorption.dark_portal_coupling(params['g_D'], setup['u_arr_base'],
+                                                              params['epsilon_prime']))
+        mkinds = [(kd['M_rot'], kd['S_signed']) for kd in kind_info]
+        c_gal = 0.0 if vac else max(float(kd['coef2']) * float(np.max(kd['n'])) for kd in kind_info)
+        rates['ladder'] = dp_medium.Ladder(E, G_dec_full, U, m, M, mkinds, c_gal)
+    return dict(rates=rates, edges_kpc=edges_kpc, vac=vac, U=U, G_nu=G_nu)
+
+
+def _galactic_tables(E, kind_info, gr, vac):
+    """The jumps' tables per kind over the Galaxy's sigma range (or the vacuum's)."""
+    import dp_galactic_path
+    U, G_nu = gr['U'], gr['G_nu']
+    tables = []
     for kd in kind_info:
-        P, j, t = dp_galactic_path.node_populations(E, f_S, kd['n'], kd['coef2'], kd['tab'],
-                                                    dp_galactic.NEFF_NODES_PER_DECADE)
-        n = kd['n']
-        sig_min = E[0] * kd['coef2'] * max(float(np.min(n)), 1e-300)
-        sig_max = E[-1] * kd['coef2'] * float(np.max(n))
         U_k = np.conj(U) if kd['anti'] else U
         G_k = np.conj(G_nu) if kd['anti'] else G_nu
-        tables = dp_galactic_path.build_tables(kd['M_rot'], kd['S_signed'], U_k, G_k, sig_min, sig_max)
-        kinds.append(dict(P=P, j=j, t=t, n=n, coef2=kd['coef2'], tables=tables))
-    out = dp_galactic_path.sweep_populations(E, I, w_gas, q_gas, q_src, s_kpc, kinds, rates)
+        if vac:
+            tables.append(dp_galactic_path.build_tables(kd['M_rot'], kd['S_signed'], U_k, G_k, 0.0, 0.0, n_sigma=2))
+        else:
+            n = kd['n']
+            sig_min = E[0] * kd['coef2'] * max(float(np.min(n)), 1e-300)
+            sig_max = E[-1] * kd['coef2'] * float(np.max(n))
+            tables.append(dp_galactic_path.build_tables(kd['M_rot'], kd['S_signed'], U_k, G_k, sig_min, sig_max))
+    return tables
+
+
+def _galactic_path_processes(E_bins, params, setup, kind_info, comps, w_gas, q_gas, q_src, work, nside, template,
+                             fine=None):
+    """The Galactic emission's populations with the incoherent processes along each line of sight (dp_galactic_path,
+    2026-10-24): the soft scatterings, the decay into the mediator and the relic mass-change energy loss, at z = 0,
+    below 1 keV (the cosmological phase's regime for them; above it the Galactic part as before), for the source
+    compositions comps in one sweep: a list of [F_nu, F_nb] per composition, or None where none of the processes acts
+    (_galactic_rates), the caller's populations then unchanged. The processes run along the lines of sight of the path
+    sky (N_side GALACTIC_PATH_NSIDE, each carrying its emission pixels' emission, at their mean density). With
+    GALACTIC_PROCESS_FACTOR and fine (the caller's populations without the processes, per composition and kind, on
+    the output sky) the processes enter as a factor (2026-10-25, Mauricio's decision): the fine populations times, per
+    declination band, energy, kind and state, the ratio of the emission-weighted band means with and without the
+    processes on the path sky -- the band means and the sky mean the fine ones corrected by the coarse sky's effect."""
+    import dp_galactic
+    import dp_galactic_path
+    import dp_transit
+    gr = _galactic_rates(E_bins, params, setup, kind_info, work)
+    if gr is None:
+        return None
+    E = np.asarray(E_bins, dtype=np.float64)
+    I = dp_galactic.intensity(template, E / 1e9, work)
+    rates, edges_kpc = gr['rates'], gr['edges_kpc']
+    tables = _galactic_tables(E, kind_info, gr, gr['vac'])
+    gdiag = {}
+    if gr['vac']:
+        # every line of sight alike but for its length: dp_galactic_path.vacuum_populations, the same evolution
+        P_vac = np.zeros((len(comps), 2, len(E), 3))
+        for c, f_c in enumerate(comps):
+            F_fl = np.ascontiguousarray(np.broadcast_to(f_c, (len(E), 3)))
+            for kk, kd in enumerate(kind_info):
+                tab = kd['tab']
+                dp_transit.flavor_populations(E, F_fl, 0.0, 0.0, tab['Q'], tab['Mp'], tab['s'], tab['floor'],
+                                              P_vac[c, kk])
+        out = dp_galactic_path.vacuum_populations(E, I, w_gas, q_gas, q_src, edges_kpc, P_vac, tables, rates, work,
+                                                  nside, diag=gdiag)
+        _zeta_note("galactic", gdiag.get("zeta", 0.0))
+        return [[out[c, 0], out[c, 1]] for c in range(len(comps))]
+    kinds = []
+    for kk, kd in enumerate(kind_info):
+        Ps = []
+        for f_c in comps:
+            P, j, t = dp_galactic_path.node_populations(E, f_c, kd['n'], kd['coef2'], kd['tab'],
+                                                        dp_galactic.NEFF_NODES_PER_DECADE)
+            Ps.append(P)
+        kinds.append(dict(P=np.stack(Ps), j=j, t=t, n=kd['n'], coef2=kd['coef2'], tables=tables[kk]))
+    groups = dp_galactic_path.groups_of(work, min(int(GALACTIC_PATH_NSIDE), work))
+    out = dp_galactic_path.sweep_populations(E, I, w_gas, q_gas, q_src, edges_kpc, kinds, rates, diag=gdiag,
+                                             groups=groups)
+    _zeta_note("galactic", gdiag.get("zeta", 0.0))
     res = []
-    for kk in range(2):
-        F = out[kk]
-        if work != nside:
-            F = dp_galactic.degrade_weighted(F, I, work, nside)
-        res.append(F)
+    for c in range(len(comps)):
+        pair = []
+        for kk in range(2):
+            F = out[c, kk]
+            if work != nside:
+                F = dp_galactic.degrade_weighted(F, I, work, nside)
+            pair.append(F)
+        res.append(pair)
+    if not (GALACTIC_PROCESS_FACTOR and fine is not None and int(GALACTIC_PATH_NSIDE) < work):
+        return res
+    # the processes as a factor on the fine populations: the same lines of sight without the processes (each line of
+    # sight's emission populations, its pixels' intensity-weighted mean) give the denominator
+    import dp_sky
+    gstart, gchild = groups
+    sky = params.get('sky') or {}
+    grid = dp_sky.SkyGrid(nside, sky.get('dec_band_edges'))
+    em = dp_galactic.emitted(template, E / 1e9, nside, 1.0)
+    for c, f_c in enumerate(comps):
+        for kk, kd in enumerate(kind_info):
+            F0 = dp_galactic.emission_populations(E, f_c, w_gas, q_gas, q_src, kd['n'], kd['coef2'], kd['tab'])
+            F0g = np.empty_like(F0)
+            for g in range(len(gstart) - 1):
+                ch = gchild[gstart[g]:gstart[g + 1]]
+                w = I[ch]
+                tot = w.sum(axis=0)
+                F0g[ch] = (np.einsum('pe,pek->ek', w, F0[ch]) / np.where(tot > 0, tot, 1.0)[:, None])[None]
+            if work != nside:
+                F0g = dp_galactic.degrade_weighted(F0g, I, work, nside)
+            num = dp_galactic.band_means(em[:, :, None] * res[c][kk], grid.band, grid.n_bands)
+            den = dp_galactic.band_means(em[:, :, None] * F0g, grid.band, grid.n_bands)
+            ratio = np.where(den > 0.0, num / np.where(den > 0.0, den, 1.0), 1.0)          # (N_b, N_E, 3)
+            res[c][kk] = np.asarray(fine[c][kk]) * ratio[grid.band]
     return res
+
+
+def _crossing_bands(E_run, params, setup, P, dec_edges):
+    """The extragalactic beam across the Galaxy (2026-10-25; the review's finding 3: its decays there move the
+    detected flux by up to 40% at g/M ~ 0.1 eV^-1): the populations P (C, N_E, 2, 3) at z = 0 (each run's, both
+    kinds) carried along the Galaxy's lines of sight (the path sky's, as the Galactic component's) from 30 kpc to the
+    Sun with the incoherent processes, averaged per declination band (dec_edges, ascending): (N_b, C, N_E, 2, 3) in
+    declination order -- or None where no process acts over the Galaxy (_galactic_rates; the transit as before)."""
+    import dp_galactic_path
+    import dp_sky
+    work = 16
+    kind_info = _galactic_kinds(params, setup, work)
+    gr = _galactic_rates(E_run, params, setup, kind_info, work, crossing=True)
+    if gr is None:
+        return None
+    E = np.asarray(E_run, dtype=np.float64)
+    tables = _galactic_tables(E, kind_info, gr, gr['vac'])
+    kinds = [dict(n=kd['n'], coef2=kd['coef2'], tables=tables[kk]) for kk, kd in enumerate(kind_info)]
+    gdiag = {}
+    n_b = len(dec_edges) - 1
+    if gr['vac']:
+        # no potential: every line of sight the same 30 kpc
+        one = (np.array([0, 1], dtype=np.int64), np.array([0], dtype=np.int64))
+        kz = [dict(n=np.zeros((1, kd['n'].shape[1])), coef2=0.0, tables=tables[kk]) for kk, kd in enumerate(kind_info)]
+        Q = dp_galactic_path.crossing_populations(E, P, gr['edges_kpc'], kz, gr['rates'], one, diag=gdiag)
+        _zeta_note("galactic", gdiag.get("zeta", 0.0))
+        return np.repeat(Q, n_b, axis=0)
+    groups = dp_galactic_path.groups_of(work, min(int(CROSSING_PATH_NSIDE), work))
+    Qg = dp_galactic_path.crossing_populations(E, P, gr['edges_kpc'], kinds, gr['rates'], groups, diag=gdiag)
+    _zeta_note("galactic", gdiag.get("zeta", 0.0))
+    # each band the mean over its emission-sky pixels of their line of sight's populations
+    band = dp_sky.SkyGrid(work, dec_edges).band
+    gstart, gchild = groups
+    g_of = np.empty(len(gchild), dtype=np.int64)
+    for g in range(len(gstart) - 1):
+        g_of[gchild[gstart[g]:gstart[g + 1]]] = g
+    W = np.zeros((n_b, len(gstart) - 1))
+    np.add.at(W, (band, g_of), 1.0)
+    W /= np.maximum(W.sum(axis=1, keepdims=True), 1.0)
+    return np.einsum('bg,g...->b...', W, Qg)
+
+
+def _flux_runs(E_run, params, setup, runs, band_costh=None):
+    """_flux_from_setup for several runs of one point (runs: (injection, rho_src) pairs), with the extragalactic
+    beam carried across the Galaxy where the Galactic processes act (_crossing_bands, all runs as the columns of one
+    sweep) and then through the Sun and the Earth per declination band: each band's flux is the handover's response
+    to the band's populations (linear in them: its responses to the three unit inputs, kept by the handover's
+    transfer reuse), the whole sky the bands weighted by their widths in cos(zenith) (as the handover's own); the
+    bands are the sky's (params['sky'] dec_band_edges) where the caller asks for none. Elsewhere, and with
+    EXTRAGALACTIC_CROSSING off, the runs as _flux_from_setup."""
+    plain = [lambda w=w, r=r: _flux_from_setup(E_run, params, setup, w, r, band_costh=band_costh) for w, r in runs]
+    if (not EXTRAGALACTIC_CROSSING or setup.get('si', False) or not runs
+            or float(params['m_Zd_eV']) >= SI_COSMOLOGY_MIN_M_EV
+            or params.get('absorption_model', 'lagrangian') != 'lagrangian'
+            or not (params.get('relic_scattering', True) or params.get('neutrino_decay', True))):
+        return [f() for f in plain]
+    import dp_sky
+    sky = params.get('sky') or {}
+    dec_edges = (np.asarray(sky['dec_band_edges'], dtype=np.float64) if sky.get('dec_band_edges') is not None
+                 else dp_sky.default_dec_band_edges())
+    costh = np.sort(-np.sin(dec_edges))
+    if band_costh is not None:
+        costh = np.asarray(band_costh, dtype=np.float64)
+        dec_edges = np.sort(np.arcsin(-costh))
+    if params.get('earth_sky', 'up') != 'full':
+        return [f() for f in plain]
+    arr = [_flux_from_setup(E_run, params, setup, w, r, arrival_only=True) for w, r in runs]
+    N = len(E_run)
+    P = np.zeros((len(runs), N, 2, 3))
+    for c, a in enumerate(arr):
+        P[c, :, 0, :] = a['P'][0]
+        P[c, :, 1, :] = a['P'][1]
+    Qb = _crossing_bands(E_run, params, setup, P, dec_edges)
+    if Qb is None:
+        return [f() for f in plain]
+    Qb = Qb[::-1]                                  # cos(zenith) order: the handover's bands
+    width = np.diff(costh)
+    wb = width / width.sum()
+    out = [[None, None, None, None] for _ in runs]
+    for s in range(2):
+        args, kw = arr[0]['handover'][s]
+        kw = dict(kw, earth_band_costh=costh)
+        cols = []
+        for k in range(3):
+            e_k = np.zeros((N, 3))
+            e_k[:, k] = 1.0
+            whole_k, band_k = propagate_earth_spatial(E_run, e_k, *args, **kw)
+            cols.append(np.asarray(band_k))
+        B_unit = np.stack(cols)                                         # (3, N_b, N, 3)
+        for c in range(len(runs)):
+            B = np.einsum('bik,kbif->bif', Qb[:, c, :, s, :], B_unit)
+            if not np.isfinite(B).all():
+                raise ValueError(f"Non-finite per-band flux after the Galaxy crossing at m_Zd_eV={params['m_Zd_eV']:.6g}")
+            out[c][s] = np.einsum('b,bif->if', wb, B)
+            out[c][2 + s] = B
+    if band_costh is None:
+        return [(o[0], o[1]) for o in out]
+    return [tuple(o) for o in out]
 
 
 # dp_galactic_path.vacuum_populations where the Galaxy's potential is negligible (False: the per-pixel sweep always;
 # the two are compared in tests/test_galactic_path.py), and the eigenbasis rotation below which it is
 GALACTIC_PATH_VACUUM = True
 GALACTIC_VACUUM_ROTATION = 1e-6
+# the extragalactic beam's crossing of the Galaxy with the incoherent processes (2026-10-25; _flux_runs); the N_side
+# of the lines of sight the Galactic paths and the crossing follow (the emission sky's 16, or a divisor: N_side 4
+# decided 2026-10-25 with Mauricio for the cost, measured in docs/dev/DECAY_IN_MEDIUM_2026-10-25.md); the Galactic
+# processes as a factor on the fine sky's populations (_galactic_path_processes)
+EXTRAGALACTIC_CROSSING = os.environ.get("NULRI_CROSSING", "1") != "0"   # tests/conftest.py: off in CI's tests
+GALACTIC_PATH_NSIDE = 4
+CROSSING_PATH_NSIDE = 4
+GALACTIC_PROCESS_FACTOR = False
 
 # dp_galactic.emission_structure / emission_populations_degraded for the coarser maps (False: the direct path, as
 # before 2026-10-18; tests/test_speedups.py compares the two)
@@ -1304,16 +1785,57 @@ def injection_weights(params: Dict) -> Tuple[float, float]:
     return 1.0, 0.0
 
 
+# The grid's top (2026-10-25; tools/validate_transport.py's check H): below 1 keV, where the dark-portal phase moves
+# neutrinos down in energy (the decays' daughters, the relic mass-change loss, the cycles of both), what comes down
+# from above the grid's top was missing -- the top decade's flux off by up to a factor ~10 and 5-20% below 1e16 eV
+# where the effects are strong. The run is computed on the grid extended GRID_EXTENSION_DECADES above its top (bins of
+# the same width) and returned on the given grid, as dp_si's own E_extension; the Galactic part only to its
+# template's end (1e8 GeV). Elsewhere (1 keV and above, dp_si's runs, the processes off) the given grid, bit for bit.
+GRID_EXTENSION_DECADES = 1.0
+
+
+def _grid_extension(E_bins: np.ndarray, params: Dict, galactic: bool = False):
+    """(E_run, k): the grid a run computes on -- E_bins with k bins of its width added above its top -- and k (0: the
+    given grid). Decided with the given grid, so that the routing (_cosmology_mode) is the same. The Galactic part
+    (galactic) is extended wherever its processes act, below 1 keV, whatever the cosmology's route (2026-10-25, the
+    review's finding 5: the points routed to 'si' were not), up to the template's end."""
+    E = np.asarray(E_bins, dtype=np.float64)
+    if params.get('si_enabled', False):
+        # the secret interactions (2026-10-25): their cosmological transport extends its own grid (dp_si's
+        # E_extension); the Galactic part below 1 keV is extended as the dark portal's, its daughters cascading in
+        if (len(E) < 2 or not galactic or float(params['si']['m_phi_eV']) >= SI_COSMOLOGY_MIN_M_EV
+                or not (params.get('relic_scattering', True) or params.get('neutrino_decay', True))):
+            return E, 0
+    elif (len(E) < 2 or float(params['m_Zd_eV']) >= SI_COSMOLOGY_MIN_M_EV
+            or params.get('absorption_model', 'lagrangian') != 'lagrangian'
+            or not (params.get('relic_scattering', True) or params.get('neutrino_decay', True))
+            or (not galactic and _cosmology_mode(params, E) == 'si')):
+        return E, 0
+    r = E[1] / E[0]
+    k = int(np.ceil(GRID_EXTENSION_DECADES * np.log(10.0) / np.log(r)))
+    if galactic:
+        import dp_galactic
+        E_top = dp_galactic.template_range_GeV(params['galactic']['template'])[1] * 1e9
+        k = min(k, int(np.floor(np.log(E_top / E[-1]) / np.log(r) - 1e-9)))
+    if k <= 0:
+        return E, 0
+    return np.concatenate([E, E[-1] * r ** np.arange(1, k + 1)]), k
+
+
 def propagate_weighted(E_bins: np.ndarray, params: Dict, sources=None) -> np.ndarray:
     """The flux at the detector (neutrinos plus antineutrinos, (N_E, 3)) for the configured
     sources (injection_weights) -- one coupled evolution. With sources, a sequence of (3,)
-    source compositions sharing one thermal-rate grid, returns (n_sources, N_E, 3)."""
-    setup = _flux_setup(E_bins, params)
+    source compositions sharing one thermal-rate grid, returns (n_sources, N_E, 3). Computed on the extended grid
+    where _grid_extension says so."""
+    N = len(E_bins)
+    E_run, _ = _grid_extension(E_bins, params)
+    setup = _flux_setup(E_run, params)
     w = injection_weights(params)
     if sources is None:
-        return sum(_flux_from_setup(E_bins, params, setup, w))
-    return np.stack([sum(_flux_from_setup(E_bins, params, setup, w, np.ascontiguousarray(np.asarray(r, dtype=np.float64))))
-                     for r in sources])
+        return np.ascontiguousarray(sum(_flux_runs(E_run, params, setup, [(w, None)])[0])[:N])
+    res = _flux_runs(E_run, params, setup, [(w, np.ascontiguousarray(np.asarray(r, dtype=np.float64)))
+                                            for r in sources])
+    return np.stack([sum(x)[:N] for x in res])
 
 
 def propagate_nu_nubar(E_bins: np.ndarray, params: Dict, sources=None):
@@ -1328,19 +1850,24 @@ def propagate_nu_nubar(E_bins: np.ndarray, params: Dict, sources=None):
       sources: None for the configured source composition, or a sequence of (3,)
         compositions sharing one thermal-rate grid.
     Returns: (F_from_nu, F_from_nb), each (N_E, 3) -- or (n_sources, N_E, 3) when sources
-    is given.
+    is given. Computed on the extended grid where _grid_extension says so.
     """
-    setup = _flux_setup(E_bins, params)
+    N = len(E_bins)
+    E_run, _ = _grid_extension(E_bins, params)
+    setup = _flux_setup(E_run, params)
     srcs = [None] if sources is None else [np.ascontiguousarray(np.asarray(r, dtype=np.float64)) for r in sources]
-    out_nu = [sum(_flux_from_setup(E_bins, params, setup, (1.0, 0.0), r)) for r in srcs]
-    out_nb = [sum(_flux_from_setup(E_bins, params, setup, (0.0, 1.0), r)) for r in srcs]
+    res = _flux_runs(E_run, params, setup, [((1.0, 0.0), r) for r in srcs] + [((0.0, 1.0), r) for r in srcs])
+    out_nu = [sum(x)[:N] for x in res[:len(srcs)]]
+    out_nb = [sum(x)[:N] for x in res[len(srcs):]]
     if sources is None:
         return out_nu[0], out_nb[0]
     return np.stack(out_nu), np.stack(out_nb)
 
 
 def propagate_sky(E_bins: np.ndarray, params: Dict) -> Dict:
-    """The flux at the detector per direction (docs/dev/DIRECTIONS_PLAN.md, steps 3 and 5): per declination
+    """[On the given grid only: no extension above its top (_grid_extension, 2026-10-25) -- the validation tools'
+    per-direction output; the analysis uses propagate_sky_basis.]
+    The flux at the detector per direction (docs/dev/DIRECTIONS_PLAN.md, steps 3 and 5): per declination
     band, neutrinos and antineutrinos separately, for the configured sources (injection_weights); with
     sky.output = 'healpix' also the HEALPix pixel of each band (maps are the band values per pixel while
     the Sun is averaged isotropically). Fluxes are per unit solid angle, in the solver's units.
@@ -1361,6 +1888,7 @@ def propagate_sky(E_bins: np.ndarray, params: Dict) -> Dict:
     allsky_nubar (N_E, 3); bands_nu, bands_nubar (N_b, N_E, 3), in declination order; nside and
     pixel_band (N_pix,) when sky.output = 'healpix'; the galactic_* entries above; meta (frame,
     conventions, units)."""
+    _zeta_reset()
     import dp_sky
     sky_p = params.get('sky') or dict(output='bands', nside=16, dec_band_edges=None, earth_nodes_per_band=2)
     gal = params.get('galactic') or dict(enabled=False)
@@ -1372,8 +1900,8 @@ def propagate_sky(E_bins: np.ndarray, params: Dict) -> Dict:
                          f"{grid.nside} leaves {int(np.sum(np.bincount(grid.band, minlength=grid.n_bands) == 0))} "
                          f"of {grid.n_bands} bands empty (use a finer N_side or wider bands).")
     setup = _flux_setup(E_bins, params)
-    F_nu, F_nb, B_nu, B_nb = _flux_from_setup(E_bins, params, setup, injection_weights(params),
-                                              band_costh=grid.costh_edges)
+    F_nu, F_nb, B_nu, B_nb = _flux_runs(E_bins, params, setup, [(injection_weights(params), None)],
+                                        band_costh=grid.costh_edges)[0]
     out = dict(E_eV=np.asarray(E_bins, dtype=np.float64), dec_band_edges=grid.band_edges,
                band_omega=grid.band_omega, allsky_nu=F_nu, allsky_nubar=F_nb,
                # the Earth's bands run in cos(zenith) = -sin(dec), increasing: reversed declination order
@@ -1428,6 +1956,7 @@ def propagate_sky(E_bins: np.ndarray, params: Dict) -> Dict:
             nu_to_nubar="1:1", units="GeV^-1 cm^-2 s^-1 sr^-1, per flavor, per kind (nu or nubar)",
             band_means="pixel means (pixels assigned to bands by their centres)",
             source=dp_galactic.load_template(gal['template'], grid.nside)[2]['source'])
+    out['meta']['zeta'] = _zeta_record(params, E_bins)
     return out
 
 
@@ -1490,6 +2019,7 @@ def propagate_sky_basis(E_bins: np.ndarray, params: Dict, sources=((1.0, 0.0, 0.
     spread over the site's zeniths over a sidereal day (site_zenith_weights), then through the Earth with the
     per-zenith responses. The extragalactic flux is isotropic before the Earth, so its bands in cos-zenith order
     (bands_* reversed) serve every site."""
+    _zeta_reset()
     import dp_sky
     sky_p = params.get('sky') or dict(output='bands', nside=16, dec_band_edges=None, earth_nodes_per_band=2)
     gal = params.get('galactic') or dict(enabled=False)
@@ -1500,15 +2030,21 @@ def propagate_sky_basis(E_bins: np.ndarray, params: Dict, sources=((1.0, 0.0, 0.
         raise ValueError(f"The Galactic component needs a pixel centre in every declination band: N_side "
                          f"{grid.nside} leaves {int(np.sum(np.bincount(grid.band, minlength=grid.n_bands) == 0))} "
                          f"of {grid.n_bands} bands empty (use a finer N_side or wider bands).")
-    setup = _flux_setup(E_bins, params)
+    # computed on the extended grid where _grid_extension says so, returned on the given one (the Galactic part on its
+    # own extension, to the template's end)
+    N = len(E_bins)
+    E_given = np.asarray(E_bins, dtype=np.float64)
+    E_run, _ = _grid_extension(E_given, params)
+    setup = _flux_setup(E_run, params)
     w = injection_weights(params)
     b_nu, b_nb = [], []
-    for r in sources:
-        _, _, B_nu, B_nb = _flux_from_setup(E_bins, params, setup, w, np.ascontiguousarray(np.asarray(r, dtype=np.float64)),
-                                            band_costh=grid.costh_edges)
+    for _, _, B_nu, B_nb in _flux_runs(E_run, params, setup,
+                                       [(w, np.ascontiguousarray(np.asarray(r, dtype=np.float64))) for r in sources],
+                                       band_costh=grid.costh_edges):
         # the Earth's bands run in cos(zenith) = -sin(dec), increasing: reversed declination order
-        b_nu.append(B_nu[::-1])
-        b_nb.append(B_nb[::-1])
+        b_nu.append(B_nu[::-1][:, :N])
+        b_nb.append(B_nb[::-1][:, :N])
+    E_bins = E_given
     out = dict(E_eV=np.asarray(E_bins, dtype=np.float64), dec_band_edges=grid.band_edges, band_omega=grid.band_omega,
                bands_nu=np.ascontiguousarray(np.stack(b_nu)), bands_nubar=np.ascontiguousarray(np.stack(b_nb)),
                meta=dict(frame="equatorial J2000 (FK5)", detector="South Pole: cos(zenith) = -sin(dec)",
@@ -1524,6 +2060,9 @@ def propagate_sky_basis(E_bins: np.ndarray, params: Dict, sources=((1.0, 0.0, 0.
         out['meta']['extragalactic_scale'] = K
     if gal.get('enabled', False) and galactic:
         import dp_galactic
+        E_bins, _ = _grid_extension(E_given, params, galactic=True)
+        if len(E_bins) != len(E_run):
+            setup = _flux_setup(E_bins, params)
         em = dp_galactic.emitted(gal['template'], np.asarray(E_bins, dtype=np.float64) / 1e9, grid.nside,
                                  gal['norm_gal'])
         g_nu, g_nb = [], []
@@ -1531,7 +2070,20 @@ def propagate_sky_basis(E_bins: np.ndarray, params: Dict, sources=((1.0, 0.0, 0.
                  for lat in site_latitudes_deg}
         s_nu = {lat: [] for lat in sites}
         s_nb = {lat: [] for lat in sites}
-        if setup.get('si', False):
+        pix = (_si_galactic_pixels(E_bins, params, setup, grid.nside, galactic_compositions)
+               if setup.get('si', False) else None)
+        if pix is not None:
+            # below 1 keV where the processes act (2026-10-25): each pixel's flux with the decays, conversions and loss
+            # along its line of sight (dp_si_light.galactic_transfer), per band and per site as the 3-D emission's
+            for T_pix in pix:
+                T = dp_galactic.band_means(em[:, :, None] * T_pix, grid.band, grid.n_bands)
+                g_nu.append(T)
+                g_nb.append(T.copy())
+                for lat, W in sites.items():
+                    Ts = site_band_means(em[:, :, None] * T_pix, W)
+                    s_nu[lat].append(Ts)
+                    s_nb[lat].append(Ts.copy())
+        elif setup.get('si', False):
             # unattenuated, averaged oscillations: the same transfer in every band (_galactic_transfer)
             P = dp_galactic.averaged_transfer(setup['U_pmns_base'])
             em_b = dp_galactic.band_means(em, grid.band, grid.n_bands)
@@ -1555,9 +2107,11 @@ def propagate_sky_basis(E_bins: np.ndarray, params: Dict, sources=((1.0, 0.0, 0.
         else:
             R_nu_z, R_nb_z = _galactic_responses(E_bins, params, setup, grid.costh_edges)      # cos-zenith order
             R_nu, R_nb = np.ascontiguousarray(R_nu_z[::-1]), np.ascontiguousarray(R_nb_z[::-1])
-            for c in galactic_compositions:
-                F_nu, F_nb = _galactic_emission_populations(E_bins, params, setup, grid.nside,
-                                                            f_S=np.asarray(c, dtype=np.float64))
+            pops = _galactic_emission_populations(E_bins, params, setup, grid.nside,
+                                                  compositions=[np.asarray(c, dtype=np.float64)
+                                                                for c in galactic_compositions])
+            for ic, c in enumerate(galactic_compositions):
+                F_nu, F_nb = pops[ic]
                 g_nu.append(np.einsum('bek,bekf->bef', dp_galactic.band_means(em[:, :, None] * F_nu, grid.band,
                                                                               grid.n_bands), R_nu))
                 g_nb.append(np.einsum('bek,bekf->bef', dp_galactic.band_means(em[:, :, None] * F_nb, grid.band,
@@ -1565,20 +2119,22 @@ def propagate_sky_basis(E_bins: np.ndarray, params: Dict, sources=((1.0, 0.0, 0.
                 for lat, W in sites.items():
                     s_nu[lat].append(np.einsum('zek,zekf->zef', site_band_means(em[:, :, None] * F_nu, W), R_nu_z))
                     s_nb[lat].append(np.einsum('zek,zekf->zef', site_band_means(em[:, :, None] * F_nb, W), R_nb_z))
-        out['galactic_bands_nu'] = np.ascontiguousarray(np.stack(g_nu))
-        out['galactic_bands_nubar'] = np.ascontiguousarray(np.stack(g_nb))
+        out['galactic_bands_nu'] = np.ascontiguousarray(np.stack(g_nu)[..., :N, :])
+        out['galactic_bands_nubar'] = np.ascontiguousarray(np.stack(g_nb)[..., :N, :])
         # each band's share of the pixels: the sky's pixel mean (galactic_allsky) is the bands weighted by it
         out['galactic_band_share'] = np.bincount(grid.band, minlength=grid.n_bands) / grid.npix
         if sites:
             out['site_cosz_edges'] = np.asarray(grid.costh_edges, dtype=np.float64)
-            out['site_galactic_bands_nu'] = {lat: np.ascontiguousarray(np.stack(v)) for lat, v in s_nu.items()}
-            out['site_galactic_bands_nubar'] = {lat: np.ascontiguousarray(np.stack(v)) for lat, v in s_nb.items()}
+            out['site_galactic_bands_nu'] = {lat: np.ascontiguousarray(np.stack(v)[..., :N, :]) for lat, v in s_nu.items()}
+            out['site_galactic_bands_nubar'] = {lat: np.ascontiguousarray(np.stack(v)[..., :N, :])
+                                                for lat, v in s_nb.items()}
         out['meta']['galactic'] = dict(template=gal['template'], norm_gal=gal['norm_gal'],
                                        compositions=[list(map(float, c)) for c in galactic_compositions],
                                        emission='unattenuated, averaged oscillations' if params.get('si')
                                        else gal['emission'], nu_to_nubar="1:1",
                                        units="GeV^-1 cm^-2 s^-1 sr^-1, per flavor, per kind (nu or nubar)",
                                        band_means="pixel means (pixels assigned to bands by their centres)")
+    out['meta']['zeta'] = _zeta_record(params, E_bins)
     return out
 
 
@@ -1610,6 +2166,8 @@ def galactic_allsky(E_bins: np.ndarray, params: Dict, compositions=((1.0, 0.0, 0
     grid = dp_sky.SkyGrid(sky_p['nside'], sky_p['dec_band_edges'])
     if np.any(np.bincount(grid.band, minlength=grid.n_bands) == 0):
         raise ValueError(f"The Galactic component needs a pixel centre in every declination band (N_side {grid.nside}).")
+    N = len(E_bins)
+    E_bins, _ = _grid_extension(E_bins, params, galactic=True)      # the run's grid; returned on the given one
     setup = _flux_setup(E_bins, params)
     E_GeV = np.asarray(E_bins, dtype=np.float64) / 1e9
     em = dp_galactic.emitted(gal['template'], E_GeV, grid.nside, gal['norm_gal'])
@@ -1618,10 +2176,16 @@ def galactic_allsky(E_bins: np.ndarray, params: Dict, compositions=((1.0, 0.0, 0
     comps = [np.asarray(c, dtype=np.float64) for c in compositions]
     out = np.empty((len(comps), len(E_bins), 3))
     if setup.get('si', False):
+        pix = _si_galactic_pixels(E_bins, params, setup, grid.nside, comps)
+        if pix is not None:
+            # below 1 keV where the processes act (2026-10-25): the pixels' fluxes along their lines of sight
+            for i, T_pix in enumerate(pix):
+                out[i] = 2.0 * (em[:, :, None] * T_pix).mean(axis=0)
+            return np.ascontiguousarray(out[:, :N])
         P = dp_galactic.averaged_transfer(setup['U_pmns_base'])
         for i, c in enumerate(comps):
             out[i] = 2.0 * em.mean(axis=0)[:, None] * (P @ c)[None, :]
-        return out
+        return np.ascontiguousarray(out[:, :N])
     if not params.get('si') and params.get('earth_sky', 'up') != 'full':
         raise ValueError("The Galactic component needs grid.earth_sky = 'full' (bands cover the whole sky).")
     if gal['emission'] == 'local':
@@ -1629,15 +2193,16 @@ def galactic_allsky(E_bins: np.ndarray, params: Dict, compositions=((1.0, 0.0, 0
             T_nu, T_nb = _galactic_transfer(E_bins, params, setup, grid.costh_edges, grid.nside, f_S=c)
             T = (T_nu + T_nb)[::-1]
             out[i] = np.tensordot(share, em_b[:, :, None] * T, axes=(0, 0))
-        return out
+        return np.ascontiguousarray(out[:, :N])
     R_nu, R_nb = _galactic_responses(E_bins, params, setup, grid.costh_edges)
     R_nu, R_nb = R_nu[::-1], R_nb[::-1]
+    pops = _galactic_emission_populations(E_bins, params, setup, grid.nside, compositions=comps)
     for i, c in enumerate(comps):
-        F_nu, F_nb = _galactic_emission_populations(E_bins, params, setup, grid.nside, f_S=c)
+        F_nu, F_nb = pops[i]
         b = np.einsum('bek,bekf->bef', dp_galactic.band_means(em[:, :, None] * F_nu, grid.band, grid.n_bands), R_nu)
         b += np.einsum('bek,bekf->bef', dp_galactic.band_means(em[:, :, None] * F_nb, grid.band, grid.n_bands), R_nb)
         out[i] = np.tensordot(share, b, axes=(0, 0))
-    return out
+    return np.ascontiguousarray(out[:, :N])
 
 
 def propagation_worker(args) -> Tuple[np.ndarray, np.ndarray]:
@@ -1645,7 +2210,7 @@ def propagation_worker(args) -> Tuple[np.ndarray, np.ndarray]:
     configured neutrino and antineutrino sources, summed at the detector."""
     E_bins, params = args
     setup = _flux_setup(E_bins, params)
-    F_nu, F_nb = _flux_from_setup(E_bins, params, setup, injection_weights(params))
+    F_nu, F_nb = _flux_runs(E_bins, params, setup, [(injection_weights(params), None)])[0]
     return E_bins, F_nu + F_nb
 
 

@@ -288,7 +288,8 @@ small, not yet measured), **open** (decided to remove or change, not yet done).
     (Majorana rate twice the Dirac one); for g_D >~ 1e-7 the beam arrives as nu_1 and the relics are nu_1 only.
     Implemented 2026-10-24 (src/dp_decay.py, both transports; relics' composition after decays by z = 1, a hotter
     Fermi-Dirac nu_1 gas standing for the daughters; the mediator invisible; daughter kernels from massless
-    kinematics; where the potential dominates, the incoherent split over eigenstates): **to quantify** (stage 2).
+    kinematics; where the potential dominates, the incoherent split over eigenstates -- wrong, replaced 2026-10-25 by
+    (e)): **to quantify** (stage 2).
     Bounded so far (2026-10-24): the time the relics' composition is taken at is immaterial -- it enters only through the soft
     scatterings and the energy loss, and where those act at all the relics have long decayed: their decay exponent
     grows as g^2 (m/m_Zd)^2, the scatterings as g^4 / m_Zd^2 (at g = 1e-8 the exponent is already >= 1e7 wherever the
@@ -313,3 +314,82 @@ small, not yet measured), **open** (decided to remove or change, not yet done).
     obeys eps' <= (v_phi/v_H) m_Zd/m_Z (tree level, their Eq. 6; the loop, their Eq. 20, is smaller), and every
     stored ultralight exclusion needs eps' 8-30 orders of magnitude above it (tools/check_zd_mixing_bound.py):
     **accepted**.
+    (e) **Decay in a medium (2026-10-25; notes 'Decay in a medium', docs/dev/DECAY_IN_MEDIUM_2026-10-25.md).** In a
+    potential the decay acts between the propagation eigenstates, a(p) -> b(z p) + Z_D, each with its own eigenvector
+    (the daughter's at z sigma) and the window set by the effective masses; the old model (each eigenstate decaying at
+    its mass content's mean rate, vacuum kinematics) let the most stable eigenstate decay into itself. Implemented in
+    src/dp_medium.py (both transports; the dark-portal phase's drift pieces removed). Assumptions, with sizes: (i)
+    [G, V] = 0 (the potential is the mediator's own field; exact for every model below 1 keV, checked in the code); (ii)
+    Fermi's golden rule between eigenstates, zeta = 2 E Gamma / splitting << 1 (<= 1.5e-2 at the validation points;
+    recorded per run; > 0.1 only for g/M >~ 30 eV^-1 in vacuum or Goldstone Yukawas >~ 1.6 near the unitarity
+    boundary); (iii) the daughter's eigenvector held at its bin's centre (second order in the bin width: widths to 2e-4,
+    bins to 1e-8 against the exact formula); (iv) the sigma ladder, interpolated in log sigma between rungs in the
+    cosmology, the nearest rung in the Galaxy; (v) no decays from the Sun on: they matter only where the same
+    potential's coherent effects are overwhelming (Sun theta >= 840, Earth theta >= 3.4e5). The extragalactic beam's
+    crossing of the Galaxy, measured to move the detected flux by 13-41% (shape up to 34%, a flavor fraction up to
+    0.5) at g/M = 0.1 eV^-1, is followed since 2026-10-25 (dark_portal_solver._flux_runs: every line of sight with the
+    Galactic component's processes, per declination band into the Sun/Earth handover). For the cost, the Galactic
+    component's paths and the crossing follow N_side 4 lines of sight (each carrying its N_side 16 pixels' emission at
+    their mean density): against N_side 8, 5.5% on the Galactic component (inside its normalization's 20% prior) and
+    3.3e-4 (composition 1e-5) on the crossing: **accepted** (Mauricio, 2026-10-25; the limits to be checked in the
+    everything-on pilot). Validated on Tycho (cosmological
+    phase): where the potential sets the eigenstates, 200 steps within 1.3e-4 in shape; where decays and jumps cycle
+    and drain the flux to 1e-3-1e-2 of the standard one, 3-6e-3 at 200 steps, <= 1.7e-3 at 400: **decided** (Mauricio,
+    2026-10-25): 400 steps wherever the decays act in the dark-portal phase (DECAY_Z_REFINE = 2). Galaxy: halved segments within 1.7e-8, the nearest rung within 4e-5 of
+    the interpolation (three le_lmu points).
+
+23. **Secret interactions below 1 keV, scalar mediator: the relics' own background field is not modelled; the region
+    where it matters is shaded** (decided, Mauricio, 2026-10-25). *Why it exists:* a scalar couples to the neutrinos'
+    scalar density, to which relic neutrinos and antineutrinos contribute with the same sign, so the relic background
+    sources a steady scalar field that shifts every neutrino mass by ~ g^2 n / M^2, growing as the mediator gets lighter.
+    A vector couples to the number current (neutrinos minus antineutrinos), which cancels for a background without a
+    lepton asymmetry (the second-order remainder is <= 1e-3 g^2 of Delta m^2_21, negligible everywhere); the dark-portal
+    and lepton-number vectors get their potential from ordinary matter, already transported. *Where it matters:* masses
+    and mixing shift by more than 1e-3 of Delta m^2_21 (at z = 4) for g / M >~ 30-1e4 eV^-1: log10(g/M) = 1.5-2.1 at
+    m_lightest = 0.1 eV, 1.8-2.7 for relics as produced, up to 3.8-4.0 where the relics have decayed into a light nu_1
+    (which carries almost no scalar density) -- computed per texture, kind and lightest mass by
+    dp_si_light.scalar_field_measure (notes, "Secret interactions below 1 keV", table); above g / M ~ 0.9-7e3 eV^-1
+    (the non-relativistic relic states, z <= 4) the scalar's attraction between relics beats their pressure, far
+    stronger than gravity, and the uniform relic gas is unstable (it clumps). At the scalar's limits this is every
+    mediator mass below ~1e-11-1e-9 eV (decay limit, g ~ 5e-8-2e-7) and below ~1e-6-1e-4 eV (hard-scattering limit,
+    g ~ 6e-3) (2026-10-25, computed). *Why shaded rather than modelled:* in the clumping regime every rate the
+    transport uses (absorption, scattering, decays, screening) assumes a uniform relic gas of known density,
+    temperature and masses; with clumps these are unknown without a structure-formation calculation, so neither an
+    exclusion nor an allowed region computed there would be valid -- it must be shaded in any case. Modelling the smooth
+    mass shift below the clumping onset (a self-consistent field per redshift, fed into the transport; estimated ~1-1.5
+    days, not measured) would recover only the band between the onset and clumping, ~1-2 decades of mediator mass
+    (~1e-10 to 3e-9 eV) near the decay limit. *How:* a computed boundary per texture and lightest mass, recorded and
+    shaded on the plots, with the fits skipped there and capped to the lightest masses where the model holds (as the
+    unitarity region, decision A): analysis.exclusion.not_modelled_measure / not_modelled_mask / draw_not_modelled,
+    exact_profile.ExactProfiler._measure_cap (per point: the boundary is not one line, it moves where the relics
+    decay). *To revive:* mass-varying neutrinos (homogeneous part); the clumping regime belongs to
+    a separate cosmological analysis.
+
+24. **Secret interactions below 1 keV: what the transport adds and leaves out** (2026-10-25; notes, "Secret
+    interactions below 1 keV"; src/dp_si_light.py). *Added:* the decays into the mediator for the four models (exact
+    light-front helicity spectra; Dirac neutrinos as six states, visible and sterile), the relics after their own
+    decays, the vector's Debye-screened mass and relic mass-change loss, the Galactic lines of sight (decays,
+    conversions, loss), the vector's unitarity line for Dirac neutrinos. *Accepted approximations:* (a) the vector's
+    longitudinal mode's own scatterings (Goldstone exchange and pair production, Yukawa ~ g m / M) are left out: run
+    as dp_si's scalar channels with that Yukawa they leave the flux at 10 TeV unchanged at g / M = 0.01 eV^-1, at 0.62
+    (0.27 for m_lightest = 0.1 eV) at 0.1, and remove it from g / M = 1 on -- inside the region the decays exclude
+    (from g / M ~ 1e-4 the pilot's fits give Delta chi^2 ~ 10, now_ic26, pion); *check due on the campaign's results*:
+    every vector point with g / M between 1e-2 eV^-1 and the unitarity line excluded in every data set and composition
+    (else add them: dp_si's scalar channels with the Goldstone couplings beside the vector's); the dark-portal
+    ultralight planes leave them out too, with the same check due. *On the lepton-number planes (L_e-L_mu, L_e-L_tau)
+    they are included* (Mauricio, 2026-10-25: they move that limit): Majorana Goldstone channels in dp_si as a factor
+    per mass state on the dark-portal phase's populations (dp_si_light.goldstone_factors; exact where the potential
+    leaves the eigenstates mass states where they absorb, the bound recorded per run as meta['zeta']['goldstone']);
+    not on the Galactic paths, not for Dirac neutrinos; (b) dp_si's quasi-elastic conversions have no Zeno factor from the decay widths: at most 2%
+    on the conversions, within a decade of the unitarity line; (c) the scalar's collision terms take max(M,
+    m_heaviest): exact but for the pair channel's collinear logarithm, which the neutrino masses cut (here at the
+    heaviest mass; acts only four or more decades in g inside the decay-excluded region); the vector's pair channel
+    keeps ln(s/M^2) below the neutrino masses, where its hard scatterings act only beyond the unitarity line; (d) Dirac
+    relics: the relic mass-change loss with their left-chiral share (1 + v)/2 averaged before the 1/E weight (exact at
+    rest and relativistic), and a relic's sterile decay daughters counted as relics of their mass state; (e) no relic
+    lepton asymmetry (with one as large as the baryon asymmetry, a Dirac vector's first-order potential would matter
+    only for g / M >~ 0.1-1 eV^-1, inside the decay-excluded region); (f) the hard scatterings on the Galactic paths
+    left out, as for the secret interactions above 1 keV (the Galaxy's relic column is ~1e-5 of the cosmological one);
+    (g) the extragalactic beam's crossing of the Galaxy is not followed for the secret interactions (no potential: it
+    continues the cosmological evolution at z = 0 for ~1e-5 of a Hubble time). *Unchanged:* everything at 1 keV and
+    above, bit for bit (tools/validate_si_light.py unchanged).

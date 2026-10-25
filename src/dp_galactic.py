@@ -150,6 +150,12 @@ def intensity(name, E_GeV, nside=16):
     return _memo_put(key, _intensity(name, E_c, nside))
 
 
+def template_range_GeV(name, nside=16):
+    """(lowest, highest) energy (GeV) the template covers."""
+    Et, _, _ = load_template(name, nside)
+    return float(Et[0]), float(Et[-1])
+
+
 def _intensity(name, E_GeV, nside):
     Et, I, _ = load_template(name, nside)
     lE, lEt = np.log(np.asarray(E_GeV, dtype=np.float64)), np.log(Et)

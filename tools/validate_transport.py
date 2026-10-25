@@ -13,6 +13,10 @@ transport:
   E   the shortcuts off (SOFT_JUMP_MIN = 0, SI_HARD_MIN_G = 0), where that changes the run
   F   decay alone (relic scatterings off) against the exact nu_3 survival averaged over the sources, at 100 TeV and
       1 PeV, where the decay is open and the potential negligible
+  M   dp_medium on the production configuration (lepton-number planes, where the dark-portal phase decays): the
+      run's own ladder and steps, the decays alone, against two absolute answers -- the number kept (on a grid
+      extended 12 decades down) and the top bin's highest state against exp(-int Gamma_a dt), Gamma_a integrated
+      independently (eigenvectors exact at the parent's and every daughter's sigma, a fine z grid)
   GA  the Galactic sky average, default; GB its line-of-sight pieces x2 (sub-grid units); GC the per-pixel sweep where
       the vacuum path was used (every fourth column and row at m_lightest 1e-6 eV: 1000 s a point); GD the energy grid
       x2 (sub-grid units)
@@ -227,6 +231,133 @@ def _survival_exact(params, energies):
     return {float(e): float(_trapz(wl * np.exp(-r3 / e * Il), zl) / _trapz(wl, zl)) for e in energies}, U
 
 
+def _exact_width(G, U, m, M, kinds, s, a, sig, nz=3000):
+    """E Gamma (eV^2) of state a (ascending) of kind s at sigma, independently of dp_medium's plans: the in-medium
+    |A|^2 (notes, 'Decay in a medium') with the eigenvectors exact at the parent's sigma and at each daughter's
+    z sigma, on a fine z grid (log near 0 and near 1)."""
+    import dp_medium
+    Ucs = (np.asarray(U, dtype=np.complex128), np.conj(np.asarray(U, dtype=np.complex128)))
+    Sp = [Ucs[k].conj().T @ np.asarray(kinds[k][1], dtype=np.complex128) @ Ucs[k] for k in range(2)]
+    Gp = dp_medium.coupling_mass_basis(np.asarray(G, dtype=np.complex128), Ucs[0])
+    Gs = Gp if s == 0 else Gp.conj()
+    D = np.diag(m).astype(complex)
+    H0 = np.diag(m * m).astype(complex)
+    mu, c = np.linalg.eigh(H0 + sig * Sp[s])
+    z = np.concatenate([np.geomspace(1e-12, 0.5, nz), 1.0 - np.geomspace(0.5, 1e-15, nz)[1:]])
+    Ms = M * M
+    tot = 0.0
+    for rel in range(2):
+        sd = s if rel == 0 else 1 - s
+        mus, cs = np.linalg.eigh(H0[None] + z[:, None, None] * (sig * Sp[sd])[None])
+        Ka, Kb = (Gs, D @ Gs.conj() @ D) if rel == 0 else (D @ Gs, Gs.conj() @ D)
+        for b in range(3):
+            al = np.einsum('kj,jl,l->k', cs[:, :, b].conj(), Ka, c[:, a])
+            be = np.einsum('kj,jl,l->k', cs[:, :, b].conj(), Kb, c[:, a])
+            kT2 = (1 - z) * (z * mu[a] - mus[:, b]) - z * Ms
+            if rel == 0:
+                f = (2 * kT2 * (z + 1 / z) / (1 - z) ** 2 * np.abs(al) ** 2
+                     + np.abs((z * Ms - kT2) / (1 - z) * al + (1 - z) * be) ** 2 / (Ms * z))
+            else:
+                f = 2 / z * np.abs(al + z * be) ** 2 + kT2 * np.abs(al + be) ** 2 / (Ms * z)
+            tot += float(_trapz(np.where(kT2 >= 0.0, f, 0.0), z))
+    return tot / (16 * np.pi)
+
+
+def _medium_record():
+    """Hooks recording the cosmological ladder's inputs and the steps' (sigma coefficient, decay time): a context."""
+    import dark_portal_solver as dps
+    import dp_medium
+    rec = dict(steps=[])
+    orig_init = dp_medium.Ladder.__init__
+    orig_step = dps._decay_sweep_step
+
+    def init(self, E_bins, G_flavor, U, m, M, kinds, c_max, c_min=0.0):
+        if "G" not in rec:
+            rec.update(G=np.array(G_flavor), U=np.array(U), m=np.array(m, dtype=np.float64), M=float(M),
+                       kinds=[(np.array(k[0]), np.array(k[1])) for k in kinds], c_max=float(c_max),
+                       E=np.array(E_bins, dtype=np.float64))
+        orig_init(self, E_bins, G_flavor, U, m, M, kinds, c_max, c_min)
+
+    def step(species, ref, k, inj_rate, dt, zm, jump_I, decay_I, *a):
+        if ref is None:
+            rec["steps"].append((float(species[0]["c_mid"][k]), float(decay_I[k])))
+        return orig_step(species, ref, k, inj_rate, dt, zm, jump_I, decay_I, *a)
+
+    @contextlib.contextmanager
+    def ctx():
+        dp_medium.Ladder.__init__ = init
+        dps._decay_sweep_step = step
+        try:
+            yield rec
+        finally:
+            dp_medium.Ladder.__init__ = orig_init
+            dps._decay_sweep_step = orig_step
+    return ctx()
+
+
+def _medium_checks(rec):
+    """M (module docstring) from a run's recorded ladder and steps. The number: the run's steps merged by fours (each
+    at its middle coefficient), on the grid extended 12 decades down, from an E^-2 population of every state (what
+    leaves the extended grid's bottom is below 1e-12 of it). The top bin: at five of the run's steps, its highest
+    state alone (nothing flows into it), one step of the decays with the time scaled to an exact exponent of 1: the
+    code's -ln(survival) against E Gamma_a dt / E_top."""
+    import dp_medium
+    import dp_sweep
+    E = rec["E"]
+    h2 = E[1] / E[0]
+    n_ext = int(np.ceil(12.0 / np.log10(h2)))
+    E_ext = E[0] * h2 ** np.arange(-n_ext, len(E))
+    lad = dp_medium.Ladder(E_ext, rec["G"], rec["U"], rec["m"], rec["M"], rec["kinds"], rec["c_max"])
+    N = len(E_ext)
+    hb = np.sqrt(h2)
+    dE = E_ext * (hb - 1.0 / hb)
+    z3, Z1, Z3, Z33 = np.zeros(3), np.zeros(N), np.zeros((N, 3)), np.zeros((N, 3, 3))
+    notab = (np.zeros((2, 3, 3)), np.zeros((2, 3)), np.zeros((2, 3)), np.zeros((2, 3)), 0.0, 1.0, 0.0)
+    buf = lad.buffers()
+
+    def step(F, c, dI):
+        dp_sweep.step_full(0.0, dI, 1.0, dI, dI, E_ext, F[0], F[1], 0.0, 0.0, z3, Z33, Z33, Z3, Z3, Z3, Z3, 0.0, 0.0,
+                           Z1, Z1, Z1, Z1, Z1, Z1, Z1, Z1, np.zeros(N), np.zeros(N), Z1, False, 0.0, *notab, *notab,
+                           lad.arrays, lad.coord(c), True, True, lad.diag, *buf, np.zeros((1, 2, 3)), False,
+                           np.zeros((1, 4, 6, 6)), np.zeros(1, dtype=np.bool_), False)
+
+    steps = rec["steps"]
+    F = [np.zeros((N, 3)), np.zeros((N, 3))]
+    for k in range(2):
+        F[k][n_ext:] = (E_ext[n_ext:, None] / E[0]) ** -2.0
+    n0 = float(sum((f.sum(1) * dE).sum() for f in F))
+    for i in range(0, len(steps), 4):
+        grp = steps[i:i + 4]
+        step(F, grp[len(grp) // 2][0], sum(g[1] for g in grp))
+    n1 = float(sum((f.sum(1) * dE).sum() for f in F))
+    out = dict(d_number=abs(n1 / n0 - 1.0), steps=len(steps), zeta=float(lad.diag[0]))
+    mu = lad.arrays[1]
+    Et = E_ext[-1]
+    d_top = 0.0
+    rows = []
+    for i in sorted(set(int(round(q * (len(steps) - 1))) for q in (0.0, 0.25, 0.5, 0.75, 1.0))):
+        c, dI = steps[i]
+        r0, w = dp_medium.rung_of_bin(lad.coord(c), N - 1)
+        mtop = ((1 - w) * mu[r0] + (w * mu[r0 + 1] if w > 0 else 0.0)).ravel()
+        o = np.argsort(mtop)
+        if mtop[o[-1]] - mtop[o[-2]] <= 1e-12 * abs(mtop[o[-1]]):
+            continue
+        s, a = divmod(int(o[-1]), 3)
+        W = _exact_width(rec["G"], rec["U"], rec["m"], rec["M"], rec["kinds"], s, a, abs(c) * Et)
+        if W <= 0.0:
+            continue
+        dt1 = Et / W                                    # an exact exponent of 1
+        G = [np.zeros((N, 3)), np.zeros((N, 3))]
+        G[s][-1, a] = 1.0
+        step(G, c, dt1)
+        if G[s][-1, a] <= 0.0:
+            continue
+        code = -np.log(G[s][-1, a])
+        rows.append((i, int(s), int(a), float(code)))
+        d_top = max(d_top, abs(code - 1.0))
+    out.update(d_top=float(d_top), top=rows)
+    return out
+
 def _one(u):
     import dark_portal_solver as dps
     import dp_galactic_path as gp
@@ -266,7 +397,12 @@ def _one(u):
             times[key] = round(time.time() - t, 2)
             return r, params
 
-        A, pA = run("A", galactic=gal)
+        medium = u["fam"].startswith("le") and u["xv"] < dps.SI_COSMOLOGY_MIN_M_EV
+        if medium:
+            with _medium_record() as mrec:
+                A, pA = run("A", galactic=gal)
+        else:
+            A, pA = run("A", galactic=gal)
         EA = A["E"]
         out.update(mode=A["mode"], health=_health(A["F"], std_tot), gal_path=A["used"])
         if gal:
@@ -347,11 +483,14 @@ def _one(u):
                 finally:
                     dps.SOFT_JUMP_MIN, dps.SI_HARD_MIN_G = s0, h0
 
-            # F: decay alone against the exact nu_3 survival
+            # F: decay alone against the exact nu_3 survival -- on the dark-portal planes only: the lepton-number
+            # planes' local potentials (the electrons of the Sun, the Earth and the Galaxy) rotate the states on
+            # arrival, so their arrival flavors do not invert with the vacuum mixing (2026-10-25: the le F failures
+            # of the first map); the decays are the same code on both (tests/test_dp_sweep.py, tests/test_decay.py)
             with check("F"):
                 kF = [int(np.argmin(np.abs(EA - e))) for e in E_CHECK]
                 exact, U = _survival_exact(pA, [EA[k] for k in kF])
-                if exact is not None and pot_negligible:
+                if exact is not None and pot_negligible and u["fam"].startswith("dp_"):
                     F1, _ = run("F1", params_mod=dict(relic_scattering=False, neutrino_decay=True))
                     F0, _ = run("F0", params_mod=dict(relic_scattering=False, neutrino_decay=False))
                     inv = np.linalg.inv(np.abs(U) ** 2)
@@ -365,6 +504,13 @@ def _one(u):
                                 rows[f"{EA[k]:.4e}/{s}"] = ratio
                                 dev = max(dev, abs(ratio - exact[float(EA[k])]))
                     res["F"] = dict(d=dev, exact={f"{e:.4e}": x for e, x in exact.items()}, code=rows)
+
+        # M: dp_medium against absolute answers, where the run's dark-portal phase decays
+        if medium and mrec["steps"]:
+            with check("M"):
+                t = time.time()
+                res["M"] = _medium_checks(mrec)
+                times["M"] = round(time.time() - t, 2)
 
         # Galactic: pieces x2; the sweep where the vacuum path was used; the energy grid x2
         if gal and A["used"] and u["sub"]:
@@ -439,6 +585,11 @@ def summarize(out_dir, fig):
         sl, c = bnd[r["fam"]]
         r["not_allowed"] = bool(np.log10(r["yv"]) >= sl * np.log10(r["xv"]) + c)
     keys = ["B", "C", "H", "D_si", "D_dark_portal", "E", "F", "GB", "GC", "GD"]
+    for meas in ("d_number", "d_top"):
+        ds = [r["res"]["M"][meas] for r in rows if not r.get("error") and meas in r.get("res", {}).get("M", {})]
+        if ds:
+            d = np.array(ds)
+            print(f"M              {meas:8s} n {len(d):6d}  median {np.median(d):.1e}  max {d.max():.1e}")
     for k in keys:
         for meas in ("d", "d_shape", "d_flavor"):
             ds = [r["res"][k][meas] for r in rows if not r.get("error") and k in r.get("res", {})

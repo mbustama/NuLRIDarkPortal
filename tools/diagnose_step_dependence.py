@@ -27,9 +27,6 @@ v.update({pl["x"]: x, pl["y"]: y})
 base = m._run_cfg(m._overrides(v))
 if case == "noloss":
     dp_relic_loss.loss_coefficient = lambda *a, **k: 0.0
-if case == "nocyclecap":
-    dps.CYCLE_MAX = 1 << 20
-    dps.CYCLE_STEP = 0.05
 src = [np.array([1.0, 2.0, 0.0]) / 3.0]
 ref = None
 runs = [dict(si=s) for s in (4, 2, 1)] if case == "si" else [dict(nz=n) for n in (3200, 800, 200)]

@@ -391,7 +391,9 @@ def test_repair_tries_a_spike_inside_a_wrong_certificate(monkeypatch):
     from types import SimpleNamespace
     chi2 = lambda v: 1.0 if v["m"] > 1e-5 else 50.0
     monkeypatch.setitem(scans._W, "objective", SimpleNamespace(chi2=chi2))
-    monkeypatch.setitem(scans._W, "exact", SimpleNamespace(within_certificate=lambda own, other: True))
+    monkeypatch.setitem(scans._W, "exact", SimpleNamespace(within_certificate=lambda own, other: True,
+                                                           lightest_cap=lambda held: None,
+                                                           set_lightest_cap=lambda cap: None))
     monkeypatch.setattr(scans, "_fit_held", lambda held, starts, settings: SimpleNamespace(
         values=dict(starts[0]), chi2=chi2(starts[0]), nfev=1, seconds=0.0, message=""))
     task = ((0, 0), {"g": 1.0}, {"m": 1e-6}, 50.0, [{"m": 1e-4}], 1.0, False, {}, True)
@@ -591,3 +593,18 @@ def test_run_lock_skips_live_and_takes_over_stale(tmp_path):
     rel2 = run_mod.acquire_lock(str(tmp_path), heartbeat_s=0.05, stale_s=1.0)
     assert rel2 is not None
     rel2()
+
+
+def test_exact_profile_chains_can_be_cut():
+    """exact_profile.chain_length (2026-10-25): a plane's half-columns cut into chains of at most n points, outward
+    from the global best fit, covering every point once; None keeps one chain per half-column."""
+    from analysis import scans
+    grid = np.logspace(-10, -2, 17)
+    whole = scans._chains_1d(grid, 1e-10, True, len(grid))
+    cut = scans._chains_1d(grid, 1e-10, True, 4)
+    assert sorted(i for c in whole for i in c) == sorted(i for c in cut for i in c) == list(range(17))
+    assert max(len(c) for c in cut) <= 4 and len(cut) > len(whole)
+    for c in cut:                                    # each chain contiguous and walked outward from the best fit
+        assert list(c) == sorted(c) or list(c) == sorted(c, reverse=True)
+    from analysis.exact_profile import ExactSettings
+    assert ExactSettings.from_dict({"chain_length": 8}).chain_length == 8

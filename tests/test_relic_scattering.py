@@ -87,7 +87,8 @@ def _point(cfg_name, x, y, **over):
 
 def test_cosmology_mode():
     """'si' at 1 keV and above where the potential is negligible; below 1 keV the dark-portal phase for couplings
-    below SI_HARD_MIN_G, dp_si above it where the potential is negligible, both ('combined') where it is not."""
+    below SI_HARD_MIN_G (decays or not: dp_sweep solves them exactly, 2026-10-25), dp_si above it where the potential is
+    negligible, both ('combined') where it is not."""
     E, p = _point("dp_e_ul.json", 1e4, 1e-3)
     assert dps._cosmology_mode(p, E) == "si"
     E, p = _point("dp_e_ul.json", 100.0, 1e-6)
@@ -97,7 +98,24 @@ def test_cosmology_mode():
     E, p = _point("dp_mu_pot_x1m08_pos.json", 1e-10, 1e-11)     # eps' = 1e-3: kappa = 7e-4, and a potential
     assert dps._cosmology_mode(p, E) == "combined"
     E, p = _point("dp_mu_pot_x1m16_pos.json", 1e-10, 1e-30)     # eps' = 1e-14: kappa below SI_HARD_MIN_G
-    assert dps._cosmology_mode(p, E) == "dark_portal"
+    assert dps._decay_acts(p, E) and dps._cosmology_mode(p, E) == "dark_portal"     # decays, no potential
+    E, p = _point("le_lmu_ul.json", 1e-16, 3e-17)               # the decays act, with a potential
+    assert dps._decay_acts(p, E) and dps._cosmology_mode(p, E) == "dark_portal"
+    E, p = _point("le_lmu_ul.json", 1e-18, 1e-25)               # decays, no potential, a tiny mediator (the pilot's
+    assert dps._decay_acts(p, E) and dps._cosmology_mode(p, E) == "dark_portal"     # dp_si crash, 2026-10-25)
+
+
+def test_decay_points_take_more_redshift_steps():
+    """Where the neutrinos decay in the dark-portal phase, DECAY_Z_REFINE times the configured redshift steps
+    (2026-10-25); elsewhere the configured ones."""
+    E, p = _point("le_lmu_ul.json", 1e-16, 3e-17)               # decays with a potential: the dark-portal phase
+    n = int(p["n_z_bins"])
+    assert len(dps._flux_setup(E, p)["z_bins"]) == dps.DECAY_Z_REFINE * (n - 1) + 1
+    p["neutrino_decay"] = False
+    assert len(dps._flux_setup(E, p)["z_bins"]) == n
+    E, p = _point("dp_mu_pot_x1m16_pos.json", 1e-10, 1e-30)     # decays, no potential: the dark-portal phase too
+    n = int(p["n_z_bins"])
+    assert len(dps._flux_setup(E, p)["z_bins"]) == dps.DECAY_Z_REFINE * (n - 1) + 1
 
 
 def _flux(E, p):
@@ -203,3 +221,40 @@ def test_jump_step_keeps_the_total_at_any_rate():
             A -= np.diag(A.sum(axis=0))
             if scale <= 1e3:
                 assert np.allclose(F[0], expm(A) @ F0[0], rtol=1e-10, atol=1e-14)
+
+
+@pytest.mark.slow     # a dp_si run and a dark-portal phase on the campaign grid
+def test_combined_mode_with_decays():
+    """'combined' where the neutrinos decay (2026-10-25): the dark-portal phase's populations, the in-medium decays
+    included, rescaled per energy to dp_si's flux by the reference source's own phase. With the sources equal to the
+    reference (equal flavors, nu and nubar 1:1, the whole spectrum) the species evolve as the reference, so what
+    reaches the transit is dp_si's flux per kind to rounding (the configured injection, nu:nubar 1:1)."""
+    import dp_si
+    E, p = _point("le_lmu_ul.json", 1e-6, 1e-4, f_e_S=1 / 3, f_mu_S=1 / 3, f_tau_S=1 / 3)
+    assert dps._cosmology_mode(p, E) == "combined" and dps._decay_acts(p, E)
+    got = {}
+    orig_si, orig_earth = dp_si.propagate_si, dps.propagate_earth_spatial
+
+    def si(*a, **k):
+        got["F_mass"] = orig_si(*a, **k)
+        return got["F_mass"]
+
+    def earth(E_bins, F, *a, **k):
+        got[bool(a[11])] = np.array(F)
+        return orig_earth(E_bins, F, *a, **k)
+
+    dp_si.propagate_si, dps.propagate_earth_spatial = si, earth
+    cross = dps.EXTRAGALACTIC_CROSSING
+    try:
+        dps.EXTRAGALACTIC_CROSSING = False          # the handover sees the populations themselves
+        p["inj_window_eV"] = (0.0, np.inf)
+        assert np.allclose(dps.injection_weights(p), (0.5, 0.5))
+        dps.propagate_weighted(E, p, sources=[np.full(3, 1.0 / 3.0)])
+    finally:
+        dp_si.propagate_si, dps.propagate_earth_spatial = orig_si, orig_earth
+        dps.EXTRAGALACTIC_CROSSING = cross
+    tot_si = 0.5 * got["F_mass"].sum(axis=1)
+    for anti in (False, True):
+        tot = got[anti].sum(axis=1)
+        ok = tot_si > 1e-300
+        assert np.max(np.abs(tot[ok] / tot_si[ok] - 1.0)) < 1e-10

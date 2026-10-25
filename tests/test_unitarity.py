@@ -100,3 +100,7 @@ def test_lightest_cap_follows_the_boundary():
     cap = ExactProfiler.lightest_cap(me, {pl.x: m, pl.y: m * 10 ** t})
     assert 1e-6 < cap < 0.1
     assert ex.not_allowed_boundary(p, cap / 1.2)[1] > t > ex.not_allowed_boundary(p, cap * 1.2)[1]
+    # from the loaded configuration itself, no file needed (2026-10-25, the review: a configuration without a path
+    # switched the cap off silently): an in-memory configuration gives the same cap
+    me2 = SimpleNamespace(_ml_bounds0=(1e-6, 0.1), eta=["m_lightest_eV"], cfg=config_mod.from_dict(raw))
+    assert ExactProfiler.lightest_cap(me2, {pl.x: m, pl.y: m * 10 ** t}) == cap

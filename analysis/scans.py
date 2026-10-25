@@ -514,8 +514,10 @@ def _scan(cfg: AnalysisConfig, names: List[str], grids: List[np.ndarray], best: 
         # the exact profile (exact_profile.py): whole chains along the second axis (a plane's coupling), outward from
         # the global best fit's value -- the profile's mixing changes smoothly along the coupling, and a point below
         # the reach of new physics takes the chain's last certified point's certificate (ExactProfiler.inherit)
+        n_chain = cfg.exact.get("chain_length") if isinstance(cfg.exact, dict) else getattr(cfg.exact, "chain_length", None)
+        length = int(n_chain) if n_chain else shape[1]
         for i in range(shape[0]):
-            for c in _chains_1d(grids[1], best[names[1]], params[1].space == "log10", shape[1]):
+            for c in _chains_1d(grids[1], best[names[1]], params[1].space == "log10", length):
                 chains.append([(i, j) for j in c])
     else:
         rows = int(np.prod(shape[1:]))

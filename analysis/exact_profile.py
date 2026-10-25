@@ -125,6 +125,11 @@ class ExactSettings:
     # validation: at an inherited point also the central certificate from the anchor's values (its predicted
     # decrease is the inheritance's error), recorded as inherit_check -- ~30 solver runs per point
     inherit_check: bool = False
+    # the plane's chains along the coupling (analysis.scans._scan): None, each half-column outward from the global best
+    # fit one chain (as before); n, cut into chains of at most n points, each started from the global best fit as
+    # well as from its predecessor (2026-10-25: with every process on, a fit costs ~30 min, and a 61-point column in
+    # one chain ~30 h of wall time whatever the cores; shorter chains run in parallel, the repair passes as before)
+    chain_length: Optional[int] = None
 
     @classmethod
     def from_dict(cls, d: Optional[Mapping]) -> "ExactSettings":
@@ -535,14 +540,16 @@ class ExactProfiler:
             nodes = np.geomspace(max(lo, M_LIGHTEST_MIN), hi, 25)
             cs = []
             for m in nodes:
-                b = not_allowed_boundary(self.cfg.path, float(m))
+                # from the loaded configuration itself (no file needed); any error raises (2026-10-25, the review:
+                # a missing path or a swallowed exception switched decision A off silently)
+                b = not_allowed_boundary(self.cfg, float(m))
                 if b is None or b[0] != 1.0:
-                    cs = None
+                    cs = None               # a plane whose coupling does not set G linearly: no such boundary
                     break
                 cs.append(float(b[1]))
             tab = self._cap_table = False if cs is None else (np.log10(nodes), np.array(cs))
         if tab is False:
-            return None
+            return self._measure_cap(held)
         lm, cs = tab
         t = float(np.log10(held[pl.y]) - np.log10(held[pl.x]))
         if t < cs[-1]:
@@ -552,6 +559,36 @@ class ExactProfiler:
         k = int(np.nonzero(cs > t)[0][-1])
         f = (cs[k] - t) / (cs[k] - cs[k + 1])
         return float(10.0 ** (lm[k] + f * (lm[k + 1] - lm[k])))
+
+    def _measure_cap(self, held: Mapping) -> Optional[float]:
+        """lightest_cap for a plane whose not-modelled region is a measure per point rather than a line (2026-10-25:
+        the secret-interaction scalar's relic field, analysis.exclusion.not_modelled_measure; Mauricio's decision
+        (a)): the largest lightest mass whose measure stays below 1 (the measure grows with the mass: heavier relics
+        carry more scalar density), interpolated in log between 25 nodes; None where every mass is modelled, 0.0
+        where none is."""
+        f = getattr(self, "_cap_measure", None)
+        if f is None:
+            from .exclusion import not_modelled_measure
+            f = self._cap_measure = not_modelled_measure(self.cfg) or False
+        if f is False:
+            return None
+        pl = self.cfg.planes[0]
+        if pl.x not in held or pl.y not in held or held[pl.x] <= 0.0 or held[pl.y] <= 0.0:
+            return None
+        lo, hi = self._ml_bounds0
+        nodes = np.geomspace(max(lo, M_LIGHTEST_MIN), hi, 25)
+        lx = np.log10(nodes)
+        # the largest mass first: below 1 there, every mass is modelled (one evaluation, most of the plane)
+        top = f(held[pl.x], held[pl.y], float(nodes[-1]))
+        if top < 1.0:
+            return None
+        X = np.array([f(held[pl.x], held[pl.y], float(m)) for m in nodes[:-1]] + [top])
+        if X[0] >= 1.0:
+            return 0.0
+        k = int(np.nonzero(X < 1.0)[0][-1])
+        lx0, lx1 = np.log10(X[k]), np.log10(X[k + 1])
+        fr = -lx0 / (lx1 - lx0) if lx1 > lx0 else 0.0
+        return float(10.0 ** (lx[k] + fr * (lx[k + 1] - lx[k])))
 
     def set_lightest_cap(self, cap: Optional[float]) -> None:
         """Bound m_lightest above by cap for the point to come (None: its configured bounds)."""

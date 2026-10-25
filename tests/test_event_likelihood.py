@@ -39,8 +39,13 @@ def test_sky_basis_recombines_into_propagate_sky(case):
     over = {"secret_interactions": SI} if case == "secret interactions" else {"dark_portal": DP}
     E, params = dps.build_solver_params(_sky_cfg(x, x_gal, "local" if "local" in case else "3d", **over))
     params["show_progress"] = False
-    sky = dps.propagate_sky(E, params)
-    basis = dps.propagate_sky_basis(E, params)
+    keep = dps.GRID_EXTENSION_DECADES
+    try:
+        dps.GRID_EXTENSION_DECADES = 0.0        # the two implementations on the same grid (propagate_sky never extends)
+        sky = dps.propagate_sky(E, params)
+        basis = dps.propagate_sky_basis(E, params)
+    finally:
+        dps.GRID_EXTENSION_DECADES = keep
     nb = len(sky["dec_band_edges"]) - 1
     assert basis["bands_nu"].shape == (2, nb, len(E), 3) and basis["galactic_bands_nu"].shape == (2, nb, len(E), 3)
     assert np.array_equal(basis["dec_band_edges"], sky["dec_band_edges"])

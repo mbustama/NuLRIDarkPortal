@@ -9,12 +9,14 @@ import os
 import sys
 
 import numpy as np
+import pytest
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, REPO)
 sys.path.insert(0, os.path.join(REPO, "src"))
 
 
+@pytest.mark.slow     # 2026-10-25: the in-medium decays on the Galactic lines of sight (dp_medium) made it 28 min on Tycho
 def test_galactic_emission_regrouped_equals_direct():
     """dark_portal_solver._galactic_emission_populations with the regrouped sums equals the direct path (emission per
     full-resolution pixel, then the weighted average) to rounding, NaN pattern included, at a point of a campaign

@@ -5,6 +5,7 @@ starts, on a pool; prints each fit's chi^2 and seconds, and their median and mea
 from --centre-from (another plane of the same data set and composition, its manifest.json: tools/resummarize.py) so
 that the pilot does not spend a solver run on it.
   python tools/pilot_fits.py <config> [--n 16] [--workers 16] [--centre-from <output dir of another plane>]
+                             [--points x,y ...]
 """
 import argparse
 import json
@@ -34,6 +35,8 @@ def main(argv=None):
     ap.add_argument("--n", type=int, default=16)
     ap.add_argument("--workers", type=int, default=16)
     ap.add_argument("--centre-from", default=None)
+    ap.add_argument("--points", nargs="+", default=None,
+                    help="explicit points 'x,y' in the plane's axes (2026-10-25) instead of the spread over its grid")
     a = ap.parse_args(argv)
     from analysis import scans
     from analysis.config import from_dict
@@ -50,6 +53,8 @@ def main(argv=None):
     k = int(np.ceil(np.sqrt(a.n)))
     pts = [(float(x), float(y)) for x in xs[np.linspace(0, len(xs) - 1, k).astype(int)]
            for y in ys[np.linspace(0, len(ys) - 1, k).astype(int)]][:a.n]
+    if a.points:
+        pts = [tuple(float(v) for v in p.split(",")) for p in a.points]
     start = {p.name: p.start for p in cfg.parameters}
     settings = {**asdict(cfg.fit), "n_random": 0}
     tasks = [({pl["x"]: x, pl["y"]: y}, {kk: v for kk, v in start.items() if kk not in (pl["x"], pl["y"])}, settings)

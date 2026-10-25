@@ -266,6 +266,250 @@ the form used for the long-range potential in the Sun in Magnus and in the Earth
 (notebook 20). Appendix~\ref{app:yukawa} gives our evaluation and its tests.
 
 %==============================================================================
+\section{The transport equation in full}
+\label{sec:full_transport}
+
+This section collects, in one place, the equations the code solves from the sources to the detector: every term,
+every source, and where each lives in the code (Mauricio, 2026-10-25; to be used for the paper). Later sections
+derive the individual rates; here they are only defined. The status of each term is that of 2026-10-25.
+
+\subsection{What is followed}
+
+\textit{Kinds and states.}---Neutrinos and antineutrinos are followed separately, as numbers per unit energy, $F_a$ and
+$\bar F_a$, in the eigenstates $a = 1, 2, 3$ of the Hamiltonian of each kind,
+\begin{equation}
+H(E, z) = \frac{U\,{\rm diag}(m_1^2, m_2^2, m_3^2)\,U^\dagger}{2E(1+z)} + V(z), \qquad
+\bar H(E, z) = \frac{U^*{\rm diag}(m_i^2)\,U^T}{2E(1+z)} - V^*(z),
+\end{equation}
+with $V(z) = A(z)\,S$ the long-range potential (texture $S$; Sec.~\ref{sec:textures}). Its eigenvalues are
+$\lambda_a(\sigma)/2E(1+z)$, $\lambda_a$ the eigenvalues of $UM^2U^\dagger + \sigma S$ (the effective masses squared),
+and its eigenvectors $|a\rangle$ depend on $E$ and $z$ only through $\sigma = 2E(1+z)A(z)$. Each state's flavor content
+is $P_{\alpha a}(\sigma) = |\langle\nu_\alpha|a\rangle|^2$ and its mass content $T_{ia}(\sigma) = |\langle\nu_i|a\rangle|^2$;
+both are tabulated on nodes in $\log\sigma$ (\file{src/dp\_cosmo.py}). The labels $a$ follow the eigenstates as $H$
+changes (sorted eigenvalues): the cosmological potential changes over a Hubble time, against oscillation lengths of at
+most parsecs, so the evolution is adiabatic and no term moves populations between states except the collisions and
+decays below. With no potential the eigenstates are the mass states, $T_{ia} = \delta_{ia}$.
+
+\textit{Energy and time.}---$E$ is the energy observed today; the physical energy at redshift $z$ is $E(1+z)$, so
+the redshift needs no term of its own. Time is cosmic time, $dt = -dz/[(1+z)H(z)]$. All rates below are physical
+rates at redshift $z$.
+
+\subsection{The cosmological phase}
+
+From $z_{\max} = 4$, where $F_a = \bar F_a = 0$, to $z = 0$:
+\begin{align}
+\frac{\partial F_a(E,z)}{\partial t}\bigg|_E ={}&
+\underbrace{\mathcal{S}_a}_{\rm sources}
+\;\underbrace{-\;\Gamma^{\rm abs}_a F_a
++ \beta_a\!\int_E^\infty\! dE'\Big[\frac{3E^2}{E'^3}\sum_c\Gamma^{\rm abs}_c F_c
++ \frac{3(E'-E)^2}{E'^3}\sum_c\bar\Gamma^{\rm abs}_c\bar F_c\Big]_{E'}}_{\text{resonant absorption on the relics, and its secondaries}}
+\nonumber\\
+&\underbrace{+\;\sum_{b\ne a}\big(R_{ab}F_b - R_{ba}F_a\big)}_{\text{soft scatterings on the relics}}
+\;\underbrace{+\;\frac{\partial}{\partial E}\big(b_a F_a\big)}_{\text{relic mass-change loss}}
+\nonumber\\
+&\underbrace{-\;\Gamma^{\rm dec}_a F_a
++ \sum_{a'}\int_E^\infty\! dE'\Big[\frac{d\Gamma^{\rm keep}_{a'\to a}}{dE}(E'\to E)\,F_{a'}(E')
++ \frac{d\bar\Gamma^{\rm flip}_{a'\to a}}{dE}(E'\to E)\,\bar F_{a'}(E')\Big]}_{\text{decay into the mediator, and its daughters}},
+\label{eq:transport_cosmo}
+\end{align}
+and the same for $\bar F_a$ with $U \to U^*$, $V \to -V^*$, $G \to G^*$ (barred and unbarred quantities exchanged in the
+secondaries: an absorbed antineutrino gives an antineutrino at $3E^2/E'^3$ and a neutrino at $3(E'-E)^2/E'^3$, and a
+flipped daughter of a neutrino is an antineutrino). The terms:
+
+\textit{Sources.}---Sources of comoving density $R(z)$ (the star-formation rate, Eqs.~T19, T20, with the extra evolution
+$(1+z)^{\rho_{\rm evol}}$) that emit $\Phi_0 E_s^{-p}$ per unit source energy, split incoherently over the eigenstates
+at the source:
+\begin{equation}
+\mathcal{S}_a(E, z) = w_\nu\,\Phi_0\,[E(1+z)]^{-p}\,R(z)\,(1+z)\;\Theta_{\rm inj}(E)\sum_\alpha f_{\alpha,S}\,
+P_{\alpha a}(\sigma_{\rm src}),
+\label{eq:sources}
+\end{equation}
+the $(1+z)$ being $dE_s/dE$ (Appendix~\ref{app:source_jacobian}); $w_\nu$, $w_{\bar\nu}$ the two kinds' weights
+($\nu:\bar\nu = 1:1$ by default); $\Theta_{\rm inj}$ the emission window (\texttt{source.injection\_E\_min/max\_GeV}; one
+by default); $\sigma_{\rm src}$ at the sources' density, the cosmic mean or a host galaxy's
+(\texttt{source.host\_galaxy\_scale}). The broken power law of the analysis is built from runs at fixed $p$ (spectral-index
+nodes, interpolated in $\log F$; Sec.~\ref{sec:stats}). Code: \texttt{dp\_cosmo.step\_cosmological\_rates},
+\texttt{dp\_sweep.step\_full}.
+
+\textit{Resonant absorption and its secondaries.}---$\nu_a + $ relic $\to Z_D \to \nu + \bar\nu$. The rate of state $a$
+is a sum over the relic mass states $r$,
+\begin{equation}
+\Gamma^{\rm abs}_a(E, z) = \sum_r \Gamma_r(E, z)\,Q_{ra}(\sigma), \qquad Q_{ra} = \tfrac12\big|(U^\dagger G\,W)_{ra}\big|^2,
+\end{equation}
+$W$ the eigenvectors of $H$ in the flavor basis, $\Gamma_r$ the Breit--Wigner rate on relic $r$ per unit coupling weight,
+averaged over its thermal momenta at $T_{\nu,0}(1+z)\eta_r^{1/3}$ (Sec.~\ref{sec:thermal}; normalization of
+Appendix~\ref{app:bwnorm}; the relics' composition $\eta_r$ after their own decays, item~2 of
+Sec.~\ref{sec:mass-change-decay}). Each absorption emits two secondaries (Appendix~\ref{app:regeneration}): one of the
+absorbed kind with the spectrum $3E^2/E'^3$, one of the other kind with $3(E'-E)^2/E'^3$, each in eigenstate $a$ with
+the share $\beta_a = {\rm Re}(W^\dagger GG^\dagger W)_{aa}/(2\Sigma G)$ ($\sum_a\beta_a$ is the mediator's branching
+into neutrinos). It matters in the MeV planes, where the resonance energy $\mzd^2/2m_r$ falls in the band. Code: the
+same functions, the kernels integrated exactly over the bins (\texttt{cascade\_kernel\_weights},
+\texttt{cross\_kernel\_weights}).
+
+\textit{Soft scatterings on the relics.}---The forward-peaked $t$ channel below 1~keV moves neutrinos between the
+eigenstates at their own energy (Sec.~\ref{sec:soft-scatterings}):
+\begin{equation}
+R_{ba} = \Gamma_{\rm u}(z)\,|G_{ba}|^2\,\frac{\omega_{ab}^2}{\omega_{ab}^2 + D_{ab}^2},\quad
+\omega_{ab} = \frac{\lambda_a - \lambda_b}{2E(1+z)},\quad
+D_{ab} = \Gamma_{\rm u}\Big[\frac{(G^2)_{aa} + (G^2)_{bb}}{2} - G_{aa}G_{bb}\Big] + \frac{\Gamma^{\rm dec}_a + \Gamma^{\rm dec}_b}{2},
+\end{equation}
+with $G_{ba} = \langle b|G|a\rangle$ and
+$\Gamma_{\rm u}(z) = 2n_{\rm hel}(1+z)^3\sum_r\eta_r(G'G'^\dagger)_{rr}/[4\pi M_t^2(z)]$, $G' = U^\dagger GU$,
+$n_{\rm hel} = 3\zeta(3)T_{\nu,0}^3/4\pi^2$ the relics per helicity and mass state today, $M_t^2 = \mzd^2 + m_D^2(z)$
+($m_D$ the relics' Debye mass). The decay widths in $D$ protect a fast-decaying state from conversions into it (Zeno).
+Kept wherever they move more than $10^{-4}$ of the flux over the path (\texttt{SOFT\_JUMP\_MIN}). Code:
+\texttt{dp\_cosmo.\_soft\_jumps}, \texttt{dp\_sweep.\_jump\_rates}.
+
+\textit{Relic mass-change loss.}---Soft scatterings that leave the relic in another mass state cost the beam
+$\omega_{rs} = (m_s^2 - m_r^2)/2p_r^-$ each (item~1 of Sec.~\ref{sec:mass-change-decay}): a loss of observed energy at
+the rate
+\begin{equation}
+b_a(E, z) = \frac{C(z)\,\big[(G + \kappa)(G + \kappa)^\dagger\big]_{aa}}{1+z},\qquad
+C(z) = \sum_{r\ne s}\frac{2n_{\rm hel}(1+z)^3\eta_r|G'_{sr}|^2}{4\pi M_t^2}\,\frac{m_s^2 - m_r^2}{2}
+\Big\langle\frac{1}{E_r}\Big\rangle_{T(z)},
+\end{equation}
+independent of $E$ ($\kappa$ the $Z$ mixing's universal coupling; zero below 1~keV in the planes). Code:
+\file{src/dp\_relic\_loss.py}.
+
+\textit{Decay into the mediator, and its daughters.}---$\nu \to \nu' + Z_D$ where the masses allow it ($\mzd$ below the
+mass difference). A neutrino in state $a'$ at energy $E'$ gives a daughter in state $a$ at $E < E'$ that keeps its
+helicity (a neutrino, ``keep'') or, the Majorana vertex's $P_R$ piece, flips it (an antineutrino, ``flip''), and
+$\Gamma^{\rm dec}_a = \sum_b\int dE\,[d\Gamma^{\rm keep}_{a\to b} + d\Gamma^{\rm flip}_{a\to b}]/dE$. The mediator is
+taken as invisible (it decays back to neutrinos only for $\mzd > 2m_1$, into the softest part of the spectrum;
+decision~B of 2026-10-24 checks this). Every decay keeps one neutrino, so these two terms conserve the number. Without a
+potential the states are the mass states and the rates are the vacuum ones (item~2 of Sec.~\ref{sec:mass-change-decay},
+and its kinematics paragraph): $\Gamma_{i\to j} = \Gamma^{\rm rest}_{ij}\,m_i/[E'(1+z)]$ and
+\begin{equation}
+\frac{d\Gamma^{\rm keep,\,flip}_{i\to j}}{dE}(E'\to E) = \frac{\Gamma_{i\to j}}{E'}\,\big[a + b\,x + c/x\big]^{\rm keep,\,flip}_{ij},
+\qquad x = E/E' \in [x_-, x_+],
+\label{eq:decay_gain}
+\end{equation}
+with the exact light-front helicity spectra of \texttt{dp\_decay.daughter\_spectra} (its $z$ is this $x$); the
+daughter's share $x$ is the same in observed and physical energy. In a potential the decays act between the
+eigenstates of $H$ (Sec.~\ref{sec:mass-change-decay}, ``Decay in a medium''): a parent in state $a$ at $E'$ gives a
+daughter in state $b$ at $E = xE'$, each with its own eigenvector, at its own $\sigma$ (the parent's $\sigma$, the
+daughter's $x\sigma$); the effective masses set the window,
+$k_T^2 = (1-x)\,[x\,\mu_a(\sigma) - \mu'_b(x\sigma)] - x\mzd^2 \ge 0$ (Eq.~\ref{eq:medium_window}), and the rate is
+$d\Gamma_{a\to b}/dx = |\mathcal{A}|^2/[16\pi E'(1+z)]$ with the coherent amplitudes of Eqs.~(\ref{eq:medium_amp}) and
+(\ref{eq:medium_rates}). A state cannot decay into itself, nor into a higher state of its own kind; the lowest state of a
+kind decays only by flips, and a potential opens $\nu_i \to \bar\nu_i$, closed in vacuum. Without a potential this is
+Eq.~(\ref{eq:decay_gain}) exactly. It holds while each width is small against the splittings of its kind,
+$\zeta_a = 2E'(1+z)\Gamma_a/\min_b|\mu_a - \mu_b| \ll 1$: Fermi's golden rule between the eigenstates, with corrections
+of order $\zeta$ (at most $1.5\times10^{-2}$ at the first validation points, but up to 0.1--0.5 at couplings
+$\gd/\mzd \sim 10$--100~eV$^{-1}$ just below the unitarity line, where the new limits may fall; being mapped and recorded
+per run, 2026-10-25). Until 2026-10-25 the code made each state decay at $\sum_i T_{ia}\Gamma_i$ with vacuum kinematics,
+which let the most stable state decay into itself and slid the flux down in energy. Code: \file{src/dp\_medium.py},
+\file{src/dp\_decay.py} (the vacuum spectra), \texttt{dp\_sweep.step\_full}.
+
+\textit{The mediator's longitudinal mode in the scatterings (since 2026-10-25).}---With massive neutrinos the vector's
+propagator keeps its $q^\mu q^\nu/\mzd^2$ part: a beam neutrino scatters on the relics also as through a scalar with the
+Goldstone couplings $Y_{ij} = i(G'_{ij}m_i + G'_{ji}m_j)/\mzd$, without interference with the transverse part and not
+forward-peaked (checked with explicit spinors; Sec.~\ref{sec:si}, ``The longitudinal-mode scatterings on the
+lepton-number planes''). These are hard scatterings: an absorption term $-\Gamma^{\rm L}_aF_a$ with its secondaries, the
+scalar channels of the secret interactions with $\lambda = Y$. On the lepton-number planes they enter as a factor per
+mass state on the eigenstate populations at $z = 0$, from two runs of the mass-basis transport with and without them;
+exact where the potential leaves the eigenstates mass states where the absorption happens, the bound recorded per run.
+They grow with the masses: at $\gd/\mzd = 0.1$~eV$^{-1}$ they leave the flux at 10~TeV at 0.95 of itself for the
+lightest mass $10^{-6}$~eV and at 0.03 for 0.1~eV. Left out, with an after-campaign check that the band
+$\gd/\mzd \ge 10^{-2}$~eV$^{-1}$ is excluded without them: the dark-portal planes, Dirac neutrinos and the vector
+secret interactions.
+
+\textit{The grid's edges.}---The equation is solved on the analysis grid extended internally one decade above its top
+(\texttt{GRID\_EXTENSION\_DECADES}), since decays, losses and secondaries move neutrinos down in energy; the Galactic
+emission's grid only up to the templates' end, $10^{8}$~GeV (half a decade). What falls below the grid's bottom
+($\sim4.6$~TeV) leaves the band and is dropped.
+
+\subsection{The Galactic emission}
+
+Neutrinos emitted in the Galaxy (Sec.~\ref{sec:directions}) reach the Sun along each line of sight $\hat n$ from the
+distance $\ell$ at which they are emitted, at $z = 0$. With $G_a(E, \ell, \hat n)$ the number per unit energy travelling
+toward the Sun,
+\begin{equation}
+-\frac{\partial G_a}{\partial\ell} = j_a
++ \sum_{b\ne a}\big(R_{ab}G_b - R_{ba}G_a\big) + \frac{\partial}{\partial E}\big(b_aG_a\big)
+- \Gamma^{\rm dec}_aG_a + \sum_{a'}\int_E^\infty\! dE'\Big[\frac{d\Gamma^{\rm keep}_{a'\to a}}{dE}\,G_{a'}
++ \frac{d\bar\Gamma^{\rm flip}_{a'\to a}}{dE}\,\bar G_{a'}\Big],
+\label{eq:transport_gal}
+\end{equation}
+with every rate of Eq.~(\ref{eq:transport_cosmo}) at $z = 0$ and in the eigenstates of the local potential, and the
+emission
+\begin{equation}
+j_a(E, \ell, \hat n) = \tfrac32\,N_{\rm G}\,I(E, \hat n)\big[w_{\rm gas}(E,\hat n)\,q_{\rm gas}(\ell,\hat n)
++ (1 - w_{\rm gas})\,q_{\rm src}(\ell,\hat n)\big]\sum_\alpha f_\alpha\,P_{\alpha a}(\sigma(\ell)),
+\end{equation}
+$I$ the template's intensity (CRINGE, per flavor, $\nu + \bar\nu$: three flavors' worth, half per kind;
+\texttt{dp\_galactic.emitted}), $N_{\rm G}$ its normalization (a fit parameter), $w_{\rm gas}$ its gas
+share, $q_{\rm gas}$, $q_{\rm src}$ the distributions along the line of sight of the gas emission and of the unresolved
+sources ($\int q\,d\ell = 1$), $f_\alpha$ the composition $(x, 1-x, 0)$. The resonant absorption is left out: the
+Galactic relic column is $\sim10^{-5}$ of the cosmological one. Code: \file{src/dp\_galactic\_path.py} (97 distance
+bins, emission at each bin's centre); without the new processes the populations at emission go straight to the Sun
+(\texttt{dp\_galactic.emission\_populations}).
+
+\subsection{From the Sun to the detector}
+
+The cosmological populations at $z = 0$ cross the Galaxy adiabatically: each becomes the same population of the local
+eigenstate at the Sun, where the potential is the Yukawa integral of the Galaxy's charges over the mediator's range
+(Appendix~\ref{app:transit}). There both components form the density matrix
+$\rho = \sum_a (F_a + G_a)\,|a\rangle\langle a|$ (and $\bar\rho$), which evolves coherently through the Sun's potential,
+the Earth's exterior and the Earth along each chord,
+\begin{equation}
+\frac{d\rho}{dx} = -i\,[H(x), \rho], \qquad H(x) = \frac{UM^2U^\dagger}{2E} + V(x) + V_{\rm SM}(x),
+\end{equation}
+and the flux of flavor $\alpha$ at the detector is $\langle\nu_\alpha|\rho|\nu_\alpha\rangle$, averaged over the chords
+with the phase-aware zenith average (Sec.~\ref{sec:earth}, App.~\ref{app:zenith}), per declination band or for the whole
+sky. No collisions and no decays act from the Sun on. For the decays this was checked with the in-medium widths
+(Sec.~\ref{sec:mass-change-decay}, ``Decays the transport leaves out''): across the Sun and the Earth a state decays by
+more than $10^{-3}$ only where the same potential's coherent effects are already overwhelming ($\sigma/\Delta m^2_{21}
+\ge 840$ and $3.4\times10^5$), and the lowest states, which an in-band beam arrives as, never do.
+
+\textit{The extragalactic beam's crossing of the Galaxy (since 2026-10-25).}---Where the Galaxy's potential opens decays
+that the cosmic one does not (flips between the two kinds' lowest states, $\gd/\mzd \gtrsim 10^{-2}$~eV$^{-1}$), the
+beam's populations at $z = 0$ are not carried adiabatically to the Sun but evolved along every line of sight through the
+Galaxy by Eq.~(\ref{eq:transport_gal}) without its emission term ($j_a = 0$), with the same rates, then averaged per
+declination band and handed to the Sun and the Earth (\texttt{EXTRAGALACTIC\_CROSSING}; Sec.~\ref{sec:mass-change-decay},
+``Decay in a medium''). Measured effect at $\gd/\mzd = 0.1$~eV$^{-1}$: 13--41\% of the flux at the top of the band.
+Both kinds of Galactic paths, the emission's and the crossing's, run on an $N_{\rm side} = 4$ sky
+(\texttt{GALACTIC\_PATH\_NSIDE}, \texttt{CROSSING\_PATH\_NSIDE}): against $N_{\rm side} = 8$ the crossing changes by
+$3\times10^{-4}$ and the Galactic emission by 5.5\% (inside its free normalization's 18\% prior), and the fits'
+$\chi^2$ by 0.1--0.3 at $\Delta\chi^2 \approx 30$ (the pilot of 2026-10-25), at a quarter of the cost.
+
+\subsection{The other transport: dp\_si}
+
+The same physics in the mass basis, with every $2\to2$ channel and the pair production of the secret interactions
+(Sec.~\ref{sec:si_transport}), carries the cosmological phase where the potential is negligible: the secret-interaction
+planes (below 1~keV with the decays, the relics after their decays and the vector's screening and relic loss,
+Sec.~\ref{sec:si_subkev}), the MeV planes' \texttt{'si'} points, and below 1~keV the points with hard scatterings
+(couplings above $10^{-4}$) or decays and no potential (\texttt{dark\_portal\_solver.\_cosmology\_mode}). For one Majorana flux holding
+both kinds, $F_i = F_i^\nu + F_i^{\bar\nu}$,
+\begin{equation}
+\frac{\partial F_i}{\partial t}\bigg|_E = \mathcal{S}_i - \Gamma_iF_i
++ \sum_{j}\int_E^\infty\! dE'\,K_{ij}(E, E')\,\Gamma_j(E')F_j(E')
+- \Gamma^{\rm dec}_iF_i + \sum_j\int_E^\infty\! dE'\,\frac{d\Gamma_{j\to i}}{dE}(E'\to E)\,F_j(E'),
+\end{equation}
+$\Gamma_i$ the total collision rate on the relics (all channels; their exact thermal averages with
+\texttt{thermal\_products}), $K_{ij}$ the secondaries' spectra (two per $2\to2$ collision, four per pair production; the
+forward peak's returns as a drift in $\ln E$), and the decays with both daughter halves added. Where the potential matters
+and the hard scatterings act (\texttt{'combined'}), the dark-portal phase's populations are rescaled per energy by dp\_si's
+flux for a fixed reference source.
+
+\subsection{How the code solves it}
+
+The redshift is cut into steps (200 in the analysis, uniform in $z$, and twice as many where the neutrinos decay in the dark-portal phase, \texttt{DECAY\_Z\_REFINE}: where the decays and the soft scatterings cycle, 200 steps left up to $6\times10^{-3}$ in the spectrum's shape, 400 at most $1.7\times10^{-3}$; decided 2026-10-25; dp\_si's steps uniform in $\ln(1+z)$). In each step the
+energy bins are swept from the highest down: each bin solves its equations exactly over the step with constant rates and
+sources, the sources being the injection and the secondaries and daughters of the bins above, computed from the numbers
+those bins actually absorbed and decayed during the step; a bin's own secondaries and daughters are inside its equations.
+Where the neutrinos decay (\texttt{dp\_sweep.step\_full}, 2026-10-25) the six populations of a bin (both kinds, three
+states) are solved together, with the soft scatterings, the decays, the absorption and the injection in one matrix
+exponential, the in-medium decay rates tabulated once per run on a ladder of $\sigma$ values with the grid's bin
+ratio (\file{src/dp\_medium.py}); elsewhere the absorption alone (\texttt{step\_cosmological\_rates}) and the soft
+scatterings after it. The soft scatterings', the decays' and the loss's rates are taken at the step's midpoint and their
+exponents over its exact times ($\int dz/[(1+z)H]$ for the scatterings, $\int dz/[(1+z)^2H]$ for the decays and the
+loss); the absorption and its time step at the step's low-redshift end, as since 2026-10-12 (first order; the MeV planes
+are validated with it); the injection over its exact integral below 1~keV, at the step's end in the MeV planes (a uniform
+0.5\% at 200 steps, absorbed by the free normalization). The loss shifts each bin's content in two halves around the step.
+The kernels are integrated exactly over the bins, so every step conserves the number to rounding.
+
+%==============================================================================
 \section{Numerical method}
 \label{sec:numerics}
 
@@ -1240,6 +1484,263 @@ islands. \file{tools/plot_si_summary.py}~\texttt{planes}, tag \texttt{dirac\_}.}
 both papers; this matters for a nearly massless lightest state, whose relics are relativistic), the
 timing within the crossing step (Sec.~\ref{sec:si_validation}), and spectral data, which would
 exclude outright the regions where the flux is absorbed without changing its composition.
+
+\subsection{Secret interactions below 1~keV (2026-10-25)}
+\label{sec:si_subkev}
+
+Mauricio asked (2026-10-25) that the secret-interaction campaign run once over the mass range of the dark-portal and
+lepton-number planes, $M = 10^{-30}$~eV--1~GeV, instead of 1~keV--1~GeV. Below 1~keV the resonance is far below the
+band ($s = 2E\sigma \le M^2$ needs $E \le M^2/2\sigma \lesssim 10^{9}$~eV for every relic momentum), and the light
+mediator opens processes that the planes above 1~keV do not have. This subsection lists them for the four models
+(scalar or vector, Majorana or Dirac neutrinos), says where each acts in the planes, and how the code carries it
+(\file{src/dp\_si\_light.py}, \file{src/dp\_si.py}). Nothing changes at 1~keV and above (checked bit for bit, below).
+Numbers are for the $\mu$ texture and $m_{\rm lightest} = 10^{-6}$~eV unless stated; the couplings in the mass basis
+are $\lambda = U^TGU$ (scalar, Majorana), $h = U^\dagger GU$ (scalar, Dirac) and $G' = U^\dagger GU$ (vector).
+
+\textit{What acts, and where.}---(i) \emph{Hard $2\to2$ and pair channels} (dp\_si's): below 1~keV every collision
+has $s \gg M^2$, and the cross sections depend on $M$ only through the pair channels' collinear logarithm
+$\ln(s/M^2)$; the scalar's limit stays near $g \approx 6\times10^{-3}$ and the vector's energy loss acts from
+$g\sim10^{-3}$. (ii) \emph{The vector's soft $t$ channel}, at a rate $\propto g^4/M_t^2$, converts the beam between mass
+states (Sec.~\ref{sec:si_dirac_vector}); its limit continues the one at 1~keV, $g \simeq 1.4\times10^{-5}\sqrt{M/{\rm
+eV}}$ ($\nu_e$), down to the mass splittings. The scalar has no forward peak: its vertex flips the helicity, so
+$|\mathcal{M}|^2 \propto |t|(4m_r^2 - t)/(t - M^2)^2$ vanishes at $t\to0$. (iii) \emph{The relic mass-change loss}
+(vector; Sec.~\ref{sec:mass-change-decay}, item 1) acts only within about a decade of the unitarity line. (iv) \emph{The
+relics' Debye screening} of the vector: $m_D \approx 10^{-5}g$~eV (Majorana relics, whose charge is $v$-suppressed) to
+$4\times10^{-4}g$~eV (Dirac, $|G'|^2 mT\ln2/4\pi^2$); where the models hold $M \ge 50\,m_D$, so $M_t^2 = M^2 + m_D^2$
+differs from $M^2$ by at most $4\times10^{-4}$. (v) \emph{Decay}, $\nu_i \to \nu_j + X$ for $M < m_i - m_j \le 0.11$~eV.
+For the vector the rate grows as $(g/M)^2$ (the longitudinal mode), and at 10~TeV the beam decays over the path for
+$g/M \gtrsim 1.1\times10^{-6}$~eV$^{-1}$ ($\mu$, $\tau$; $3.6\times10^{-6}$ for $e$; 2.5--8 times larger at
+$m_{\rm lightest} = 0.1$~eV), that is $g \sim 10^{-36}$ at $10^{-30}$~eV. The scalar has no longitudinal mode: its rest
+rate is $|\lambda_{ji}|^2m_i/16\pi$ and the beam decays for $g \gtrsim 5\times10^{-8}$ ($\mu$), $6\times10^{-8}$ ($\tau$),
+$2\times10^{-7}$ ($e$, universal), whatever $M$. A flavor-universal coupling is diagonal in the mass basis for the vector
+and the Dirac scalar (no decays), but not for the Majorana scalar ($U^TU$ at $\delta_{CP}\ne0$). (vi) \emph{The relics'
+own potential}: the next paragraphs. (vii) \emph{Where the models hold}: the vector's longitudinal mode (unitarity) and
+the scalar's relic field, below.
+
+\textit{The potential the relics put on the beam.}---For the vector it vanishes at first order. Its source is the relics'
+number current, neutrinos minus antineutrinos, which cancels without a lepton asymmetry (for Majorana relics the
+left-handed current's charge is $-G'hv$ per helicity $h$, and the two helicities are equally populated). The second
+order, the dispersive part of the $s$- and $u$-channel forward amplitudes, cancels at $O(1/s)$ between neutrinos and
+antineutrinos and is bounded by $g^2n/\langle E_r\rangle \le 1.2\times10^{-7}g^2$~eV$^2$ (all relics relativistic, $z = 4$),
+$1.6\times10^{-3}g^2$ of $\Delta m^2_{21}$, independent of $M$ below the MeV: negligible here and above 1~keV. (With a relic
+lepton asymmetry as large as the baryon asymmetry, a Dirac vector's first-order potential $g^2\eta n_\gamma/M^2$ would
+reach $\Delta m^2_{21}$ only for $g/M \gtrsim 0.1$--1~eV$^{-1}$, five decades inside the region the decays exclude; we
+take no asymmetry.)
+
+The scalar is different, and only the scalar (decided, Mauricio, 2026-10-25; \file{docs/SIMPLIFICATIONS\_AND\_ASSUMPTIONS.md}
+item 23). It couples to the neutrinos' scalar density, to which relic neutrinos and antineutrinos contribute with the
+same sign, so the relic background sources a steady field; the dark-portal and lepton-number vectors, in contrast, get
+their potential from ordinary matter, already transported. Minimizing $V(\phi) + \rho_{\rm relics}(m_{\rm eff}(\phi))$
+gives $M^2\phi = -\sum_r{\rm Re}\,c_{rr}\,n_{s,r}$, with $c = \lambda$ or $h$ and $n_{s,r} = 2n_{\rm hel}\eta_r(1+z)^3
+\langle m_r/E_r\rangle$ the scalar density of relic state $r$, and every neutrino, beam and relic alike, then has the
+mass matrix $D + c\phi$: a shift $g^2n_s/M^2$ that grows as the mediator gets lighter. It changes the masses squared by
+more than $10^{-3}\Delta m^2_{21}$ (at $z = 4$, where the density is largest) above the line $g/M = 10^{c_s}$:
+\begin{center}
+\begin{tabular}{lccc}
+texture & relics as produced & relics decayed, $m_{\rm lightest} = 10^{-6}$~eV & $m_{\rm lightest} = 0.1$~eV \\ \hline
+$e$ & 2.65 (Dirac 2.63) & 3.94 & 1.6--1.8 \\
+$\mu$ & 2.06 & 3.99 & 1.76--2.01 \\
+$\tau$ & 2.07 & 3.83 & 1.76--1.86 \\
+universal & 1.78 & 3.40 (Dirac: no decays, 1.78) & 1.51 \\
+\end{tabular}
+\end{center}
+($c_s$, the decimal logarithm of $g/M$ in eV$^{-1}$, \texttt{dp\_si\_light.scalar\_field\_measure}). The line is
+highest where the relics have decayed into a light $\nu_1$, which carries almost no scalar density; the relics decay
+wherever the decay is open and $g \gtrsim 4\times10^{-15}$. Above $g/M \sim 10^3$~eV$^{-1}$ ($0.9$--$7\times10^3$ for the
+non-relativistic relic states, $z \le 4$) the scalar's attraction between relics also beats their pressure, $g^2n_s/M^2
+\gtrsim \langle p^2\rangle/m$, far stronger than gravity: the uniform relic gas is unstable and clumps. The region is shaded
+rather than modelled. In the clumping regime every rate the transport uses (absorption, scattering, decays, screening)
+assumes a uniform relic gas of known density, temperature and masses; with clumps these are unknown without a
+structure-formation calculation, so neither an exclusion nor an allowed region computed there would be valid. Modelling
+the smooth shift below the clumping onset (a self-consistent field per redshift, fed into the transport; estimated at
+1--1.5 days, not measured) would recover only the band between the two lines, one to two decades of mediator mass near
+the decay limit. At the scalar's limits the region covers the decay limit below $M \sim 10^{-11}$--$10^{-9}$~eV and the
+hard-scattering limit below $10^{-6}$--$10^{-4}$~eV. The fits skip it, capped to the lightest masses where the model
+holds (as decision A for unitarity: \texttt{exact\_profile.lightest\_cap} through \texttt{exclusion.not\_modelled\_measure},
+the measure growing with the lightest mass), and the figures shade it (\texttt{exclusion.not\_modelled\_mask},
+\texttt{draw\_not\_modelled}).
+
+\textit{Decay, the four models.}---The vertices of $\nu_i \to \nu_j + X$ (amplitude $\bar u_j\Gamma u_i$) are
+$\lambda_{ji}P_L + \lambda^*_{ji}P_R$ (scalar, Majorana), $h_{ji}$ (scalar, Dirac: both chiralities, a visible $\nu_L$ into
+a sterile $\nu_R$), $\gamma^\mu(G'_{ji}P_L - G'^*_{ji}P_R)$ (vector, Majorana; \file{src/dp\_decay.py}, unchanged) and
+$\gamma^\mu G'_{ji}P_L$ (vector, Dirac). The rest rates, spin-averaged, with $p^*$ the daughter's momentum:
+\begin{equation}
+\Gamma^{\rm S,M}_{ij} = \frac{p^*}{8\pi m_i^2}\Big[|\lambda_{ji}|^2(m_i^2 + m_j^2 - M^2) + 2m_im_j{\rm Re}\,\lambda_{ji}^2\Big],
+\qquad
+\Gamma^{\rm S,D}_{ij} = \frac{p^*}{8\pi m_i^2}|h_{ji}|^2\big[(m_i + m_j)^2 - M^2\big],
+\end{equation}
+and the vector's of Sec.~\ref{sec:mass-change-decay} (Dirac: the $P_L$ piece alone). The daughters' spectra in their share
+$z$ of the parent's energy are the light-front traces of \texttt{dp\_decay.daughter\_spectra} with the general vertex
+and polarization sum: on the window $[z_-, z_+]$ of two-body kinematics $d\Gamma/dz = a + bz + c/z$ exactly (the tests:
+residual $10^{-10}$ of the mean at three further angles), each parent helicity's kept and flipped spectra adding up to the
+closed-form rate to $10^{-12}$ (the total does not depend on the spin). Light daughter and mediator: the scalar keeps
+the helicity with $2z$ and flips it with $2(1-z)$, Majorana and Dirac alike (as Lindner, Ohlsson and Winter); the Dirac
+vector's visible parent keeps it with the longitudinal $2z$ and does not flip, and a sterile parent (helicity $+$) flips
+into a visible daughter with $2(1-z)$. With massive daughters the shares move: the Dirac vector flips 2.6\% of
+$\nu_3\to\nu_2$ at $m_{\rm lightest} = 10^{-6}$~eV and 30--50\% at 0.1~eV. (The fit's $1/z$ column is scaled by $z_-$:
+unscaled, at $z_- \sim 10^{-16}$ it reached $10^{16}$ and the least squares dropped the other columns; dp\_decay's own
+fit, unchanged, loses accuracy below $m_{\rm lightest} \sim 10^{-8}$~eV, outside the analysis' range.)
+
+\textit{Dirac neutrinos: six states.}---A Dirac neutrino's flipped daughter has the sterile helicity, and a sterile
+neutrino decays as fast as a visible one, its flipped daughters visible again. dp\_si therefore follows six states,
+visible (0--2) and sterile (3--5), whenever a Dirac model decays (\texttt{model\_spec(sterile\_states=True)}): for the
+scalar the sterile states scatter with visibility swapped (the parity mirror behind the sum and difference runs), for the
+vector they do not scatter. The decay channel's arrays (\texttt{dp\_si\_light.transport\_arrays}) give each (parent,
+daughter) pair its spectrum and window; for Majorana neutrinos they are dp\_si's earlier ones bit for bit. The relics
+decay too (\texttt{dp\_decay.relic\_composition} with each model's rates): $\nu_1$ only, wherever the relics' decay is
+open; a Dirac relic's sterile daughters are counted as relics of their mass state (an approximation that matters only
+where the decays already dominate).
+
+\textit{The collision terms at the smallest masses.}---Two changes, both exact where the planes need them. (a) The
+vector pair's spectrum (\texttt{dp\_si.\_vv\_nu\_bins}) underflowed for $M^2/s < 10^{-48}$ ($M \lesssim 10^{-17}$~eV):
+its integration grid reached energy fractions $x < 10^{-100}$, where $x^3$ is zero in double precision; the moments
+there enter only the cumulative integrals far below every bin edge used, and are now set to zero (bit for bit wherever
+the routine ran before). (b) The scalar's collision terms take $\max(M, m_{\rm heaviest})$: they depend on $M$ only
+through $M^2/s$ ($\le10^{-12}$ at the floor) except the pair channel's collinear logarithm $\ln(s/M^2)$, which with
+massive neutrinos is cut by the exchanged neutrino's mass, not by $M$; the region where the floor acts lies four or
+more decades in $g$ inside the one the decays exclude. The vector keeps its own $M_t$ (its forward peak is the
+mediator's propagator); its pair channel's logarithm is likewise too large below the neutrino masses, where its hard
+scatterings act only far beyond the unitarity line.
+
+\textit{Where the vector holds.}---The longitudinal mode couples, through the current's divergence, as a Goldstone boson
+(Sec.~\ref{sec:mass-change-decay}, item 3). For Dirac neutrinos $\partial\cdot J = i\sum G'_{ij}(m_i\bar\nu_iP_L\nu_j -
+m_j\bar\nu_iP_R\nu_j)$, so $-\mathcal{L} = \phi N_iY_{ij}\nu_{Lj} + {\rm h.c.}$ with $Y_{ij} = iG'_{ij}m_i/M$ and
+$N = (\nu_R)^c$: a Yukawa between the six Weyl fields, whose partial waves (\texttt{dp\_si\_light.goldstone\_measure})
+reproduce the bound $8\pi/3$ of one Dirac pair (Allwicher et al.\ Eq.~4.7). The lines $\log_{10}g = \log_{10}M + c$:
+\begin{center}
+\begin{tabular}{lcccc}
+$m_{\rm lightest}$ & $e$ & $\mu$ & $\tau$ & universal \\ \hline
+$10^{-6}$~eV, Majorana / Dirac & 2.46 / 2.53 & 1.76 / 1.93 & 1.74 / 1.90 & 1.55 / 1.76 \\
+0.1~eV, Majorana / Dirac & 1.25 / 1.46 & 1.23 / 1.44 & 1.22 / 1.44 & 1.08 / 1.26 \\
+\end{tabular}
+\end{center}
+(\texttt{exclusion.not\_allowed\_boundary} now reads the secret interactions' couplings). The scalar's Yukawa is $g\le1$,
+within its bounds; its limit is the relic field above.
+
+\textit{Left out, with reasons.}---(a) The longitudinal mode's own scatterings. With masses the vector's propagator's
+$q^\mu q^\nu/M^2$ part does not decouple: the beam scatters on the relics through Goldstone exchange and pair production
+with the Yukawa $Y\sim gm/M$, scalar-like and additive to dp\_si's (massless) channels (different final helicities: no
+interference). Run as dp\_si's scalar channels with the Goldstone Yukawa ($\mu$ texture, $M = 10^{-6}$~eV, the
+relics after their decays) they leave the flux at 10~TeV unchanged at $g/M = 0.01$~eV$^{-1}$, reduce it to 0.62 (0.27
+at $m_{\rm lightest} = 0.1$~eV) at $g/M = 0.1$, and remove it from $g/M = 1$ on. That is inside the region the decays
+exclude: from $g/M \sim 10^{-4}$~eV$^{-1}$ on the beam arrives decayed and the pilot's fits give $\Delta\chi^2 \approx 10$
+(now\_ic26, pion sources, vector with Majorana and Dirac neutrinos); the scatterings would only strengthen that. Left
+out for the secret-interaction vector and the dark portal's ultralight planes, with a check on the campaign's results:
+every vector point with $g/M$ between $10^{-2}$~eV$^{-1}$ and the unitarity line must come out excluded, in every data
+set and composition. On the lepton-number planes they move the limit (at $g/M\sim0.1$--1~eV$^{-1}$ in the pilot) and are
+included (Mauricio, 2026-10-25; next paragraph). (b) The
+Zeno factor in dp\_si's quasi-elastic conversions (the dark-portal phase has it): where the decays cycle with the
+conversions the widths damp the conversions into a decaying state by $1/(1 + \zeta^2/4)$, at most 2\% near the unitarity
+line ($\zeta \le 0.3$). (c) The hard scatterings on the Galactic paths (as for the secret interactions above 1~keV; the
+Galaxy's relic column is $\sim10^{-5}$ of the cosmological one).
+
+\textit{The longitudinal-mode scatterings on the lepton-number planes (2026-10-25).}---The check by explicit spinors
+(massive neutrinos, the full propagator $-g^{\mu\nu} + q^\mu q^\nu/M^2$, $s$ and $t$ channels;
+\file{tests/test\_goldstone.py}): between currents the masses do not conserve, the $q^\mu q^\nu/M^2$ part is exactly the
+exchange of a scalar with the Goldstone couplings $Y$ ($q\cdot J = m_a\bar u P_Ru - m_k\bar uP_Lu$, to $10^{-12}$); it adds to
+the $-g^{\mu\nu}$ part without interference (the beam's helicity flips; $<10^{-12}$), and that part with massive spinors is
+dp\_si's massless cross section to $10^{-9}$: nothing is counted twice (the jumps and the relic loss come from the
+helicity-keeping forward peak, the decays are another process). With Majorana neutrinos they are dp\_si's scalar channels
+with $\lambda = Y$, whose decay is the vector's longitudinal one (to $10^{-5}$). The planes of $L_e - L_\mu$ and
+$L_e - L_\tau$ have a potential, so dp\_si cannot carry them whole; they enter the dark-portal phase as a factor per
+mass state, $R_i(E) = F_i/F_i^{(0)}$ from two dp\_si runs with and without the Goldstone channels (the decays and the
+relics after their decays in both; the relics thermal; a fixed reference source, equal flavors over the whole spectrum,
+so that the runs the analysis adds up still add up), each eigenstate's population at $z = 0$ multiplied by
+$\sum_iT_{ia}R_i$ (\texttt{dp\_si\_light.goldstone\_factors}; the solver for those two models below 1~keV wherever the
+largest $|Y| \ge 10^{-4}$). Exact where the potential leaves the eigenstates mass states at the energies where they
+absorb: the bound $\max_E\theta(E)(1 - R_{\rm tot}(E))$, $\theta$ the potential's $\sigma/\Delta m^2_{21}$ averaged over
+redshift with the absorption's weight $(1+z)/H$, is recorded per run (\texttt{meta['zeta']['goldstone']}). Left out:
+Dirac neutrinos, the Galactic paths ($\sim10^{-5}$ of the cosmological depth), the conversion--decay cycles' interplay
+with them (where the jumps cycle the flux is already drained). Validated on Tycho (2026-10-25, job 66919204,
+\file{tools/validate\_goldstone.py}): bit for bit where they do not act (lepton number below the gate, the dark portal,
+the secret-interaction vector at 10~keV); at $L_e - L_\mu$, $\mzd = 10^{-12}$~eV, the flux at $10^{13}$, $10^{14}$,
+$10^{15}$~eV with them over without: 0.955, 0.995, 0.999 ($g/\mzd = 0.1$~eV$^{-1}$, $m_l = 10^{-6}$~eV), 0.9996,
+0.99996, 1.0000 ($0.03$), 0.034, 0.24, 0.75 ($0.1$, $m_l = 0.1$~eV), 0.81, 0.975, 0.997 ($0.03$, $m_l = 0.1$~eV);
+the exactness bound at most $2\times10^{-2}$ (where 3\% of the flux is left) and $\le4\times10^{-5}$ elsewhere; flavor
+fractions moved by $\le1.2\times10^{-4}$; a run's cost +5--8\%. The decayed beam is mostly $\nu_1$, whose Goldstone
+coupling grows with $m_1$: hence the strong dependence on the lightest mass.
+
+\textit{The Galactic lines of sight.}---Neutrinos emitted in the Galaxy decay, convert and lose energy over their
+0.05--30~kpc too, at $z = 0$ (the extragalactic flux, by the time those matter, has long decayed). Without a potential
+every line of sight evolves alike but for where along it the emission sits, so the emission's spectra (per output pixel
+and distance bin; each pixel its children's, intensity-weighted, exact by linearity), scaled per energy by the sky mean,
+are split into 57 shapes by an SVD (kept to $10^{-10}$ of the largest singular value), and each shape in each mass state
+is evolved once from the Sun outward as a constant source: the populations at consecutive distance edges differ by what
+each bin's emission sends to the Sun (\texttt{dp\_si\_light.galactic\_transfer}). Each distance segment solves every
+energy bin exactly with its conversions (Zeno-damped, as the dark-portal phase's Galactic paths), decays and sources
+(\texttt{\_segment}), the relic loss in two halves around it. The pixels' flavor fluxes per unit emission enter the
+analysis' bands and sites as the averaged transfer did. Checks: the number kept to $10^{-12}$ over a segment, decay chains
+and the Dirac sterile states included (an in-place update in the first version of \texttt{\_segment} created sterile
+daughters twice; the test found it); against each pixel's own line of sight swept inward with its actual emission,
+$10^{-6}$ (the daughters of the bins above held over different segments: first order in them); 0.4--0.8~s per point on
+the 150-bin test grid.
+
+\textit{The transport and the routing.}---Below 1~keV the secret interactions' cosmological phase is dp\_si with the
+inputs of \texttt{dp\_si\_light.subkev\_inputs}: the decays (six states for Dirac neutrinos), the relic loss (vector),
+$M_t$ (vector) or the scalar's floor, the relics after their decays, and two redshift substeps per energy bin
+(\texttt{secret\_interactions.z\_substeps} 2 in the sub-keV configurations: where the decays and the conversions cycle,
+as for the dark-portal model's runs through dp\_si). The Galactic component goes through
+\texttt{galactic\_transfer} wherever one of the processes acts over 30~kpc (conversions above $10^{-4}$, decays and loss
+above $10^{-6}$ at the grid's lowest energy), on its grid extended to the template's end.
+
+\textit{Validation (2026-10-25, Tycho; \file{tools/validate\_si\_light.py}, \file{tests/test\_si\_light.py}, 16
+tests).}---(i) \emph{1~keV and above unchanged}: \file{src/dp\_si.py} with this subsection's edits undone (a scratch
+copy) against the current one, the four models at $M = 1$~keV, 100~keV, 0.5~MeV, 10~MeV: bit for bit, 16 of 16; the
+solver's secret-interaction branch calls dp\_si exactly as before at 1~keV and above. (ii) \emph{Limits}: without
+coupling the transport is the free-streaming closed form exactly (0.0); the decays alone keep the number of neutrinos,
+visible and sterile together, to $4.5\times10^{-7}$ (vector, Majorana), $8\times10^{-10}$ (vector, Dirac),
+$8.6\times10^{-8}$ (scalars), the source above $10^{14}$~eV on a grid down to 1~GeV (the Dirac models' visible share:
+0.995 and 0.979). (iii) \emph{Redshift steps and energy bins} at 18 points of the four models (decays at $g/M = 10^{-6}$
+and $10^{-5}$~eV$^{-1}$, degenerate masses, decays with conversions and loss, conversions above the splittings, hard
+scatterings, the relics decayed, the universal Majorana scalar), against 8 substeps per bin: the spectrum's shape within
+$2.4\times10^{-5}$ at 1 substep, $5.9\times10^{-6}$ at 2 (the configurations'), $1.2\times10^{-6}$ at 4, a flavor fraction
+within $1.3\times10^{-5}$, $3.2\times10^{-6}$, $6.4\times10^{-7}$ (first order in the step); 877 bins against 439 (nested),
+$6.1\times10^{-5}$ in shape and $5.8\times10^{-6}$ in flavor. At $g/M = 30$~eV$^{-1}$ (decays cycling with conversions)
+the flux is below $10^{-3}$ of the standard one at every energy. (iv) \emph{Against the dark-portal phase}: the vector
+with Majorana neutrinos and the $\mu$ texture is the dark-portal model at $\epsp = 0$ with $\gd\sum|U|^2 = g$ (its
+eigenstates the mass states, its jumps with their Zeno factor, its decays through dp\_medium, its Galactic crossing),
+an independent transport: at $(M, g) = (10^{-6}, 10^{-12})$, $(10^{-9}, 10^{-14})$, $(10^{-3}, 3\times10^{-8})$ at
+$m_{\rm lightest} = 0.1$~eV, $(1, 2\times10^{-5})$ the shapes agree to $2.8\times10^{-6}$ and the flavor fractions to
+$6.1\times10^{-5}$; at $(100, 10^{-3})$, routed through dp\_si in both, to $4\times10^{-8}$. Along $g/M$ at $M = 10^{-6}$~eV, where
+the decays and the conversions cycle: the two agree to $\le1\times10^{-5}$ while the flux keeps 0.2 or more of the standard
+one ($g/M \le 0.03$~eV$^{-1}$), to $3\times10^{-4}$ at $3\times10^{-3}$ of it ($g/M = 0.1$), and part below $\sim10^{-4}$ of
+it: at $g/M = 0.3$, 1 and 3~eV$^{-1}$ dp\_si leaves $3.6\times10^{-5}$, $3.2\times10^{-7}$ and $5\times10^{-9}$ of the
+standard flux, the dark-portal phase 0.93, $5\times10^{-4}$ and $10^{-90}$ times that. dp\_si's falls as the steady state
+of the cycles requires: each neutrino passes through a decade of energy in a few cycle times, so the flux left is
+$\sim H/\Gamma_{\rm cycle}$ ($\sim3\times10^{-9}$ at $g/M = 3$, scaling as $(g/M)^{-4}$ at fixed $M$, as it does); the
+dark-portal phase drains faster than that where the cycles outrun its redshift steps by $\gtrsim10^4$. Either way those
+points are excluded by many units of $\chi^2$; noted for the dark-portal and lepton-number planes.
+(v) \emph{The Galactic lines of sight}: halving every distance segment moves the flux by $\le4.8\times10^{-7}$, the SVD's
+tolerance $10^{-13}$ against $10^{-10}$ by $1.2\times10^{-8}$ (57 shapes); 1.3--4.7~s per point at 470 bins.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.85\textwidth]{../output/figures/si_subkev_regions.png}
+\caption{\textbf{The secret interactions below 1~keV} ($\mu$ texture): where the decay acts (its depth over the path at
+10~TeV reaches 1; blue), where the model is not modelled (gray, hatched at $m_{\rm lightest} = 10^{-6}$~eV; dashed at
+0.1~eV): the vector's longitudinal mode beyond perturbative unitarity, the scalar's relic background field (its line rises
+where the relics have decayed into a light $\nu_1$), and, for orientation, the scales of the hard scatterings and of the
+vector's conversions carried down from 1~keV. \file{tools/plot\_si\_subkev\_regions.py}.}
+\label{fig:si_subkev_regions}
+\end{figure}
+
+\textit{The planes.}---\file{tools/make\_si\_campaign\_configs.py} writes, per data set (now\_ic26, now\_events,
+proj\_future), model, texture ($e$, $\mu$, $\tau$, universal) and composition (pion, fitted), the plane over 1~keV--1~GeV
+(the first planes' grid, $49\times49$, $g = 10^{-6}$--1; it reproduces those four configurations exactly) and the
+sub-keV plane, $10^{-30}$~eV--1~keV with one mass per decade (34) and $g = 10^{-38}$--1 with two per decade (77): the
+vector's decays act down to $g/M \sim 10^{-6}$~eV$^{-1}$, and every column must reach the region without an effect. 192
+planes in all.
+
+\textit{The pilot (2026-10-25, Tycho, now\_ic26, pion sources, $\mu$ texture, the sub-keV planes; one core per
+fit, \file{tools/pilot\_fits.py} with \texttt{--points}, \file{slurm/si\_pilot2.sh}).}---Sixteen points per model in
+the modelled region, four fits per worker (the first paying the worker's numba compilation): median 40~s per fit
+(scalar, Majorana), 48~s (vector, Majorana), 73~s (vector, Dirac; one fit 1165~s), 98~s (scalar, Dirac). Where the beam
+arrives decayed the fits give $\chi^2 \approx 19$--20 against 9.04--9.28 without an effect ($\Delta\chi^2\approx10$), and
+where the decays cycle with the conversions up to 167. Per sub-keV plane, from where the processes switch on (an
+estimate, not measured): the vector $\sim600$ points with an effect, $\sim840$ not modelled (not fitted), $\sim1200$
+without an effect (inherited); the scalar $\sim150$, $\sim770$, $\sim1700$; the universal vector $\sim60$ with an
+effect. With the medians, the full fits of the four models' sub-keV planes of one texture take $\sim26$ core-hours for
+now\_ic26 with pion sources; the other data sets and the fitted compositions are not measured.
 
 
 %==============================================================================
@@ -2382,22 +2883,175 @@ survivors are put back as $N(1 - \sum_i w_i (1 - e^{-\lambda_i}))$, never below 
 their 0.05--30~kpc to the Sun, at $z = 0$: \file{src/dp\_galactic\_path.py}, called by
 \texttt{\_galactic\_emission\_populations} below 1~keV wherever one of them acts over 30~kpc at the grid's lowest
 energy (jumps above \texttt{SOFT\_JUMP\_MIN}, decays and losses above $10^{-6}$). Each line of sight (the work map's 3072
-pixels) is swept from its farthest emission bin to the Sun: at each of the 97 distance bins its emission is added (the
-emission's populations, gas and sources weighted as before), then the populations evolve over the segment to the next
-bin, in the eigenstates of the local potential at the segment's midpoint, with the jumps and the decays alternating
-symmetrically (as in the cosmological phase) and the energy loss in two halves around them; both kinds together, since a
-flipped daughter changes kind. The relics' composition is the one after their decays by today. Where the potential
+pixels) is swept from its farthest emission bin to the Sun, over each of the 97 distance bins in turn: the bin's
+emission (the emission's populations, gas and sources weighted as before) is a constant source over the bin's length,
+and the populations evolve over it in the eigenstates of the local potential (the bin's density), each energy bin
+solved exactly over the bin with the jumps, the decays and the source together (\texttt{dp\_sweep.step\_full} at
+$z = 0$, as the cosmological phase where the neutrinos decay; 2026-10-25: until then the emission was added at the bin's
+centre and the jumps and the decays alternated, first order where they cycle) and the energy loss in two halves around
+it; then over the last 0.05~kpc to the Sun; both kinds together, since a flipped daughter changes kind. The relics' composition is the one after their decays by today. Where the potential
 rotates the eigenstates by less than $10^{-6}$ along every line of sight (the dark-portal planes, and the lepton-number
 planes at the smallest couplings), every line of sight evolves alike but for its length: the emission, scaled per energy
 by the sky-mean intensity and split into a few spectral shapes (an SVD over the pixels, kept to $10^{-10}$ of the largest
-singular value), is evolved once through the distance bins and combined per pixel with the distance weights, at the
-output resolution (\texttt{vacuum\_populations}; 1~s against 80--150~s on one core). Checks: the two paths agree to
+singular value), is evolved once through the distance bins (a constant source from the Sun outward: the differences
+of the populations at consecutive edges are what each bin's emission sends to the Sun) and combined per pixel with the
+distance weights, at the output resolution (\texttt{vacuum\_populations}; 1~s against 80--150~s on one core). Checks: the two paths agree to
 $8\times10^{-6}$ (dark-portal points; an unscaled SVD lost $3\times10^{-4}$ at the faint highest energies, and a step
 that skipped bins whose spectral shapes summed to zero had made them differ by a factor of two at a strongly processing
 point; both fixed); with the segments cut into 16 pieces as reference, the default is within $1.3\times10^{-5}$ at
 moderate points and within $0.6$--$3\%$ where the processes drain the Galactic flux (first order before the alternation
 was made symmetric: 4\%); tests \file{tests/test\_galactic\_path.py} (the fast path equals the sweep to rounding with equal
 segments; the jumps keep the number).
+
+\textit{Decay in a medium (2026-10-25; \file{src/dp\_medium.py}, docs/dev/DECAY\_IN\_MEDIUM\_2026-10-25.md).}---In a
+potential the neutrinos travel as the eigenstates $a$ of $H$, not as mass states
+(Sec.~\ref{sec:full_transport}), and the decay acts between those eigenstates: its loss and gain terms in
+Eqs.~(\ref{eq:transport_cosmo}), (\ref{eq:decay_gain}) and (\ref{eq:transport_gal}) are the rates below. Until
+2026-10-25 each eigenstate decayed at the mean of its mass content's vacuum rates, $\sum_iT_{ia}\Gamma_i$, with
+vacuum kinematics, and each daughter mass state was split over the eigenstates by its content. That includes a decay
+that energy conservation forbids: the most stable eigenstate, mostly $\nu_1$ with a small heavier admixture
+$\epsilon^2$, decayed into itself at $\epsilon^2\Gamma_3$. Over a Hubble time $\Gamma_3t_H$ reaches $10^{15}$, so even
+$\epsilon^2\sim10^{-10}$ slid the flux down in energy. The decay is now done between the eigenstates, with their own
+kinematics.
+
+\emph{States.} With $D = {\rm diag}(m_i)$ and the texture on the mass basis, $S' = U^\dagger SU$, the effective
+masses squared $\mu_a(\sigma)$ are the eigenvalues of $D^2 + \sigma S'$ (antineutrinos: $D^2 - \sigma S'^*$), the
+energies $E_a = p + \mu_a/2p$. With $c_{ia} = \langle\nu_i|a\rangle$, $\mu_a = \langle a|D^2|a\rangle +
+\sigma\langle a|S'|a\rangle$. A state in flight is $\sum_ic_{ia}$ times the light-front spinor of mass state $i$ at the
+same momentum: the potential changes the spinors' small components only by $V/E\lesssim10^{-20}$.
+
+\emph{Amplitude.} The vertex is the Lagrangian's, $\bar\nu\gamma^\mu(G'P_L - G'^*P_R)\nu\,Z_\mu$ (Majorana), between
+the parent's state at momentum $p$ and the daughter's at $zp$, each with its own eigenvector (the daughter's at
+$\sigma' = z\sigma$):
+\begin{equation}
+\mathcal{A}_{a\to b}(z) = \sum_{ij}c'^*_{jb}(z\sigma)\,c_{ia}(\sigma)\,\mathcal{V}_{ji}(z, k_T),
+\label{eq:medium_amp}
+\end{equation}
+$\mathcal{V}_{ji}$ the vacuum light-front helicity amplitude of $\nu_i\to\nu_jZ_D$, the masses $m_i$, $m_j$ in its
+spinors. Energy conservation in light-front form fixes the daughter's transverse momentum,
+\begin{equation}
+k_T^2 = (1-z)\big[z\mu_a(\sigma) - \mu'_b(z\sigma)\big] - z\mzd^2 \;\ge\; 0 .
+\label{eq:medium_window}
+\end{equation}
+The longitudinal mediator carries the Goldstone-like enhancement. Its polarization is
+$\epsilon_L = q/\mzd - (\mzd/q^+)\,n$, and between on-shell spinors the Dirac equation turns $q\cdot J$ into
+$m_i\bar u_j(G'P_R - G'^*P_L)u_i - m_j\bar u_j(G'P_L - G'^*P_R)u_i$: the Lagrangian masses. What is left of $q\cdot J$
+is the pair's vacuum energy mismatch, $D_{ij}J^+/2p^+$ with
+$D_{ij} = (k_T^2+\mzd^2)/(1-z) + (k_T^2+m_j^2)/z - m_i^2$. Summed over the polarizations with the in-medium $q$ and
+written in $k_T$ (which carries the in-medium kinematics), these terms cancel against the mass terms identically, for
+any texture: the rates below equal the explicit light-front spinors' amplitude to $10^{-9}$ (both kinds, Majorana
+phases, a coupling that does not commute with the texture included; \file{tests/test\_medium.py}). (Until 2026-10-25
+these notes argued that the mismatch sums to $\sigma\langle b|[G', S']|a\rangle$ and needed $[G', S'] = 0$; the
+review's spinor computation showed that the cancellation needs no such condition.) So a potential is not a mass in the
+amplitude. It enters
+through the eigenvectors and the kinematics only.
+
+\emph{Rates.} Summed over the mediator's polarizations, with $G_s = G'$ for a neutrino parent and $G'^*$ for an
+antineutrino (the light-front spinors and polarizations behind these, checked against
+\texttt{dp\_decay.\_msq\_lf}'s traces to $10^{-13}$):
+\begin{align}
+\text{kept:}\quad |\mathcal{A}|^2 &= \frac{2k_T^2(z + 1/z)}{(1-z)^2}|\alpha|^2
+ + \frac{1}{\mzd^2z}\Big|\frac{z\mzd^2 - k_T^2}{1-z}\,\alpha + (1-z)\,\beta\Big|^2,
+ &\alpha &= c'^\dagger G_sc,\quad \beta = c'^\dagger DG_s^*D\,c, \nonumber\\
+\text{flipped:}\quad |\mathcal{A}|^2 &= \frac{2}{z}|\alpha + z\beta|^2 + \frac{k_T^2}{\mzd^2z}|\alpha + \beta|^2,
+ &\alpha &= c'^\dagger DG_sc,\quad \beta = c'^\dagger G_s^*D\,c,
+\label{eq:medium_rates}
+\end{align}
+the kept daughter of the parent's kind, the flipped one of the other, and
+$d\Gamma_{a\to b}/dz = |\mathcal{A}|^2/16\pi E$ on the window of Eq.~(\ref{eq:medium_window}), $E$ the parent's
+physical energy; $d\Gamma/dE = (1/E')\,d\Gamma/dz$ in Eq.~(\ref{eq:decay_gain}). Written in
+$Q = z\mu_a - \mu'_b$ every weight is $(Az + B + C/z)/\mzd^2$, the $1/(1-z)$ poles cancelled.
+
+\emph{Properties.} (i) With the mass states as eigenstates ($c = 1$) Eq.~(\ref{eq:medium_rates}) is
+$\Gamma^{\rm rest}_{ij}m_i/E$ times \texttt{daughter\_spectra}'s kept and flipped spectra: the totals to $5\times10^{-8}$,
+every bin's share to $3\times10^{-6}$ (both the old fits' own accuracy). (ii) A kept decay $a\to a$ is closed: by
+Weyl's inequality $\mu'_b(z\sigma)/z \ge \mu'_b(\sigma)$ (since $D^2/z \ge D^2$), so Eq.~(\ref{eq:medium_window}) needs
+$\mu_a > \mu_b + \mzd^2$: a kept decay goes to a lower state only, and the lowest state of a kind has none. (iii) A
+potential opens flips $\nu_i\to\bar\nu_i$ of the same mass state, closed in vacuum, through the axial coupling
+$2m_iG'_{ii}/\mzd$, where it splits $\nu_i$ from $\bar\nu_i$ by more than $\mzd^2$. Where the vacuum term dominates,
+the window is $1 - z \lesssim 2\sigma|S'_{ii}|/m_i^2$ and
+$E\Gamma \simeq |G'_{ii}|^2\sigma^3|S'_{ii}|^3/(3\pi\mzd^2m_i^2)$ (checked against the exact integral); where the
+potential dominates, $k_T^2\simeq2z(1-z)\sigma|S'_{ii}|$ and the longitudinal term gives
+$E\Gamma\simeq|G'_{ii}m_i/\mzd|^2\sigma|S'_{ii}|/4\pi$ (until 2026-10-25 quoted a factor 4 too small). (iv) Where the potential dominates the eigenstates tend to
+those of $G$ and $\langle b|G|a\rangle\to0$: the decays left go through the masses ($\beta$, the flips). (v) Each decay
+keeps one neutrino.
+
+\emph{Where this holds.} Fermi's golden rule between eigenstates needs the width small against the splittings of the
+parent's kind, $\zeta_a = 2E\Gamma_a/\min_b|\mu_a - \mu_b| \ll 1$; otherwise $H - i\Gamma/2$ mixes the eigenstates. The
+ratio depends on $\sigma$ alone; every run returns the largest one it meets (\texttt{meta['zeta']} of \texttt{propagate\_sky(\_basis)}). In vacuum
+$\zeta\simeq2\Gamma^{\rm rest}m/\Delta m^2\sim10^{-4}(g/\mzd)^2$ (eV units); where the potential dominates
+$\zeta\sim(G'm/\mzd)^2/2\pi$, the Goldstone Yukawa squared, bounded by perturbative unitarity. At the validation
+points below $\zeta\le1.5\times10^{-2}$, and at the lepton-number limits (the pilot of 2026-10-25, $\gd/\mzd\approx10^{-3}$--1~eV$^{-1}$) $\zeta\sim10^{-4}$: no map over the planes is needed.
+
+\emph{Numerics.} $E\Gamma$ depends on $(E, z)$ through $\sigma$ only. So every parent's plan is built once per run on a
+ladder of $\sigma$ values with the energy grid's bin ratio: a parent at rung $r$ has its daughters $k$ bins below at
+rung $r - k$. A plan holds the total rate, the own bin's share, the cut bins (exact integrals over the window, the parent
+spread over its bin as \texttt{window\_plan}) and the runs of bins wholly inside the window (moments, deposited by
+running sums). The ladder reaches down to where the eigenstates are the vacuum ones ($10^{-6}$ of the smallest
+splitting); the daughters below the grid enter the total and leave. A step interpolates in $\log\sigma$ between the two
+rungs around it: a parent's decays go $(1-w)$ by the lower rung's plan and $w$ by the upper's, each keeping the number.
+A Galactic segment takes the nearest rung instead ($\sigma$ within the grid's half-bin ratio, 1\%).
+Within a daughter bin the daughter's eigenvector is held at the bin's centre and its $\mu'$ follows
+$\langle D^2\rangle + \sigma_D\langle S'\rangle$ across the bin (exact to first order in the bin width; holding $\mu'$
+itself broke the cancellation between equal potential slopes, $\nu_\mu$-like $\to\bar\nu_e$-like). Cut bins near
+$z = 1$ are integrated in $1 - z$ (the spectrum there is a small difference of large terms). Against the exact formula
+(eigenvectors at every $z\sigma$, fine grid): the widths to $2\times10^{-4}$ at the validation points, every bin to
+$10^{-8}$. Code: \texttt{dp\_sweep.step\_full} (cosmology; the bin solved exactly with the jumps, the absorption and the
+injection), \texttt{dp\_medium.decay\_sweep} (the Galactic segments), tests \file{tests/test\_medium.py}.
+
+\emph{The other processes in a potential.} The soft scatterings' jumps use $\langle b|G|a\rangle$ at the beam's own
+$\sigma$, right: the momentum transfer is soft, and the energy the eigenstate change needs, $(\mu_a-\mu_b)/2E$, is
+absorbed by the relic's recoil ($s\sim2Em_r\gg\Delta\mu$), so nothing restricts it; only their Zeno damping took the
+old widths, now the eigenstates' in-medium ones. The relic mass-change loss costs the beam the relic's
+$\Delta m^2/2p_r^-$, its own state entering only through $(GG^\dagger)_{aa}$: right as it is. The relics' composition
+is unaffected: the relics are non-relativistic, their splitting $\Delta m\gg V$, and a vector potential on a Majorana
+neutrino at rest is suppressed by its velocity; wherever the potential could matter ($g/\mzd\gtrsim10^{-3}$ eV$^{-1}$)
+their own vacuum decays are complete by $z = 1$ (exponent $\gtrsim10^{20}$), and the flips do not change the occupation
+per mass state.
+
+\emph{The drift pieces are gone.} The dark-portal phase used to cut a step into pieces where an eigenstate's energy
+slid; that slide was the old model's self-decay, and nothing slides now. The slides left are physical: the jumps and
+the decays cycling (a stable state converted into a decaying one, again and again). Each bin's step solves them
+together exactly, and what is left of the step dependence is first order in the redshift step (the sources from the
+bins above held over a step), so more pieces per step do not help and more steps do.
+
+\emph{Validation.} On Tycho, the cosmological phase alone, against 3184 redshift steps; the shape is the ratio with
+its median divided out, the flavor the largest change of a flavor fraction, both over $10^{13}$--$10^{16}$~eV where the
+flux is at least $10^{-3}$ of the standard one. Where the potential sets the eigenstates (le\_lmu\_ul at
+$(\mzd, g) = (10^{-20}, 10^{-20})$, $(10^{-16}, 3\times10^{-17})$, $(10^{-12}, 10^{-11})$~eV, and five more), 200
+steps are within $1.3\times10^{-4}$ in shape and $3\times10^{-3}$ in flavor (mostly $\le10^{-7}$), and twice the energy
+bins within $5\times10^{-4}$, the grid's own. Where the decays and the jumps cycle among nearly vacuum eigenstates and
+drain the flux to $10^{-3}$--$10^{-2}$ of the standard one (dp\_e\_ul and le\_lmu\_ul at $(10^{-8}, 10^{-8})$~eV,
+$m_l = 0.1$~eV), 200 steps leave $3$--$6\times10^{-3}$ in shape and 400 steps $\le1.7\times10^{-3}$ (between the two
+regimes, $(10^{-9}, 10^{-9})$~eV at a tenth of the standard flux, $1.3\times10^{-3}$ at 200 steps); where the potential
+is negligible the phase agrees with dp\_si to $1.7\times10^{-3}$. A cosmological phase takes 4--8~s at 200 steps on one
+thread (600--750~s with the drift pieces). On the Galactic lines of sight, halving the segments changes the Galactic
+flux by at most $1.7\times10^{-8}$ and the nearest rung differs from the interpolation by at most $4\times10^{-5}$
+(le\_lmu\_ul, three points); there the old model had drained the Galactic flux to $10^{-4}$--$3\times10^{-2}$ of the
+standard one, the new one leaves $0.56$--$0.58$ of it.
+
+\emph{Decays the transport leaves out.} With the exact widths, on the le\_lmu\_ul planes at $3\times10^{16}$~eV
+($g/\mzd\le60$~eV$^{-1}$): above the vacuum band ($\mzd > m_3 - m_1$, no decays in the code) a decay depth above
+$10^{-3}$ appears only at $\mzd = g = 0.1$~eV. From the Sun on, the Sun's potential (1~AU) needs
+$\theta = \sigma/\Delta m^2_{21}\ge840$ of the same potential and the Earth's $\theta\ge3.4\times10^5$: there the
+potential's coherent effects already change the flux completely, and the lowest states do not decay at all. The
+extragalactic beam crossing the Galaxy (up to 30~kpc, taken as coherent and decay-free in the transit,
+App.~\ref{app:transit}) is the one place left, and there the decays matter. Measured (2026-10-25,
+\file{tools/galaxy_crossing.py}): the beam's populations at $z = 0$ (all spectral pieces) carried along four lines of
+sight (toward the Galactic centre and anticentre, a pole, $l = 90^\circ$, $b = 30^\circ$) through the local eigenstates
+with the in-medium decays, then through the Sun and the Earth, against the decay-free crossing, at $m_l = 0.01$~eV and
+$\mzd = 10^{-24}$--$10^{-8}$~eV (up to $10^{-12}$~eV the same at fixed $g/\mzd$; at $10^{-8}$~eV and
+$g/\mzd\ge1$ the cosmology drains the flux below $10^{-3}$ of the standard one, and the crossing still takes 27--46\%
+of the beam's populations): at $g/\mzd = 0.1$~eV$^{-1}$ the flux at
+$10^{13}$--$10^{16}$~eV drops by 13--41\% at the top, its shape changes by 11--34\% and a flavor fraction by up to 0.5;
+at $g/\mzd = 1$ by 1--17\%, 1--16\% and 0.15--0.19 (most toward the Galactic centre); at $g/\mzd = 10$ by $10^{-8}$.
+So the beam does not arrive in the lowest states at $g/\mzd\lesssim1$. Since 2026-10-25 the transport follows the
+crossing (\texttt{dark\_portal\_solver.\_flux\_runs}): the populations at $z = 0$ of all the runs of a point, as the
+columns of one sweep, are carried along every line of sight of the Galaxy (the Galactic component's lines and
+processes, each energy bin exact over each distance bin), averaged per declination band, and handed to the Sun and the
+Earth band by band through the handover's responses to the three unit inputs (the handover is linear in its input);
+the whole sky is the bands weighted by their widths in $\cos\theta_z$, as the handover's own. Without processes this is
+the transit as before to rounding (\file{tests/test\_galactic\_path.py}); the decays alone keep the number.
 
 \subsection{Processes below 1~keV: the catalogue (2026-10-24)}
 \label{sec:process-catalogue}
