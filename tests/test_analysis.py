@@ -608,3 +608,62 @@ def test_exact_profile_chains_can_be_cut():
         assert list(c) == sorted(c) or list(c) == sorted(c, reverse=True)
     from analysis.exact_profile import ExactSettings
     assert ExactSettings.from_dict({"chain_length": 8}).chain_length == 8
+
+
+def test_merged_blocks_take_the_standard_model_reference(tmp_path):
+    """tools/split_planes.py merge (2026-10-26): a plane's column blocks joined into one summary with the grid's own
+    masses, the standard-model fit (the lepton-number plane's, at g = 1e-32) recorded as chi2_sm, and
+    analysis.exclusion.field reading each column from it where it lies below the column's own minimum (a dark-portal
+    column whose couplings all have an effect is excluded everywhere, not allowed at its least-excluded coupling)."""
+    import copy
+    import json
+    import os
+    import sys
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
+    import split_planes as sp
+    from analysis import exclusion
+    repo = os.path.join(os.path.dirname(__file__), "..")
+    raw = json.load(open(os.path.join(repo, "analysis/configs/campaign_ml/now_ic26/dp_mu_ul.json")))
+    raw = copy.deepcopy(raw)
+    pl = raw["planes"][0]
+    pl.update(x_range=[1e-6, 1e-1], nx=6, y_range=[1e-8, 1e-6], ny=3)
+    cdir = tmp_path / "configs" / "now_ic26"
+    cdir.mkdir(parents=True)
+    cfg = cdir / "dp_mu_ul.json"
+    cfg.write_text(json.dumps(raw))
+    root = tmp_path / "out"
+    xs = sp._grid(1e-6, 1e-1, 6)
+    ys = sp._grid(1e-8, 1e-6, 3)
+    sm = 9.0
+    # the lepton-number plane's blocks: their global fits at the no-effect limit
+    for b in (0, 1):
+        d = root / "now_ic26" / "le_lmu_ul" / f"b{b}" / "data"
+        d.mkdir(parents=True)
+        (d / "fit.json").write_text(json.dumps({"chi2": sm, "values": {"g_D": 1e-32}}))
+    # the dark portal's two blocks (4 + 2 masses): column 0 excluded at every coupling (its minimum 19), the others
+    # reaching the standard model
+    chi = np.array([[19.0, 25.0, 40.0], [9.1, 12.0, 30.0], [9.0, 9.5, 20.0], [9.0, 9.0, 9.2], [9.0, 9.0, 9.0],
+                    [9.0, 9.0, 9.0]])
+    for b, (i, j) in enumerate(((0, 4), (4, 6))):
+        d = root / "now_ic26" / "dp_mu_ul" / f"b{b}" / "data"
+        d.mkdir(parents=True)
+        s = dict(kind="plane", names=["m_Zd_eV", "g_D_trace"], grids=[xs[i:j].tolist(), ys.tolist()], log=[True, True],
+                 chi2=chi[i:j].tolist(), best={}, raster="m_Zd_eV")
+        (d / "plane_m_Zd_eV_g_D_trace.json").write_text(json.dumps(s))
+        (d / "plane_m_Zd_eV_g_D_trace.jsonl").write_text(json.dumps({"index": [1, 2], "chi2": 1.0}) + "\n")
+    sp.merge(str(cfg), str(root))
+    out = root / "now_ic26" / "dp_mu_ul" / "data" / "plane_m_Zd_eV_g_D_trace.json"
+    m = json.load(open(out))
+    assert np.allclose(m["grids"][0], xs) and m["chi2_sm"] == sm and np.allclose(np.array(m["chi2"], float), chi)
+    recs = [json.loads(l) for l in open(str(out)[:-5] + ".jsonl")]
+    assert [r["index"][0] for r in recs] == [1, 5]                      # block indices moved to the whole grid's
+    # the field (+ inside the excluded set): column 0 read from the standard model, excluded at every coupling (10, 16,
+    # 31 above it); without the record the old reading leaves it out altogether (its smallest coupling not no-effect)
+    lx, G, F, yn, C = exclusion.field(str(out))
+    col0 = np.ma.filled(F[:, 0].astype(float), np.nan)
+    assert np.isfinite(col0).all() and np.all(col0 > 0)
+    m.pop("chi2_sm")
+    own = tmp_path / "own.json"
+    own.write_text(json.dumps(m))
+    lx, G, F, yn, C = exclusion.field(str(own))
+    assert not np.isfinite(np.ma.filled(F[:, 0].astype(float), np.nan)).any()

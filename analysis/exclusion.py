@@ -125,7 +125,13 @@ def field(path):
             if abs(np.log10(x[i]) - lm) < 1e-5 and abs(np.log10(y[j]) - lg) < 1e-5:
                 chi[i, j] = c
     chi0 = chi.copy()
-    d = chi - np.nanmin(chi, axis=1, keepdims=True)
+    # each column read from its own minimum -- or from the standard model's fit where the summary records one and it
+    # lies lower (2026-10-26: a column whose couplings all have an effect, as the dark portal's at light masses once the
+    # neutrinos decay, does not reach the no-effect limit, which belongs to every column's coupling range)
+    cmin = np.nanmin(chi, axis=1, keepdims=True)
+    if s.get("chi2_sm") is not None:
+        cmin = np.fmin(cmin, float(s["chi2_sm"]))
+    d = chi - cmin
     lab, n = ndimage.label(d >= THRESHOLD)
     for k in range(1, n + 1):
         sel = lab == k
@@ -134,7 +140,13 @@ def field(path):
     cols = {i: [(float(y[j]), float(chi[i, j])) for j in range(len(y)) if np.isfinite(chi[i, j])] for i in range(len(x))}
     for r in grid_recs:
         cols[int(np.argmin(np.abs(np.log(x / r["held"][xn]))))].append((r["held"][yn], r["chi2"]))
-    left_out = {i for i in range(len(x)) if not abs(chi0[i, 0] - np.nanmedian(chi0[:, 0])) < 0.3}
+    sm = s.get("chi2_sm")
+    if sm is None:
+        left_out = {i for i in range(len(x)) if not abs(chi0[i, 0] - np.nanmedian(chi0[:, 0])) < 0.3}
+    else:
+        # the standard model's fit recorded (2026-10-26, merged blocks): the smallest coupling need not be no-effect (the
+        # dark portal's light columns decay already there), so no column is left out for differing at it
+        left_out = set()
     S, low, cov = {}, {}, {}
     for i, pts in cols.items():
         if i in left_out or not pts:
@@ -143,16 +155,23 @@ def field(path):
         pts.sort()
         g = np.log10([p[0] for p in pts])
         c = np.array([p[1] for p in pts])
-        dc = c - min(c.min(), np.nanmin(chi0[i]))              # from the column's minimum, the refinement included
+        cmin = min(c.min(), np.nanmin(chi0[i]))                 # the column's minimum, the refinement included
+        prefers = True
+        if sm is not None and float(sm) < cmin:
+            # the no-effect limit, part of every column's coupling range, lies below every sampled coupling: read from it,
+            # and what is excluded below the lowest allowed coupling stays excluded (worse than no effect at all)
+            cmin, prefers = float(sm), False
+        dc = c - cmin
         ok = dc < THRESHOLD
         if ok.any():
-            dc[:int(np.argmax(ok))] = 0.0                       # below the lowest allowed coupling: not an exclusion
+            if prefers:
+                dc[:int(np.argmax(ok))] = 0.0                   # below the lowest allowed coupling: not an exclusion
             low[i] = g[int(np.argmax(ok))]
         pts = sorted(list(zip(g, dc)) + [(np.log10(gs), v) for gs, v in specks])
         S[i] = signed(G, np.interp(G, [p[0] for p in pts], [p[1] for p in pts]) >= THRESHOLD)
         cov[np.log10(x[i])] = np.ones(len(G), bool)
     xs = {np.log10(x[i]): S.get(i) for i in range(len(x))}     # None: left out
-    null = float(np.nanmedian(chi0[:, 0]))                     # the no-effect chi^2 (the grid's smallest coupling)
+    null = float(np.nanmedian(chi0[:, 0])) if sm is None else float(sm)   # the no-effect chi^2
     between = {}
     for r in between_recs:
         between.setdefault(round(np.log10(r["held"][xn]), 6), []).append((r["held"][yn], r["chi2"]))
