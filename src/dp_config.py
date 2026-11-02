@@ -8,12 +8,11 @@ verbatim out of dark_portal_solver.py.
 import os
 import copy
 import json
-import multiprocessing
 
 import numpy as np
 from typing import Dict
 
-from dp_core import safe_print
+from dp_core import safe_print, default_n_cores
 
 # =============================================================================
 # MULTIPROCESSING WRAPPER & CONFIGURATION MANAGER
@@ -63,8 +62,8 @@ def parse_structure_matrix_3x3(entry, name: str) -> np.ndarray:
 # CANONICAL CONFIGURATION DEFAULTS
 # =============================================================================
 # Single source of truth for every configuration default. create_default_config, the
-# CLI baseline in __main__, run_solver's normalization, and FrequentistAnalysis's
-# physics_constants fallbacks all read from THIS dict -- defaults previously lived in
+# CLI baseline in __main__, run_solver's normalization, and the analysis package's
+# solver configurations all read from THIS dict -- defaults previously lived in
 # four separately-maintained copies, and keeping them synchronized by hand produced
 # exactly the class of silent drift this codebase's audits kept finding.
 def _build_default_config() -> Dict:
@@ -73,8 +72,23 @@ def _build_default_config() -> Dict:
             "H0_km_s_Mpc": 67.4,
             "Omega_m": 0.315,
             "Omega_L": 0.685,
-            "T_nu0_eV": 1.95e-4,
-            "n_n0_cm3": 0.25e-6,
+            # Relic-neutrino temperature today: (4/11)^(1/3) * T_CMB = 1.9454 K for
+            # T_CMB = 2.7255 K, i.e. 1.6764e-4 eV (k_B = 8.617333e-5 eV/K). The value was
+            # 1.95e-4 eV until 2026-10-12 -- "1.95 K" entered as eV, 16% too hot; since the
+            # thermal kernel's relic density follows from the Fermi-Dirac integral (~T^3),
+            # the absorption rates were ~57% too high.
+            "T_nu0_eV": 1.676389e-4,
+            # Cosmological NEUTRON density today. Neutrons are bound almost entirely in He-4,
+            # Y_p/2 per baryon: n_b = 2.515e-7 cm^-3 (PDG 2024, CMB) x 0.2458/2 (Y_p, LBT Y_p
+            # project 2026) = 3.091e-8 cm^-3. The value was 0.25e-6 until 2026-10-12 -- the
+            # total BARYON density, which made the cosmological dark-portal potential 8.1x too
+            # strong (it is sourced by neutrons only: Z-like couplings of protons and electrons
+            # cancel in neutral matter).
+            "n_n0_cm3": 3.091e-8,
+            # Cosmological ELECTRON (= proton) density today, for matter charges other than the
+            # neutron's (matter_charge): the same baryons, 1 - Y_p/2 per baryon, n_b (1 - Y_p/2) =
+            # 2.515e-7 x 0.8771 = 2.2059e-7 cm^-3 (2026-10-14, docs/dev/SCOPE_WIDENING_PLAN.md).
+            "n_e0_cm3": 2.2059e-7,
             "m_lightest_eV": 0.01,
             "mass_ordering": "normal",
             "eta_e": 1.0,
@@ -93,6 +107,22 @@ def _build_default_config() -> Dict:
             "detector_depth_km": 1.5,
             "V_SM_struct": None
         },
+        "model": {
+            # The benchmark model (dp_models, decided 2026-10-14): 'dark_portal' (default), or one of
+            # the gauge models 'L_e-L_mu', 'L_e-L_tau', 'L_mu-L_tau', 'B-3L_e', 'B-3L_mu', 'B-3L_tau',
+            # 'B-3/2(L_mu+L_tau)', which set the matter charge, the texture, the neutrino coupling and
+            # the visible width; dark_portal.g_D is their gauge coupling g'.
+            "name": "dark_portal"
+        },
+        "matter_charge": {
+            # The potential's source, q_n n_n + q_p n_p + q_e n_e (dp_matter; docs/dev/
+            # SCOPE_WIDENING_PLAN.md, 2026-10-14). In neutral matter n_p = n_e, so q_p and q_e enter
+            # as their sum. The default, neutrons alone, is the dark portal's Z-Z_D mass mixing
+            # (theory notes, Eq. T9) -- and B - L's -- and runs the historical path bit for bit.
+            "q_n": 1.0,
+            "q_p": 0.0,
+            "q_e": 0.0
+        },
         "dark_portal": {
             "u_e": 0.5,
             "u_mu": 0.5,
@@ -101,7 +131,107 @@ def _build_default_config() -> Dict:
             "g_D": 1.e-4,
             "epsilon_prime": 1e-1,
             "use_debye_screening": True,
+            # The resonant absorption on the relic neutrinos (dp_absorption; docs/dev/PHYSICS_AUDIT.md,
+            # decided with Mauricio 2026-10-14): 'lagrangian' -- from the mediator's coupling to the
+            # neutrinos, each relic mass state by its own flavor content, coherently per eigenstate,
+            # the left-handed width plus e+e-/mu+mu-, the Z mixing's coupling eps' g/c_W, the relics'
+            # Moller flux factor and non-relativistic Debye mass; 'theory_notes' -- the form used
+            # until then (T7, T11, T12), ~6x too much absorption, for comparisons.
+            "absorption_model": "lagrangian",
+            # The cosmological phase (2026-10-14): 'auto' -- dp_si's vector transport (every collision
+            # with the relics, thermally averaged resonance, visible width) where the cosmological
+            # potential is negligible (the MeV regime), the dark-portal phase elsewhere; 'si', 'dark_portal'
+            # force one.
+            "cosmo_transport": "auto",
+            # The relics' motion in dp_si's transport (2026-10-18): False -- their thermal momenta in the s channel's
+            # kernels only (dp_si thermal=True); True -- in every collision term: rates, in-bin terms and produced
+            # spectra (thermal="full"; docs/SIMPLIFICATIONS_AND_ASSUMPTIONS.md 6a).
+            "thermal_products": False,
+            # Scatterings on the relics below 1 keV (2026-10-22; notes, 'Soft scatterings on the relics'): the soft
+            # ones in the dark-portal phase, the hard ones through dp_si. False leaves them out (the code before then):
+            # the analysis generates its Asimov data -- the Standard Model -- that way (analysis/config.objective).
+            "relic_scattering": True,
+            "neutrino_decay": True,
             "U_LRI_struct": None
+        },
+        "secret_interactions": {
+            # Secret neutrino interactions (dp_si, 2026-10-13): the neutrinos scatter on the relic
+            # neutrinos through a new mediator phi (arXiv:2001.04994; cross sections of
+            # arXiv:2107.13568, Appendix A). When enabled they REPLACE the dark portal: the
+            # propagation is dp_si's cosmological transport of decohered mass states (no coherent
+            # potential), and the dark_portal section is ignored.
+            "enabled": False,
+            # 'scalar' or 'vector' (coupled to left-handed currents, G nubar gamma^mu P_L nu V_mu)
+            "mediator": "scalar",
+            # 'majorana' or 'dirac'. Dirac, scalar: every vertex has a sterile state (nu_R, nubar_L);
+            # Dirac, vector: half the Majorana rates (only nu_L- and nubar_R-like relic components)
+            "neutrino_type": "majorana",
+            "m_phi_eV": 5.0e6,
+            "g_phi": 0.01,
+            # flavor-basis couplings: 'universal' (g delta_ab), 'e', 'mu', 'tau' (g on that flavor
+            # alone), or 'matrix' (g_phi times g_matrix, a real symmetric 3x3)
+            "texture": "tau",
+            "g_matrix": None,
+            # 'full' (s, t, u channels, interference, double-scalar production), 's' (s channel
+            # only) or 'delta' (its narrow-width limit): the approximations of 2107.13568, Fig. 5
+            "channels": "full",
+            # double-scalar production: 'coherent', ((g^2)_ij)^2, or 'paper', sum_k g_ik^2 g_jk^2 as
+            # printed in 2107.13568 (see dp_si)
+            "phiphi_coupling": "coherent",
+            # the relics' thermal momenta in every collision term (dp_si thermal="full"; 2026-10-21, as
+            # dark_portal.thermal_products): off keeps the relics at rest, as 2107.13568 and 2001.04994. A Dirac
+            # relic keeps its helicity, so the beam meets its left- and right-chiral components in shares that
+            # depend on its speed and direction: carried as such (dp_si.model_spec, polarized)
+            "thermal_products": False,
+            # scalar with Dirac neutrinos: 'track' the sterile secondaries, which scatter too and turn
+            # back into visible ones (exact, by parity), or 'drop' them as 2107.13568 does
+            "dirac_sterile": "track",
+            # redshift steps per energy bin: steps uniform in ln(1+z), so grid.n_z_bins is unused
+            "z_substeps": 1,
+            # the transport's grid extends above grid.E_max_eV by this factor, so that what is
+            # injected above it cascades into it
+            "E_extension": 10.0
+        },
+        "sky": {
+            # Per-direction output (docs/dev/DIRECTIONS_PLAN.md, 2026-10-13): 'allsky' (one flux for
+            # the whole sky, as every existing output), 'bands' (also per declination band) or
+            # 'healpix' (also HEALPix maps, equatorial J2000, RING). Read by propagate_sky only.
+            "output": "allsky",
+            "nside": 16,
+            # declination band edges in degrees, increasing from -90 to 90; None = 20 bands uniform
+            # in sin(dec) (decision D1), i.e. bands of 0.1 in cos(zenith) at the South Pole
+            "dec_band_edges_deg": None,
+            # Earth chords per band (the band edges are chord nodes; dp_spatial.earth_chord_nodes)
+            "earth_nodes_per_band": 2,
+            # the Sun per direction: 'isotropic' (today's Gauss-Legendre average); 'yearly' comes
+            # after the anisotropy diagnostic (decision D4)
+            "sun_weighting": "isotropic",
+            # The extragalactic flux in physical units: None keeps the solver's (Phi_0 E^-p); a number is the
+            # per-flavor nu + nubar intensity at 100 TeV, GeV^-1 cm^-2 s^-1 sr^-1, that the extragalactic flux
+            # would have without new physics (e.g. 2.12e-18 with p_index 2.87: IceCube's HESE 7.5-yr fit,
+            # PRD 104, 022002, Eq. VI.1, 6.37e-18 for all six species). Needed to add the Galactic component.
+            "extragalactic_norm": None,
+            # the energy (GeV) at which extragalactic_norm is given (e.g. 14678 with 1.6815e-16: IceCube's 2026
+            # astrophysical flux in its 10-21.5 TeV bin, E^2 Phi = 3.623e-8 per flavor, dp_galactic.ICECUBE_2026_ANCHOR)
+            "extragalactic_norm_E_GeV": 1e5
+        },
+        "galactic": {
+            # The Galactic-plane component (DIRECTIONS_PLAN Sections 3.4-3.6; dp_galactic), off by
+            # default: template 'cringe' (Schwefer, Mertsch, Wiebusch 2023: diffuse plus unresolved
+            # sources, as IceCube fits it), 'cringe_diffuse' (the diffuse part) or 'pi0' (Fermi-LAT
+            # 2012, E^-2.7); norm_gal in units of the template's model flux, None = IceCube's 2026
+            # combined fit (0.91 for CRINGE, 4.99 for pi0; 1 for cringe_diffuse); source composition
+            # (f_e_S_gal, 1 - f_e_S_gal, 0), floated on its own (D6); emission '3d' (emission points
+            # along each line of sight, D3; step 6) or 'local' (at the local potential). Read by
+            # propagate_sky only; secret interactions leave the Galactic flux unattenuated.
+            "enabled": False,
+            "template": "cringe",
+            "norm_gal": None,
+            "f_e_S_gal": 0.333333,
+            "emission": "3d",
+            # where the Galactic data files are looked for first (then src/data): e.g. the N_side 64 reductions
+            # for tracks, kept outside the repository (tools/prepare_galactic.py --out)
+            "data_dir": None
         },
         "source": {
             "p_index": 2.5,
@@ -112,34 +242,68 @@ def _build_default_config() -> Dict:
             "f_mu_S": 0.666667,
             "f_tau_S": 0.0,
             "is_antineutrino": "sum",
-            "nubar_to_nu_ratio": 1.0
+            "nubar_to_nu_ratio": 1.0,
+            # Where the sources sit (2026-10-13): 0 = in the cosmic mean density (the
+            # default); s > 0 = inside a Milky-Way-like host galaxy at a Sun-like position, its
+            # neutrons scaled by s, which sets the potential the neutrinos are emitted in.
+            "host_galaxy_scale": 0.0,
+            # The sources' emission window (2026-10-15, the broken power law's two pieces; analysis/model.py): the
+            # sources inject only neutrinos whose energy today, E_source / (1+z), lies in [E_min, E_max) (GeV;
+            # None: unbounded). Every effect downstream (absorption and its secondaries, conversion) is then that
+            # population's; the extragalactic scale (sky.extragalactic_norm) stays the whole power law's.
+            "injection_E_min_GeV": None,
+            "injection_E_max_GeV": None
         },
         "grid": {
             "E_min_eV": 1e13,
             "E_max_eV": 3e16,
             "n_E_bins": 1000,
             "n_z_bins": 1000,
-            "n_mw_paths": 6,
+            # The transit to the Earth (dp_transit, 2026-10-13): directions to the Sun in
+            # its coherent transit and the largest turn of the eigenbasis between the frame
+            # table's nodes (the transit's error is ~1e-5 at 0.002).
+            "n_sun_paths": 8,
+            "transit_dtheta": 0.002,
             "n_earth_chords": 12,
-            "N_steps_MW": 25,
             "n_z_thermal": 0,
             "thermal_analytic": True,
             "earth_step_scheme": "avg",
-            "N_steps_earth": 25,
-            "r_start_kpc": 100.0
+            # Average over the Earth chords: "phase" integrates each block of the chords'
+            # density matrices against its dark-portal phase over cos(zenith), removing the
+            # chord-sampling floor; "plain" is the historical equal-weight mean (see
+            # dp_spatial.average_earth_chords).
+            "earth_zenith_average": "phase",
+            "earth_sky": "full",
+            "N_steps_earth": 25
         },
         "output": {
             "flux_filename": "../output/data/output_flux.txt",
             "plot_filename": "../output/plots/flux_plot.png"
         },
         "execution": {
-            "n_cores": multiprocessing.cpu_count() - 1 if multiprocessing.cpu_count() > 1 else 1,
+            # all cores but one on a laptop, the whole allocation in a SLURM job
+            # (dp_core.default_n_cores; cpu_count() would report a whole Tycho node)
+            "n_cores": default_n_cores(),
             "verbose": 1,
-            "use_gpu": False
+            "use_gpu": False,
+            # whether and when the Earth crossing's responses are reused (dp_spatial.propagate_earth_spatial): 'off',
+            # 'repeat' or 'always' (the analysis)
+            "earth_transfer": "off"
         }
     }
 
 DEFAULT_CONFIG = _build_default_config()
+
+# Keys that existed once and no longer do anything: accepted (so older configurations still
+# load) and dropped, with one note per process. The Milky Way trajectories were replaced on
+# 2026-10-13 by the transit of dp_transit (grid.n_sun_paths, grid.transit_dtheta).
+RETIRED_KEYS = {
+    ("grid", "n_mw_paths"): "the Milky Way transit is now adiabatic (no trajectories)",
+    ("grid", "N_steps_MW"): "the Milky Way transit is now adiabatic (no steps)",
+    ("grid", "r_start_kpc"): "the Galactic potential is now a Yukawa integral over the whole Galaxy",
+}
+_retired_noted = set()
+
 
 def merge_config_with_defaults(config: Dict) -> Dict:
     """Overlays a (possibly partial) user config onto the canonical defaults, REJECTING
@@ -149,7 +313,7 @@ def merge_config_with_defaults(config: Dict) -> Dict:
     fell through every .get() fallback and silently did nothing -- the same
     parsed-but-dropped failure mode behind several bugs fixed in past audits
     (n_e_earth_cm3, use_SM_potential, execution.n_cores). Keys and sections whose names
-    begin with '_comment' are ignored, matching the FrequentistAnalysis convention.
+    begin with '_comment' are ignored (the analysis configurations use the same convention).
     """
     merged = copy.deepcopy(DEFAULT_CONFIG)
     for section, entries in config.items():
@@ -161,6 +325,12 @@ def merge_config_with_defaults(config: Dict) -> Dict:
             raise ValueError(f"Config section '{section}' must be a dict of settings.")
         for key, value in entries.items():
             if key.startswith("_comment"):
+                continue
+            if (section, key) in RETIRED_KEYS:
+                if (section, key) not in _retired_noted:
+                    _retired_noted.add((section, key))
+                    print(f"[NOTE] config key '{section}.{key}' is retired and ignored: "
+                          f"{RETIRED_KEYS[(section, key)]}.")
                 continue
             if key not in merged[section]:
                 raise ValueError(
@@ -180,6 +350,8 @@ def create_default_config(filename: str = "../config/config_dark_portal.json") -
     # generated JSON so the file shows only actively-used settings.
     default_config["standard_mixing"].pop("V_SM_struct", None)
     default_config["dark_portal"].pop("U_LRI_struct", None)
+    default_config["secret_interactions"].pop("g_matrix", None)
+    default_config["sky"].pop("dec_band_edges_deg", None)
     os.makedirs(os.path.dirname(os.path.abspath(filename)), exist_ok=True)
     with open(filename, 'w') as f:
         json.dump(default_config, f, indent=4)

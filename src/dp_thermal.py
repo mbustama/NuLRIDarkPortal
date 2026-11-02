@@ -10,7 +10,7 @@ import numpy as np
 
 from dp_core import njit, prange, cm_inv3_to_eV3
 
-@njit(fastmath=True, cache=True)
+@njit(fastmath=True, error_model="numpy", cache=True)
 def thermal_averaged_rates_flavor(E0: float, z: float, sum_G: float, sum_G_alpha: np.ndarray, 
                                   m_Zd: float, m_nu_bg_arr: np.ndarray, T_nu0: float, 
                                   eta_mass: np.ndarray) -> np.ndarray:
@@ -136,14 +136,43 @@ def _seg_moment_log(h, Qa, Qb, va, vb, at_a, at_b, lg_a, lg_b, MG):
     L1b = 0.5 * (vb * vb + MG * MG) * (lg_b - 1.0)
     return (A0 * (L0b - L0a) + A1 * (L1b - L1a)) / beta
 
+# 8-point Gauss-Legendre on [-1, 1]: relic_state_rates_analytic's angular integral far from the resonance (fine_m)
+_GL8C_X, _GL8C_W = np.polynomial.legendre.leggauss(8)
+
+
 @njit(cache=True)
-def thermal_averaged_rates_flavor_analytic(E0: float, z: float, sum_G: float,
-                                           sum_G_alpha: np.ndarray, m_Zd: float,
-                                           m_nu_bg_arr: np.ndarray, T_nu0: float,
-                                           eta_mass: np.ndarray, glx: np.ndarray,
-                                           glw: np.ndarray, glx10: np.ndarray,
-                                           glw10: np.ndarray, fd16: np.ndarray) -> np.ndarray:
-    """Semi-analytic replacement for thermal_averaged_rates_flavor: same physics,
+def relic_state_rates_analytic(E0: float, z: float, sum_G: float, m_Zd: float,
+                               m_nu_bg_arr: np.ndarray, T_nu0: float,
+                               eta_mass: np.ndarray, glx: np.ndarray,
+                               glw: np.ndarray, glx10: np.ndarray,
+                               glw10: np.ndarray, fd16: np.ndarray, moller: bool,
+                               mode: int = 0, fine_m: bool = False, pol: int = 0) -> np.ndarray:
+    """fine_m (2026-10-18; dp_si thermal="full"): momentum panels at 2m, 20m, 200m, 2000m, where p / E_p turns over
+    (without them, ~m/T errors where the resonance sits at sigma ~ m: 1e-2 at m/T ~ 0.03); False keeps the earlier
+    quadrature. With pol +-1 it also takes the angular integral by quadrature where the resonance is far (B < |u| / 10:
+    the closed form's cancellation loses 1e-3 to 1e-2 at s ~ 1e-4 M^2; 2026-10-21; pol 0 keeps the closed form while
+    the dark-portal campaign that uses it runs).
+
+    pol (2026-10-21, with moller; Dirac relics, dp_si thermal="full"): +1 (-1) weighs every relic by the share of its
+    left- (right-) chiral component seen by the beam, (1 +- pi)/2, pi = (E_p sigma - m^2) / (p sigma) its spin along
+    the beam in its rest frame (helicity -1 nu, +1 nubar). Times the Moller factor that is (1 + v)(1 - cos)/2
+    ((1 - v)(1 + cos)/2): the closed form below at v = 1 (v = -1; linear in v) times (1 + v)/2 ((1 - v)/2). The two
+    add up to pol 0.
+
+    mode 1 (with moller): the same thermal average of (s - M^2)/BW instead of s/BW -- the kinematic
+    factor of the s-t interference (dp_si's thermal step integrals), closed form
+        [(K/2) L + v (2B - MG T)] / B^2.
+
+    The raw absorption integral of each relic mass state at unit weight, (3,): what
+    thermal_averaged_rates_flavor_analytic multiplies by the flavor weights. moller: the flux
+    factor 1 - v cos(theta) of a relic moving at v = p / E_bg (True; the physical one, 2026-10-14,
+    docs/dev/PHYSICS_AUDIT.md item 1e), or the massless relic's 1 - cos(theta) of the theory notes'
+    Eq. T7 (False). With the Moller factor the closed form is, K = B - v (A - M^2),
+        I_ang = [2 v B + (K + v M^2)/2 L + (K M^2 - v MG^2)/MG T] / B^2,
+    L the log and T the atan difference (checked against 50-digit quadrature to 2e-16 median);
+    v = 1 recovers the old one.
+
+    Semi-analytic replacement for thermal_averaged_rates_flavor: same physics,
     same closed-form I_ang, but the p-integral is Gauss-Legendre on the smooth
     intervals plus exact atan/log moments across the (closed-form) resonance
     crossing -- see the scheme NOTE above. Validated against dense brute-force
@@ -164,11 +193,11 @@ def thermal_averaged_rates_flavor_analytic(E0: float, z: float, sum_G: float,
     MG2 = MG * MG
     M2 = m_Zd * m_Zd
 
-    rates = np.zeros(3, dtype=np.float64)
+    states = np.zeros(3, dtype=np.float64)
     if MG == 0.0 or MG2 == 0.0:
         # MG2 == 0.0 also guards subnormal-underflow widths (m_Zd < ~1e-35), where
         # ln(v^2 + MG^2) at the resonance node would be ln(0) = -inf.
-        return rates
+        return states
 
     prefactor = 1.0 / (2.0 * np.pi)
     x = E0 * (1.0 + z)
@@ -206,7 +235,7 @@ def thermal_averaged_rates_flavor_analytic(E0: float, z: float, sum_G: float,
         # crossing capture each decade of the atan/log transition; the innermost
         # +-3-width core gets the exact moments when narrow. Cells with no structure
         # in range keep the single [0, p_max] panel. ---
-        brk = np.empty(14, dtype=np.float64)
+        brk = np.empty(18, dtype=np.float64)
         nb = 0
         brk[nb] = 0.0
         nb += 1
@@ -226,7 +255,15 @@ def thermal_averaged_rates_flavor_analytic(E0: float, z: float, sum_G: float,
             if pe_inside:
                 brk[nb] = p_edge
                 nb += 1
-        # insertion sort (nb <= 13)
+        if fine_m:
+            # p / E_p turns over at p ~ m: panels at 2m, 20m, 200m, 2000m for a relativistic relic (2026-10-18; the
+            # single [0, p_max] panel left ~m/T errors where the resonance sits at sigma ~ m, 1e-2 at m/T ~ 0.03)
+            for f in (2.0, 20.0, 200.0, 2000.0):
+                c = f * m
+                if 0.0 < c < p_max:
+                    brk[nb] = c
+                    nb += 1
+        # insertion sort (nb <= 17)
         for ii in range(1, nb):
             key = brk[ii]
             jj = ii - 1
@@ -273,9 +310,28 @@ def thermal_averaged_rates_flavor_analytic(E0: float, z: float, sum_G: float,
                             um = 0.0
                         else:
                             up = 0.0
-                    S0v[k] = p * f_FD / x
-                    Qlv[k] = f_FD * (M2 - um) / (8.0 * x * x)
-                    Qav[k] = -f_FD * (M2 * um + MG2) / (4.0 * x * x * MG)
+                    if pol == 0:
+                        v = p / E_bg
+                        w1 = m2 / (E_bg * (E_bg + p))           # 1 - v without cancellation
+                    elif pol > 0:
+                        v, w1 = 1.0, 0.0
+                        f_FD *= (E_bg + p) / (2.0 * E_bg)
+                    else:
+                        v, w1 = -1.0, 2.0
+                        f_FD *= m2 / (2.0 * E_bg * (E_bg + p))
+                    if moller and mode == 1:
+                        S0v[k] = p * f_FD * v / x
+                        Qlv[k] = f_FD * p * w1 / (4.0 * x) - f_FD * v * um / (8.0 * x * x)
+                        Qav[k] = -f_FD * v * MG / (4.0 * x * x)
+                    elif moller:
+                        S0v[k] = p * f_FD * v / x
+                        Qlv[k] = f_FD * p * w1 / (4.0 * x) + f_FD * v * (M2 - um) / (8.0 * x * x)
+                        Qav[k] = (f_FD * p * w1 * M2 / (2.0 * x * MG)
+                                  - f_FD * v * (M2 * um + MG2) / (4.0 * x * x * MG))
+                    else:
+                        S0v[k] = p * f_FD / x
+                        Qlv[k] = f_FD * (M2 - um) / (8.0 * x * x)
+                        Qav[k] = -f_FD * (M2 * um + MG2) / (4.0 * x * x * MG)
                     umv[k] = um
                     upv[k] = up
                     atmv[k] = np.arctan(um / MG)
@@ -313,26 +369,76 @@ def thermal_averaged_rates_flavor_analytic(E0: float, z: float, sum_G: float,
                 B_ = 2.0 * x * p
                 u_plus = A_ - M2 + B_
                 u_minus = A_ - M2 - B_
-                C = 1.0 - (A_ - M2) / B_
-                D = 1.0 - (A_ - 2.0 * M2) / B_
-                F = C * M2 - MG2 / B_
-                I_ang = ((2.0 / B_)
-                         + (D / (2.0 * B_)) * np.log((u_plus * u_plus + MG2) / (u_minus * u_minus + MG2))
-                         + (F / (B_ * MG)) * (np.arctan(u_plus / MG) - np.arctan(u_minus / MG)))
-                if I_ang < 0.0:
+                if pol == 0:
+                    v = p / E_bg
+                elif pol > 0:
+                    v = 1.0
+                    f_FD *= (E_bg + p) / (2.0 * E_bg)
+                else:
+                    v = -1.0
+                    f_FD *= m2 / (2.0 * E_bg * (E_bg + p))
+                u0 = A_ - M2
+                if fine_m and pol != 0 and B_ < 0.1 * np.sqrt(u0 * u0 + MG2):
+                    # far from the resonance the closed form cancels to ~eps (u0 / B)^2 (1e-3 at s ~ 1e-4 M^2,
+                    # 2026-10-21): there the kernel is analytic across the whole angular range, and 8-point
+                    # Gauss-Legendre in cos(theta) is exact to rounding. The chiral shares only: pol 0 (rho) keeps the
+                    # closed form its campaign planes were computed with (2026-10-22: the projections' chi^2 moved by
+                    # ~0.1 with it, against 2e-4 of agreement with the reference either way)
                     I_ang = 0.0
+                    for g in range(8):
+                        c_ = _GL8C_X[g]
+                        s_ = A_ - B_ * c_
+                        I_ang += _GL8C_W[g] * (1.0 - v * c_) * (s_ - M2 if mode == 1 else s_) / (
+                            (s_ - M2) * (s_ - M2) + MG2)
+                elif moller and mode == 1:
+                    K_ = B_ - v * (A_ - M2)
+                    I_ang = ((0.5 * K_ * np.log((u_plus * u_plus + MG2) / (u_minus * u_minus + MG2))
+                              + v * (2.0 * B_ - MG * (np.arctan(u_plus / MG) - np.arctan(u_minus / MG))))
+                             / (B_ * B_))
+                elif moller:
+                    K_ = B_ - v * (A_ - M2)
+                    I_ang = ((2.0 * v * B_
+                              + 0.5 * (K_ + v * M2) * np.log((u_plus * u_plus + MG2) / (u_minus * u_minus + MG2))
+                              + ((K_ * M2 - v * MG2) / MG) * (np.arctan(u_plus / MG) - np.arctan(u_minus / MG)))
+                             / (B_ * B_))
+                else:
+                    C = 1.0 - (A_ - M2) / B_
+                    D = 1.0 - (A_ - 2.0 * M2) / B_
+                    F = C * M2 - MG2 / B_
+                    I_ang = ((2.0 / B_)
+                             + (D / (2.0 * B_)) * np.log((u_plus * u_plus + MG2) / (u_minus * u_minus + MG2))
+                             + (F / (B_ * MG)) * (np.arctan(u_plus / MG) - np.arctan(u_minus / MG)))
+                if I_ang < 0.0 and mode == 0:
+                    I_ang = 0.0                      # s/BW is positive; (s - M^2)/BW changes sign
                 w_k = glw10[k] if short_panel else glw[k]
                 acc += w_k * half * p * p * f_FD * I_ang
 
-        if acc < 0.0:
+        if acc < 0.0 and mode == 0:
             acc = 0.0
-        integral_sum = prefactor * acc
-        for alpha in range(3):
-            rates[alpha] += integral_sum * sum_G_alpha[alpha] * eta_mass[i]
+        states[i] = prefactor * acc * eta_mass[i]
 
+    return states
+
+
+@njit(cache=True)
+def thermal_averaged_rates_flavor_analytic(E0: float, z: float, sum_G: float,
+                                           sum_G_alpha: np.ndarray, m_Zd: float,
+                                           m_nu_bg_arr: np.ndarray, T_nu0: float,
+                                           eta_mass: np.ndarray, glx: np.ndarray,
+                                           glw: np.ndarray, glx10: np.ndarray,
+                                           glw10: np.ndarray, fd16: np.ndarray) -> np.ndarray:
+    """The theory notes' flavor rates (T7, T12): every relic state's integral at the incident flavor's full
+    coupling (Sum G)_alpha, with the massless flux factor -- relic_state_rates_analytic summed over the states
+    and weighted per flavor. Kept for absorption_model 'theory_notes' (docs/dev/PHYSICS_AUDIT.md, 1a-1c)."""
+    states = relic_state_rates_analytic(E0, z, sum_G, m_Zd, m_nu_bg_arr, T_nu0, eta_mass, glx, glw, glx10,
+                                        glw10, fd16, False)
+    tot = states[0] + states[1] + states[2]
+    rates = np.zeros(3, dtype=np.float64)
+    for alpha in range(3):
+        rates[alpha] = tot * sum_G_alpha[alpha]
     return rates
 
-@njit(fastmath=True, cache=True, parallel=True)
+@njit(fastmath=True, error_model="numpy", cache=True, parallel=True)
 def precompute_all_thermal_rates_analytic(E_bins: np.ndarray, z_bins: np.ndarray, sum_G: float,
                                           sum_G_alpha: np.ndarray, m_Zd: float, m_nu_bg_arr: np.ndarray,
                                           T_nu0: float, eta_mass: np.ndarray,
@@ -350,6 +456,23 @@ def precompute_all_thermal_rates_analytic(E_bins: np.ndarray, z_bins: np.ndarray
                 E_bins[i], z_bins[k], sum_G, sum_G_alpha, m_Zd, m_nu_bg_arr, T_nu0,
                 eta_mass, glx, glw, glx10, glw10, fd16)
     return Gamma_grid
+
+@njit(fastmath=True, error_model="numpy", cache=True, parallel=True)
+def precompute_relic_state_rates(E_bins: np.ndarray, z_bins: np.ndarray, sum_G: float, m_Zd: float,
+                                 m_nu_bg_arr: np.ndarray, T_nu0: float, eta_mass: np.ndarray,
+                                 glx: np.ndarray, glw: np.ndarray, glx10: np.ndarray, glw10: np.ndarray,
+                                 fd16: np.ndarray, moller: bool) -> np.ndarray:
+    """(N_z, N_E, 3) raw absorption integrals per relic mass state at unit weight (relic_state_rates_analytic),
+    for the coherent absorption of dp_absorption (docs/dev/PHYSICS_AUDIT.md, 1a-1c)."""
+    N_E = len(E_bins)
+    N_z = len(z_bins)
+    grid = np.zeros((N_z, N_E, 3), dtype=np.float64)
+    for k in prange(N_z):
+        for i in range(N_E):
+            grid[k, i, :] = relic_state_rates_analytic(E_bins[i], z_bins[k], sum_G, m_Zd, m_nu_bg_arr, T_nu0,
+                                                       eta_mass, glx, glw, glx10, glw10, fd16, moller)
+    return grid
+
 
 # Gauss-Legendre nodes/weights on [-1, 1] for the semi-analytic thermal kernel
 # (16-point for long panels, 10-point for the short resonance-shell panels), plus
@@ -377,7 +500,7 @@ _FD16 = np.ascontiguousarray(1.0 / (np.exp(10.0 * (1.0 + _GL16_X)) + 1.0))
 # That analytic path now exists (thermal_averaged_rates_flavor_analytic above, the
 # default); THIS midpoint kernel remains the reference implementation, selectable via
 # grid.thermal_analytic = false.
-@njit(fastmath=True, cache=True, parallel=True)
+@njit(fastmath=True, error_model="numpy", cache=True, parallel=True)
 def precompute_all_thermal_rates(E_bins: np.ndarray, z_bins: np.ndarray, sum_G: float,
                                  sum_G_alpha: np.ndarray, m_Zd: float, m_nu_bg_arr: np.ndarray,
                                  T_nu0: float, eta_mass: np.ndarray) -> np.ndarray:
@@ -394,7 +517,7 @@ def precompute_all_thermal_rates(E_bins: np.ndarray, z_bins: np.ndarray, sum_G: 
             Gamma_grid[k, i, :] = thermal_averaged_rates_flavor(E_bins[i], z_bins[k], sum_G, sum_G_alpha, m_Zd, m_nu_bg_arr, T_nu0, eta_mass)
     return Gamma_grid
 
-@njit(fastmath=True, cache=True, parallel=True)
+@njit(fastmath=True, error_model="numpy", cache=True, parallel=True)
 def _interp_thermal_grid_z(Gamma_sub: np.ndarray, N_z: int) -> np.ndarray:
     """Linearly interpolates a thermal-rate grid computed on a coarse uniform z-subgrid
     onto the full uniform z-grid. Both grids are uniform linspaces over the same
@@ -415,12 +538,50 @@ def _interp_thermal_grid_z(Gamma_sub: np.ndarray, N_z: int) -> np.ndarray:
                 out[k, i, a] = (1.0 - w) * Gamma_sub[i0, i, a] + w * Gamma_sub[i0 + 1, i, a]
     return out
 
+# =============================================================================
+# NORMALIZATION OF THE RESONANT CROSS SECTION
+# =============================================================================
+# The kernels above integrate, per flavor alpha, the angular and momentum average of
+#     sigma_raw(s) = 2 pi (Sum G)_alpha s / [(s - M^2)^2 + M^2 Gamma^2],
+# Gamma = (Sum G) M / (12 pi) (theory notes, Eqs. 11-12): only the production coupling sits
+# in the numerator. Integrated across the resonance this gives the same strength,
+# 12 pi^2 (Sum G)_alpha / Sum G, whatever the size of the couplings -- a vanishing coupling
+# only narrowed the resonance -- so the absorption did not switch off as u or g_D -> 0
+# (until 2026-10-12: identical integrated rates from Sum G = 7.6e-4 down to 3e-19). The
+# Breit-Wigner of a vector resonance formed by nu_L + nubar_R carries both widths,
+#     sigma_alpha(s) = 48 pi Gamma_in,alpha Gamma_tot s / (M^2 [(s - M^2)^2 + M^2 Gamma^2])
+#                    = (Sum G)_alpha (Sum G) s / (3 pi [(s - M^2)^2 + M^2 Gamma^2]),
+# with Gamma_in,alpha = (Sum G)_alpha M / (12 pi): integrated, 4 pi (Sum G)_alpha, which
+# vanishes with the couplings. (For the Z boson the same formula gives the classic resonant
+# annihilation cross section on the relic background, <sigma> = 2 sqrt(2) pi G_F.) The
+# physical rates are therefore the raw kernels times Sum G / (6 pi^2), applied where the grids
+# leave this module (build_thermal_grid, thermal_grid_cached); the kernels and the coupling
+# cache's unit-weight grids stay in the raw normalization.
+
+
+def absorption_normalization(sum_G: float) -> float:
+    """Factor turning the raw kernel rates into the physical ones (see the NOTE above).
+    Argument: sum_G -- the total coupling Sum G."""
+    return float(sum_G) / (6.0 * np.pi**2)
+
+
 def build_thermal_grid(E_bins: np.ndarray, z_bins: np.ndarray, sum_G: float,
                        sum_G_alpha: np.ndarray, m_Zd: float, m_nu_bg_arr: np.ndarray,
                        T_nu0: float, eta_mass: np.ndarray, n_z_thermal: int = 0,
                        thermal_analytic: bool = True) -> np.ndarray:
-    """Builds the (N_z, N_E, 3) thermal attenuation-rate grid, optionally via a coarse
-    z-subgrid plus linear interpolation.
+    """The physical (N_z, N_E, 3) attenuation-rate grid: _build_thermal_grid_raw times
+    absorption_normalization(sum_G). Arguments as for _build_thermal_grid_raw."""
+    return _build_thermal_grid_raw(E_bins, z_bins, sum_G, sum_G_alpha, m_Zd, m_nu_bg_arr, T_nu0,
+                                   eta_mass, n_z_thermal, thermal_analytic) * absorption_normalization(sum_G)
+
+
+def _build_thermal_grid_raw(E_bins: np.ndarray, z_bins: np.ndarray, sum_G: float,
+                            sum_G_alpha: np.ndarray, m_Zd: float, m_nu_bg_arr: np.ndarray,
+                            T_nu0: float, eta_mass: np.ndarray, n_z_thermal: int = 0,
+                            thermal_analytic: bool = True) -> np.ndarray:
+    """Builds the (N_z, N_E, 3) thermal attenuation-rate grid in the kernels' raw
+    normalization (see the NOTE above), optionally via a coarse z-subgrid plus linear
+    interpolation.
 
     thermal_analytic (config key grid.thermal_analytic, default True) selects the
     semi-analytic momentum integration (thermal_averaged_rates_flavor_analytic:
@@ -489,7 +650,7 @@ def build_thermal_grid(E_bins: np.ndarray, z_bins: np.ndarray, sum_G: float,
 #     verified bracket (no extrapolation ever). The lower spread floor is a purely
 #     numerical guard (~1e-4 dex): interpolation between exact endpoints only gets
 #     MORE accurate as the bracket narrows, and allowing narrow brackets is what lets
-#     the cache fire inside Minuit's profiled inner fits, whose per-step coupling
+#     the cache fire inside profiled inner fits, whose per-step coupling
 #     moves are ~0.01-0.1 dex (with the original 0.3-dex floor the cache never
 #     activated during real scans);
 #   * out-of-bracket or unverified requests pay the normal exact build (which slides
@@ -518,7 +679,7 @@ def _tc_try_fit(state, s_new):
     Bracket spreads down to _TC_MIN_SPREAD_DEX (a purely numerical floor) are allowed:
     the surrogate is an INTERPOLATION between two exact endpoints, so narrowing the
     bracket only shrinks the model error, and the verification gate still stands guard.
-    This is what lets the cache fire inside Minuit's profiled inner fits, whose
+    This is what lets the cache fire inside profiled inner fits, whose
     coupling moves are far smaller than the original 0.3-dex floor (measured: with the
     0.3-dex floor the cache NEVER activated during real scans -- every inner-fit
     evaluation paid the full exact build). Gate failures count toward disabling the key
@@ -562,7 +723,8 @@ def thermal_grid_cached(E_bins: np.ndarray, z_bins: np.ndarray, sum_G: float,
                         thermal_analytic: bool = True) -> np.ndarray:
     """build_thermal_grid with the two-component coupling cache in front (see the
     NOTE above). Exact-path results differ from build_thermal_grid only by the
-    factoring of the sum_G_alpha weights out of the state sum (ulp level).
+    factoring of the sum_G_alpha weights out of the state sum (ulp level). The cache
+    stores raw unit-weight grids; the physical normalization rides on the weights.
 
     Arguments:
       E_bins, z_bins: the (E, z) grid the rates are tabulated on.
@@ -580,7 +742,8 @@ def thermal_grid_cached(E_bins: np.ndarray, z_bins: np.ndarray, sum_G: float,
                                   m_nu_bg_arr, T_nu0, eta_mass,
                                   n_z_thermal=n_z_thermal, thermal_analytic=thermal_analytic)
 
-    weights = np.asarray(sum_G_alpha, dtype=np.float64)
+    # physical weights: the unit-weight grids below are in the raw normalization
+    weights = np.asarray(sum_G_alpha, dtype=np.float64) * absorption_normalization(sum_G)
     key = (float(m_Zd), tuple(float(v) for v in m_nu_bg_arr), float(T_nu0),
            tuple(float(v) for v in eta_mass), len(E_bins), float(E_bins[0]),
            float(E_bins[-1]), len(z_bins), float(z_bins[0]), float(z_bins[-1]))
@@ -594,8 +757,8 @@ def thermal_grid_cached(E_bins: np.ndarray, z_bins: np.ndarray, sum_G: float,
     s = float(sum_G)
     # Exact-point reuse: a request at a sum_G we already built exactly returns the
     # stored unit-weight grid -- identical arithmetic to the exact path below, so this
-    # is a pure lookup, valid even when the surrogate is disabled. (Minuit re-evaluates
-    # its incumbent parameter point several times per profiled fit.)
+    # is a pure lookup, valid even when the surrogate is disabled. (Minimizers re-evaluate
+    # their incumbent parameter point several times per profiled fit.)
     for ps, pu in state["points"]:
         if ps == s:
             return np.ascontiguousarray(pu[:, :, None] * weights[None, None, :])
@@ -605,8 +768,8 @@ def thermal_grid_cached(E_bins: np.ndarray, z_bins: np.ndarray, sum_G: float,
         return np.ascontiguousarray(U[:, :, None] * weights[None, None, :])
 
     # exact unit-weight build (the couplings enter the kernel only through sum_G)
-    U = build_thermal_grid(E_bins, z_bins, s, np.ones(3), m_Zd, m_nu_bg_arr, T_nu0,
-                           eta_mass, thermal_analytic=True)[:, :, 0].copy()
+    U = _build_thermal_grid_raw(E_bins, z_bins, s, np.ones(3), m_Zd, m_nu_bg_arr, T_nu0,
+                                eta_mass, thermal_analytic=True)[:, :, 0].copy()
 
     if not state["disabled"]:
         pts = [(ps, pu) for (ps, pu) in state["points"] if ps != s]
@@ -620,6 +783,47 @@ def thermal_grid_cached(E_bins: np.ndarray, z_bins: np.ndarray, sum_G: float,
 
     return np.ascontiguousarray(U[:, :, None] * weights[None, None, :])
 
+
+
+def relic_state_grid_cached(E_bins: np.ndarray, z_bins: np.ndarray, sum_G: float, m_Zd: float,
+                            m_nu_bg_arr: np.ndarray, T_nu0: float, eta_mass: np.ndarray,
+                            moller: bool = True) -> np.ndarray:
+    """(N_z, N_E, 3) physical absorption rate of each relic mass state per unit weight w (Gamma_in = w M / 12 pi;
+    dp_absorption gives w = |(U^dag G W)_ra|^2 / 2): the raw per-state grid times absorption_normalization(sum_G),
+    through the two-component coupling cache of thermal_grid_cached (its surrogate fitted per state; the couplings
+    enter the kernel only through sum_G, the width). sum_G <= 0 gives zeros."""
+    N_z, N_E = len(z_bins), len(E_bins)
+    if sum_G <= 0.0:
+        return np.zeros((N_z, N_E, 3))
+    norm = absorption_normalization(sum_G)
+    key = ("states", bool(moller), float(m_Zd), tuple(float(v) for v in m_nu_bg_arr), float(T_nu0),
+           tuple(float(v) for v in eta_mass), N_E, float(E_bins[0]), float(E_bins[-1]), N_z, float(z_bins[0]),
+           float(z_bins[-1]))
+    state = _tc_cache.get(key)
+    if state is None:
+        if len(_tc_cache) >= _TC_MAX_KEYS:
+            _tc_cache.clear()
+        state = {"points": [], "fit": None, "failures": 0, "disabled": False}
+        _tc_cache[key] = state
+    s = float(sum_G)
+    for ps, pu in state["points"]:
+        if ps == s:
+            return np.ascontiguousarray(pu * norm)
+    fit = state["fit"]
+    if fit is not None and fit["s_lo"] <= s <= fit["s_hi"]:
+        return np.ascontiguousarray((fit["I_A"] + fit["I_B"] / s) * norm)
+    U = precompute_relic_state_rates(E_bins, z_bins, s, m_Zd, m_nu_bg_arr, T_nu0, eta_mass, _GL16_X, _GL16_W,
+                                     _GL10_X, _GL10_W, _FD16, bool(moller))
+    if not state["disabled"]:
+        pts = [(ps, pu) for (ps, pu) in state["points"] if ps != s]
+        pts.append((s, U))
+        if len(pts) > _TC_MAX_POINTS:
+            pts.sort(key=lambda t: abs(np.log10(t[0] / s)))
+            pts = pts[:_TC_MAX_POINTS]
+        pts.sort(key=lambda t: t[0])
+        state["points"] = pts
+        _tc_try_fit(state, s)
+    return np.ascontiguousarray(U * norm)
 
 
 @njit(cache=True)

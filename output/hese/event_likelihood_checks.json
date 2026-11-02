@@ -1,0 +1,51 @@
+{
+ "hese_build_seconds": 5.322929620742798,
+ "hese_nnz_per_map": 518371,
+ "hese_apply_ms": 20.82681655883789,
+ "hese_power_law": {
+  "worst": 6.2116866345554126e-15,
+  "median": 6.892906135034981e-16,
+  "total": -2.220446049250313e-16
+ },
+ "hese_solver_dark_portal": {
+  "worst": 2.0323874655621688e-07,
+  "median": 1.684139508527646e-08,
+  "total": 5.5380480201705495e-08
+ },
+ "max_abs_log10w_at_nominal": {
+  "dom_eff": 0.0,
+  "head_on": 0.0,
+  "anisotropy": 0.0
+ },
+ "detector_per_bin_vs_per_event": {
+  "draws": 40,
+  "all_three_within_2sigma_worst_relative": {
+   "Astro": 0.06247155677663641,
+   "Conv": 0.051343197556529864,
+   "Prompt": 0.025436801626162457
+  },
+  "all_three_worst_in_poisson_sigma": {
+   "Astro": 0.004071265380599291,
+   "Conv": 0.0018623237820674207,
+   "Prompt": 0.0008787605103477771
+  },
+  "one_at_a_time_midpoints_worst_relative": {
+   "Astro": 0.004730832369451531,
+   "Conv": 0.05082986304526331,
+   "Prompt": 0.019480962267837455
+  }
+ },
+ "dr2": {
+  "IC79": {
+   "worst": 1.9183886044229935e-15,
+   "median": 3.742900519038743e-16,
+   "total": -1.1102230246251565e-16
+  },
+  "IC86": {
+   "worst": 2.0663818765544843e-15,
+   "median": 3.947043787236996e-16,
+   "total": -1.1102230246251565e-16
+  }
+ },
+ "seconds": 58.93479299545288
+}

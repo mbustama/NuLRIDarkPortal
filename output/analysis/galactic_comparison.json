@@ -1,0 +1,1684 @@
+{
+ "_gal / original|exclusion:m_Zd_eV_g_D": {
+  "comparison": "_gal / original",
+  "family": "dark portal, exclusion",
+  "axes": [
+   "m_Zd_eV",
+   "g_D"
+  ],
+  "median_ratio": 1.153324255992351,
+  "min_ratio": 0.07155081181986883,
+  "max_ratio": 1.8951465988618503,
+  "best_a": 5.289758434820979e-10,
+  "best_b": 4.988734069678197e-10,
+  "columns_lost": 0,
+  "columns_gained": 3,
+  "preference_a": [
+   1.1661603178177984,
+   [
+    3162277.6601683795,
+    1.7782794100389228e-08
+   ]
+  ],
+  "preference_b": [
+   10.583884264113573,
+   [
+    3162277.6601683795,
+    0.03162277660168379
+   ]
+  ]
+ },
+ "_galx / _gal|exclusion:m_Zd_eV_g_D": {
+  "comparison": "_galx / _gal",
+  "family": "dark portal, exclusion",
+  "axes": [
+   "m_Zd_eV",
+   "g_D"
+  ],
+  "median_ratio": 1.004039216570606,
+  "min_ratio": 4.321822337086147e-09,
+  "max_ratio": 8.084609850528908,
+  "best_a": 4.988734069678197e-10,
+  "best_b": 1.2796793591061675e-10,
+  "columns_lost": 1,
+  "columns_gained": 0,
+  "preference_a": [
+   10.583884264113573,
+   [
+    3162277.6601683795,
+    0.03162277660168379
+   ]
+  ],
+  "preference_b": [
+   11.616368792429284,
+   [
+    3162277.6601683795,
+    0.005623413251903491
+   ]
+  ]
+ },
+ "_gal / original|mev_emu:m_Zd_eV_g_D_u2": {
+  "comparison": "_gal / original",
+  "family": "dark portal, absorption (MeV)",
+  "axes": [
+   "m_Zd_eV",
+   "g_D_u2"
+  ],
+  "median_ratio": 0.8907088634765743,
+  "min_ratio": 0.3503444399387644,
+  "max_ratio": 12.686872529345607,
+  "best_a": 1.0739393306011057e-05,
+  "best_b": 4.360020730458055e-06,
+  "columns_lost": 0,
+  "columns_gained": 6,
+  "preference_a": [
+   3.340441789845272e-06,
+   [
+    31622776.60168379,
+    0.003981071705534978
+   ]
+  ],
+  "preference_b": [
+   9.320534530542787,
+   [
+    3162277.6601683795,
+    0.001
+   ]
+  ]
+ },
+ "_galx / _gal|mev_emu:m_Zd_eV_g_D_u2": {
+  "comparison": "_galx / _gal",
+  "family": "dark portal, absorption (MeV)",
+  "axes": [
+   "m_Zd_eV",
+   "g_D_u2"
+  ],
+  "median_ratio": 1.0175897273308854,
+  "min_ratio": 0.011598846856604525,
+  "max_ratio": 2.127787076537743,
+  "best_a": 4.360020730458055e-06,
+  "best_b": 4.43671230626382e-06,
+  "columns_lost": 1,
+  "columns_gained": 0,
+  "preference_a": [
+   9.320534530542787,
+   [
+    3162277.6601683795,
+    0.001
+   ]
+  ],
+  "preference_b": [
+   12.83221170239401,
+   [
+    3162277.6601683795,
+    0.006309573444801942
+   ]
+  ]
+ },
+ "_gal / original|mev_etau:m_Zd_eV_g_D_u2": {
+  "comparison": "_gal / original",
+  "family": "dark portal, absorption (MeV)",
+  "axes": [
+   "m_Zd_eV",
+   "g_D_u2"
+  ],
+  "median_ratio": 0.8629697054053747,
+  "min_ratio": 0.46891174730586654,
+  "max_ratio": 9.510487360247158,
+  "best_a": 8.459103190799474e-06,
+  "best_b": 4.361655792212322e-06,
+  "columns_lost": 0,
+  "columns_gained": 6,
+  "preference_a": [
+   3.328434353022658e-06,
+   [
+    23713737.056616552,
+    0.00015848931924611142
+   ]
+  ],
+  "preference_b": [
+   7.680599529629742,
+   [
+    3162277.6601683795,
+    0.00039810717055349773
+   ]
+  ]
+ },
+ "_galx / _gal|mev_etau:m_Zd_eV_g_D_u2": {
+  "comparison": "_galx / _gal",
+  "family": "dark portal, absorption (MeV)",
+  "axes": [
+   "m_Zd_eV",
+   "g_D_u2"
+  ],
+  "median_ratio": 1.0274788877345926,
+  "min_ratio": 0.32340520467574774,
+  "max_ratio": 2.3581468191272745,
+  "best_a": 4.361655792212322e-06,
+  "best_b": 4.48150924206346e-06,
+  "columns_lost": 1,
+  "columns_gained": 0,
+  "preference_a": [
+   7.680599529629742,
+   [
+    3162277.6601683795,
+    0.00039810717055349773
+   ]
+  ],
+  "preference_b": [
+   12.803502754654037,
+   [
+    3162277.6601683795,
+    0.006309573444801942
+   ]
+  ]
+ },
+ "_gal / original|mev_mutau:m_Zd_eV_g_D_u2": {
+  "comparison": "_gal / original",
+  "family": "dark portal, absorption (MeV)",
+  "axes": [
+   "m_Zd_eV",
+   "g_D_u2"
+  ],
+  "median_ratio": 1.0199632923916455,
+  "min_ratio": 0.3891753030597117,
+  "max_ratio": 30.913426280690768,
+  "best_a": 4.333637544327673e-06,
+  "best_b": 4.447867621505703e-06,
+  "columns_lost": 0,
+  "columns_gained": 1,
+  "preference_a": [
+   3.337058144481375e-06,
+   [
+    316227.7660168379,
+    0.0006309573444801943
+   ]
+  ],
+  "preference_b": [
+   7.246672531993486,
+   [
+    562341.325190349,
+    1.584893192461114e-05
+   ]
+  ]
+ },
+ "_galx / _gal|mev_mutau:m_Zd_eV_g_D_u2": {
+  "comparison": "_galx / _gal",
+  "family": "dark portal, absorption (MeV)",
+  "axes": [
+   "m_Zd_eV",
+   "g_D_u2"
+  ],
+  "median_ratio": 1.2067970637560184,
+  "min_ratio": 0.28332300286733375,
+  "max_ratio": 2.3964342346679945,
+  "best_a": 4.447867621505703e-06,
+  "best_b": 4.4919603363861094e-06,
+  "columns_lost": 11,
+  "columns_gained": 0,
+  "preference_a": [
+   7.246672531993486,
+   [
+    562341.325190349,
+    1.584893192461114e-05
+   ]
+  ],
+  "preference_b": [
+   12.805149478427854,
+   [
+    3162277.6601683795,
+    0.006309573444801942
+   ]
+  ]
+ },
+ "_gal / original|potential_emu:m_Zd_eV_g_D_eps_u2": {
+  "comparison": "_gal / original",
+  "family": "dark portal, potential planes",
+  "axes": [
+   "m_Zd_eV",
+   "g_D_eps_u2"
+  ],
+  "median_ratio": 1.007916075517549,
+  "min_ratio": 0.03972132374880414,
+  "max_ratio": 1.4866327896568827,
+  "best_a": 1.216292365759044e-57,
+  "best_b": 1.808180112746737e-57,
+  "columns_lost": 0,
+  "columns_gained": 0,
+  "preference_a": [
+   2.7256971808498065e-06,
+   [
+    1.0000000000000001e-20,
+    1e-57
+   ]
+  ],
+  "preference_b": [
+   0.0002767773638883142,
+   [
+    1000000000.0,
+    1e-07
+   ]
+  ]
+ },
+ "_galx / _gal|potential_emu:m_Zd_eV_g_D_eps_u2": {
+  "comparison": "_galx / _gal",
+  "family": "dark portal, potential planes",
+  "axes": [
+   "m_Zd_eV",
+   "g_D_eps_u2"
+  ],
+  "median_ratio": 140.46762716399064,
+  "min_ratio": 1.3786138748033332,
+  "max_ratio": 3.8952805089195905e+26,
+  "best_a": 1.808180112746737e-57,
+  "best_b": 2.702359154335641e-56,
+  "columns_lost": 11,
+  "columns_gained": 0,
+  "preference_a": [
+   0.0002767773638883142,
+   [
+    1000000000.0,
+    1e-07
+   ]
+  ],
+  "preference_b": [
+   0.003289935540493616,
+   [
+    1000000000.0,
+    1e-06
+   ]
+  ]
+ },
+ "_gal / original|potential_emu_host:m_Zd_eV_g_D_eps_u2": {
+  "comparison": "_gal / original",
+  "family": "dark portal, potential planes",
+  "axes": [
+   "m_Zd_eV",
+   "g_D_eps_u2"
+  ],
+  "median_ratio": 1.0079034251071122,
+  "min_ratio": 0.039723487879467625,
+  "max_ratio": 1.3412066447207918,
+  "best_a": 2.9676753091678825e-58,
+  "best_b": 3.980265844029794e-58,
+  "columns_lost": 0,
+  "columns_gained": 0,
+  "preference_a": [
+   3.2420467164229194e-06,
+   [
+    1e-29,
+    1e-59
+   ]
+  ],
+  "preference_b": [
+   0.00037835944290876,
+   [
+    1.0,
+    9.999999999999999e-31
+   ]
+  ]
+ },
+ "_galx / _gal|potential_emu_host:m_Zd_eV_g_D_eps_u2": {
+  "comparison": "_galx / _gal",
+  "family": "dark portal, potential planes",
+  "axes": [
+   "m_Zd_eV",
+   "g_D_eps_u2"
+  ],
+  "median_ratio": 505.17537703443486,
+  "min_ratio": 1.3717264749146572,
+  "max_ratio": 4.2021993825465e+20,
+  "best_a": 3.980265844029794e-58,
+  "best_b": 2.08647982340885e-56,
+  "columns_lost": 8,
+  "columns_gained": 0,
+  "preference_a": [
+   0.00037835944290876,
+   [
+    1.0,
+    9.999999999999999e-31
+   ]
+  ],
+  "preference_b": [
+   0.003310001229642978,
+   [
+    1000000000.0,
+    1e-06
+   ]
+  ]
+ },
+ "_gal / original|potential_etau:m_Zd_eV_g_D_eps_u2": {
+  "comparison": "_gal / original",
+  "family": "dark portal, potential planes",
+  "axes": [
+   "m_Zd_eV",
+   "g_D_eps_u2"
+  ],
+  "median_ratio": 1.0924483967517227,
+  "min_ratio": 6.161939817065607e-05,
+  "max_ratio": 1.6806102008345332,
+  "best_a": 2.0334637337773923e-57,
+  "best_b": 2.3429014258574916e-57,
+  "columns_lost": 0,
+  "columns_gained": 0,
+  "preference_a": [
+   3.191817286918308e-06,
+   [
+    9.999999999999999e-27,
+    1e-57
+   ]
+  ],
+  "preference_b": [
+   0.0032470921358402904,
+   [
+    1000000000.0,
+    1e-06
+   ]
+  ]
+ },
+ "_galx / _gal|potential_etau:m_Zd_eV_g_D_eps_u2": {
+  "comparison": "_galx / _gal",
+  "family": "dark portal, potential planes",
+  "axes": [
+   "m_Zd_eV",
+   "g_D_eps_u2"
+  ],
+  "median_ratio": 1.108014929009697,
+  "min_ratio": 1.108014929009697,
+  "max_ratio": 1.108014929009697,
+  "best_a": 2.3429014258574916e-57,
+  "best_b": 1.7895736295316198e-11,
+  "columns_lost": 29,
+  "columns_gained": 0,
+  "preference_a": [
+   0.0032470921358402904,
+   [
+    1000000000.0,
+    1e-06
+   ]
+  ],
+  "preference_b": [
+   0.003356421412124888,
+   [
+    1000000000.0,
+    1e-06
+   ]
+  ]
+ },
+ "_gal / original|potential_etau_host:m_Zd_eV_g_D_eps_u2": {
+  "comparison": "_gal / original",
+  "family": "dark portal, potential planes",
+  "axes": [
+   "m_Zd_eV",
+   "g_D_eps_u2"
+  ],
+  "median_ratio": 1.052118818829629,
+  "min_ratio": 0.12553270199375471,
+  "max_ratio": 1.6288572378281674,
+  "best_a": 1.045395504024577e-56,
+  "best_b": 1.05130934263141e-56,
+  "columns_lost": 0,
+  "columns_gained": 0,
+  "preference_a": [
+   3.245581918775997e-06,
+   [
+    9.999999999999999e-27,
+    1e-57
+   ]
+  ],
+  "preference_b": [
+   0.0032470921359415428,
+   [
+    1000000000.0,
+    1e-06
+   ]
+  ]
+ },
+ "_galx / _gal|potential_etau_host:m_Zd_eV_g_D_eps_u2": {
+  "comparison": "_galx / _gal",
+  "family": "dark portal, potential planes",
+  "axes": [
+   "m_Zd_eV",
+   "g_D_eps_u2"
+  ],
+  "median_ratio": 6.289785731256201,
+  "min_ratio": 1.1075149021768216,
+  "max_ratio": 8.914798843465993,
+  "best_a": 1.05130934263141e-56,
+  "best_b": 7.017238904540195e-56,
+  "columns_lost": 27,
+  "columns_gained": 0,
+  "preference_a": [
+   0.0032470921359415428,
+   [
+    1000000000.0,
+    1e-06
+   ]
+  ],
+  "preference_b": [
+   0.0033752370399380283,
+   [
+    1000000000.0,
+    1e-06
+   ]
+  ]
+ },
+ "_gal / original|potential_mutau:m_Zd_eV_g_D_eps_u2": {
+  "comparison": "_gal / original",
+  "family": "dark portal, potential planes",
+  "axes": [
+   "m_Zd_eV",
+   "g_D_eps_u2"
+  ],
+  "median_ratio": 1.0643796154023564,
+  "min_ratio": 0.07818693456528769,
+  "max_ratio": 1.1032268547739417,
+  "best_a": 1.568226721686407e-55,
+  "best_b": 1.672404332547642e-55,
+  "columns_lost": 0,
+  "columns_gained": 0,
+  "preference_a": [
+   9.759679002740995e-07,
+   [
+    9.999999999999999e-23,
+    1e-55
+   ]
+  ],
+  "preference_b": [
+   0.0017405478731102875,
+   [
+    1000000000.0,
+    1e-06
+   ]
+  ]
+ },
+ "_galx / _gal|potential_mutau:m_Zd_eV_g_D_eps_u2": {
+  "comparison": "_galx / _gal",
+  "family": "dark portal, potential planes",
+  "axes": [
+   "m_Zd_eV",
+   "g_D_eps_u2"
+  ],
+  "median_ratio": 1.0770210786071601,
+  "min_ratio": 1.0770210786071601,
+  "max_ratio": 1.0770210786071601,
+  "best_a": 1.672404332547642e-55,
+  "best_b": 1.7762868413573775e-11,
+  "columns_lost": 28,
+  "columns_gained": 0,
+  "preference_a": [
+   0.0017405478731102875,
+   [
+    1000000000.0,
+    1e-06
+   ]
+  ],
+  "preference_b": [
+   0.003237683015424153,
+   [
+    1000000000.0,
+    1e-06
+   ]
+  ]
+ },
+ "_gal / original|potential_mutau_host:m_Zd_eV_g_D_eps_u2": {
+  "comparison": "_gal / original",
+  "family": "dark portal, potential planes",
+  "axes": [
+   "m_Zd_eV",
+   "g_D_eps_u2"
+  ],
+  "median_ratio": 1.1008783260042343,
+  "min_ratio": 0.07813483926125082,
+  "max_ratio": 1.2162624808921716,
+  "best_a": 2.7281481108536954e-55,
+  "best_b": 3.302189145672125e-55,
+  "columns_lost": 0,
+  "columns_gained": 0,
+  "preference_a": [
+   9.75970527505865e-07,
+   [
+    9.999999999999999e-23,
+    1e-55
+   ]
+  ],
+  "preference_b": [
+   0.0017405478731102875,
+   [
+    1000000000.0,
+    1e-06
+   ]
+  ]
+ },
+ "_galx / _gal|potential_mutau_host:m_Zd_eV_g_D_eps_u2": {
+  "comparison": "_galx / _gal",
+  "family": "dark portal, potential planes",
+  "axes": [
+   "m_Zd_eV",
+   "g_D_eps_u2"
+  ],
+  "median_ratio": 1.0779861712204748,
+  "min_ratio": 1.0779861712204748,
+  "max_ratio": 1.0779861712204748,
+  "best_a": 3.302189145672125e-55,
+  "best_b": 1.7766939434828467e-11,
+  "columns_lost": 29,
+  "columns_gained": 0,
+  "preference_a": [
+   0.0017405478731102875,
+   [
+    1000000000.0,
+    1e-06
+   ]
+  ],
+  "preference_b": [
+   0.003232779651089146,
+   [
+    1000000000.0,
+    1e-06
+   ]
+  ]
+ },
+ "_gal / original|si_dirac_e:m_phi_eV_g_phi": {
+  "comparison": "_gal / original",
+  "family": "SI scalar, Dirac",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 1.026710102593374,
+  "min_ratio": 0.020390947928618463,
+  "max_ratio": 16.350163195271268,
+  "best_a": 1.7891822319587835e-05,
+  "best_b": 2.5408346966874677e-05,
+  "columns_lost": 3,
+  "columns_gained": 0,
+  "preference_a": [
+   3.3381657580378032e-06,
+   [
+    31622776.60168379,
+    0.056234132519034905
+   ]
+  ],
+  "preference_b": [
+   7.803644460803325,
+   [
+    3162277.6601683795,
+    0.0013335214321633238
+   ]
+  ]
+ },
+ "_galx / _gal|si_dirac_e:m_phi_eV_g_phi": {
+  "comparison": "_galx / _gal",
+  "family": "SI scalar, Dirac",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 3.217789666891198,
+  "min_ratio": 0.746440368507629,
+  "max_ratio": 33.12389185704616,
+  "best_a": 2.5408346966874677e-05,
+  "best_b": 3.453510343871464e-05,
+  "columns_lost": 0,
+  "columns_gained": 0,
+  "preference_a": [
+   7.803644460803325,
+   [
+    3162277.6601683795,
+    0.0013335214321633238
+   ]
+  ],
+  "preference_b": [
+   13.666726025733944,
+   [
+    3162277.6601683795,
+    0.056234132519034905
+   ]
+  ]
+ },
+ "_gal / original|si_dirac_mu:m_phi_eV_g_phi": {
+  "comparison": "_gal / original",
+  "family": "SI scalar, Dirac",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 1.0296185429459546,
+  "min_ratio": 0.004956236595799427,
+  "max_ratio": 251.93470933761498,
+  "best_a": 3.24476457184549e-05,
+  "best_b": 3.390529499840485e-05,
+  "columns_lost": 2,
+  "columns_gained": 0,
+  "preference_a": [
+   3.3366232763398784e-06,
+   [
+    7498.942093324558,
+    0.0013335214321633238
+   ]
+  ],
+  "preference_b": [
+   7.3526837640516,
+   [
+    562341.325190349,
+    0.00023713737056616554
+   ]
+  ]
+ },
+ "_galx / _gal|si_dirac_mu:m_phi_eV_g_phi": {
+  "comparison": "_galx / _gal",
+  "family": "SI scalar, Dirac",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 2.5815453885887214,
+  "min_ratio": 0.7830464399237435,
+  "max_ratio": 8.923487814365098,
+  "best_a": 3.390529499840485e-05,
+  "best_b": 4.366554755629186e-05,
+  "columns_lost": 0,
+  "columns_gained": 0,
+  "preference_a": [
+   7.3526837640516,
+   [
+    562341.325190349,
+    0.00023713737056616554
+   ]
+  ],
+  "preference_b": [
+   7.966468659360766,
+   [
+    3162277.6601683795,
+    0.023713737056616554
+   ]
+  ]
+ },
+ "_gal / original|si_dirac_tau:m_phi_eV_g_phi": {
+  "comparison": "_gal / original",
+  "family": "SI scalar, Dirac",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 1.068206007129338,
+  "min_ratio": 0.002079928882691909,
+  "max_ratio": 179.82089293644972,
+  "best_a": 5.594985840103232e-05,
+  "best_b": 4.5201160299273716e-05,
+  "columns_lost": 1,
+  "columns_gained": 0,
+  "preference_a": [
+   3.32794730084629e-06,
+   [
+    133352.1432163324,
+    0.0017782794100389228
+   ]
+  ],
+  "preference_b": [
+   7.376850626488558,
+   [
+    3162277.6601683795,
+    0.01
+   ]
+  ]
+ },
+ "_galx / _gal|si_dirac_tau:m_phi_eV_g_phi": {
+  "comparison": "_galx / _gal",
+  "family": "SI scalar, Dirac",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 2.1513165046049365,
+  "min_ratio": 0.7865014841170453,
+  "max_ratio": 13.566406293063238,
+  "best_a": 4.5201160299273716e-05,
+  "best_b": 4.5781112591051616e-05,
+  "columns_lost": 0,
+  "columns_gained": 0,
+  "preference_a": [
+   7.376850626488558,
+   [
+    3162277.6601683795,
+    0.01
+   ]
+  ],
+  "preference_b": [
+   7.816933187448652,
+   [
+    3162277.6601683795,
+    0.01
+   ]
+  ]
+ },
+ "_gal / original|si_dirac_universal:m_phi_eV_g_phi": {
+  "comparison": "_gal / original",
+  "family": "SI scalar, Dirac",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 1.0796956217610487,
+  "min_ratio": 0.0021622874012267863,
+  "max_ratio": 1.42289792988725,
+  "best_a": 1.0943978643863296e-05,
+  "best_b": 1.2251346194708006e-05,
+  "columns_lost": 0,
+  "columns_gained": 0,
+  "preference_a": [
+   3.324171197860437e-06,
+   [
+    56234132.51903491,
+    0.056234132519034905
+   ]
+  ],
+  "preference_b": [
+   4.163892038607715,
+   [
+    3162277.6601683795,
+    0.002371373705661655
+   ]
+  ]
+ },
+ "_galx / _gal|si_dirac_universal:m_phi_eV_g_phi": {
+  "comparison": "_galx / _gal",
+  "family": "SI scalar, Dirac",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 2.134636936234473,
+  "min_ratio": 1.0646476383754266,
+  "max_ratio": 873.6681573114038,
+  "best_a": 1.2251346194708006e-05,
+  "best_b": 2.398344764819414e-05,
+  "columns_lost": 2,
+  "columns_gained": 0,
+  "preference_a": [
+   4.163892038607715,
+   [
+    3162277.6601683795,
+    0.002371373705661655
+   ]
+  ],
+  "preference_b": [
+   6.593138391048063,
+   [
+    562341.325190349,
+    0.007498942093324559
+   ]
+  ]
+ },
+ "_gal / original|si_e:m_phi_eV_g_phi": {
+  "comparison": "_gal / original",
+  "family": "SI scalar, Majorana",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 1.0230243986174794,
+  "min_ratio": 0.0023124274791983777,
+  "max_ratio": 8.798664263458924,
+  "best_a": 1.4946981609347858e-05,
+  "best_b": 2.4477230908142036e-05,
+  "columns_lost": 1,
+  "columns_gained": 0,
+  "preference_a": [
+   3.338783107764698e-06,
+   [
+    42169650.342858225,
+    0.03162277660168379
+   ]
+  ],
+  "preference_b": [
+   6.580679169014141,
+   [
+    562341.325190349,
+    9.999999999999999e-05
+   ]
+  ]
+ },
+ "_galx / _gal|si_e:m_phi_eV_g_phi": {
+  "comparison": "_galx / _gal",
+  "family": "SI scalar, Majorana",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 2.9976031346224965,
+  "min_ratio": 0.013297773378223292,
+  "max_ratio": 1582.051170881677,
+  "best_a": 2.4477230908142036e-05,
+  "best_b": 2.826442683651649e-05,
+  "columns_lost": 3,
+  "columns_gained": 0,
+  "preference_a": [
+   6.580679169014141,
+   [
+    562341.325190349,
+    9.999999999999999e-05
+   ]
+  ],
+  "preference_b": [
+   12.599228477665168,
+   [
+    3162277.6601683795,
+    0.042169650342858224
+   ]
+  ]
+ },
+ "_gal / original|si_e_mu:m_phi_eV_g_phi": {
+  "comparison": "_gal / original",
+  "family": "SI scalar, Majorana",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 1.0807080919660204,
+  "min_ratio": 0.010797415778667151,
+  "max_ratio": 598.9576730936352,
+  "best_a": 1.2863543495889505e-05,
+  "best_b": 1.8709510631503403e-05,
+  "columns_lost": 1,
+  "columns_gained": 0,
+  "preference_a": [
+   3.339735572538416e-06,
+   [
+    1778279.4100389227,
+    1.3335214321633239e-06
+   ]
+  ],
+  "preference_b": [
+   7.469339204389289,
+   [
+    3162277.6601683795,
+    0.005623413251903491
+   ]
+  ]
+ },
+ "_galx / _gal|si_e_mu:m_phi_eV_g_phi": {
+  "comparison": "_galx / _gal",
+  "family": "SI scalar, Majorana",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 1.8745990659003482,
+  "min_ratio": 0.0030093325355605074,
+  "max_ratio": 220.16617178625071,
+  "best_a": 1.8709510631503403e-05,
+  "best_b": 1.9811981210772742e-05,
+  "columns_lost": 2,
+  "columns_gained": 0,
+  "preference_a": [
+   7.469339204389289,
+   [
+    3162277.6601683795,
+    0.005623413251903491
+   ]
+  ],
+  "preference_b": [
+   11.025886235615205,
+   [
+    3162277.6601683795,
+    0.023713737056616554
+   ]
+  ]
+ },
+ "_gal / original|si_e_tau:m_phi_eV_g_phi": {
+  "comparison": "_gal / original",
+  "family": "SI scalar, Majorana",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 1.0576224423562737,
+  "min_ratio": 0.014433443917633609,
+  "max_ratio": 686.6509647813914,
+  "best_a": 1.0001499500958571e-05,
+  "best_b": 2.0039435383000905e-05,
+  "columns_lost": 1,
+  "columns_gained": 0,
+  "preference_a": [
+   3.3384234576772087e-06,
+   [
+    1778279.4100389227,
+    1e-06
+   ]
+  ],
+  "preference_b": [
+   6.585659240221695,
+   [
+    3162277.6601683795,
+    0.0031622776601683794
+   ]
+  ]
+ },
+ "_galx / _gal|si_e_tau:m_phi_eV_g_phi": {
+  "comparison": "_galx / _gal",
+  "family": "SI scalar, Majorana",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 2.421145972168356,
+  "min_ratio": 0.003543906231457922,
+  "max_ratio": 320.01387387568246,
+  "best_a": 2.0039435383000905e-05,
+  "best_b": 2.1861949498818244e-05,
+  "columns_lost": 1,
+  "columns_gained": 0,
+  "preference_a": [
+   6.585659240221695,
+   [
+    3162277.6601683795,
+    0.0031622776601683794
+   ]
+  ],
+  "preference_b": [
+   10.77182514008369,
+   [
+    3162277.6601683795,
+    0.023713737056616554
+   ]
+  ]
+ },
+ "_gal / original|si_mu:m_phi_eV_g_phi": {
+  "comparison": "_gal / original",
+  "family": "SI scalar, Majorana",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 1.0212239884961043,
+  "min_ratio": 0.009877374214983976,
+  "max_ratio": 43.82009190231859,
+  "best_a": 2.8687360045951012e-05,
+  "best_b": 3.228815539544665e-05,
+  "columns_lost": 0,
+  "columns_gained": 0,
+  "preference_a": [
+   3.331299888387207e-06,
+   [
+    421696.5034285822,
+    0.0017782794100389228
+   ]
+  ],
+  "preference_b": [
+   6.923475717418253,
+   [
+    562341.325190349,
+    0.0001333521432163324
+   ]
+  ]
+ },
+ "_galx / _gal|si_mu:m_phi_eV_g_phi": {
+  "comparison": "_galx / _gal",
+  "family": "SI scalar, Majorana",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 2.5176388571561894,
+  "min_ratio": 1.0041549072867073,
+  "max_ratio": 98.53236240075243,
+  "best_a": 3.228815539544665e-05,
+  "best_b": 3.2422309687573534e-05,
+  "columns_lost": 1,
+  "columns_gained": 0,
+  "preference_a": [
+   6.923475717418253,
+   [
+    562341.325190349,
+    0.0001333521432163324
+   ]
+  ],
+  "preference_b": [
+   10.257798973251575,
+   [
+    3162277.6601683795,
+    0.03162277660168379
+   ]
+  ]
+ },
+ "_gal / original|si_mu_tau:m_phi_eV_g_phi": {
+  "comparison": "_gal / original",
+  "family": "SI scalar, Majorana",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 1.2271077366673193,
+  "min_ratio": 0.01836168515411911,
+  "max_ratio": 1.5448870160234767,
+  "best_a": 1.710336773180921e-05,
+  "best_b": 1.8607193320128162e-05,
+  "columns_lost": 1,
+  "columns_gained": 1,
+  "preference_a": [
+   3.217871217486845e-06,
+   [
+    1778279.4100389227,
+    1e-06
+   ]
+  ],
+  "preference_b": [
+   9.973044617390663,
+   [
+    3162277.6601683795,
+    0.023713737056616554
+   ]
+  ]
+ },
+ "_galx / _gal|si_mu_tau:m_phi_eV_g_phi": {
+  "comparison": "_galx / _gal",
+  "family": "SI scalar, Majorana",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 1.143271328360167,
+  "min_ratio": 0.0009333108024632183,
+  "max_ratio": 405.7650402565951,
+  "best_a": 1.8607193320128162e-05,
+  "best_b": 2.3969688800499314e-05,
+  "columns_lost": 0,
+  "columns_gained": 0,
+  "preference_a": [
+   9.973044617390663,
+   [
+    3162277.6601683795,
+    0.023713737056616554
+   ]
+  ],
+  "preference_b": [
+   10.179205036056803,
+   [
+    3162277.6601683795,
+    0.023713737056616554
+   ]
+  ]
+ },
+ "_gal / original|si_tau:m_phi_eV_g_phi": {
+  "comparison": "_gal / original",
+  "family": "SI scalar, Majorana",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 1.043332748826357,
+  "min_ratio": 0.0006552484301603987,
+  "max_ratio": 1.1202649241351021,
+  "best_a": 8.25442467678258e-05,
+  "best_b": 3.443561344286946e-05,
+  "columns_lost": 0,
+  "columns_gained": 0,
+  "preference_a": [
+   3.3399355352514704e-06,
+   [
+    1333521.432163324,
+    1.7782794100389227e-06
+   ]
+  ],
+  "preference_b": [
+   7.150609103411048,
+   [
+    3162277.6601683795,
+    0.01
+   ]
+  ]
+ },
+ "_galx / _gal|si_tau:m_phi_eV_g_phi": {
+  "comparison": "_galx / _gal",
+  "family": "SI scalar, Majorana",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 2.0682577494452756,
+  "min_ratio": 0.9824675937206817,
+  "max_ratio": 1449.7403305190014,
+  "best_a": 3.443561344286946e-05,
+  "best_b": 3.476014127533568e-05,
+  "columns_lost": 0,
+  "columns_gained": 0,
+  "preference_a": [
+   7.150609103411048,
+   [
+    3162277.6601683795,
+    0.01
+   ]
+  ],
+  "preference_b": [
+   9.32967826203564,
+   [
+    3162277.6601683795,
+    0.03162277660168379
+   ]
+  ]
+ },
+ "_gal / original|si_universal:m_phi_eV_g_phi": {
+  "comparison": "_gal / original",
+  "family": "SI scalar, Majorana",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 1.071888448542544,
+  "min_ratio": 0.044515972494507644,
+  "max_ratio": 580.7320849451218,
+  "best_a": 8.026074233790485e-06,
+  "best_b": 1.7876106316197666e-05,
+  "columns_lost": 0,
+  "columns_gained": 0,
+  "preference_a": [
+   3.337687360271957e-06,
+   [
+    42169650.342858225,
+    0.042169650342858224
+   ]
+  ],
+  "preference_b": [
+   8.128499096252845,
+   [
+    3162277.6601683795,
+    0.007498942093324559
+   ]
+  ]
+ },
+ "_galx / _gal|si_universal:m_phi_eV_g_phi": {
+  "comparison": "_galx / _gal",
+  "family": "SI scalar, Majorana",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 2.181691690612278,
+  "min_ratio": 0.01063557738192822,
+  "max_ratio": 355.3384225159492,
+  "best_a": 1.7876106316197666e-05,
+  "best_b": 1.856997429901156e-05,
+  "columns_lost": 2,
+  "columns_gained": 0,
+  "preference_a": [
+   8.128499096252845,
+   [
+    3162277.6601683795,
+    0.007498942093324559
+   ]
+  ],
+  "preference_b": [
+   10.37433613465485,
+   [
+    3162277.6601683795,
+    0.023713737056616554
+   ]
+  ]
+ },
+ "_gal / original|si_vector_dirac_e:m_phi_eV_g_phi": {
+  "comparison": "_gal / original",
+  "family": "SI vector, Dirac",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 1.076595252048852,
+  "min_ratio": 0.005577477135963466,
+  "max_ratio": 6.581037382653321,
+  "best_a": 1.7036787290106752e-05,
+  "best_b": 2.604759433901791e-05,
+  "columns_lost": 1,
+  "columns_gained": 3,
+  "preference_a": [
+   3.3398264296380376e-06,
+   [
+    2371373.7056616554,
+    4.216965034285822e-06
+   ]
+  ],
+  "preference_b": [
+   5.41735513160476,
+   [
+    562341.325190349,
+    7.498942093324559e-05
+   ]
+  ]
+ },
+ "_galx / _gal|si_vector_dirac_e:m_phi_eV_g_phi": {
+  "comparison": "_galx / _gal",
+  "family": "SI vector, Dirac",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 3.1691458166541118,
+  "min_ratio": 0.01942933868185528,
+  "max_ratio": 601.0794067275385,
+  "best_a": 2.604759433901791e-05,
+  "best_b": 3.155102361331903e-05,
+  "columns_lost": 3,
+  "columns_gained": 0,
+  "preference_a": [
+   5.41735513160476,
+   [
+    562341.325190349,
+    7.498942093324559e-05
+   ]
+  ],
+  "preference_b": [
+   11.962600372607367,
+   [
+    3162277.6601683795,
+    0.042169650342858224
+   ]
+  ]
+ },
+ "_gal / original|si_vector_dirac_mu:m_phi_eV_g_phi": {
+  "comparison": "_gal / original",
+  "family": "SI vector, Dirac",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 1.0884457128056915,
+  "min_ratio": 0.005903533182047851,
+  "max_ratio": 50.810517247399346,
+  "best_a": 3.1036654073802185e-05,
+  "best_b": 3.444780564877497e-05,
+  "columns_lost": 1,
+  "columns_gained": 0,
+  "preference_a": [
+   3.285918921847042e-06,
+   [
+    316227.7660168379,
+    0.0013335214321633238
+   ]
+  ],
+  "preference_b": [
+   6.765012738556965,
+   [
+    562341.325190349,
+    0.0001333521432163324
+   ]
+  ]
+ },
+ "_galx / _gal|si_vector_dirac_mu:m_phi_eV_g_phi": {
+  "comparison": "_galx / _gal",
+  "family": "SI vector, Dirac",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 2.6974329851671435,
+  "min_ratio": 0.0014306664914940901,
+  "max_ratio": 191.44234492986033,
+  "best_a": 3.444780564877497e-05,
+  "best_b": 3.487627115549384e-05,
+  "columns_lost": 0,
+  "columns_gained": 0,
+  "preference_a": [
+   6.765012738556965,
+   [
+    562341.325190349,
+    0.0001333521432163324
+   ]
+  ],
+  "preference_b": [
+   8.632370291051148,
+   [
+    3162277.6601683795,
+    0.03162277660168379
+   ]
+  ]
+ },
+ "_gal / original|si_vector_dirac_tau:m_phi_eV_g_phi": {
+  "comparison": "_gal / original",
+  "family": "SI vector, Dirac",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 1.0620390230472145,
+  "min_ratio": 0.0018196232164856962,
+  "max_ratio": 3.0815404505783204,
+  "best_a": 8.06811037888827e-05,
+  "best_b": 3.713615744386523e-05,
+  "columns_lost": 0,
+  "columns_gained": 0,
+  "preference_a": [
+   3.3283030003161684e-06,
+   [
+    1778279.4100389227,
+    3.162277660168379e-06
+   ]
+  ],
+  "preference_b": [
+   7.176245264800748,
+   [
+    5623413.251903491,
+    0.07498942093324558
+   ]
+  ]
+ },
+ "_galx / _gal|si_vector_dirac_tau:m_phi_eV_g_phi": {
+  "comparison": "_galx / _gal",
+  "family": "SI vector, Dirac",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 1.9904734316317798,
+  "min_ratio": 0.005191050958938099,
+  "max_ratio": 207.25686043002713,
+  "best_a": 3.713615744386523e-05,
+  "best_b": 3.741727721985212e-05,
+  "columns_lost": 0,
+  "columns_gained": 0,
+  "preference_a": [
+   7.176245264800748,
+   [
+    5623413.251903491,
+    0.07498942093324558
+   ]
+  ],
+  "preference_b": [
+   7.904582499747241,
+   [
+    3162277.6601683795,
+    0.023713737056616554
+   ]
+  ]
+ },
+ "_gal / original|si_vector_dirac_universal:m_phi_eV_g_phi": {
+  "comparison": "_gal / original",
+  "family": "SI vector, Dirac",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 1.0881024237316355,
+  "min_ratio": 0.0018170230012386373,
+  "max_ratio": 1.8524556194539206,
+  "best_a": 7.929960948673451e-06,
+  "best_b": 8.636224558933077e-06,
+  "columns_lost": 0,
+  "columns_gained": 30,
+  "preference_a": [
+   3.3291696137638382e-06,
+   [
+    23713737.056616552,
+    0.01778279410038923
+   ]
+  ],
+  "preference_b": [
+   3.642211580369935,
+   [
+    7498942.093324558,
+    0.07498942093324558
+   ]
+  ]
+ },
+ "_galx / _gal|si_vector_dirac_universal:m_phi_eV_g_phi": {
+  "comparison": "_galx / _gal",
+  "family": "SI vector, Dirac",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 1.0656046257418972,
+  "min_ratio": 0.0030609924117130883,
+  "max_ratio": 2639.1877366186486,
+  "best_a": 8.636224558933077e-06,
+  "best_b": 2.1039513117263034e-05,
+  "columns_lost": 1,
+  "columns_gained": 0,
+  "preference_a": [
+   3.642211580369935,
+   [
+    7498942.093324558,
+    0.07498942093324558
+   ]
+  ],
+  "preference_b": [
+   5.566906972568061,
+   [
+    562341.325190349,
+    0.007498942093324559
+   ]
+  ]
+ },
+ "_gal / original|si_vector_e:m_phi_eV_g_phi": {
+  "comparison": "_gal / original",
+  "family": "SI vector, Majorana",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 1.0779656387305492,
+  "min_ratio": 0.004825783940194948,
+  "max_ratio": 6.605946362321729,
+  "best_a": 1.2003054901340667e-05,
+  "best_b": 1.857076030284049e-05,
+  "columns_lost": 2,
+  "columns_gained": 3,
+  "preference_a": [
+   3.3374778620753887e-06,
+   [
+    3162277.6601683795,
+    5.623413251903491e-06
+   ]
+  ],
+  "preference_b": [
+   5.818381179696466,
+   [
+    562341.325190349,
+    5.623413251903491e-05
+   ]
+  ]
+ },
+ "_galx / _gal|si_vector_e:m_phi_eV_g_phi": {
+  "comparison": "_galx / _gal",
+  "family": "SI vector, Majorana",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 2.9071707448642647,
+  "min_ratio": 0.02078210216033363,
+  "max_ratio": 694.7937776183477,
+  "best_a": 1.857076030284049e-05,
+  "best_b": 2.198125418037985e-05,
+  "columns_lost": 2,
+  "columns_gained": 0,
+  "preference_a": [
+   5.818381179696466,
+   [
+    562341.325190349,
+    5.623413251903491e-05
+   ]
+  ],
+  "preference_b": [
+   11.656756834334546,
+   [
+    3162277.6601683795,
+    0.03162277660168379
+   ]
+  ]
+ },
+ "_gal / original|si_vector_mu:m_phi_eV_g_phi": {
+  "comparison": "_gal / original",
+  "family": "SI vector, Majorana",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 1.1537337797523082,
+  "min_ratio": 0.005024527047898525,
+  "max_ratio": 61.18633179080269,
+  "best_a": 2.1733160349909637e-05,
+  "best_b": 2.4553700763990493e-05,
+  "columns_lost": 0,
+  "columns_gained": 0,
+  "preference_a": [
+   3.2719008302706243e-06,
+   [
+    237137.3705661655,
+    0.001
+   ]
+  ],
+  "preference_b": [
+   6.589577246101278,
+   [
+    562341.325190349,
+    9.999999999999999e-05
+   ]
+  ]
+ },
+ "_galx / _gal|si_vector_mu:m_phi_eV_g_phi": {
+  "comparison": "_galx / _gal",
+  "family": "SI vector, Majorana",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 2.6940336944840344,
+  "min_ratio": 0.0009438513306711571,
+  "max_ratio": 229.13735143623805,
+  "best_a": 2.4553700763990493e-05,
+  "best_b": 2.4772447599677746e-05,
+  "columns_lost": 0,
+  "columns_gained": 1,
+  "preference_a": [
+   6.589577246101278,
+   [
+    562341.325190349,
+    9.999999999999999e-05
+   ]
+  ],
+  "preference_b": [
+   8.715486633378806,
+   [
+    3162277.6601683795,
+    0.023713737056616554
+   ]
+  ]
+ },
+ "_gal / original|si_vector_tau:m_phi_eV_g_phi": {
+  "comparison": "_gal / original",
+  "family": "SI vector, Majorana",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 1.0712125333649947,
+  "min_ratio": 0.001135937763150522,
+  "max_ratio": 2.7639749247601673,
+  "best_a": 5.7637117372166345e-05,
+  "best_b": 2.6274256871185593e-05,
+  "columns_lost": 0,
+  "columns_gained": 1,
+  "preference_a": [
+   3.3351943784509785e-06,
+   [
+    1333521.432163324,
+    1.3335214321633239e-06
+   ]
+  ],
+  "preference_b": [
+   7.113196477390439,
+   [
+    5623413.251903491,
+    0.07498942093324558
+   ]
+  ]
+ },
+ "_galx / _gal|si_vector_tau:m_phi_eV_g_phi": {
+  "comparison": "_galx / _gal",
+  "family": "SI vector, Majorana",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 2.6117588997594576,
+  "min_ratio": 0.006073465743426218,
+  "max_ratio": 902.277374215217,
+  "best_a": 2.6274256871185593e-05,
+  "best_b": 2.646523435309246e-05,
+  "columns_lost": 1,
+  "columns_gained": 1,
+  "preference_a": [
+   7.113196477390439,
+   [
+    5623413.251903491,
+    0.07498942093324558
+   ]
+  ],
+  "preference_b": [
+   7.8623853173358835,
+   [
+    3162277.6601683795,
+    0.01778279410038923
+   ]
+  ]
+ },
+ "_gal / original|si_vector_universal:m_phi_eV_g_phi": {
+  "comparison": "_gal / original",
+  "family": "SI vector, Majorana",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 1.0739201101429008,
+  "min_ratio": 0.0014632059852864672,
+  "max_ratio": 1.876876442460076,
+  "best_a": 5.694711077718291e-06,
+  "best_b": 6.12494692736917e-06,
+  "columns_lost": 0,
+  "columns_gained": 31,
+  "preference_a": [
+   3.3342639245148575e-06,
+   [
+    23713737.056616552,
+    0.013335214321633239
+   ]
+  ],
+  "preference_b": [
+   3.6343143239358007,
+   [
+    7498942.093324558,
+    0.056234132519034905
+   ]
+  ]
+ },
+ "_galx / _gal|si_vector_universal:m_phi_eV_g_phi": {
+  "comparison": "_galx / _gal",
+  "family": "SI vector, Majorana",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 1.0647404636863782,
+  "min_ratio": 0.0004639727116724596,
+  "max_ratio": 3182.966514979407,
+  "best_a": 6.12494692736917e-06,
+  "best_b": 1.493897725888991e-05,
+  "columns_lost": 2,
+  "columns_gained": 0,
+  "preference_a": [
+   3.6343143239358007,
+   [
+    7498942.093324558,
+    0.056234132519034905
+   ]
+  ],
+  "preference_b": [
+   5.544917813675044,
+   [
+    562341.325190349,
+    0.005623413251903491
+   ]
+  ]
+ }
+}

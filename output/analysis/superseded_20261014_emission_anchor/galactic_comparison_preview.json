@@ -1,0 +1,254 @@
+{
+ "potential_emu:m_Zd_eV_g_D_eps_u2": {
+  "family": "dark portal, potential planes",
+  "axes": [
+   "m_Zd_eV",
+   "g_D_eps_u2"
+  ],
+  "median_ratio": 38.116956460130524,
+  "min_ratio": 1.1022978258549423,
+  "max_ratio": 4.489597652962745e+20,
+  "best": 1.216292365759044e-57,
+  "best_gal": 1.5254726277278998e-56,
+  "columns_lost": 9,
+  "columns_gained": 0
+ },
+ "potential_emu_host:m_Zd_eV_g_D_eps_u2": {
+  "family": "dark portal, potential planes",
+  "axes": [
+   "m_Zd_eV",
+   "g_D_eps_u2"
+  ],
+  "median_ratio": 51.06542463339448,
+  "min_ratio": 1.1022978258549423,
+  "max_ratio": 3.128380600849374e+20,
+  "best": 2.9676753091678825e-58,
+  "best_gal": 1.1978153759198348e-56,
+  "columns_lost": 8,
+  "columns_gained": 0
+ },
+ "si_dirac_e:m_phi_eV_g_phi": {
+  "family": "SI scalar, Dirac",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 3.625636286717802,
+  "min_ratio": 2.892759506332629,
+  "max_ratio": 18.617175349684146,
+  "best": 1.7891822319587835e-05,
+  "best_gal": 0.0004071274236952893,
+  "columns_lost": 34,
+  "columns_gained": 0
+ },
+ "si_dirac_mu:m_phi_eV_g_phi": {
+  "family": "SI scalar, Dirac",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 1.7427187912124114,
+  "min_ratio": 1.7075345667965056,
+  "max_ratio": 2.172120124342079,
+  "best": 3.24476457184549e-05,
+  "best_gal": 0.012768511494743692,
+  "columns_lost": 20,
+  "columns_gained": 0
+ },
+ "si_dirac_tau:m_phi_eV_g_phi": {
+  "family": "SI scalar, Dirac",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": null,
+  "min_ratio": null,
+  "max_ratio": null,
+  "best": 5.594985840103232e-05,
+  "best_gal": null,
+  "columns_lost": 38,
+  "columns_gained": 0
+ },
+ "si_e:m_phi_eV_g_phi": {
+  "family": "SI scalar, Majorana",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 3.6327126453490863,
+  "min_ratio": 1.9227240372621037,
+  "max_ratio": 37.277333712622685,
+  "best": 1.4946981609347858e-05,
+  "best_gal": 8.363935126016915e-05,
+  "columns_lost": 32,
+  "columns_gained": 0
+ },
+ "si_e_mu:m_phi_eV_g_phi": {
+  "family": "SI scalar, Majorana",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 159.78854359922775,
+  "min_ratio": 2.2071863754870664,
+  "max_ratio": 304.64358174864924,
+  "best": 1.2863543495889505e-05,
+  "best_gal": 0.015700165583750435,
+  "columns_lost": 38,
+  "columns_gained": 0
+ },
+ "si_e_tau:m_phi_eV_g_phi": {
+  "family": "SI scalar, Majorana",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 2.13232276023421,
+  "min_ratio": 1.770221898872129,
+  "max_ratio": 236.0331207543806,
+  "best": 1.0001499500958571e-05,
+  "best_gal": 5.33198328757466e-05,
+  "columns_lost": 31,
+  "columns_gained": 0
+ },
+ "si_mu:m_phi_eV_g_phi": {
+  "family": "SI scalar, Majorana",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": null,
+  "min_ratio": null,
+  "max_ratio": null,
+  "best": 2.8687360045951012e-05,
+  "best_gal": null,
+  "columns_lost": 37,
+  "columns_gained": 0
+ },
+ "si_mu_tau:m_phi_eV_g_phi": {
+  "family": "SI scalar, Majorana",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 53.56689667035574,
+  "min_ratio": 1.638422046641247,
+  "max_ratio": 105.49537129407022,
+  "best": 1.710336773180921e-05,
+  "best_gal": 0.037332504354800115,
+  "columns_lost": 36,
+  "columns_gained": 0
+ },
+ "si_tau:m_phi_eV_g_phi": {
+  "family": "SI scalar, Majorana",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": null,
+  "min_ratio": null,
+  "max_ratio": null,
+  "best": 8.25442467678258e-05,
+  "best_gal": null,
+  "columns_lost": 37,
+  "columns_gained": 0
+ },
+ "si_universal:m_phi_eV_g_phi": {
+  "family": "SI scalar, Majorana",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 1.9241087766272111,
+  "min_ratio": 1.7017805401631458,
+  "max_ratio": 574.8169899641987,
+  "best": 8.026074233790485e-06,
+  "best_gal": 0.01051011400007892,
+  "columns_lost": 33,
+  "columns_gained": 0
+ },
+ "si_vector_dirac_e:m_phi_eV_g_phi": {
+  "family": "SI vector, Dirac",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 3.299376851415477,
+  "min_ratio": 1.9091306641505787,
+  "max_ratio": 7.283376817332169,
+  "best": 1.7036787290106752e-05,
+  "best_gal": 8.753464290943094e-05,
+  "columns_lost": 33,
+  "columns_gained": 0
+ },
+ "si_vector_dirac_mu:m_phi_eV_g_phi": {
+  "family": "SI vector, Dirac",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": null,
+  "min_ratio": null,
+  "max_ratio": null,
+  "best": 3.1036654073802185e-05,
+  "best_gal": null,
+  "columns_lost": 39,
+  "columns_gained": 0
+ },
+ "si_vector_dirac_tau:m_phi_eV_g_phi": {
+  "family": "SI vector, Dirac",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": null,
+  "min_ratio": null,
+  "max_ratio": null,
+  "best": 8.06811037888827e-05,
+  "best_gal": null,
+  "columns_lost": 38,
+  "columns_gained": 0
+ },
+ "si_vector_e:m_phi_eV_g_phi": {
+  "family": "SI vector, Majorana",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": 3.584645937022301,
+  "min_ratio": 1.8877886814128009,
+  "max_ratio": 50.115911669494494,
+  "best": 1.2003054901340667e-05,
+  "best_gal": 6.193651337975673e-05,
+  "columns_lost": 33,
+  "columns_gained": 0
+ },
+ "si_vector_mu:m_phi_eV_g_phi": {
+  "family": "SI vector, Majorana",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": null,
+  "min_ratio": null,
+  "max_ratio": null,
+  "best": 2.1733160349909637e-05,
+  "best_gal": null,
+  "columns_lost": 39,
+  "columns_gained": 0
+ },
+ "si_vector_tau:m_phi_eV_g_phi": {
+  "family": "SI vector, Majorana",
+  "axes": [
+   "m_phi_eV",
+   "g_phi"
+  ],
+  "median_ratio": null,
+  "min_ratio": null,
+  "max_ratio": null,
+  "best": 5.7637117372166345e-05,
+  "best_gal": null,
+  "columns_lost": 39,
+  "columns_gained": 0
+ }
+}

@@ -30,16 +30,16 @@ import json
 import subprocess
 
 import numpy as np
+
+# np.trapz is gone from NumPy 2.x (np.trapezoid since 2.0); the laptop and Tycho pin NumPy 1.26,
+# which has only np.trapz, and CI also runs the latest NumPy (.github/workflows/tests.yml)
+_trapz = getattr(np, "trapezoid", None) or np.trapz
 import pytest
 from scipy import integrate
 
 _SRC_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
 if _SRC_DIR not in sys.path:
     sys.path.insert(0, _SRC_DIR)
-
-_FREQ_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "FrequentistAnalysis"))
-if _FREQ_DIR not in sys.path:
-    sys.path.insert(0, _FREQ_DIR)
 
 import dark_portal_solver as dps  # noqa: E402
 
@@ -319,9 +319,8 @@ def test_n_e_earth_cm3_affects_flux_when_SM_potential_enabled(tmp_path):
     cfg = dps.create_default_config(str(tmp_path / "test_config.json"))
     cfg["grid"]["n_E_bins"] = 20
     cfg["grid"]["n_z_bins"] = 20
-    cfg["grid"]["n_mw_paths"] = 1
+    cfg["grid"]["n_sun_paths"] = 1
     cfg["grid"]["n_earth_chords"] = 1
-    cfg["grid"]["N_steps_MW"] = 5
     cfg["execution"]["verbose"] = 0
     cfg["execution"]["n_cores"] = 1
     cfg["standard_mixing"]["use_SM_potential"] = True
@@ -334,7 +333,10 @@ def test_n_e_earth_cm3_affects_flux_when_SM_potential_enabled(tmp_path):
     _, F_lo = dps.run_solver(cfg_lo)
     _, F_hi = dps.run_solver(cfg_hi)
 
-    assert not np.allclose(F_lo, F_hi)
+    # A wiring check: the output must respond, well above rounding. (The response is small,
+    # ~1e-5 relative: the SM potential is flavor-diagonal and MSW effects are suppressed at
+    # these energies. Before 2026-10-12 the runaway cosmological cascade amplified it.)
+    assert np.max(np.abs(F_lo - F_hi) / np.abs(F_hi)) > 1e-8
 
 
 # =============================================================================
@@ -381,7 +383,6 @@ def test_earth_transit_step_count_is_uniform_across_chords():
         dps.propagate_earth_spatial(E_bins, F_mass_arrival, M_rot, u_arr,
                                     2.0e6, 1e-4, 0.1, 1.95e-4, True, np.ones(3),
                                     1.5, False, 0.0, False, 1, 6,
-                                    N_steps_MW=2, r_start_kpc=100.0,
                                     show_progress=False, verbose=0, n_cores=1)
     finally:
         dp_spatial._earth_chord_worker = orig_worker
@@ -390,55 +391,34 @@ def test_earth_transit_step_count_is_uniform_across_chords():
 
 
 # =============================================================================
-# 5. init_mw_density_matrix redundant-computation hoist (regression test for the fix)
+# 5. The adiabatic Galactic map (replaced init_mw_density_matrix on 2026-10-13)
 # =============================================================================
 
-def test_init_mw_density_matrix_matches_reimplementation():
-    """init_mw_density_matrix's total ambient number density (n_tot_edge, from the Milky
-    Way/Sun/Moon/Earth-point-source terms) depends only on r_start_kpc/theta/phi/m_eff --
-    never on the energy bin -- so it was hoisted out of the per-energy-bin loop (it was
-    previously being recomputed, identically, on every iteration; the sibling
-    step_mw_approach/step_earth_transit functions already did this hoist correctly and this
-    was the one place it was missed). An independent, hand-transcribed reimplementation
-    (not sharing the hoisted code path) pins down both the hoist and the physics it must
-    reproduce."""
+def test_galactic_map_matches_reimplementation():
+    """dp_transit.galactic_map gives each energy bin the cosmological populations on the local
+    eigenstates, W diag(F) W^dag with W the eigenvectors of M_rot/2E + Coef n_bg S in ascending
+    order. An independent numpy reimplementation (eigh, at a potential where it is accurate)
+    pins the convention and the physics."""
+    from dp_transit import galactic_map, texture_scales
     N_E = 12
     E_bins = np.logspace(13, 16, N_E)
     rng = np.random.default_rng(0)
     F_mass_arrival = rng.uniform(1e18, 1e22, size=(N_E, 3))
-
     U_pmns = dps.construct_PMNS(np.radians(33.41), np.radians(8.58), np.radians(49.1), np.radians(132.0))
     M_sq = np.diag([0.0, 7.41e-5, 2.511e-3]).astype(np.complex128)
     M_rot = np.ascontiguousarray(U_pmns @ M_sq @ np.conjugate(U_pmns).T)
-
-    r_start_kpc, theta, phi = 100.0, np.pi / 3.0, 1.1
-    m_eff, Coef = 5.0e5, 3.7e-19
     u_arr = np.array([0.5, 0.3 * np.exp(1j * 0.4), 0.2], dtype=np.complex128)
-    U_LRI_struct = np.outer(u_arr, np.conjugate(u_arr))
-
-    rho_f = dps.init_mw_density_matrix(r_start_kpc, theta, phi, E_bins, F_mass_arrival,
-                                       M_rot, m_eff, Coef, U_LRI_struct)
-
-    # Independent reimplementation: recompute n_tot_edge directly from the physical formula
-    # (not via any dps internals beyond the plain helper calc_MW_neutron_density), then build
-    # H_arr and rho_f per-bin from scratch using plain numpy.
-    n_n_MW_edge = dps.calc_MW_neutron_density(r_start_kpc, theta, phi) * dps.cm_inv3_to_eV3
-    r_eV = r_start_kpc * 3.08567758e16 * 1e3 * dps.m_to_eV_inv
-    r_sun_eV = np.sqrt(r_eV**2 + dps.d_sun_eV_inv**2)
-    r_moon_eV = np.sqrt(r_eV**2 + dps.d_moon_eV_inv**2)
-    n_sun_eV3 = dps.N_n_sun * (m_eff**2) / (4.0 * np.pi * r_sun_eV) * np.exp(-m_eff * r_sun_eV)
-    n_moon_eV3 = dps.N_n_moon * (m_eff**2) / (4.0 * np.pi * r_moon_eV) * np.exp(-m_eff * r_moon_eV)
-    n_earth_eV3 = dps.N_n_earth * (m_eff**2) / (4.0 * np.pi * r_eV) * np.exp(-m_eff * r_eV)
-    n_tot_edge = n_n_MW_edge + n_sun_eV3 + n_moon_eV3 + n_earth_eV3
-
-    rho_f_expected = np.zeros((N_E, 3, 3), dtype=np.complex128)
-    for i in range(N_E):
-        H_vac = (1.0 / (2.0 * E_bins[i])) * M_rot
-        H_arr = H_vac + (Coef * n_tot_edge) * U_LRI_struct
-        evals, evecs = np.linalg.eigh(H_arr)
-        rho_f_expected[i] = evecs @ np.diag(F_mass_arrival[i]) @ np.conjugate(evecs).T
-
-    np.testing.assert_allclose(rho_f, rho_f_expected, rtol=1e-10, atol=1e-30)
+    S = np.ascontiguousarray(np.outer(u_arr, np.conjugate(u_arr)))
+    for sign in (1.0, -1.0):
+        Coef, n_bg = sign * 3.7e-3, 1.3e-14          # V ~ 5e-17 eV: comparable to the vacuum term
+        Q, s, Mp, floor, _, _ = texture_scales(M_rot, np.sign(Coef) * S)
+        rho = np.empty((N_E, 3, 3), dtype=np.complex128)
+        galactic_map(E_bins, F_mass_arrival, 2.0 * abs(Coef), n_bg, Q, Mp, s, floor, rho)
+        for i in range(N_E):
+            H = M_rot / (2.0 * E_bins[i]) + Coef * n_bg * S
+            w, v = np.linalg.eigh(H)
+            expected = v @ np.diag(F_mass_arrival[i]) @ np.conjugate(v).T
+            np.testing.assert_allclose(rho[i], expected, rtol=1e-10, atol=1e-10 * F_mass_arrival[i].max())
 
 
 # =============================================================================
@@ -480,140 +460,14 @@ def test_energy_averaged_ratios_uses_shared_dE_helper():
 
 
 # =============================================================================
-# 7. FrequentistAnalysis static_data wiring (regression test for the fixed dead-parameter bugs)
-# =============================================================================
-
-def _make_frequentist_config(**physics_overrides):
-    """Minimal physics_constants block sized for fast tests, with production-representative
-    defaults for everything compute_user_model_single needs to run end-to-end."""
-    physics_constants = {
-        "H0_km_s_Mpc": 67.4, "Omega_m": 0.315, "Omega_L": 0.685,
-        "T_nu0_eV": 1.95e-4, "n_n0_cm3": 0.25e-6, "m_lightest_eV": 0.01,
-        "mass_ordering": "normal", "eta_e": 1.0, "eta_mu": 1.0, "eta_tau": 1.0,
-        "detector_depth_km": 1.5, "p_index": 2.5, "Phi_0": 1.0, "z_max": 4.0,
-        "rho_evol": 0.0, "f_e_S": 0.333333, "f_mu_S": 0.666667, "f_tau_S": 0.0,
-        "is_antineutrino": "sum", "E_min_eV": 1e13, "E_max_eV": 3e16,
-        "n_E_bins": 15, "n_z_bins": 15, "n_mw_paths": 1, "n_earth_chords": 1,
-        "N_steps_MW": 5, "N_steps_earth": 5,
-    }
-    physics_constants.update(physics_overrides)
-    return {"experiment": "test", "physics_constants": physics_constants}
-
-
-def _default_dark_portal_params():
-    return {"m_Zd_eV": 2.0e6, "g_D": 1e-4, "epsilon_prime": 0.1, "u_e": 0.5, "u_mu": 0.5, "u_tau": 0.0}
-
-
-def test_frequentist_static_data_wires_use_SM_potential_and_n_e_earth():
-    """FrequentistAnalysis's GenericLikelihoodWrapper must actually read use_SM_potential and
-    n_e_earth_cm3 from physics_constants into static_data, and kernel.py's
-    compute_user_model_single must actually use them -- previously both were hardcoded
-    (use_SM_potential=False, n_e_earth=0.0) regardless of the config, silently dropping the
-    same way n_e_earth_cm3 was previously dropped in dark_portal_solver.py's own run_solver
-    (see test_n_e_earth_cm3_affects_flux_when_SM_potential_enabled above)."""
-    from src.core.likelihood import GenericLikelihoodWrapper
-    from src.physics.kernel import compute_user_model_single
-
-    # n_e_earth_cm3 values chosen so the effect is comfortably above float noise: this
-    # dark-portal configuration's LRI potential dominates over the standard MSW potential by
-    # several orders of magnitude (as expected -- the whole point of the model is that the
-    # new force dominates), so use_SM_potential's effect on the output, while real and
-    # non-zero at any n_e_earth_cm3, only clears typical float-comparison tolerances once
-    # n_e_earth_cm3 is large enough (empirically checked to give a ~1e-4-level relative
-    # effect at 5e24 cm^-3, vs ~1e-16 machine noise when the parameter is dead/dropped).
-    cfg_off = _make_frequentist_config(use_SM_potential=False, n_e_earth_cm3=5.0e24)
-    cfg_lo = _make_frequentist_config(use_SM_potential=True, n_e_earth_cm3=1.0e23)
-    cfg_hi = _make_frequentist_config(use_SM_potential=True, n_e_earth_cm3=5.0e24)
-
-    func_off = GenericLikelihoodWrapper(cfg_off, [])
-    func_lo = GenericLikelihoodWrapper(cfg_lo, [])
-    func_hi = GenericLikelihoodWrapper(cfg_hi, [])
-
-    assert len(func_off.static_data) == 36
-    assert func_off.static_data[27] is False or func_off.static_data[27] == False  # noqa: E712
-    assert func_lo.static_data[27] is True or func_lo.static_data[27] == True  # noqa: E712
-    assert func_lo.static_data[28] != func_hi.static_data[28]
-
-    params = _default_dark_portal_params()
-    result_off = compute_user_model_single(params, func_off.static_data)
-    result_lo = compute_user_model_single(params, func_lo.static_data)
-    result_hi = compute_user_model_single(params, func_hi.static_data)
-
-    # Turning on use_SM_potential (with n_e_earth actually wired through) must change the
-    # output, and different n_e_earth_cm3 values must give different outputs from each other.
-    assert not np.allclose(result_off, result_hi, rtol=1e-6, atol=0.0)
-    assert not np.allclose(result_lo, result_hi, rtol=1e-6, atol=0.0)
-
-
-def test_frequentist_static_data_wires_use_debye_screening():
-    """use_debye_screening is present in every shipped physics_constants block's spirit
-    (dark_portal_solver.py's own config exposes it under dark_portal.use_debye_screening)
-    but was hardcoded to True in kernel.py regardless of config. Regression test that it is
-    now read from static_data and actually changes the propagated flux when toggled."""
-    from src.core.likelihood import GenericLikelihoodWrapper
-    from src.physics.kernel import compute_user_model_single
-
-    cfg_on = _make_frequentist_config(use_debye_screening=True)
-    cfg_off = _make_frequentist_config(use_debye_screening=False)
-
-    func_on = GenericLikelihoodWrapper(cfg_on, [])
-    func_off = GenericLikelihoodWrapper(cfg_off, [])
-
-    assert func_on.static_data[29] is True or func_on.static_data[29] == True  # noqa: E712
-    assert func_off.static_data[29] is False or func_off.static_data[29] == False  # noqa: E712
-
-    # A large g_D (strong dark coupling) makes the Debye screening mass non-negligible
-    # relative to m_Zd, so toggling it should visibly change the propagated flux.
-    params = dict(_default_dark_portal_params())
-    params["m_Zd_eV"] = 1.0e3
-    params["g_D"] = 1.0
-
-    result_on = compute_user_model_single(params, func_on.static_data)
-    result_off = compute_user_model_single(params, func_off.static_data)
-
-    # Wiring check: a dropped flag would give BIT-IDENTICAL results. Under the 'left'
-    # Earth scheme the toggle's small V-shift was amplified by discretization phase
-    # noise into an O(1e-4) flux change; the phase-exact 'avg' scheme (dev-earth)
-    # removes that amplification, leaving only the true physical effect (~1e-7 here)
-    # -- so assert at a tolerance that detects wiring, not noise amplification.
-    assert not np.allclose(result_on, result_off, rtol=1e-12, atol=1e-12)
-
-
-def test_frequentist_static_data_backward_compatible_with_shorter_tuples():
-    """compute_user_model_single must still work, with safe defaults, given an older
-    26-element static_data tuple that predates N_steps_earth/use_SM_potential/n_e_earth/
-    use_debye_screening -- these were all added as tuple extensions specifically to avoid
-    breaking any caller still constructing the older, shorter form."""
-    from src.physics.kernel import compute_user_model_single
-
-    old_static_data = (
-        0.33, 0.33, 0.05, 0.05,
-        np.logspace(13, 16, 10), np.linspace(4.0, 0.0, 10),
-        np.array([0.333333, 0.666667, 0.0]),
-        67.4 * dps.km_per_s / dps.Mpc_to_eV_inv, 0.315, 0.685,
-        np.eye(3, dtype=np.complex128),
-        np.diag([0.0, 7.41e-5, 2.511e-3]).astype(np.complex128),
-        np.array([0.0, 8.6e-3, 5.01e-2]),
-        0.25e-6 * dps.cm_inv3_to_eV3, 1.95e-4, np.ones(3, dtype=np.float64),
-        1.5, "sum", 2.5, 0.0, 1.0,
-        1.0, 1, 1, 5, 100.0,
-    )
-    assert len(old_static_data) == 26
-
-    result = compute_user_model_single(_default_dark_portal_params(), old_static_data)
-    assert len(result) == 3
-    assert all(np.isfinite(result))
-
-
-# =============================================================================
 # 7b. Configurable potential structure matrices (U_LRI_struct / V_SM_struct)
 # =============================================================================
 
 def _propagate_small(u_arr, is_anti, U_LRI_struct=None, V_SM_struct=None, use_SM=False):
-    """Minimal, fast propagate_spectrum call used by the structure-override tests.
-    Mirrors propagation_worker's conventions: U_pmns/u_arr are conjugated here for
-    antineutrinos, while structure overrides are passed in neutrino convention
-    (propagate_spectrum conjugates those internally)."""
+    """Minimal, fast propagate_spectrum call used by the structure-override tests: neutrino
+    (is_anti False) or antineutrino sources alone, everything in neutrino convention
+    (propagate_spectrum applies the antineutrino transforms itself). Returns the flux at
+    the detector, neutrinos plus antineutrinos."""
     E_bins = np.logspace(13, 16, 12)
     z_bins = np.linspace(4.0, 0.0, 12)
     rho_src = np.array([0.333333, 0.666667, 0.0])
@@ -623,16 +477,14 @@ def _propagate_small(u_arr, is_anti, U_LRI_struct=None, V_SM_struct=None, use_SM
     H0 = 67.4 * dps.km_per_s / dps.Mpc_to_eV_inv
     m_nu_bg = np.array([0.01, np.sqrt(0.01**2 + 7.41e-5), np.sqrt(0.01**2 + 2.511e-3)])
 
-    local_U_pmns = np.ascontiguousarray(np.conjugate(U_pmns)) if is_anti else U_pmns
-    local_u = np.ascontiguousarray(np.conjugate(u_arr)) if is_anti else np.ascontiguousarray(u_arr)
-
-    return dps.propagate_spectrum(
-        E_bins, z_bins, rho_src, H0, 0.315, 0.685, local_U_pmns, M_sq,
-        local_u, 2.0e6, 1e-4, 0.1, m_nu_bg, 0.25e-6 * dps.cm_inv3_to_eV3, 1.95e-4,
+    F_nu, F_nb = dps.propagate_spectrum(
+        E_bins, z_bins, rho_src, H0, 0.315, 0.685, U_pmns, M_sq,
+        np.ascontiguousarray(u_arr), 2.0e6, 1e-4, 0.1, m_nu_bg, 0.25e-6 * dps.cm_inv3_to_eV3, 1.95e-4,
         True, 1.5, use_SM, 1.5e24 * dps.cm_inv3_to_eV3,
-        is_anti, 2.5, 0.0, 1.0, np.ones(3), 1, 1,
-        N_steps_MW=5, r_start_kpc=100.0, show_progress=False, verbose=0, n_cores=1,
+        (0.0, 1.0) if is_anti else (1.0, 0.0), 2.5, 0.0, 1.0, np.ones(3), 1, 1,
+        show_progress=False, verbose=0, n_cores=1,
         N_steps_earth=5, U_LRI_struct=U_LRI_struct, V_SM_struct=V_SM_struct)
+    return F_nu + F_nb
 
 
 def test_structure_override_default_equals_absent():
@@ -703,8 +555,8 @@ def test_run_solver_accepts_structure_overrides_in_config(tmp_path):
     import copy
 
     cfg = dps.create_default_config(str(tmp_path / "cfg.json"))
-    cfg["grid"].update(dict(n_E_bins=12, n_z_bins=12, n_mw_paths=1, n_earth_chords=1,
-                            N_steps_MW=5, N_steps_earth=5))
+    cfg["grid"].update(dict(n_E_bins=12, n_z_bins=12, n_sun_paths=1, n_earth_chords=1,
+                            N_steps_earth=5))
     cfg["execution"].update(dict(n_cores=1, verbose=0))
 
     cfg_override = copy.deepcopy(cfg)
@@ -727,8 +579,8 @@ def _propagator_via_eigh(H, t):
 
 
 def test_propagator_3x3_matches_eigh_at_physics_scales():
-    """propagator_3x3 (closed-form trigonometric eigenvalues + Lagrange spectral
-    interpolation) must agree with the eigh construction to fp noise across random
+    """propagator_3x3 (spectral sum over the deflated eigenbasis) must agree with the
+    eigh construction to fp noise across random
     Hermitian Hamiltonians at the magnitudes and step lengths the spatial transit
     actually uses (|H| ~ 1e-20..1e-12 eV, dr ~ 1e8..1e13 eV^-1), and must stay unitary."""
     rng = np.random.default_rng(7)
@@ -751,10 +603,9 @@ def test_propagator_3x3_near_degenerate_stability():
     """Near-degenerate spectra are exactly what an MSW-like matter resonance produces --
     and, with the rank-1 LRI structure (u_tau = 0), what the Earth-transit Hamiltonian
     looks like at essentially EVERY step wherever the matter potential rivals the vacuum
-    term. The Newton divided-difference form (sinc first differences + Taylor branch for
-    tiny phase spread) must therefore stay accurate across gaps from harmless (1e-4
-    relative) down to essentially exact degeneracy (1e-14) with no eigendecomposition
-    fallback at all."""
+    term. The deflated eigenbasis must therefore stay accurate across gaps from harmless
+    (1e-4 relative) down to essentially exact degeneracy (1e-14), where the splitting is
+    below double-precision resolution and the pair is propagated as degenerate."""
     rng = np.random.default_rng(11)
     out = np.zeros((3, 3), dtype=np.complex128)
     worst = 0.0
@@ -773,8 +624,8 @@ def test_propagator_3x3_near_degenerate_stability():
 def test_propagator_3x3_rank1_dominated_hamiltonian():
     """The production regime that previously forced a 100% eigh-fallback rate: a rank-1
     potential dominating a small vacuum term gives H two eigenvalues degenerate by
-    construction. The divided-difference propagator must handle it at full accuracy and
-    stay unitary, across the potential-to-vacuum ratio range the Earth transit spans."""
+    construction. The propagator must handle it at full accuracy and stay unitary, across
+    the potential-to-vacuum ratio range the Earth transit spans."""
     rng = np.random.default_rng(21)
     U_pmns = dps.construct_PMNS(np.radians(33.41), np.radians(8.58), np.radians(49.1), np.radians(132.0))
     M_sq = np.diag([0.0, 7.41e-5, 2.511e-3]).astype(np.complex128)
@@ -793,18 +644,15 @@ def test_propagator_3x3_rank1_dominated_hamiltonian():
         worst = max(worst, float(np.max(np.abs(out - _propagator_via_eigh(H, t)))))
         worst_unit = max(worst_unit, float(np.max(np.abs(out @ out.conj().T - np.eye(3)))))
     assert worst < 1e-10
-    assert worst_unit < 1e-11
+    assert worst_unit < 1e-14
 
 
-def test_propagator_3x3_large_phase_node_exactness():
+def test_propagator_3x3_unitary_at_milky_way_phases():
     """Milky-Way-regime regression: per-step phases lam*t reach ~1e10 radians (gap phases
-    ~1e9), where double precision defines a phase only to ~1e-5 rad. The propagator must
-    still interpolate the COMPUTED e^{-i lam t} exactly at the eigenvalue nodes -- i.e.
-    remain unitary to fp precision -- because a coefficient form that only satisfies the
-    interpolation conditions approximately (the pure sinc form did, at ~1e-5 per step)
-    turns phase-representation noise into a cumulative AMPLITUDE error (measured 1.3e-4
-    end-to-end before the node-exact branch existed). Checks eigenvalue-wise
-    |U's spectrum| = 1 and agreement with the eigh construction."""
+    ~1e9), where double precision defines a phase only to ~1e-5 rad. U must stay unitary
+    to rounding regardless -- any amplitude error compounds over the steps (an earlier
+    polynomial form that only approximately interpolated the computed phases gave 1.3e-4
+    end-to-end) -- and agree with the eigh construction on |U|."""
     rng = np.random.default_rng(33)
     U_pmns = dps.construct_PMNS(np.radians(33.41), np.radians(8.58), np.radians(49.1), np.radians(132.0))
     M_sq = np.diag([0.0, 7.41e-5, 2.511e-3]).astype(np.complex128)
@@ -823,7 +671,7 @@ def test_propagator_3x3_large_phase_node_exactness():
         # at ~1e-5 rad, i.e. ~1e-5 absolute on elements is the shared representation
         # limit -- the unitarity assertion above is the strict one)
         worst_vs_eigh = max(worst_vs_eigh, float(np.max(np.abs(np.abs(out) - np.abs(_propagator_via_eigh(H, t))))))
-    assert worst_unit < 1e-12, f"non-unitary at large phases: {worst_unit:.3e}"
+    assert worst_unit < 1e-14, f"non-unitary at large phases: {worst_unit:.3e}"
     assert worst_vs_eigh < 1e-4
 
 
@@ -850,7 +698,10 @@ def test_eigenvectors_3x3_matches_eigh():
     assert worst_resid < 1e-10
     assert worst_proj < 1e-9
 
-    # Near-degenerate spectra take the eigh fallback and must agree exactly with eigh
+    # Near-degenerate spectra take the eigh fallback. Within the nearly degenerate pair the basis is
+    # determined only to ~eps/gap (up to 1e-2 here), so two LAPACK builds -- numba's and numpy's, or
+    # one build on two CPUs -- may pick different pairs (a GitHub runner did, 2026-10-13); what is
+    # fixed is the projector onto the pair, the isolated column, and each column being an eigenvector.
     for _ in range(100):
         gap = 10.0 ** rng.uniform(-14, -6)
         lam = np.array([1.0, 1.0 + gap, 2.0]) * 1e-16
@@ -858,56 +709,223 @@ def test_eigenvectors_3x3_matches_eigh():
         H = np.ascontiguousarray((Q @ np.diag(lam) @ Q.conj().T + (Q @ np.diag(lam) @ Q.conj().T).conj().T) / 2)
         U = dps.eigenvectors_3x3(H)
         evals_ref, evecs_ref = np.linalg.eigh(H)
-        np.testing.assert_allclose(np.abs(U)**2, np.abs(evecs_ref)**2, atol=1e-12)
+        P_pair = U[:, :2] @ U[:, :2].conj().T
+        P_ref = evecs_ref[:, :2] @ evecs_ref[:, :2].conj().T
+        np.testing.assert_allclose(P_pair, P_ref, atol=1e-12)
+        np.testing.assert_allclose(np.abs(U[:, 2]) ** 2, np.abs(evecs_ref[:, 2]) ** 2, atol=1e-12)
+        for k in range(3):
+            assert np.max(np.abs(H @ U[:, k] - evals_ref[k] * U[:, k])) < 1e-12 * 2e-16
 
 
-def test_cascade_suffix_sum_matches_bruteforce():
-    """The O(N_E) suffix-sum form of the cascading integral in
-    step_cosmological_propagation must reproduce the original O(N_E^2) double loop:
-    dF_casc[i, a] = BR[a] * 3 E_i^2 * sum_{j >= i} (sum_b Gamma[j,b] F_flavor[j,b]) * W[j].
-    The identity holds because the cascading kernel is separable (the whole i-dependence
-    is the 3 E_i^2 prefactor); this test drives the real JIT kernel and checks its
-    dF_casc buffer against an independent brute-force evaluation built from the same
-    U_z projections."""
-    N_E = 40
+def _cascade_step_setup(N_E=40, seed=5):
+    """Synthetic inputs for one call of step_cosmological_pair: random mass-state fluxes of
+    both kinds and the sigma-tables of neutrinos and antineutrinos."""
     E_bins = np.logspace(13, 16, N_E)
-    rng = np.random.default_rng(5)
-    F_mass = rng.uniform(1e18, 1e22, size=(N_E, 3))
-    rho_src = np.array([0.333, 0.667, 0.0])
+    rng = np.random.default_rng(seed)
+    F_nu = rng.uniform(1e18, 1e22, size=(N_E, 3))
+    F_nb = rng.uniform(1e18, 1e22, size=(N_E, 3))
     U_pmns = np.ascontiguousarray(dps.construct_PMNS(np.radians(33.41), np.radians(8.58),
                                                      np.radians(49.1), np.radians(132.0)))
     M_sq = np.diag([0.0, 7.41e-5, 2.511e-3]).astype(np.complex128)
-    M_rot = np.ascontiguousarray(U_pmns @ M_sq @ np.conjugate(U_pmns).T)
     u_arr = np.array([0.5, 0.5, 0.0], dtype=np.complex128)
-    S = np.ascontiguousarray(np.outer(u_arr, np.conjugate(u_arr)))
-    eta_bg = np.ones(3)
-    BR = np.array([0.4, 0.35, 0.25])
-    dE = dps.compute_dE_geometric(E_bins)
-    W_kernel = dE / E_bins**3
-    Gamma_pre = rng.uniform(1e-20, 1e-18, size=(N_E, 3))
-
-    F_flavor = np.zeros((N_E, 3)); Gamma_flavor = np.zeros((N_E, 3))
-    dF_casc = np.zeros((N_E, 3)); P_all = np.zeros((N_E, 3, 3))
-    rate_buf = np.zeros(N_E)
-    # Mixing now arrives through the sigma-table (see _build_sigma_projection_table)
     c_z = 1e-30
     sigma_nodes = np.geomspace(E_bins[0] * c_z * 0.5, E_bins[-1] * c_z * 2.0, 512)
-    P_table = dps._build_sigma_projection_table(M_rot, S, sigma_nodes)
     log_s0 = np.log(sigma_nodes[0])
     inv_dlogs = (len(sigma_nodes) - 1) / np.log(sigma_nodes[-1] / sigma_nodes[0])
-    dps.step_cosmological_propagation(0.5, 1.0, 1.0, E_bins, F_mass.copy(), rho_src,
-                                      P_table, log_s0, inv_dlogs, c_z,
-                                      2.5, 1.0, BR, W_kernel,
-                                      F_flavor, Gamma_flavor, dF_casc, P_all, rate_buf, Gamma_pre)
+    tables = []
+    for anti in (False, True):
+        U = np.conjugate(U_pmns) if anti else U_pmns
+        u = np.conjugate(u_arr) if anti else u_arr
+        M_rot = np.ascontiguousarray(U @ M_sq @ np.conjugate(U).T)
+        S = np.outer(u, np.conjugate(u))
+        Q_t, s_t, Mp_t, floor_t, _, _ = dps.texture_scales(M_rot, np.ascontiguousarray(-S if anti else S))
+        P_table = dps._build_sigma_projection_table(Q_t, Mp_t, s_t, floor_t, sigma_nodes)
+        tables.append((P_table, log_s0, inv_dlogs, -c_z if anti else c_z))
+    return E_bins, F_nu, F_nb, rng, tables
 
-    # Brute-force reference from the buffers the kernel itself filled
-    expected = np.zeros((N_E, 3))
-    for i in range(N_E):
-        integral = 0.0
-        for j in range(i, N_E):
-            integral += np.sum(Gamma_flavor[j] * F_flavor[j]) * W_kernel[j]
-        expected[i, :] = BR * 3.0 * E_bins[i]**2 * integral
-    np.testing.assert_allclose(dF_casc, expected, rtol=1e-12)
+
+def _one_pair_step(E_bins, F_nu, F_nb, Gamma, dt, Phi_0, tables, w=(0.5, 0.5),
+                   BR=np.array([0.4, 0.35, 0.25])):
+    W3, pref3, self_same = dps.cascade_kernel_weights(E_bins)
+    W1, W2, c1, c2, self_cross = dps.cross_kernel_weights(E_bins)
+    N = len(E_bins)
+    P_nu, P_nb = np.zeros((N, 3, 3)), np.zeros((N, 3, 3))
+    R_nu, R_nb = np.zeros(N), np.zeros(N)
+    F_nu, F_nb = F_nu.copy(), F_nb.copy()
+    dps.step_cosmological_pair(0.5, dt, 1.0, E_bins, F_nu, F_nb, w[0], w[1], np.array([0.333, 0.667, 0.0]),
+                               *tables[0], *tables[1], 2.5, Phi_0, BR, W3, pref3, self_same,
+                               W1, W2, c1, c2, self_cross, P_nu, P_nb, np.ascontiguousarray(Gamma), R_nu, R_nb,
+                               tables[0][3], tables[1][3], np.zeros_like(P_nu), np.zeros_like(P_nb), np.ones(N))
+    return F_nu, F_nb, R_nu, R_nb, P_nu, P_nb
+
+
+def test_cascade_kernel_weights_are_exact_bin_integrals():
+    """The discrete cascade kernel must be the exact bin integral of 3 E^2 / E_j^3 on the
+    geometric grid: its fractions add up to 1 - (E_lo,0 / E_j)^3, the secondaries landing
+    above the grid's lower edge, and never more. The midpoint weights used until 2026-10-12
+    gave each parent 1 + 1.5 dlnE secondaries (1.2% created per generation)."""
+    from scipy.integrate import quad
+    E = np.logspace(13, 16.5, 300)
+    W, pref, selff = dps.cascade_kernel_weights(E)
+    dE = dps.compute_dE_geometric(E)
+    h = np.sqrt(E[1] / E[0])
+    for j in (0, 1, 7, 150, 299):
+        kept = selff[j] + sum(pref[i] * dE[i] * W[j] / dE[j] for i in range(j))
+        assert abs(kept - (1.0 - (E[0] / h / E[j])**3)) < 1e-12, j
+        if j > 0:
+            i = j // 2
+            ref = quad(lambda e: 3 * e**2 / E[j]**3, E[i] / h, E[i] * h)[0]
+            assert abs(pref[i] * dE[i] * W[j] / dE[j] / ref - 1.0) < 1e-12
+        ref_self = quad(lambda e: 3 * e**2 / E[j]**3, E[j] / h, E[j])[0]
+        assert abs(selff[j] / ref_self - 1.0) < 1e-12
+
+
+def test_cross_kernel_weights_are_exact_bin_integrals():
+    """The secondary of the other kind carries 3 (E_j - E)^2 / E_j^3 (the remaining quarter
+    of the energy): its discrete weights must be the exact bin integrals, adding up to
+    (1 - E_lo,0 / E_j)^3, everything above the grid's lower edge."""
+    from scipy.integrate import quad
+    E = np.logspace(13, 16.5, 300)
+    W3, pref3, _ = dps.cascade_kernel_weights(E)
+    W1, W2, c1, c2, self_cross = dps.cross_kernel_weights(E)
+    dE = dps.compute_dE_geometric(E)
+    h = np.sqrt(E[1] / E[0])
+
+    def frac(i, j):
+        return (c1[i] * W1[j] - c2[i] * W2[j] + pref3[i] * W3[j]) * dE[i] / dE[j]
+    for j in (0, 1, 7, 150, 299):
+        kept = self_cross[j] + sum(frac(i, j) for i in range(j))
+        assert abs(kept - (1.0 - E[0] / h / E[j])**3) < 1e-10, j
+        for i in {0, j // 2, max(j - 1, 0)}:
+            if i < j:
+                ref = quad(lambda e: 3 * (E[j] - e)**2 / E[j]**3, E[i] / h, E[i] * h, epsrel=1e-13)[0]
+                assert abs(frac(i, j) / ref - 1.0) < 1e-8, (i, j)
+        ref_self = quad(lambda e: 3 * (E[j] - e)**2 / E[j]**3, E[j] / h, E[j], epsrel=1e-13)[0]
+        assert abs(self_cross[j] / ref_self - 1.0) < 1e-10
+
+
+def test_cascade_step_balances_number_at_any_optical_depth():
+    """One cosmological step must balance the number of neutrinos plus antineutrinos
+    exactly, whatever the optical depth per step: every absorption removes one particle and
+    emits two (one of each kind), so after = before + injected + absorbed - (secondaries
+    lost below the grid). Until 2026-10-12 the regenerated source was each bin's initial
+    rate Gamma F held over the whole step (up to 1e70 too many particles); until 2026-10-13
+    only the secondary of the absorbed particle's own kind was kept."""
+    E_bins, F_nu0, F_nb0, rng, tables = _cascade_step_setup()
+    dE = dps.compute_dE_geometric(E_bins)
+    x0 = E_bins[0] / np.sqrt(E_bins[1] / E_bins[0]) / E_bins        # E_lo,0 / E_j
+    lost_frac = x0**3 + (1.0 - (1.0 - x0)**3)                        # same-kind + other-kind losses
+    dt = 1.0
+    for gdt_scale in (1e-8, 1e-2, 1.0, 1e3, 1e10):
+        Gamma = rng.uniform(0.1, 1.0, size=(len(E_bins), 3)) * gdt_scale / dt
+        for Phi_0, w in ((0.0, (0.5, 0.5)), (1e50, (0.5, 0.5)), (1e50, (1.0, 0.0))):
+            F_nb_in = F_nb0 if w[1] > 0 else np.zeros_like(F_nb0)
+            F_nu1, F_nb1, R_nu, R_nb, P_nu, P_nb = _one_pair_step(E_bins, F_nu0, F_nb_in, Gamma, dt, Phi_0, tables, w)
+            inj = Phi_0 * (E_bins * 1.5)**(-2.5) * 1.5 * dt           # z = 0.5, R_z = 1, dE_z/dE = 1.5; weights sum to 1
+            absorbed = (R_nu + R_nb) * dt * dE
+            before = np.sum((F_nu0 + F_nb_in).sum(axis=1) * dE) + np.sum(inj * dE)
+            after = np.sum((F_nu1 + F_nb1).sum(axis=1) * dE)
+            expected = before + np.sum(absorbed) - np.sum(absorbed * lost_frac)
+            assert abs(after - expected) <= 1e-11 * max(before, expected), (gdt_scale, Phi_0, w, after, expected)
+            assert np.all(F_nu1 >= 0.0) and np.all(F_nb1 >= 0.0)
+            if w[1] == 0.0 and gdt_scale >= 1.0:
+                assert np.sum(F_nb1) > 0.0                           # antineutrinos from neutrino absorptions
+
+
+def test_cascade_step_limits():
+    """Without absorption the step is pure injection, F + w S dt for each kind. For a small
+    optical depth per step it agrees with the explicit first-order update (rates G F held
+    over the step, each absorption feeding both kinds) to O(Gamma dt)."""
+    E_bins, F_nu0, F_nb0, rng, tables = _cascade_step_setup()
+    dt = 2.0
+    w = (0.3, 0.7)
+    F_nu1, F_nb1, R_nu, R_nb, P_nu, P_nb = _one_pair_step(E_bins, F_nu0, F_nb0, np.zeros((len(E_bins), 3)),
+                                                          dt, 1e50, tables, w)
+    inj_spec = 1e50 * (E_bins * 1.5)**(-2.5) * 1.5      # z = 0.5: per unit observed energy, dE_z/dE = 1.5
+    rho = np.array([0.333, 0.667, 0.0])
+    np.testing.assert_allclose(F_nu1, F_nu0 + w[0] * np.einsum("iak,a->ik", P_nu, rho) * inj_spec[:, None] * dt, rtol=1e-14)
+    np.testing.assert_allclose(F_nb1, F_nb0 + w[1] * np.einsum("iak,a->ik", P_nb, rho) * inj_spec[:, None] * dt, rtol=1e-14)
+    assert np.all(R_nu == 0.0) and np.all(R_nb == 0.0)
+    # small optical depth: the explicit update
+    BR = np.array([0.4, 0.35, 0.25])
+    Gamma = rng.uniform(0.1, 1.0, size=(len(E_bins), 3)) * 1e-7 / dt
+    F_nu1, F_nb1, R_nu, R_nb, P_nu, P_nb = _one_pair_step(E_bins, F_nu0, F_nb0, Gamma, dt, 0.0, tables, w, BR)
+    W3, pref3, self_same = dps.cascade_kernel_weights(E_bins)
+    W1, W2, c1, c2, self_cross = dps.cross_kernel_weights(E_bins)
+
+    def above(x):
+        return np.concatenate([np.cumsum(x[::-1])[::-1][1:], [0.0]])
+    G_nu = np.einsum("iak,ia->ik", P_nu, Gamma)
+    G_nb = np.einsum("iak,ia->ik", P_nb, Gamma)
+    Rn = np.sum(G_nu * F_nu0, axis=1)
+    Rb = np.sum(G_nb * F_nb0, axis=1)
+    same_n = pref3 * above(Rn * W3) + self_same * Rn
+    same_b = pref3 * above(Rb * W3) + self_same * Rb
+    cross_n = c1 * above(Rn * W1) - c2 * above(Rn * W2) + pref3 * above(Rn * W3) + self_cross * Rn
+    cross_b = c1 * above(Rb * W1) - c2 * above(Rb * W2) + pref3 * above(Rb * W3) + self_cross * Rb
+    F_nu_expl = F_nu0 * (1 - G_nu * dt) + np.einsum("iak,a->ik", P_nu, BR) * (same_n + cross_b)[:, None] * dt
+    F_nb_expl = F_nb0 * (1 - G_nb * dt) + np.einsum("iak,a->ik", P_nb, BR) * (same_b + cross_n)[:, None] * dt
+    # the exact step differs from the explicit one at O(G dt) of the regenerated part, which
+    # in the lowest bins is up to ~1e-3 of the flux (random spectra): ~1e-10 relative
+    np.testing.assert_allclose(F_nu1, F_nu_expl, rtol=1e-10, atol=0)
+    np.testing.assert_allclose(F_nb1, F_nb_expl, rtol=1e-10, atol=0)
+    # the exact absorbed number also includes secondaries absorbed within the step (up to
+    # ~1e-5 of the flux in the lowest bins, where the other kind's soft secondaries collect)
+    np.testing.assert_allclose(R_nu, Rn, rtol=1e-5)
+    np.testing.assert_allclose(R_nb, Rb, rtol=1e-5)
+
+
+def test_neutrino_sources_produce_antineutrinos_only_through_absorption():
+    """With neutrino sources alone, antineutrinos reach the detector only as secondaries of
+    absorptions: none without dark-portal interactions, some with them. (Since 2026-10-14 the Z mixing
+    alone couples the mediator to every neutrino, so 'without interactions' means u = 0 AND eps' = 0.)"""
+    E_bins = np.logspace(13, 16, 30)
+    z_bins = np.linspace(4.0, 0.0, 30)
+    U_pmns = np.ascontiguousarray(dps.construct_PMNS(np.radians(33.41), np.radians(8.58),
+                                                     np.radians(49.1), np.radians(132.0)))
+    M_sq = np.ascontiguousarray(np.diag([0.0, 7.41e-5, 2.511e-3]).astype(np.complex128))
+    H0 = 67.4 * dps.km_per_s / dps.Mpc_to_eV_inv
+    m_nu_bg = dps.get_mass_eigenvalues(0.01, 7.41e-5, 2.511e-3, "normal")
+    out = []
+    for u, eps in ((0.0, 0.0), (0.5, 1e-4)):
+        u_arr = np.ascontiguousarray(np.array([u, u, 0.0], dtype=np.complex128))
+        out.append(dps.propagate_spectrum(
+            E_bins, z_bins, np.array([1 / 3, 2 / 3, 0.0]), H0, 0.315, 0.685, U_pmns, M_sq,
+            u_arr, 2.0e6, 1e-4, eps, m_nu_bg, 3.091e-8 * dps.cm_inv3_to_eV3, 1.676389e-4,
+            True, 1.5, False, 0.0, (1.0, 0.0), 2.5, 0.0, 1.0, np.ones(3), 1, 2,
+            show_progress=False, verbose=0, n_cores=1, N_steps_earth=5,
+            earth_step_scheme="avg", earth_zenith_average="phase"))
+    (F_nu0, F_nb0), (F_nu1, F_nb1) = out
+    assert np.all(F_nb0 == 0.0) and np.sum(F_nu0) > 0.0
+    assert np.sum(F_nb1) > 1e-3 * np.sum(F_nu1)
+
+
+def test_solver_never_returns_more_energy_than_injected(tmp_path):
+    """End to end, at the three MeV benchmark couplings: every absorption hands its energy to
+    its two secondaries (3/4 and 1/4 on average), so the energy flux at the detector equals
+    the no-interaction one less what falls below the grid -- never more, up to the placement
+    of secondaries at bin centres (2e-4 on this 60-bin grid) -- and the energy-averaged
+    flavor fractions converge in the redshift step. Before 2026-10-12 the energy flux came
+    out up to 1e67 times the injected one."""
+    import copy
+    base = dps.create_default_config(str(tmp_path / "cfg.json"))
+    base["grid"].update(dict(n_E_bins=60, n_sun_paths=1, n_earth_chords=2, N_steps_earth=10))
+    base["execution"].update(dict(n_cores=1, verbose=0))
+
+    def run(nz, **dp):
+        c = copy.deepcopy(base)
+        c["grid"]["n_z_bins"] = nz
+        c["dark_portal"].update(dp)
+        return dps.run_solver(c)
+    E, F0 = run(100, u_e=0.0, u_mu=0.0, epsilon_prime=0.0)     # no coupling at all (eps' also couples, 2026-10-14)
+    dE = dps.compute_dE_geometric(E)
+    e0 = np.sum(E * F0.sum(axis=1) * dE)
+    from flux_postprocessing import compute_energy_averaged_ratios as ratios
+    for dp in (dict(m_Zd_eV=3e5), dict(m_Zd_eV=2e6), dict(m_Zd_eV=2e7, g_D=1e-2)):
+        E, F = run(100, **dp)
+        assert np.sum(E * F.sum(axis=1) * dE) <= e0 * (1 + 1e-3), dp
+        E, F4 = run(400, **dp)
+        assert np.max(np.abs(ratios(E, F4) - ratios(E, F))) < 2e-3, dp
 
 
 def test_build_thermal_grid_exact_and_interpolated():
@@ -927,7 +945,9 @@ def test_build_thermal_grid_exact_and_interpolated():
     # z-interpolation MECHANICS, independently of the (now default) semi-analytic
     # momentum kernel, whose own routing is covered by
     # test_build_thermal_grid_analytic_switch.
-    exact = dps.precompute_all_thermal_rates(E_bins, z_bins, sum_G, sum_G_alpha, 2.0e6, m_nu, 1.95e-4, eta_mass)
+    # build_thermal_grid returns the raw kernel grid times the physical normalization
+    exact = (dps.precompute_all_thermal_rates(E_bins, z_bins, sum_G, sum_G_alpha, 2.0e6, m_nu, 1.95e-4, eta_mass)
+             * dps.absorption_normalization(sum_G))
     for n_sub in (0, 21, 100):
         got = dps.build_thermal_grid(E_bins, z_bins, sum_G, sum_G_alpha, 2.0e6, m_nu, 1.95e-4, eta_mass, n_z_thermal=n_sub,
                                      thermal_analytic=False)
@@ -955,7 +975,7 @@ def test_spatial_E_block_parallelism_is_exact():
     M_rot = np.ascontiguousarray(U_pmns @ M_sq @ np.conjugate(U_pmns).T)
     u_arr = np.array([0.5, 0.5, 0.0], dtype=np.complex128)
 
-    common = dict(N_steps_MW=4, r_start_kpc=100.0, show_progress=False, verbose=0,
+    common = dict(show_progress=False, verbose=0,
                   N_steps_earth=6)
     F_seq = dps.propagate_earth_spatial(E_bins, F_mass_arrival, M_rot, u_arr,
                                         2.0e6, 1e-4, 0.1, 1.95e-4, True, np.ones(3),
@@ -979,7 +999,7 @@ def _spatial_args_small():
     u_arr = np.array([0.5, 0.5, 0.0], dtype=np.complex128)
     args = (E_bins, F_mass_arrival, M_rot, u_arr, 2.0e6, 1e-4, 0.1, 1.95e-4, True, np.ones(3),
             1.5, False, 0.0, False, 2, 3)
-    kwargs = dict(N_steps_MW=4, r_start_kpc=100.0, show_progress=False, verbose=0,
+    kwargs = dict(show_progress=False, verbose=0,
                   n_cores=1, N_steps_earth=6)
     return args, kwargs
 
@@ -1029,7 +1049,8 @@ def test_sigma_projection_table_matches_exact_eigenvectors():
     scale = np.max(np.abs(M_rot))
     sig_min, sig_max = 1e-6 * scale, 1e2 * scale     # spans vacuum limit -> crossing -> potential-dominated
     nodes = np.geomspace(sig_min, sig_max, 4096)
-    table = dps._build_sigma_projection_table(M_rot, S, nodes)
+    Q_t, s_t, Mp_t, floor_t, _, _ = dps.texture_scales(M_rot, S)
+    table = dps._build_sigma_projection_table(Q_t, Mp_t, s_t, floor_t, nodes)
     log_s0 = np.log(nodes[0])
     inv_dlogs = (len(nodes) - 1) / np.log(sig_max / sig_min)
 
@@ -1065,138 +1086,8 @@ def test_mw_density_finite_on_galactic_center_line():
 
 
 # =============================================================================
-# 8. MainProcess-adaptive n_cores (regression test for the fix)
+# 8. TBB threading layer: a prange kernel, then a spawn pool, in one process
 # =============================================================================
-
-def test_frequentist_n_cores_standalone_wired_from_scan_settings():
-    """GenericLikelihoodWrapper must read scan_settings.num_cores (clamped to actually
-    available cores) into static_data as n_cores_standalone, for kernel.py's
-    run_propagation to use whenever it is *not* running inside main.py's scan/repair
-    multiprocessing.Pool."""
-    from src.core.likelihood import GenericLikelihoodWrapper
-
-    cfg = _make_frequentist_config()
-    cfg["scan_settings"] = {"num_cores": 4}
-    func = GenericLikelihoodWrapper(cfg, [])
-    assert len(func.static_data) == 36
-    assert func.static_data[30] == 4
-
-    # Clamped to what's actually available, never silently allowed above it.
-    import multiprocessing as _mp
-    huge_request = _mp.cpu_count() * 100
-    cfg_huge = _make_frequentist_config()
-    cfg_huge["scan_settings"] = {"num_cores": huge_request}
-    func_huge = GenericLikelihoodWrapper(cfg_huge, [])
-    assert 1 <= func_huge.static_data[30] <= _mp.cpu_count()
-
-
-def _call_kernel_and_report_process(args):
-    """Module-level (picklable) helper for
-    test_frequentist_kernel_uses_n_cores_standalone_only_in_main_process -- must live at
-    module scope so multiprocessing can pickle it for dispatch to a real Pool worker."""
-    import multiprocessing as _mp
-    from src.physics.kernel import compute_user_model_single
-    static_data, params = args
-    proc_name = _mp.current_process().name
-    result = compute_user_model_single(params, static_data)
-    return proc_name, proc_name == "MainProcess", result
-
-
-def test_frequentist_kernel_uses_n_cores_standalone_only_in_main_process():
-    """kernel.py's run_propagation must use n_cores_standalone when running in the main
-    process (e.g. main.py's initial m.simplex()/m.migrad() global fit, which runs before
-    any scan/repair Pool worker ever touches this function), but must force n_cores back
-    to 1 whenever called from inside an actual multiprocessing.Pool worker -- otherwise a
-    worker would itself spin up a nested pool and oversubscribe every core (the same
-    hazard the BLAS/numba thread-pinning guards in dp_core.py exist to avoid).
-    Both must produce the exact same physics result regardless of core count."""
-    from src.core.likelihood import GenericLikelihoodWrapper
-    import multiprocessing as _mp
-
-    cfg = _make_frequentist_config()
-    cfg["scan_settings"] = {"num_cores": max(2, min(4, _mp.cpu_count()))}
-    func = GenericLikelihoodWrapper(cfg, [])
-    params = _default_dark_portal_params()
-
-    assert _mp.current_process().name == "MainProcess"
-    result_main = _call_kernel_and_report_process((func.static_data, params))
-
-    with _mp.Pool(processes=2) as pool:
-        result_worker = pool.apply(_call_kernel_and_report_process, ((func.static_data, params),))
-
-    proc_name_main, is_main_flag, flux_main = result_main
-    proc_name_worker, is_main_worker_flag, flux_worker = result_worker
-
-    assert is_main_flag is True
-    assert is_main_worker_flag is False
-    assert proc_name_worker != "MainProcess"
-    np.testing.assert_allclose(flux_main, flux_worker, rtol=1e-9)
-
-
-def test_frequentist_persistent_pool_reused_under_spawn_not_recreated_per_call():
-    """Regression test for a near-miss caught during this fix's own development: the first
-    version of the MainProcess-adaptive n_cores fix created a fresh multiprocessing.Pool
-    inside propagate_earth_spatial on every single call. That is cheap under the 'fork' start
-    method (the default on Linux, and what every earlier timing check in this fix's
-    development happened to use) but *catastrophically* expensive under 'spawn' -- a full
-    interpreter relaunch plus reimport per worker, per call. main.py explicitly forces
-    'spawn' (multiprocessing.set_start_method('spawn', force=True)), and measured directly on
-    the real production config, using more cores made every single Migrad evaluation ~10x
-    *slower* without pool reuse (3.75s/eval vs 0.37s/eval). kernel.py's _get_persistent_pool
-    must construct the Pool at most once and reuse it across many calls.
-
-    This runs in an isolated subprocess: the multiprocessing start method is process-global
-    and can only be forced to 'spawn' once, before any Pool has been created in that process
-    -- doing so here would affect every other test in this file that uses multiprocessing.
-    """
-    script = f'''
-import sys, multiprocessing, multiprocessing.pool
-sys.path.insert(0, {_FREQ_DIR!r})
-multiprocessing.set_start_method("spawn", force=True)
-
-_pool_construct_count = [0]
-_RealPool = multiprocessing.pool.Pool
-class _CountingPool(_RealPool):
-    def __init__(self, *a, **k):
-        _pool_construct_count[0] += 1
-        super().__init__(*a, **k)
-multiprocessing.Pool = _CountingPool
-
-from src.core.likelihood import GenericLikelihoodWrapper
-from src.physics.kernel import compute_user_model_single
-
-config = {{
-    "experiment": "test",
-    "physics_constants": {{
-        "H0_km_s_Mpc": 67.4, "Omega_m": 0.315, "Omega_L": 0.685,
-        "T_nu0_eV": 1.95e-4, "n_n0_cm3": 0.25e-6, "m_lightest_eV": 0.01,
-        "mass_ordering": "normal", "eta_e": 1.0, "eta_mu": 1.0, "eta_tau": 1.0,
-        "detector_depth_km": 1.5, "p_index": 2.5, "Phi_0": 1.0, "z_max": 4.0,
-        "rho_evol": 0.0, "f_e_S": 0.333333, "f_mu_S": 0.666667, "f_tau_S": 0.0,
-        "is_antineutrino": "sum", "E_min_eV": 1e13, "E_max_eV": 3e16,
-        "n_E_bins": 12, "n_z_bins": 12, "n_mw_paths": 8, "n_earth_chords": 8,
-        "N_steps_MW": 5, "N_steps_earth": 5,
-    }},
-    "scan_settings": {{"num_cores": 4}},
-}}
-params = {{"m_Zd_eV": 2.0e6, "g_D": 1e-4, "epsilon_prime": 0.1, "u_e": 0.5, "u_mu": 0.5, "u_tau": 0.0}}
-
-func = GenericLikelihoodWrapper(config, [])
-results = [compute_user_model_single(params, func.static_data) for _ in range(3)]
-
-assert all(r == results[0] for r in results), f"results differ across repeated calls: {{results}}"
-print(f"POOL_CONSTRUCTIONS={{_pool_construct_count[0]}}")
-print("OK")
-'''
-    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=420)
-    assert result.returncode == 0, f"subprocess failed:\nstdout={result.stdout}\nstderr={result.stderr}"
-    assert "OK" in result.stdout, f"stdout={result.stdout}\nstderr={result.stderr}"
-
-    pool_count_lines = [l for l in result.stdout.splitlines() if l.startswith("POOL_CONSTRUCTIONS=")]
-    assert pool_count_lines, f"missing pool count marker in output: {result.stdout}"
-    pool_constructions = int(pool_count_lines[0].split("=")[1])
-    assert pool_constructions == 1, f"expected exactly 1 Pool construction reused across 3 calls, got {pool_constructions}"
-
 
 def test_threads_mode_prange_then_spawn_pool_same_process():
     """The TBB gate for the threads-based spatial mode: run the parallel prange spatial
@@ -1217,8 +1108,8 @@ import numpy as np
 def pool_task(seed):
     # each spawn worker runs a real (single-threaded) solver evaluation
     import dark_portal_solver as dps
-    cfg = {{"grid": {{"n_E_bins": 10, "n_z_bins": 10, "n_mw_paths": 1, "n_earth_chords": 1,
-                      "N_steps_MW": 2, "N_steps_earth": 2}},
+    cfg = {{"grid": {{"n_E_bins": 10, "n_z_bins": 10, "n_sun_paths": 1, "n_earth_chords": 1,
+                      "N_steps_earth": 2}},
             "execution": {{"n_cores": 1, "verbose": 0}}}}
     E, F = dps.run_solver(cfg)
     return float(F.sum())
@@ -1229,8 +1120,8 @@ if __name__ == "__main__":
     import dark_portal_solver as dps
     assert dps._TBB_LAYER, "tbb layer not active in subprocess"
 
-    cfg = {{"grid": {{"n_E_bins": 40, "n_z_bins": 20, "n_mw_paths": 2, "n_earth_chords": 2,
-                      "N_steps_MW": 5, "N_steps_earth": 20}},
+    cfg = {{"grid": {{"n_E_bins": 40, "n_z_bins": 20, "n_sun_paths": 2, "n_earth_chords": 2,
+                      "N_steps_earth": 20}},
             "execution": {{"n_cores": 4, "verbose": 0}}}}
     E, F1 = dps.run_solver(cfg)              # threads-mode parallel kernel
     assert numba.threading_layer() == "tbb", numba.threading_layer()
@@ -1266,8 +1157,8 @@ def test_run_solver_rejects_unknown_config_keys(tmp_path):
     use_SM_potential, execution.n_cores)."""
     import copy
     cfg = dps.create_default_config(str(tmp_path / "cfg.json"))
-    cfg["grid"].update(dict(n_E_bins=10, n_z_bins=10, n_mw_paths=1, n_earth_chords=1,
-                            N_steps_MW=3, N_steps_earth=3))
+    cfg["grid"].update(dict(n_E_bins=10, n_z_bins=10, n_sun_paths=1, n_earth_chords=1,
+                            N_steps_earth=3))
     cfg["execution"].update(dict(n_cores=1, verbose=0))
 
     bad = copy.deepcopy(cfg)
@@ -1288,13 +1179,13 @@ def test_run_solver_rejects_unknown_config_keys(tmp_path):
 
 
 def test_nubar_ratio_zero_skips_antineutrino_propagation(tmp_path):
-    """In 'sum' mode with nubar_to_nu_ratio = 0 the antineutrino propagation carries
-    exactly zero weight and must be skipped entirely -- the result must equal the
-    explicit neutrino-only mode bit for bit."""
+    """In 'sum' mode with nubar_to_nu_ratio = 0 only neutrinos are injected, exactly as in
+    the explicit neutrino-only mode: the two must agree bit for bit (the antineutrinos at
+    the detector are then only the secondaries of absorptions)."""
     import copy
     cfg = dps.create_default_config(str(tmp_path / "cfg.json"))
-    cfg["grid"].update(dict(n_E_bins=10, n_z_bins=10, n_mw_paths=1, n_earth_chords=1,
-                            N_steps_MW=3, N_steps_earth=3))
+    cfg["grid"].update(dict(n_E_bins=10, n_z_bins=10, n_sun_paths=1, n_earth_chords=1,
+                            N_steps_earth=3))
     cfg["execution"].update(dict(n_cores=1, verbose=0))
 
     cfg_sum0 = copy.deepcopy(cfg)
@@ -1308,75 +1199,152 @@ def test_nubar_ratio_zero_skips_antineutrino_propagation(tmp_path):
     np.testing.assert_array_equal(F_sum0, F_nu)
 
 
-def test_calculate_intervals_ignores_sentinel_boundaries():
-    """A failed grid point (1e9 sentinel) adjacent to a valid sub-threshold point must
-    not fabricate a threshold crossing at the failure boundary."""
-    from src.analysis.statistics import calculate_intervals
-
-    x = np.linspace(0.0, 1.0, 11)
-    d = np.full(11, 0.5)          # everywhere comfortably below a 2.71 threshold
-    d[5] = 1e9                    # one failed point mid-scan
-    res = calculate_intervals(x, d, "p", {"90": 2.71}, merge_gaps=False)
-    intervals = res["90"]
-    assert intervals is not None
-    # Every crossing-derived boundary except the scan edges would be spurious here:
-    # the entire valid curve sits below threshold, so the allowed region must span the
-    # full scan without interior breakpoints from the sentinel.
-    assert len(intervals) == 1
-    assert intervals[0][0] == pytest.approx(0.0) and intervals[0][1] == pytest.approx(1.0)
-
-
 # =============================================================================
-# Extreme-mediator-mass domain: phase-noise guard + loud NaN contract (task #3)
+# Extreme potentials: exact unitarity at every potential + loud NaN contract
 # =============================================================================
 
-def test_propagator_3x3_phase_noise_regime_stays_unitary():
-    """The all-NaN-flux bug at extreme mediator masses (m_Zd ~ 1e-6 eV): the
-    1/m_Zd^2-enhanced Earth potential reaches ~1e17 eV, the rank-1 LRI texture makes the
-    Hamiltonian doubly degenerate, and per-step phases spread*t reach ~1e27 rad -- far
-    beyond the ~1/eps radians double precision can represent. The deflation branch's
-    polynomial coefficients are then evaluated at cancellation-noise-limited nodes and
-    the propagator came out non-unitary by ~11 orders of magnitude (measured singular
-    values ~5e11); 500 such steps overflowed rho to Inf/NaN. The phase-noise guard must
-    keep U exactly unitary across the whole potential ladder, at both Earth- and
-    Milky-Way-scale step lengths, and must preserve the far eigenvector's ray."""
+def test_propagator_3x3_unitary_at_every_potential():
+    """U = exp(-i H t) must be unitary to rounding for every potential the transit can
+    meet, from vacuum-dominated to the 1/m_Zd^2-enhanced Earth potential at m_Zd ~ 1e-6 eV
+    (~1e17 eV, spread*t ~ 1e28 rad), at Earth- and Milky-Way-scale steps, for two- and
+    three-flavor and single-flavor sterile textures. History: the polynomial form (v3,
+    until 2026-10-12) was non-unitary by ~eps * spread * min(t, 2/gap) -- 5e-3 per Earth
+    step at 70 eV (the m_Zd = 40 eV benchmark), and ~5e11 (overflowing rho to NaN in 500
+    steps) at m_Zd = 1e-6 eV before a guard for that extreme; its complement basis divided
+    by zero for u_mu = 0 or u_e = 0 above ~1e7 eV. The far eigenvector (the rank-1
+    potential's direction) must map to itself up to a phase wherever the potential
+    dominates."""
     U_pmns = dps.construct_PMNS(np.radians(33.41), np.radians(8.58), np.radians(49.1), np.radians(132.0))
     M_sq = np.diag([0.0, 7.41e-5, 2.511e-3]).astype(np.complex128)
     M_rot = U_pmns @ M_sq @ np.conjugate(U_pmns).T
-    u = np.array([0.5, 0.5, 0.0], dtype=np.complex128)
-    S = np.outer(u, np.conjugate(u))
-    v_far = (u / np.linalg.norm(u)).reshape(3)
     out = np.zeros((3, 3), dtype=np.complex128)
-
     worst_unit = 0.0
     worst_ray = 0.0
-    # V ladders start where the phase-noise guard governs (eps * spread * t > 0.1);
-    # below that the pre-existing (unguarded) deflation path applies, whose small
-    # non-unitarity band is pinned as-is by the pipeline validation, not by this test.
-    for t, logV_min in ((1.29e11, 6), (6.25e32, 2)):    # Earth step / Milky Way step
-        for logV in range(logV_min, 23, 2):
-            for E in (1e13, 3e16):
-                V_scale = 10.0 ** logV
-                H = np.ascontiguousarray(M_rot / (2.0 * E) + V_scale * S)
-                dps.propagator_3x3(H, t, out)
-                assert np.isfinite(out).all(), f"non-finite U at V={V_scale:.0e}, t={t:.2e}"
-                worst_unit = max(worst_unit, float(np.max(np.abs(out @ out.conj().T - np.eye(3)))))
-                # the far (rank-1) eigenvector must map to itself up to a phase
-                w = out @ v_far
-                worst_ray = max(worst_ray, abs(1.0 - abs(np.vdot(v_far, w))))
-    assert worst_unit < 1e-12, f"non-unitary in phase-noise regime: {worst_unit:.3e}"
+    for u in ([0.5, 0.5, 0.0], [0.3, 0.1, 0.2], [0.7, 0.0, 0.0], [0.0, 0.4, 0.0]):
+        u = np.array(u, dtype=np.complex128)
+        S = np.outer(u, np.conjugate(u))
+        v_far = u / np.linalg.norm(u)
+        for t in (1e9, 1.29e11, 1e12, 1e26, 6.25e32):           # Earth steps / Milky Way steps
+            for logV in range(-24, 23):
+                for E in (1e13, 3e16):
+                    H = np.ascontiguousarray(M_rot / (2.0 * E) + 10.0 ** logV * S)
+                    dps.propagator_3x3(H, t, out)
+                    assert np.isfinite(out).all(), f"non-finite U at V=1e{logV}, t={t:.2e}, u={u.real}"
+                    worst_unit = max(worst_unit, float(np.max(np.abs(out @ out.conj().T - np.eye(3)))))
+                    if logV >= 0:
+                        worst_ray = max(worst_ray, abs(1.0 - abs(np.vdot(v_far, out @ v_far))))
+    assert worst_unit < 1e-14, f"non-unitary: {worst_unit:.3e}"
     assert worst_ray < 1e-10, f"far-eigenvector ray not preserved: {worst_ray:.3e}"
+
+
+def test_propagator_3x3_unresolved_pair_is_not_rotated_by_rounding():
+    """Under a rank-1 potential 1e18 times the vacuum term, the two states orthogonal to
+    the potential's direction are split by the vacuum term alone, far below what H
+    resolves in double precision (eps * potential). Their true rotation over an Earth
+    step is ~1e-5 rad; propagating the rounding-level splitting instead would rotate them
+    by tens of radians per step. The propagator must evolve the pair as degenerate."""
+    U_pmns = dps.construct_PMNS(np.radians(33.41), np.radians(8.58), np.radians(49.1), np.radians(132.0))
+    M_rot = U_pmns @ np.diag([0.0, 7.41e-5, 2.511e-3]).astype(np.complex128) @ np.conjugate(U_pmns).T
+    u = np.array([0.5, 0.5, 0.0], dtype=np.complex128)
+    S = np.outer(u, np.conjugate(u))
+    w1 = np.array([1.0, -1.0, 0.0], dtype=np.complex128) / np.sqrt(2.0)   # orthogonal to u
+    w2 = np.array([0.0, 0.0, 1.0], dtype=np.complex128)
+    out = np.zeros((3, 3), dtype=np.complex128)
+    worst = 0.0
+    for logV in (2, 6, 10, 17):
+        for E in (1e13, 3e16):
+            H = np.ascontiguousarray(M_rot / (2.0 * E) + 10.0 ** logV * S)
+            dps.propagator_3x3(H, 1.29e11, out)
+            for w in (w1, w2, (w1 + 1j * w2) / np.sqrt(2.0)):
+                worst = max(worst, 1.0 - abs(np.vdot(w, out @ w)))
+    assert worst < 1e-9, f"pair rotated by rounding noise: 1 - |<w|U|w>| = {worst:.3e}"
+
+
+def test_propagator_3x3_matches_extended_precision():
+    """Against exp(-i H t) of the same floating-point H evaluated with 50 digits
+    (mpmath), for random Hermitian H and production textures with |H| t up to 1e3 rad:
+    the error must stay at the rounding level of the phases, ~eps |H| t, above the 1e-13
+    truncation of the Taylor branch that serves spreads below 1.2e-4 / t."""
+    mp = pytest.importorskip("mpmath")
+    mp.mp.dps = 50
+    U_pmns = dps.construct_PMNS(np.radians(33.41), np.radians(8.58), np.radians(49.1), np.radians(132.0))
+    M_rot = U_pmns @ np.diag([0.0, 7.41e-5, 2.511e-3]).astype(np.complex128) @ np.conjugate(U_pmns).T
+    u = np.array([0.5, 0.5, 0.0], dtype=np.complex128)
+    S = np.outer(u, np.conjugate(u))
+    rng = np.random.default_rng(41)
+    out = np.zeros((3, 3), dtype=np.complex128)
+    worst = 0.0
+    for k in range(120):
+        if k % 2 == 0:
+            A = rng.normal(size=(3, 3)) + 1j * rng.normal(size=(3, 3))
+            scale = 10.0 ** rng.uniform(-20, -12)
+            H = np.ascontiguousarray((A + A.conj().T) / 2 * scale)
+            t = 10.0 ** rng.uniform(-1, 3) / scale
+        else:
+            E = 10.0 ** rng.uniform(13, 16.5)
+            H = np.ascontiguousarray(M_rot / (2.0 * E) + 10.0 ** rng.uniform(-19, -15) * S)
+            t = 10.0 ** rng.uniform(9, 12)
+        M = mp.matrix(3, 3)
+        for i in range(3):
+            M[i, i] = mp.mpf(H[i, i].real)
+            for j in range(i + 1, 3):
+                M[i, j] = mp.mpc(H[i, j].real, H[i, j].imag)
+                M[j, i] = mp.conj(M[i, j])
+        X = mp.expm(-1j * mp.mpf(t) * M)
+        ref = np.array([[complex(X[i, j]) for j in range(3)] for i in range(3)])
+        dps.propagator_3x3(H, t, out)
+        phase = float(np.max(np.abs(np.linalg.eigvalsh(H)))) * t
+        worst = max(worst, float(np.max(np.abs(out - ref))) / (1e-13 + 2e-15 * phase))
+    assert worst < 1.0, f"error beyond the phases' rounding level: {worst:.2f} x tolerance"
+
+
+def test_spatial_handover_conserves_every_total():
+    """The Milky Way and Earth transits are unitary evolutions: every energy bin's total
+    flux must leave the spatial handover unchanged, including where the potential
+    dominates (m_Zd = 40 eV; until 2026-10-12 the totals came out 0.995-1.0066) and at
+    m_Zd = 1e-6 eV with single-flavor mixing (previously a ZeroDivisionError)."""
+    E_bins = np.geomspace(1e13, 3e16, 24)
+    rng = np.random.default_rng(8)
+    F_mass = rng.uniform(0.5, 2.0, size=(24, 3)) * 1e-8
+    U_pmns = dps.construct_PMNS(np.radians(33.41), np.radians(8.58), np.radians(49.1), np.radians(132.0))
+    M_rot = U_pmns @ np.diag([0.0, 7.41e-5, 2.511e-3]).astype(np.complex128) @ np.conjugate(U_pmns).T
+    for m_Zd, g_D, eps_p, u in ((40.0, 1e-6, 0.1, (0.5, 0.5, 0.0)), (1e-6, 1e-4, 0.1, (0.5, 0.0, 0.0))):
+        u_arr = np.array(u, dtype=np.complex128)
+        for anti in (False, True):
+            F = dps.propagate_earth_spatial(E_bins, F_mass, M_rot, u_arr, m_Zd, g_D, eps_p,
+                                            1.676e-4, True, np.ones(3), 1.5, False, 0.0, anti, 2, 3,
+                                            show_progress=False, verbose=0, n_cores=1,
+                                            N_steps_earth=60, earth_step_scheme="avg",
+                                            earth_zenith_average="phase")
+            ratio = F.sum(axis=1) / F_mass.sum(axis=1)
+            assert np.all(np.abs(ratio - 1.0) < 1e-12), (m_Zd, anti, float(np.max(np.abs(ratio - 1.0))))
+
+
+def test_numba_cache_is_keyed_by_the_sources():
+    """numba validates a cached function against its own file only, so a kernel that
+    calls a jitted function from another module would keep the callee's old machine code
+    after an edit (it happened: dp_spatial's kernels kept the replaced propagator). The
+    cache directory must be keyed by a digest of every source file."""
+    import dp_core
+    import numba
+    if os.environ.get("NUMBA_CACHE_DIR", "").rstrip("/").endswith(dp_core._source_digest()) is False:
+        pytest.skip("NUMBA_CACHE_DIR set by the user")
+    assert numba.config.CACHE_DIR == os.environ["NUMBA_CACHE_DIR"]
+    assert dps.propagator_3x3._cache._cache_path.startswith(os.environ["NUMBA_CACHE_DIR"])
 
 
 def test_extreme_mediator_mass_flux_is_finite(tmp_path):
     """End-to-end contract for the formerly all-NaN domain: m_Zd_eV = 1e-6 (g_D = 1e-4,
     epsilon_prime = 0.1) with the full 500 Earth steps (the NaN trigger -- repeated
     application of the non-unitary propagator needed a few hundred steps to overflow)
-    must now return an all-finite, non-negative-total flux."""
+    must now return an all-finite, non-negative-total flux. The relic scatterings and the decays off (2026-10-24): with
+    the Z mixing's kappa in the relic mass-change loss's beam factor (the transport review's finding 3) eps' = 0.1
+    drains the beam entirely, which is right but not what this test is about."""
     cfg = dps.create_default_config(str(tmp_path / "cfg.json"))
-    cfg["dark_portal"].update(dict(m_Zd_eV=1e-6, g_D=1e-4, epsilon_prime=0.1))
-    cfg["grid"].update(dict(n_E_bins=20, n_z_bins=20, n_mw_paths=2, n_earth_chords=2,
-                            N_steps_MW=25, N_steps_earth=500))
+    cfg["dark_portal"].update(dict(m_Zd_eV=1e-6, g_D=1e-4, epsilon_prime=0.1, relic_scattering=False,
+                                   neutrino_decay=False))
+    cfg["grid"].update(dict(n_E_bins=20, n_z_bins=20, n_sun_paths=2, n_earth_chords=2,
+                            N_steps_earth=500))
     cfg["execution"].update(dict(n_cores=1, verbose=0))
     E, F = dps.run_solver(cfg)
     assert np.isfinite(F).all()
@@ -1401,36 +1369,9 @@ def test_propagate_spectrum_raises_on_nonfinite_gamma_grid():
             E_bins, z_bins, np.array([0.33, 0.67, 0.0]),
             1.5e-33, 0.315, 0.685, np.ascontiguousarray(U_pmns), M_sq,
             u_arr, 2.0e6, 1e-4, 0.1, m_nu_bg, 2.5e-13, 1.95e-4,
-            True, 1.5, False, 0.0, False, 2.5, 0.0, 1.0, np.ones(3),
-            1, 1, N_steps_MW=3, show_progress=False, verbose=0, n_cores=1,
+            True, 1.5, False, 0.0, (1.0, 0.0), 2.5, 0.0, 1.0, np.ones(3),
+            1, 1, show_progress=False, verbose=0, n_cores=1,
             precomputed_Gamma_grid_all=bad_grid, N_steps_earth=3)
-
-
-def test_frequentist_wrapper_returns_sentinel_on_kernel_failure(monkeypatch, tmp_path):
-    """GenericLikelihoodWrapper must convert BOTH kernel failure modes established by the
-    task-#3 contract into the 1e9 sentinel: a raised ValueError (the new loud domain
-    check in propagate_spectrum) and a NaN chi2 (e.g. NaN flavor fractions reaching the
-    detector likelihood). Uses a tiny mock grid so no real physics runs."""
-    import src.core.likelihood as lk
-
-    config = {
-        "experiment": "icecube_mese_2025",
-        "physics_constants": {"n_E_bins": 8, "n_z_bins": 8, "n_mw_paths": 1,
-                              "n_earth_chords": 1, "N_steps_MW": 2, "N_steps_earth": 2},
-        "start_values": {"m_Zd_eV": 1e-6, "g_D": 1e-4, "epsilon_prime": 0.1},
-        "scan_settings": {"num_cores": 1},
-    }
-    wrapper = lk.GenericLikelihoodWrapper(config, ["m_Zd_eV"])
-
-    def raise_domain_error(params, static_data):
-        raise ValueError("Non-finite thermal-rate grid (Gamma) at m_Zd_eV=1e-06 ...")
-
-    monkeypatch.setattr(lk, "compute_user_model_single", raise_domain_error)
-    assert wrapper(1e-6) == 1e9
-
-    monkeypatch.setattr(lk, "compute_user_model_single",
-                        lambda params, static_data: (np.nan, np.nan, np.nan))
-    assert wrapper(2e-6) == 1e9
 
 
 # =============================================================================
@@ -1565,8 +1506,8 @@ def test_build_thermal_grid_analytic_switch():
     E_bins = np.logspace(13, np.log10(3e16), 40)
     z_bins = np.linspace(4.0, 0.0, 40)
 
-    ref = dps.precompute_all_thermal_rates(E_bins, z_bins, sum_G, sum_G_alpha, 2e6,
-                                           m_nu, 1.95e-4, eta_mass)
+    ref = (dps.precompute_all_thermal_rates(E_bins, z_bins, sum_G, sum_G_alpha, 2e6,
+                                            m_nu, 1.95e-4, eta_mass) * dps.absorption_normalization(sum_G))
     off = dps.build_thermal_grid(E_bins, z_bins, sum_G, sum_G_alpha, 2e6, m_nu, 1.95e-4,
                                  eta_mass, thermal_analytic=False)
     np.testing.assert_array_equal(off, ref)
@@ -1659,7 +1600,7 @@ def test_thermal_grid_cached_gate_rejects_wide_bracket():
 
 def test_thermal_grid_cached_exact_point_reuse():
     """A repeat request at an already-built sum_G must be served from the stored
-    exact point (no rebuild) and must return the identical grid -- Minuit re-evaluates
+    exact point (no rebuild) and must return the identical grid -- a minimizer re-evaluates
     its incumbent point several times per profiled fit, so this is a real scan path."""
     m_nu, eta_mass, E_bins, z_bins = _tc_setup()
     dps._tc_cache.clear()
@@ -1673,7 +1614,7 @@ def test_thermal_grid_cached_exact_point_reuse():
 
 
 def test_thermal_grid_cached_narrow_bracket_activates_within_gate():
-    """Minuit-inner-fit-sized coupling moves (well below the historical 0.3-dex floor)
+    """Minimizer-step-sized coupling moves (well below the historical 0.3-dex floor)
     must be able to activate the surrogate, and its output inside the verified bracket
     must agree with a fresh exact build to the gate accuracy. This is the case the
     original floor silently excluded: during real profiled scans every evaluation paid
@@ -1772,9 +1713,13 @@ def test_avg_earth_density_matches_dense_average():
     cross = dps._earth_layer_crossings(baseline, costh, depth)
 
     totals = {}
+    contact, heavy = dps.earth_yukawa_table(None), dps.earth_yukawa_table(2e6)
     for N in (37, 250):
         nbar = dps._avg_earth_density_seq(baseline, costh, N, depth, n_amb, cross,
-                                          dps._GL10_X, dps._GL10_W)
+                                          dps._GL10_X, dps._GL10_W, contact)
+        # at MeV masses the Earth's Yukawa integral is its contact limit, bit for bit
+        assert np.array_equal(nbar, dps._avg_earth_density_seq(baseline, costh, N, depth, n_amb,
+                                                               cross, dps._GL10_X, dps._GL10_W, heavy))
         dr = baseline / N
         # dense referee for a few steps, including ones containing a layer crossing
         check = {0, N // 2, N - 1}
@@ -1805,8 +1750,8 @@ def test_earth_step_scheme_default_and_switch(tmp_path):
     unknown scheme names must be rejected loudly."""
     import copy
     cfg = dps.create_default_config(str(tmp_path / "cfg.json"))
-    cfg["grid"].update(dict(n_E_bins=16, n_z_bins=16, n_mw_paths=1, n_earth_chords=2,
-                            N_steps_MW=3, N_steps_earth=40))
+    cfg["grid"].update(dict(n_E_bins=16, n_z_bins=16, n_sun_paths=1, n_earth_chords=2,
+                            N_steps_earth=40))
     cfg["execution"].update(dict(n_cores=1, verbose=0))
     assert cfg["grid"]["earth_step_scheme"] == "avg"
 
@@ -1832,8 +1777,7 @@ def test_earth_avg_scheme_step_count_certificate(tmp_path):
     below/inband/strong validation points; see the dev-earth study)."""
     import copy
     cfg = dps.create_default_config(str(tmp_path / "cfg.json"))
-    cfg["grid"].update(dict(n_E_bins=24, n_z_bins=16, n_mw_paths=1, n_earth_chords=3,
-                            N_steps_MW=3))
+    cfg["grid"].update(dict(n_E_bins=24, n_z_bins=16, n_sun_paths=1, n_earth_chords=3))
     cfg["execution"].update(dict(n_cores=1, verbose=0))
 
     flux = {}
@@ -1854,17 +1798,18 @@ def test_earth_avg_scheme_step_count_certificate(tmp_path):
 
 
 # =============================================================================
-# GPU spatial path: v3 propagator port, mathematics validated with numpy backend
+# GPU spatial path: propagator port, mathematics validated with numpy backend
 # =============================================================================
 
 def test_gpu_batched_propagator_matches_cpu_numpy_backend():
     """_batched_propagator_gpu takes its array backend as a parameter and uses only
-    numpy-compatible operations, so the v3 port's MATHEMATICS is validated here on the
+    numpy-compatible operations, so the port's MATHEMATICS is validated here on the
     CPU by running it with numpy as the backend against propagator_3x3, one batch
     mixing every branch regime (masks must coexist within a single call):
-    generic well-separated, rank-1-dominated deflation, constructed near-degenerate,
-    Milky-Way-scale phases (node-exactness), and the phase-noise projector regime.
-    Only execution under cupy itself remains for the skipped-on-CPU device test."""
+    generic well-separated, rank-1-dominated, constructed near-degenerate, Milky-Way-scale
+    phases, and pairs below double-precision resolution (including single-flavor
+    textures). Only execution under cupy itself remains for the skipped-on-CPU device
+    test."""
     from gpu_spatial import _batched_propagator_gpu
 
     rng = np.random.default_rng(17)
@@ -1893,15 +1838,20 @@ def test_gpu_batched_propagator_matches_cpu_numpy_backend():
         Hs.append((Hd + Hd.conj().T) / 2)
         ts.append(1e11)
         regimes.append("generic")
-    for _ in range(40):                                   # MW-scale phases (node-exact)
+    for _ in range(40):                                   # MW-scale phases
         E = 10.0 ** rng.uniform(13, 16)
         Hs.append(M_rot / (2.0 * E))
         ts.append(10.0 ** rng.uniform(25, 27))
         regimes.append("large_phase")
-    for logV in range(6, 23, 2):                          # phase-noise projector regime
+    for logV in range(6, 23, 2):                          # unresolved pair
         Hs.append(M_rot / (2.0 * 1e13) + (10.0 ** logV) * S)
         ts.append(1.29e11)
         regimes.append("noise")
+    u1 = np.array([0.7, 0.0, 0.0], dtype=np.complex128)   # single-flavor texture
+    for logV in range(-2, 23, 4):
+        Hs.append(M_rot / (2.0 * 1e14) + (10.0 ** logV) * np.outer(u1, u1))
+        ts.append(1.29e11)
+        regimes.append("noise1")
     Hs.append(np.eye(3, dtype=np.complex128) * 2.5e-16)   # pure-phase branch
     ts.append(1e11)
     regimes.append("generic")
@@ -1932,61 +1882,21 @@ def test_gpu_batched_propagator_matches_cpu_numpy_backend():
             # meaningful invariants are unitarity and the |U| structure
             worst_abs = max(worst_abs, float(np.max(np.abs(np.abs(Ub) - np.abs(out)))))
         else:
-            # phase-noise projector regime: even |U| depends on the (machine-noise)
-            # relative phase between the far and pair eigenvalues, so scalar and
-            # batched legitimately disagree there; the meaningful invariants are
-            # unitarity (checked above) and preservation of the far eigenvector's ray
-            worst_ray = max(worst_ray, abs(1.0 - abs(np.vdot(v_far, Ub @ v_far))))
+            # potential-dominated: even |U| depends on the (rounding-level) relative
+            # phase between the far and pair eigenvalues, so scalar and batched
+            # legitimately disagree there; the meaningful invariants are unitarity
+            # (checked above) and preservation of the far eigenvector's ray
+            vf = v_far if regimes[k] == "noise" else np.array([1.0, 0.0, 0.0], dtype=np.complex128)
+            worst_ray = max(worst_ray, abs(1.0 - abs(np.vdot(vf, Ub @ vf))))
     assert worst_direct < 1e-9, f"batched vs scalar propagator: {worst_direct:.3e}"
-    assert worst_unit < 1e-11, f"batched propagator non-unitary: {worst_unit:.3e}"
+    assert worst_unit < 1e-14, f"batched propagator non-unitary: {worst_unit:.3e}"
     assert worst_abs < 1e-4, f"batched |U| structure off at large phases: {worst_abs:.3e}"
-    assert worst_ray < 1e-10, f"batched projector far-ray not preserved: {worst_ray:.3e}"
+    assert worst_ray < 1e-10, f"batched far-eigenvector ray not preserved: {worst_ray:.3e}"
 
 
 # =============================================================================
 # Scan-infrastructure regression tests (checkpointing + deterministic retry jitter)
 # =============================================================================
-
-def test_run_segments_checkpoint_resume_and_stale_discard(tmp_path):
-    """_run_segments must (a) persist each completed segment, (b) resume by executing
-    ONLY the segments missing from a matching checkpoint, (c) discard a checkpoint
-    whose header (scan identity/grid/segmentation) does not match, and (d) return
-    results identical to an uncheckpointed run in all cases."""
-    from src.engines.scanner import _run_segments
-
-    calls = []
-
-    def worker(seg):
-        calls.append(tuple(seg))
-        return [(float(v), {"p": float(v) * 2}) for v in seg]
-
-    segments = [[1.0, 2.0], [3.0], [4.0, 5.0]]
-    ckpt = str(tmp_path / "seg.jsonl")
-
-    reference = _run_segments(worker, segments, None, "test")
-
-    calls.clear()
-    full = _run_segments(worker, segments, None, "test", checkpoint_path=ckpt, grid_signature="g1")
-    assert [tuple(f) for f in full] == [tuple(r) for r in reference]
-    assert len(calls) == 3
-    assert os.path.exists(ckpt)  # the file is left for the caller to clean up
-
-    # Simulate a crash after two segments: keep header + first two records only
-    lines = open(ckpt).read().splitlines()
-    with open(ckpt, "w") as f:
-        f.write("\n".join(lines[:3]) + "\n")
-    calls.clear()
-    resumed = _run_segments(worker, segments, None, "test", checkpoint_path=ckpt, grid_signature="g1")
-    assert calls == [tuple(segments[2])], "resume re-ran already-completed segments"
-    assert [tuple(r[1].items()) for r in resumed] == [tuple(r[1].items()) for r in reference]
-    assert [r[0] for r in resumed] == [r[0] for r in reference]
-
-    # A different grid signature must invalidate the checkpoint entirely
-    calls.clear()
-    _run_segments(worker, segments, None, "test", checkpoint_path=ckpt, grid_signature="DIFFERENT")
-    assert len(calls) == 3, "stale checkpoint (different grid) was trusted"
-    os.remove(ckpt)
-
 
 def test_scanner_checkpoint_resume(tmp_path, monkeypatch):
     """dark_portal_scanner.run_parameter_scan must persist completed points and, on
@@ -2039,125 +1949,650 @@ def test_scanner_checkpoint_resume(tmp_path, monkeypatch):
     assert len(calls) == 3, "stale (different-config) checkpoint was trusted"
 
 
-def test_global_fit_checkpoint_identity_and_load(tmp_path):
-    """The global-fit checkpoint must load ONLY when the identity hash (floating set,
-    physics, priors, start conditions) matches AND the stored fit was valid; anything
-    else forces a fresh fit. Guards against silently reusing a minimum computed under
-    different physics."""
-    from src.main import global_fit_identity, load_global_fit_checkpoint
-
-    cfg = {"experiment": "x", "physics_constants": {"m_lightest_eV": 0.01},
-           "start_values": {"g_D": 1e-4}, "fixed_params": {}, "parameter_limits": {},
-           "step_sizes": {}}
-    ident = global_fit_identity(cfg, ["g_D"], asimov=False)
-    assert ident == global_fit_identity(dict(cfg), ["g_D"], asimov=False)
-    assert ident != global_fit_identity(cfg, ["g_D", "u_e"], asimov=False)
-    assert ident != global_fit_identity(cfg, ["g_D"], asimov=True)
-    cfg2 = {**cfg, "physics_constants": {"m_lightest_eV": 0.02}}
-    assert ident != global_fit_identity(cfg2, ["g_D"], asimov=False)
-
-    path = str(tmp_path / "global_fit.json")
-    payload = {"identity": ident, "fval": -15.0, "valid": True,
-               "values": {"g_D": 1.3e-4}, "errors": {"g_D": 5e-6}}
-    with open(path, "w") as f:
-        json.dump(payload, f)
-    loaded = load_global_fit_checkpoint(path, ident)
-    assert loaded is not None and loaded["fval"] == -15.0
-
-    assert load_global_fit_checkpoint(path, "different") is None
-    payload["valid"] = False
-    with open(path, "w") as f:
-        json.dump(payload, f)
-    assert load_global_fit_checkpoint(path, ident) is None, "invalid fit was reused"
-    with open(path, "w") as f:
-        f.write("{corrupt")
-    assert load_global_fit_checkpoint(path, ident) is None
+def _analysis_config_files(cfg_dir):
+    """Every analysis configuration under cfg_dir, the campaign's subdirectories included (not their plane lists)."""
+    out = []
+    for root, _, files in os.walk(cfg_dir):
+        out += [os.path.join(root, f) for f in files if f.endswith(".json") and f != "campaign.json"]
+    return sorted(out)
 
 
-def test_split_segments_min_length_floor():
-    """min_segment_length must floor the warm-start segment length: at high worker
-    counts the ~3-per-core rule otherwise produces single-point segments and
-    warm-starting silently dies. Default (1) must reproduce the historical split."""
-    from src.engines.scanner import _split_segments
+def test_default_relic_neutrino_temperature_is_physical():
+    """The relic-neutrino temperature must be (4/11)^(1/3) T_CMB, converted to eV.
 
-    items = list(range(100))
-    default = _split_segments(items, 200)
-    assert len(default) == 100, "historical high-core split changed"
-    assert _split_segments(items, 200, min_len=1) == default
+    Until 2026-10-12 the default was 1.95e-4 eV: "1.95 K" entered as eV (2.26 K, 16% too
+    hot). The thermal kernel's relic density follows from the Fermi-Dirac integral, so the
+    absorption rates scale ~T^3 and were ~57% too high. Pins the default AND the shipped
+    analysis configs, which carry their own copy of the value."""
+    T_expected = (4.0 / 11.0) ** (1.0 / 3.0) * 2.7255 * 8.617333262e-5   # eV
+    assert abs(dps.DEFAULT_CONFIG["cosmology"]["T_nu0_eV"] / T_expected - 1.0) < 1e-5
 
-    floored = _split_segments(items, 200, min_len=4)
-    assert len(floored) == 25
-    assert all(len(s) >= 4 for s in floored)
-    assert [x for s in floored for x in s] == items, "floored split lost or reordered points"
-
-    # floor larger than the grid: one segment, never zero
-    assert _split_segments(items, 200, min_len=1000) == [items]
+    cfg_dir = os.path.join(os.path.dirname(__file__), "..", "analysis", "configs")
+    for name in _analysis_config_files(cfg_dir):
+        with open(name) as f:
+            T_cfg = json.load(f)["solver"]["cosmology"]["T_nu0_eV"]
+        assert abs(T_cfg / T_expected - 1.0) < 1e-5, f"{name} carries T_nu0_eV = {T_cfg}"
 
 
-def test_minuit_maxcall_caps_stalled_fits():
-    """minuit_maxcall must bound the per-migrad evaluation count of a hard inner fit
-    (measured on a real scan: one uncapped point burned 870 evaluations against a
-    26-eval median) while still returning a finite result; 0 keeps Minuit's own
-    internal limit (historical behavior)."""
-    from src.engines.optimizers import minimize_point
+def test_default_cosmological_neutron_density_is_physical():
+    """The cosmological dark-portal potential is sourced by neutrons only, which sit almost
+    entirely in helium-4: n_n0 = n_b * Y_p / 2. Until 2026-10-12 the default was the total
+    baryon density (0.25e-6 cm^-3), 8.1x too large. Pins the default and the analysis
+    configurations, each of which carries its own copy."""
+    n_b, Y_p = 2.515e-7, 0.2458             # PDG 2024 (CMB); LBT Y_p project (2026)
+    expected = n_b * Y_p / 2.0
+    assert abs(dps.DEFAULT_CONFIG["cosmology"]["n_n0_cm3"] / expected - 1.0) < 1e-3
 
-    calls = {"n": 0}
-
-    def rosenbrock(w, x, y, z):
-        calls["n"] += 1
-        return (100 * (y - x**2)**2 + (1 - x)**2
-                + 100 * (z - y**2)**2 + (1 - y)**2 + (w - 1.0)**2)
-
-    names = ["w", "x", "y", "z"]
-    starts = {"w": 1.0, "x": -1.5, "y": 2.5, "z": -1.5}
-    errors = {p: 0.1 for p in names}
-    limits = {p: (-5.0, 5.0) for p in names}
-
-    calls["n"] = 0
-    fval_uncapped, _ = minimize_point(1.0, "w", starts, errors, rosenbrock, limits,
-                                      names, minuit_retries=1, retry_seed=3)
-    n_uncapped = calls["n"]
-
-    calls["n"] = 0
-    fval_capped, _ = minimize_point(1.0, "w", starts, errors, rosenbrock, limits,
-                                    names, minuit_retries=1, retry_seed=3,
-                                    minuit_maxcall=20)
-    n_capped = calls["n"]
-
-    assert np.isfinite(fval_capped)
-    assert n_capped < n_uncapped, f"cap did not reduce evals ({n_capped} vs {n_uncapped})"
-    # ncall is an approximate per-iteration check, so allow generous overhead
-    assert n_capped < 60, f"capped fit still ran {n_capped} evaluations"
+    cfg_dir = os.path.join(os.path.dirname(__file__), "..", "analysis", "configs")
+    for name in _analysis_config_files(cfg_dir):
+        with open(name) as f:
+            n_cfg = json.load(f)["solver"]["cosmology"]["n_n0_cm3"]
+        assert abs(n_cfg / expected - 1.0) < 1e-3, f"{name} carries n_n0_cm3 = {n_cfg}"
 
 
-def test_retry_seed_deterministic_and_default_preserved():
-    """retry_seed >= 0 must make the retry-jitter RNG stream a pure function of
-    (base seed, parameter, grid value) -- identical across calls and processes --
-    while distinct grid values still get distinct streams. retry_seed < 0 keeps the
-    historical per-call os.urandom seeding (streams differ call to call)."""
-    from src.engines.optimizers import _seed_retry_rng
+def test_milky_way_neutron_fractions():
+    """The Galactic model must convert stellar mass at 0.20 neutrons per nucleon and the hot
+    halo's electron density at 0.15 neutrons per electron (not the 0.5 of rock used until
+    2026-10-12). Checked at the Sun's position against the model's own components."""
+    import dp_spatial
+    assert dp_spatial._MW_NEUTRONS_PER_NUCLEON_STARS == 0.20
+    assert dp_spatial._MW_NEUTRONS_PER_ELECTRON_GAS == 0.15
+    # Msun/pc^3 -> nucleons/cm^3
+    msun_g, pc_cm, m_p_g = 1.98847e33, 3.08568e18, 1.67262e-24
+    assert abs(dp_spatial._NUCLEONS_PER_CM3_PER_MSUN_PC3 / (msun_g / pc_cm**3 / m_p_g) - 1.0) < 1e-4
 
-    _seed_retry_rng(7, "m_Zd_eV", float(1e6).hex())
-    a = np.random.random(4)
-    _seed_retry_rng(7, "m_Zd_eV", float(1e6).hex())
-    b = np.random.random(4)
-    np.testing.assert_array_equal(a, b)
+    # At the Sun (r = 0): R_gal = R_0 = 8.33 kpc, z = 0.
+    R0 = 8.33
+    rho_bulge = (94.1 / (1.0 + R0 / 0.075)**1.8) * np.exp(-(R0 / 2.1)**2)
+    rho_thin = (753.0 / 600.0) * np.exp(-R0 / 3.0)
+    rho_thick = (182.0 / 1800.0) * np.exp(-R0 / 3.5)
+    n_e_gas = 0.46 * (1.0 + (R0 / 0.35)**2)**(-1.065)
+    # cold HI + H2 discs (McMillan 2017) at the mid-plane: sech^2(0) = 1
+    rho_cold = (53.1 / (4 * 85.0) * np.exp(-4.0 / R0 - R0 / 7.0)
+                + 2180.0 / (4 * 45.0) * np.exp(-12.0 / R0 - R0 / 1.5))
+    expected = ((rho_bulge + rho_thin + rho_thick) * 40.464 * 0.20 + rho_cold * 40.464 * 0.142
+                + n_e_gas * 0.15)
+    got = dp_spatial.calc_MW_neutron_density(0.0, 0.0, 0.0)
+    assert abs(got / expected - 1.0) < 1e-6, (got, expected)
 
-    _seed_retry_rng(7, "m_Zd_eV", float(2e6).hex())
-    c = np.random.random(4)
-    assert not np.array_equal(a, c), "different grid values shared a jitter stream"
 
-    _seed_retry_rng(8, "m_Zd_eV", float(1e6).hex())
-    d = np.random.random(4)
-    assert not np.array_equal(a, d), "different base seeds shared a jitter stream"
+def test_cold_gas_discs_reproduce_mcmillan_surface_densities():
+    """Integrated over height, each McMillan (2017) gas disc must return its surface density
+    Sigma_0 exp(-R_m/R - R/R_d): about 10 (HI) and 2 (H2) Msun/pc^2 at the Sun. The sech^2 form
+    must stay finite far from the plane, and the density must vanish on the axis."""
+    import dp_spatial
+    z_kpc = np.linspace(-3.0, 3.0, 600001)
+    for disc, sigma_sun in ((dp_spatial._HI_DISC, 10.0), (dp_spatial._H2_DISC, 2.0)):
+        Sigma_0, R_d, R_m, z_d = disc
+        rho = np.array([dp_spatial._gas_disc_density(8.33, z, Sigma_0, R_d, R_m, z_d) for z in z_kpc])
+        sigma = _trapz(rho, z_kpc * 1e3)                      # Msun/pc^2
+        assert abs(sigma / (Sigma_0 * np.exp(-R_m / 8.33 - 8.33 / R_d)) - 1.0) < 1e-6
+        assert abs(sigma / sigma_sun - 1.0) < 0.07, (disc, sigma)
+        assert dp_spatial._gas_disc_density(8.33, 100.0, Sigma_0, R_d, R_m, z_d) == 0.0
+        assert dp_spatial._gas_disc_density(0.0, 0.0, Sigma_0, R_d, R_m, z_d) == 0.0
 
-    _seed_retry_rng(-1, "m_Zd_eV", float(1e6).hex())
-    e = np.random.random(4)
-    _seed_retry_rng(-1, "m_Zd_eV", float(1e6).hex())
-    f = np.random.random(4)
-    assert not np.array_equal(e, f), "default (-1) unexpectedly deterministic"
+
+def test_point_source_neutron_numbers():
+    """The Sun, Moon and Earth enter as point sources of the potential. Their neutron numbers
+    must match their compositions: the Earth's is PREM integrated with the same per-layer
+    fractions the chords use; the Sun's is 0.161 neutrons per nucleon (present bulk Y = 0.308,
+    Z = 0.0142), the Moon's 0.505 (rock with a small iron core). Until 2026-10-12 the Sun and the
+    Moon both used 0.248 per nucleon."""
+    from scipy.integrate import quad
+    import dp_core
+    import dp_spatial
+    m_u = 1.66054e-24
+    edges = [0.0, 1221.5, 3480.0, 5701.0, 5771.0, 5971.0, 6151.0, 6346.6, 6356.0, 6368.0, 6371.0]
+    N_earth = sum(quad(lambda r: 4 * np.pi * r * r * dp_spatial.calc_earth_density(r)
+                       * dp_spatial.earth_neutrons_per_gram(r), a, b, epsrel=1e-10)[0]
+                  for a, b in zip(edges[:-1], edges[1:])) * 1e15
+    assert abs(dp_core.N_n_earth / N_earth - 1.0) < 1e-3, (dp_core.N_n_earth, N_earth)
+    assert abs(dp_core.N_n_sun * m_u / 1.98847e33 - 0.161) < 1e-3
+    assert abs(dp_core.N_n_moon * m_u / 7.342e25 - 0.505) < 1e-3
+
+
+def test_earth_neutrons_per_gram_by_layer():
+    """Along Earth chords the neutron density is rho * (1 - Y_e) * N_A, with Y_e = 0.4656 in the
+    core, 0.4957 in the mantle and crust, and water (8/18.015 per molecular mass) in PREM's top
+    layer; until 2026-10-12 every layer used 0.5. The regional boundaries must coincide with
+    PREM layer boundaries, or the 'avg' Earth scheme's layer-split integration would straddle a
+    discontinuity and lose its exactness."""
+    import dp_spatial
+    NA = 6.02214076e23
+    cases = {1000.0: 1 - 0.4656, 3000.0: 1 - 0.4656, 3480.0: 1 - 0.4656,
+             3480.1: 1 - 0.4957, 5000.0: 1 - 0.4957, 6360.0: 1 - 0.4957, 6368.0: 1 - 0.4957,
+             6370.0: 8.0 / 18.015}
+    for r, f_n in cases.items():
+        assert abs(dp_spatial.earth_neutrons_per_gram(r) / (f_n * NA) - 1.0) < 1e-12, r
+    for boundary in (dp_spatial._EARTH_R_CORE_KM, dp_spatial._EARTH_R_OCEAN_FLOOR_KM):
+        assert boundary in dp_spatial._PREM_BOUNDARIES_KM
+
+
+def test_resonant_absorption_scales_with_relic_temperature():
+    """The absorption lives in the resonant dip, and the relic density there comes from the
+    kernel's Fermi-Dirac integral, so the ENERGY-INTEGRATED dip scales as T^3 while the
+    relic momentum spread sets the dip's shape: depth ~T^2, width ~T. Measured 2026-10-12:
+    the old 1.95e-4 eV default inflated the integrated absorption by 1.573 (T^3 = 1.574)
+    and the peak by 1.353 (T^2 = 1.353). Window: +-10% around the at-rest resonance of the
+    0.07 eV state, E_res = m_Zd^2 / (2 m), clear of the two lighter states' dips."""
+    m_Zd = 3.0e7
+    m_nu = np.array([0.05, 0.051, 0.07])
+    E_bins = m_Zd**2 / (2 * 0.07) * np.linspace(0.90, 1.10, 2001)
+    z_bins = np.array([0.0])
+    sum_G, sum_G_alpha, eta_mass = 1e-8, np.array([0.5e-8, 0.3e-8, 0.2e-8]), np.ones(3)
+    T_old, T_new = 1.95e-4, dps.DEFAULT_CONFIG["cosmology"]["T_nu0_eV"]
+    G = {T: dps.build_thermal_grid(E_bins, z_bins, sum_G, sum_G_alpha, m_Zd, m_nu, T, eta_mass)[0, :, 0]
+         for T in (T_old, T_new)}
+    r = T_old / T_new
+    integral_ratio = _trapz(G[T_old], E_bins) / _trapz(G[T_new], E_bins)
+    assert abs(integral_ratio / r**3 - 1.0) < 2e-3, integral_ratio
+    assert abs((G[T_old].max() / G[T_new].max()) / r**2 - 1.0) < 1e-2
 
 
 if __name__ == "__main__":
     import sys as _sys
     _sys.exit(pytest.main([__file__, "-v"]))
+
+
+# =============================================================================
+# Earth chord geometry (2026-10-12)
+# =============================================================================
+
+def test_exact_chord_baseline_starts_on_the_surface():
+    """get_baseline_earth must put every chord's entry point on the surface. Until 2026-10-12 it
+    dropped the d^2 terms of the root, so chords started up to 8 m above the ground; where that
+    vacuum lead-in fell inside _earth_layer_crossings' end margin, the 'avg' integration silently
+    ran the top layer out to l = 0. Down-going chords (costh > 0) use the cancellation-free form."""
+    depth = 1.5
+    f2 = 6371.0 - depth
+    for costh in np.linspace(-1.0, 1.0, 201):
+        B = dps.get_baseline_earth(depth, costh)
+        r_entry = np.sqrt(B**2 + f2**2 + 2.0 * B * f2 * costh)
+        assert abs(r_entry - 6371.0) < 1e-11, (costh, r_entry)
+    assert abs(dps.get_baseline_earth(depth, 1.0) - depth) < 1e-12
+    assert abs(dps.get_baseline_earth(depth, -1.0) - (2 * 6371.0 - depth)) < 1e-9
+    # the horizontal chord no longer meets the surface a second time inside the chord
+    assert len(dps._earth_layer_crossings(dps.get_baseline_earth(depth, 0.0), 0.0, depth)) == 0
+
+
+# =============================================================================
+# The Earth's own potential: the spherical Yukawa integral (2026-10-12)
+# =============================================================================
+
+def _prem_neutrons_cm3(r):
+    """PREM neutron density (cm^-3) the contact way: calc_earth_density x neutrons per gram."""
+    import dp_spatial
+    return dp_spatial.calc_earth_density(r) * dp_spatial.earth_neutrons_per_gram(r)
+
+
+def test_prem_coefficient_table_matches_calc_earth_density():
+    """The Yukawa integral reads PREM from _PREM_RHO_COEFFS / _PREM_F_COEFFS, the contact form from
+    calc_earth_density: the two copies must be one profile, boundary convention included, or the
+    heavy-mass limit would not reproduce the contact form."""
+    import dp_spatial
+    edges = dps._PREM_EDGES_KM
+    assert np.array_equal(dps._PREM_BOUNDARIES_KM, edges[1:])
+    rng = np.random.default_rng(7)
+    radii = np.concatenate([rng.uniform(0.0, 6371.0, 4000), edges[1:], edges[1:-1] + 1e-7, [1e-3]])
+    for r in radii:
+        s = dp_spatial._yk_shell(r, edges)
+        c = dps._PREM_RHO_COEFFS[s]
+        x = r / 6371.0
+        rho = c[0] + c[1] * x + c[2] * x**2 + c[3] * x**3
+        assert abs(rho - dps.calc_earth_density(r)) <= 1e-13 * rho, r
+        f = sum(dps._PREM_F_COEFFS[s, k] * r**k for k in range(5))
+        assert abs(f / r / _prem_neutrons_cm3(r) - 1.0) < 1e-13, r
+
+
+def test_yukawa_uniform_ball_closed_form():
+    """A uniform ball has a closed form at any mediator mass (NuOscProbExact notebook 20),
+    n_eff = n [1 - (R + 1/m) e^{-mR} sinh(mr)/r] inside and n e^{-mr} [R cosh(mR) - sinh(mR)/m]/r
+    outside. The 'direct' evaluation must reproduce it to fp RELATIVE accuracy (it has no
+    cancellation, so the long-range limit n (mR)^2/2 is resolved too); the 'heavy' one to fp
+    accuracy in units of n, from m R = 1 up to the MeV-like 1e8."""
+    import mpmath
+    import dp_spatial
+    mpmath.mp.dps = 40
+    R, n = 6371.0, 1e24
+    F = np.array([[0.0, n, 0.0, 0.0, 0.0]])                    # f(r) = r n
+    radii = np.concatenate([np.linspace(0.0, R, 41), [1e-6, R * (1 - 1e-9)],
+                            R * np.array([1.0 + 1e-9, 1.001, 1.1, 1.5])])
+
+    def exact(m, r):
+        m, r, Rm = mpmath.mpf(m), mpmath.mpf(r), mpmath.mpf(R)
+        if r == 0:
+            return n * (1 - (Rm + 1 / m) * mpmath.exp(-m * Rm) * m)
+        if r <= Rm:
+            return n * (1 - (Rm + 1 / m) * mpmath.exp(-m * Rm) * mpmath.sinh(m * r) / r)
+        return n * mpmath.exp(-m * r) * (Rm * mpmath.cosh(m * Rm) - mpmath.sinh(m * Rm) / m) / r
+
+    for mR in (1e-7, 1e-3, 0.3, 1.0, 10.0, 49.0, 51.0, 300.0, 1e4, 1e8):
+        m = mR / R
+        modes = ([dp_spatial._YUKAWA_DIRECT] if mR <= 300.0 else []) + \
+                ([dp_spatial._YUKAWA_HEAVY] if mR >= 1.0 else [])
+        for mode in modes:
+            yk = dps.yukawa_profile_table(np.array([0.0, R]), F, m, mode=mode)
+            for r in radii:
+                got, ref = dps.yukawa_profile_density(r, yk), float(exact(m, r))
+                if mode == dp_spatial._YUKAWA_DIRECT:
+                    assert abs(got - ref) <= 1e-12 * abs(ref), (mR, mode, r, got, ref)
+                else:
+                    assert abs(got - ref) <= 1e-13 * n + 1e-12 * abs(ref), (mR, mode, r, got, ref)
+    # the default choice switches at m R = 50
+    assert int(dps.yukawa_profile_table(np.array([0.0, R]), F, 49.0 / R)[0][0]) == dp_spatial._YUKAWA_DIRECT
+    assert int(dps.yukawa_profile_table(np.array([0.0, R]), F, 51.0 / R)[0][0]) == dp_spatial._YUKAWA_HEAVY
+
+
+def test_earth_yukawa_heavy_limit_is_contact_form_bit_for_bit():
+    """At the masses of every current analysis point the mediator range is far below any PREM
+    length, so the Yukawa integral must return the contact density EXACTLY, not to a tolerance:
+    Earth phases are ~1e5-1e8 rad there, and the phase-noise regime (tens of eV) redraws its
+    realization under any ulp change. Checked pointwise, along chords, and for the step averages
+    of every chord of the 12-, 13- and 50-chord grids at the default 25 steps -- each against the
+    contact table through the same compiled code (a separately compiled product can differ by an
+    ulp through fused multiply-adds, which says nothing about the Yukawa term)."""
+    import dp_spatial
+    rng = np.random.default_rng(11)
+    radii = rng.uniform(0.0, 6371.0, 3000)
+    radii = radii[np.min(np.abs(radii[:, None] - dps._PREM_EDGES_KM[None, :]), axis=1) > 1e-6]
+    contact = dps.earth_yukawa_table(None)
+    for m_eV in (3e5, 2e6, 2e7, 40.0):
+        yk = dps.earth_yukawa_table(m_eV)
+        assert int(yk[0][0]) == dp_spatial._YUKAWA_HEAVY
+        for r in radii:
+            assert dps.earth_neutron_density_cm3(r, yk) == dps.earth_neutron_density_cm3(r, contact)
+            assert abs(dps.earth_neutron_density_cm3(r, yk) / _prem_neutrons_cm3(r) - 1) < 1e-15
+        for n_ch in (12, 13, 50):
+            for costh in np.linspace(-1.0, 0.0, n_ch):
+                B = dps.get_baseline_earth(1.5, costh)
+                cross = dps._earth_layer_crossings(B, costh, 1.5)
+                for l in rng.uniform(0.0, B, 10):
+                    assert (dps.earth_total_density(l, B, costh, 1.5, 1.36e-14, yk)
+                            == dps.earth_total_density(l, B, costh, 1.5, 1.36e-14, contact))
+                args = (B, costh, 25, 1.5, 1.36e-14, cross, dps._GL10_X, dps._GL10_W)
+                assert np.array_equal(dps._avg_earth_density_seq(*args, yk),
+                                      dps._avg_earth_density_seq(*args, contact)), (m_eV, n_ch, costh)
+
+
+def test_earth_yukawa_matches_bruteforce_shell_kernel():
+    """n_eff from the tables against direct quadrature of the shell-averaged Yukawa kernel,
+    n_eff(r) = (m/2r) int_0^R r' n(r') [e^{-m|r-r'|} - e^{-m(r+r')}] dr', with n taken from
+    calc_earth_density (independent of the coefficient table), for ranges from beyond R_E to
+    200 m -- both evaluations -- at radii on both sides of PREM boundaries and at the surface."""
+    edges = [e for e in dps._PREM_EDGES_KM if 0.0 < e < 6371.0]
+    for m_eV in (3e-14, 3e-13, 1e-11, 1e-9):
+        yk = dps.earth_yukawa_table(m_eV)
+        m = yk[0][1]
+        for r in (0.5, 700.0, 1221.4, 1221.6, 3000.0, 3479.9, 3480.1, 5000.0,
+                  6360.0, 6367.99, 6368.01, 6370.0, 6371.0):
+            near = [x for x in r + np.array([0, -1, 1, -3, 3, -10, 10, -30, 30]) / m if 0 < x < 6371.0]
+            pts = [0.0] + sorted(set(edges) | set(near)) + [6371.0]
+            kern = lambda x: x * _prem_neutrons_cm3(x) * (np.exp(-m * abs(r - x)) - np.exp(-m * (r + x)))
+            ref = sum(integrate.quad(kern, a, b, epsabs=0, epsrel=1e-12, limit=200)[0]
+                      for a, b in zip(pts[:-1], pts[1:]) if b > a) * m / (2.0 * r)
+            got = dps.earth_neutron_density_cm3(r, yk)
+            assert abs(got / ref - 1.0) < 1e-9, (m_eV, r, got, ref)
+
+
+def test_earth_yukawa_long_range_limit_and_exterior():
+    """For a range far beyond the Earth (m R = 1e-12; the corrections are O(m R)) the potential
+    takes the enclosed-charge form n_eff/m^2 = N(<r)/(4 pi r) + int_r^R r' n dr'. Outside, the
+    Earth is a point source of
+    N_eff = 4 pi int r'^2 n shc(m r') dr' neutrons, which at such a range is the Earth's neutron
+    number -- so the Earth chords now meet the Milky Way phase's Earth point source (N_n_earth)."""
+    import dp_core
+    import dp_spatial
+    m_km = 1e-12 / 6371.0
+    yk = dps.earth_yukawa_table(m_km / dp_spatial._KM_IN_EV_INV)
+    assert int(yk[0][0]) == dp_spatial._YUKAWA_DIRECT
+    edges = [e for e in dps._PREM_EDGES_KM if 0.0 < e < 6371.0]
+
+    def piecewise(fun, a, b):
+        p = [a] + [e for e in edges if a < e < b] + [b]
+        return sum(integrate.quad(fun, lo, hi, epsabs=0, epsrel=1e-13)[0] for lo, hi in zip(p[:-1], p[1:]))
+
+    for r in (1.0, 1000.0, 1221.5, 3000.0, 3480.0, 5000.0, 6000.0, 6370.0, 6371.0):
+        ref = m_km**2 * (piecewise(lambda x: x * x * _prem_neutrons_cm3(x), 0.0, r) / r
+                         + piecewise(lambda x: x * _prem_neutrons_cm3(x), r, 6371.0))
+        assert abs(dps.earth_neutron_density_cm3(r, yk) / ref - 1.0) < 1e-9, r
+    for r in (6371.0 * (1 + 1e-9), 2 * 6371.0):
+        N_eff = dps.earth_neutron_density_cm3(r, yk) * 4 * np.pi * r * np.exp(m_km * r) / m_km**2 * 1e15
+        assert abs(N_eff / dp_core.N_n_earth - 1.0) < 1e-3, (r, N_eff)
+
+
+def test_earth_yukawa_evaluations_agree_across_the_switch():
+    """'heavy' (integration by parts) and 'direct' (tabulated P, Q) are both exact for PREM's
+    polynomials, so forced to the same mass they must agree everywhere -- inside, at every
+    boundary, outside -- across the m R = 50 switch."""
+    import dp_spatial
+    radii = np.concatenate([np.linspace(0.0, 6371.0, 997), dps._PREM_EDGES_KM, [6371.5, 7000.0]])
+    for mR in (10.0, 50.0, 300.0):
+        m_eV = mR / 6371.0 / dp_spatial._KM_IN_EV_INV
+        hv = dps.earth_yukawa_table(m_eV, mode=dp_spatial._YUKAWA_HEAVY)
+        di = dps.earth_yukawa_table(m_eV, mode=dp_spatial._YUKAWA_DIRECT)
+        for r in radii:
+            a, b = dps.earth_neutron_density_cm3(r, hv), dps.earth_neutron_density_cm3(r, di)
+            assert abs(a - b) <= 1e-12 * abs(b) + 1e-14 * 4.2e24, (mR, r, a, b)
+
+
+def test_avg_scheme_step_count_independent_with_yukawa():
+    """With a mediator range anywhere from 200 m to beyond R_E the boundary layers along the
+    chords (crossings, the surface at entry and above the detector) must be resolved, so the
+    step-summed path integral stays independent of the step count -- the 'avg' scheme's
+    certificate -- and equals an independent dense integral of n_eff (composite 20-point
+    Gauss-Legendre graded toward every layer at ratio 1.1)."""
+    depth = 1.5
+    f2 = 6371.0 - depth
+    x20, w20 = np.polynomial.legendre.leggauss(20)
+    import dp_spatial
+    for m_eV in (1e-9, 1e-11, 1e-13, 3e-14, 1e-16):
+        yk = dps.earth_yukawa_table(m_eV)
+        for costh in (-1.0, -0.83, -0.3, -0.02, 0.0):
+            B = dps.get_baseline_earth(depth, costh)
+            cross = dps._earth_layer_crossings(B, costh, depth)
+            tot = {}
+            for N in (8, 25, 1000):
+                nbar = dps._avg_earth_density_seq(B, costh, N, depth, 0.0, cross,
+                                                  dps._GL10_X, dps._GL10_W, yk)
+                tot[N] = np.sum(nbar) * (B / N)
+            assert abs(tot[8] / tot[1000] - 1) < 1e-12, (m_eV, costh, tot)
+            assert abs(tot[25] / tot[1000] - 1) < 1e-12, (m_eV, costh, tot)
+            if costh in (-0.83, 0.0):
+                fl, fw = dp_spatial._earth_chord_features(B, costh, depth, cross, yk)
+                E = {0.0, B} | set(cross)
+                for lf, w in zip(fl, fw):
+                    x = w / 64
+                    while x < B:
+                        E |= {e for e in (lf - x, lf + x) if 0.0 < e < B}
+                        x *= 1.1
+                E = np.array(sorted(E))
+                ref = 0.0
+                for lo, hi in zip(E[:-1], E[1:]):
+                    l = 0.5 * (lo + hi) + 0.5 * (hi - lo) * x20
+                    r = np.sqrt((B - l)**2 + f2**2 + 2 * (B - l) * f2 * costh)
+                    ref += 0.5 * (hi - lo) * np.sum(w20 * np.array(
+                        [dps.earth_neutron_density_cm3(x, yk) for x in r]))
+                assert abs(tot[25] / (ref * dps.cm_inv3_to_eV3) - 1) < 1e-11, (m_eV, costh)
+
+
+def test_earth_range_mediator_end_to_end(tmp_path):
+    """A mediator whose range is the Earth's radius (direct mode), at couplings that keep the
+    Earth transit coherent (phases of tens of rad): the solver must run, return finite
+    non-negative fluxes, and keep the 'avg' step-count certificate end to end."""
+    import copy
+    cfg = dps.create_default_config(str(tmp_path / "cfg.json"))
+    cfg["grid"].update(dict(n_E_bins=24, n_z_bins=16, n_sun_paths=1, n_earth_chords=3))
+    cfg["execution"].update(dict(n_cores=1, verbose=0))
+    cfg["dark_portal"].update(dict(m_Zd_eV=3.1e-14, g_D=1e-24, epsilon_prime=1e-25))
+    flux = {}
+    for n in (25, 200):
+        c = copy.deepcopy(cfg)
+        c["grid"]["N_steps_earth"] = n
+        _, flux[n] = dps.run_solver(c)
+    assert np.isfinite(flux[25]).all() and (flux[25] >= 0).all()
+    assert np.max(np.abs(flux[200] - flux[25])) <= 1e-8 * np.max(np.abs(flux[200]))
+
+
+# =============================================================================
+# Zenith average of the Earth chords (2026-10-12)
+# =============================================================================
+
+def _synthetic_chords(nodes, alpha, rho_in, S):
+    """Chord density matrices exp(-i Psi S) rho_in exp(+i Psi S) with Psi = alpha * column,
+    the potential-dominated evolution the 'phase' rule assumes, plus the projectors of S."""
+    import dp_spatial
+    P, lam = dp_spatial._lri_texture_projectors(S)
+    col = dp_spatial._earth_columns(nodes, 1.5, 0.0, dps.earth_yukawa_table(None))
+
+    def evolve(psi):
+        U = sum(np.exp(-1j * l * psi) * p for l, p in zip(lam, P))
+        return U @ rho_in @ U.conj().T
+    return np.array([evolve(alpha * c) for c in col])[:, None], evolve, P
+
+
+def test_zenith_weights_reduce_to_trapezoid_and_stay_hermitian():
+    """With no phase the 'phase' weights are the trapezoid rule over the chord nodes, and the
+    averaged density matrix is Hermitian with unit trace for any texture, including a
+    full-rank complex one with three distinct eigenvalues."""
+    import dp_spatial
+    nodes = np.linspace(-1.0, 0.0, 12)
+    c_fine, idx = dp_spatial._earth_zenith_fine_grid(nodes, 1.5, 512)
+    w = dp_spatial._zenith_filon_weights(c_fine, idx, np.zeros_like(c_fine))
+    h = nodes[1] - nodes[0]
+    trap = np.full(12, h)
+    trap[[0, -1]] = h / 2
+    np.testing.assert_allclose(w.real, trap, rtol=0, atol=1e-14)
+    assert np.max(np.abs(w.imag)) < 1e-15
+    rng = np.random.default_rng(5)
+    A = rng.normal(size=(3, 3)) + 1j * rng.normal(size=(3, 3))
+    S = A + A.conj().T
+    B = rng.normal(size=(3, 3)) + 1j * rng.normal(size=(3, 3))
+    rho_in = B @ B.conj().T
+    rho_in /= np.trace(rho_in).real
+    rho_k, _, P = _synthetic_chords(nodes, 3e-8, rho_in, S)
+    assert len(P) == 3
+    avg = dps.average_earth_chords(rho_k, nodes, 3e-8 / dp_spatial._KM_IN_EV_INV, S, 1.5, 0.0,
+                                   1.0, dps.earth_yukawa_table(None), "phase")[0]
+    assert np.max(np.abs(avg - avg.conj().T)) < 1e-14
+    assert abs(np.trace(avg).real - 1.0) < 1e-13
+
+
+def test_zenith_phase_average_matches_continuum():
+    """The 'phase' average of 12 or 13 chords must equal the exact integral over costh of
+    the potential-dominated evolution -- a dense trapezoid over 200,001 chords up to Earth
+    phases of 1e3 rad, the decoherent block-diagonal limit sum_g P_g rho P_g at 1e8 rad --
+    while the historical equal-weight mean misses by 1e-3 to 1e-1 (the chord-sampling floor)."""
+    import dp_spatial
+    S = np.outer([0.5, 0.5, 0.0], [0.5, 0.5, 0.0]).astype(complex)
+    rng = np.random.default_rng(3)
+    B = rng.normal(size=(3, 3)) + 1j * rng.normal(size=(3, 3))
+    rho_in = B @ B.conj().T
+    rho_in /= np.trace(rho_in).real
+    c_dense = np.linspace(-1.0, 0.0, 200_001)
+    col_dense = dp_spatial._earth_columns(c_dense, 1.5, 0.0, dps.earth_yukawa_table(None))
+    for K in (12, 13):
+        nodes = np.linspace(-1.0, 0.0, K)
+        for psi_max in (0.1, 3.0, 52.0, 1e3, 1e8):
+            alpha = psi_max / col_dense[0]
+            rho_k, evolve, P = _synthetic_chords(nodes, alpha, rho_in, S)
+            got = dps.average_earth_chords(rho_k, nodes, alpha / dp_spatial._KM_IN_EV_INV, S, 1.5,
+                                           0.0, 1.0, dps.earth_yukawa_table(None), "phase")[0]
+            if psi_max <= 1e3:
+                ref = _trapz(np.array([evolve(alpha * c) for c in col_dense]), c_dense, axis=0)
+            else:
+                ref = sum(p @ rho_in @ p for p in P)
+            assert np.max(np.abs(got - ref)) < 1e-5, (K, psi_max, np.max(np.abs(got - ref)))
+            if psi_max >= 3.0:
+                assert np.max(np.abs(rho_k[:, 0].mean(axis=0) - ref)) > 1e-3
+
+
+def test_full_sky_average_matches_continuum_and_dilutes_the_earth():
+    """With down-going directions (decided 2026-10-13) the 'phase' average runs over the whole
+    sky, cos(zenith) from -1 to 1, where down-going chords cross only the ice above the
+    detector (1.5 to ~140 km). It must equal the exact integral over the sky of the
+    potential-dominated evolution (dense trapezoid, 400,001 directions); a potential that
+    leaves the ice above unchanged must show half the up-going effect, and a very strong
+    one the fully mixed limit."""
+    import dp_spatial
+    S = np.outer([0.5, 0.5, 0.0], [0.5, 0.5, 0.0]).astype(complex)
+    rng = np.random.default_rng(4)
+    B = rng.normal(size=(3, 3)) + 1j * rng.normal(size=(3, 3))
+    rho_in = B @ B.conj().T
+    rho_in /= np.trace(rho_in).real
+    up = np.linspace(-1.0, 0.0, 12)
+    full = np.concatenate([up, -up[-2::-1]])
+    c_dense = np.linspace(-1.0, 1.0, 400_001)
+    col_dense = dp_spatial._earth_columns(c_dense, 1.5, 0.0, dps.earth_yukawa_table(None))
+    assert abs(dps.get_baseline_earth(1.5, 1.0) - 1.5) < 1e-12
+    for psi_max in (0.1, 3.0, 52.0, 1e3):
+        alpha = psi_max / col_dense[0]
+        rho_k, evolve, P = _synthetic_chords(full, alpha, rho_in, S)
+        got = dps.average_earth_chords(rho_k, full, alpha / dp_spatial._KM_IN_EV_INV, S, 1.5,
+                                       0.0, 1.0, dps.earth_yukawa_table(None), "phase")[0]
+        ref = _trapz(np.array([evolve(alpha * c) for c in col_dense]), c_dense, axis=0) / 2.0
+        assert np.max(np.abs(got - ref)) < 1e-5, (psi_max, np.max(np.abs(got - ref)))
+    # How much the sky dilutes the Earth's effect depends on the potential: while the ice
+    # above adds little phase (core phase <~ 50 rad: <= 0.06 rad at the horizon) the down-going
+    # half is untouched and the flavor shift halves; for strong potentials both halves mix
+    # fully and the average reaches the block-diagonal limit sum_g P_g rho P_g.
+    def averaged(nodes, psi_core):
+        alpha = psi_core / col_dense[0]
+        rho_k, _, P = _synthetic_chords(nodes, alpha, rho_in, S)
+        return dps.average_earth_chords(rho_k, nodes, alpha / dp_spatial._KM_IN_EV_INV, S, 1.5, 0.0,
+                                        1.0, dps.earth_yukawa_table(None), "phase")[0], P
+    for psi_core in (3.0, 52.0):
+        shift_up = np.real(np.diag(averaged(up, psi_core)[0] - rho_in))
+        shift_full = np.real(np.diag(averaged(full, psi_core)[0] - rho_in))
+        np.testing.assert_allclose(shift_full, 0.5 * shift_up, rtol=0.02, atol=1e-7)
+    got, P = averaged(full, 1e9)
+    assert np.max(np.abs(got - sum(p @ rho_in @ p for p in P))) < 1e-4
+
+
+def test_zenith_average_options_and_numba_crossings():
+    """'phase' needs the phase-exact 'avg' steps (direct callers asking otherwise get an
+    error; run_solver maps 'left' to the historical 'plain'), unknown options are rejected,
+    and the numba crossing finder used for the fine grid agrees with the chords' own."""
+    import dp_spatial
+    for costh in np.linspace(-1.0, 1.0, 81):              # up- and down-going
+        B = dps.get_baseline_earth(1.5, costh)
+        np.testing.assert_allclose(dp_spatial._earth_layer_crossings_nb(B, costh, 1.5),
+                                   dps._earth_layer_crossings(B, costh, 1.5), rtol=0, atol=1e-9)
+    E = np.geomspace(1e13, 1e14, 3)
+    F = np.ones((3, 3)) / 3
+    M_rot = np.zeros((3, 3), dtype=complex)
+    u = np.array([0.5, 0.5, 0.0], dtype=complex)
+    args = (E, F, M_rot, u, 2e6, 1e-4, 0.1, 1.676389e-4, True, np.ones(3), 1.5, False, 0.0,
+            False, 1, 2)
+    with pytest.raises(ValueError, match="phase"):
+        dps.propagate_earth_spatial(*args, N_steps_earth=4, show_progress=False,
+                                    verbose=0, earth_step_scheme="left", earth_zenith_average="phase")
+    with pytest.raises(ValueError, match="earth_zenith_average"):
+        dps.propagate_earth_spatial(*args, N_steps_earth=4, show_progress=False,
+                                    verbose=0, earth_step_scheme="avg", earth_zenith_average="median")
+    assert dps.DEFAULT_CONFIG["grid"]["earth_zenith_average"] == "phase"
+    assert dps.DEFAULT_CONFIG["grid"]["earth_sky"] == "full"
+    with pytest.raises(ValueError, match="earth_sky"):
+        dps.propagate_earth_spatial(*args, N_steps_earth=4, show_progress=False,
+                                    verbose=0, earth_step_scheme="avg", earth_sky="down")
+
+
+def test_core_count_respects_slurm_allocation_and_affinity(monkeypatch):
+    """Pools are sized from dp_core.available_cores(): the affinity mask, capped by
+    SLURM_CPUS_PER_TASK. os.cpu_count() alone reports a whole Tycho node (128 cores) whatever
+    the job was given. The default pool keeps one core free on a laptop and uses the whole
+    allocation inside a SLURM job."""
+    import dp_core
+    n_aff = len(os.sched_getaffinity(0))
+    for var in ("SLURM_CPUS_PER_TASK", "SLURM_JOB_ID"):
+        monkeypatch.delenv(var, raising=False)
+    assert dp_core.available_cores() == n_aff
+    assert dp_core.default_n_cores() == max(1, n_aff - 1)
+    monkeypatch.setenv("SLURM_JOB_ID", "1")
+    monkeypatch.setenv("SLURM_CPUS_PER_TASK", "1")
+    assert dp_core.available_cores() == 1 == dp_core.default_n_cores()
+    monkeypatch.setenv("SLURM_CPUS_PER_TASK", str(n_aff + 100))
+    assert dp_core.available_cores() == n_aff == dp_core.default_n_cores()
+    monkeypatch.setenv("SLURM_CPUS_PER_TASK", "not-a-number")
+    assert dp_core.available_cores() == n_aff
+
+
+# =============================================================================
+# Normalization of the resonant absorption (2026-10-12)
+# =============================================================================
+
+def _rate_inputs(u, g_D, eps=0.1):
+    U = dps.construct_PMNS(np.radians(33.41), np.radians(8.58), np.radians(49.1), np.radians(132.0))
+    return dps.compute_gamma_grid_inputs(U, np.array([u, u, 0.0], dtype=np.complex128), g_D, eps, np.ones(3))
+
+
+def test_absorption_strength_scales_with_the_couplings():
+    """The resonant absorption must scale with the couplings: at fixed flavor ratios the
+    integrated rate grows with Sum G (Breit-Wigner with Gamma_in Gamma_tot in the numerator)
+    and vanishes with it. Until 2026-10-12 the integrated rate was identical from Sum G =
+    7.6e-4 down to 3e-19: a vanishing coupling only narrowed the resonance."""
+    E = np.geomspace(1e13, 3e16, 60)
+    z = np.linspace(4.0, 0.0, 60)
+    m_nu = dps.get_mass_eigenvalues(0.01, 7.41e-5, 2.511e-3, "normal")
+    totals = []
+    for g_D in (1e-6, 1e-8, 1e-10):
+        sG, sGa, em = _rate_inputs(0.5, g_D)
+        G = dps.build_thermal_grid(E, z, sG, sGa, 2e6, m_nu, 1.676389e-4, em)
+        totals.append((sG, G.sum()))
+    (s1, t1), (s2, t2), (s3, t3) = totals
+    assert abs((t1 / t2) / (s1 / s2) - 1.0) < 1e-3, (t1 / t2, s1 / s2)
+    assert abs((t2 / t3) / (s2 / s3) - 1.0) < 1e-3
+    sG, sGa, em = _rate_inputs(0.0, 1e-4)
+    assert dps.build_thermal_grid(E, z, sG, sGa, 2e6, m_nu, 1.676389e-4, em).max() == 0.0
+
+
+def test_absorption_narrow_width_limit():
+    """At a narrow width the rate must equal the delta-function limit of
+    sigma_alpha = (Sum G)_alpha (Sum G) s / (3 pi [(s - M^2)^2 + M^2 Gamma^2]), whose integral over
+    s is 4 pi (Sum G)_alpha: Gamma_alpha = sum_i eta_i (Sum G)_alpha / pi * int dp p^2 f_i (1 - c*)/B,
+    with c* = (A - M^2)/B the angle where s = M^2 (A = m_i^2 + 2 x E_bg, B = 2 x p). The kernel's
+    (1 - cos theta) flux factor is kept, as in Eq. (7) of the theory notes."""
+    from scipy.integrate import quad
+    m_nu = dps.get_mass_eigenvalues(0.01, 7.41e-5, 2.511e-3, "normal")
+    sG, sGa, em = _rate_inputs(0.5, 1e-12)          # width ~1e-16 of M: deep in the narrow limit
+    T0, M = 1.676389e-4, 2e6
+    for E0, z in ((2.2e14, 0.3), (6.0e13, 1.1), (4.1e13, 0.0)):
+        got = dps.build_thermal_grid(np.array([E0, E0 * 1.0001]), np.array([z, z]), sG, sGa, M, m_nu, T0, em)[0, 0]
+        x = E0 * (1.0 + z)
+        ref = np.zeros(3)
+        for i in range(3):
+            m, Ti = m_nu[i], T0 * (1.0 + z) * em[i] ** (1.0 / 3.0)
+
+            def integrand(p):
+                E_bg = np.sqrt(m * m + p * p)
+                A, B = m * m + 2 * x * E_bg, 2 * x * p
+                c = (A - M * M) / B
+                return 0.0 if abs(c) > 1 else p * p / (np.exp(p / Ti) + 1.0) * (1.0 - c) / B
+            # the integrand jumps where c* = +-1: E_bg -+ p = delta = (M^2 - m^2)/(2x)
+            d = (M * M - m * m) / (2 * x)
+            edges = [abs(m * m - d * d) / (2 * d)]
+            pts = sorted({*np.linspace(0, 20 * Ti, 41)[1:-1], *[e for e in edges if 0 < e < 20 * Ti]})
+            val = quad(integrand, 0.0, 20 * Ti, limit=800, points=pts, epsabs=0, epsrel=1e-10)[0]
+            ref += em[i] * sGa / np.pi * val
+        assert ref.max() > 0, (E0, z)
+        np.testing.assert_allclose(got, ref, rtol=2e-3, err_msg=f"E0={E0}, z={z}")
+
+
+def test_vanishing_sterile_mixing_recovers_standard_propagation(tmp_path):
+    """As the sterile mixing goes to zero the dark sector must switch off continuously: the
+    flux at u = 1e-10 equals the one at u = 0 (no interactions). Until 2026-10-12 any nonzero
+    u, however small, kept the full resonant absorption and its runaway cascade."""
+    import copy
+    base = dps.create_default_config(str(tmp_path / "cfg.json"))
+    base["grid"].update(dict(n_E_bins=60, n_z_bins=60, n_sun_paths=1, n_earth_chords=2,
+                             N_steps_earth=10))
+    base["execution"].update(dict(n_cores=1, verbose=0))
+    out = []
+    for u in (0.0, 1e-10):
+        c = copy.deepcopy(base)
+        c["dark_portal"].update(u_e=u, u_mu=u)
+        out.append(dps.run_solver(c)[1])
+    np.testing.assert_allclose(out[1], out[0], rtol=1e-8)
+
+
+def test_source_redshift_weighting_main_solver():
+    """The main solver's sources weigh in as int dz R(z) (1+z)^-p / H(z) -- every emitted neutrino
+    arrives (the injection per unit observed energy carries dE_z/dE = 1+z). Without interactions the
+    flux is a pure power law and the ratio of z_max = 4 to z_max = 1 is that of the closed form (to the
+    z-grid's first-order error); the weighting R(z)/(1+z) used until 2026-10-13 gives 16% less."""
+    from scipy.integrate import quad
+    import dark_portal_solver as dps
+    from dp_cosmo import calc_R_source
+    fl = {}
+    for zmax in [1.0, 4.0]:
+        cfg = {"dark_portal": {"u_e": 0.0, "u_mu": 0.0, "u_tau": 0.0, "g_D": 1e-30, "epsilon_prime": 0.0},
+               "source": {"z_max": zmax, "p_index": 2.5},
+               "grid": {"n_E_bins": 20, "n_z_bins": 400, "n_earth_chords": 2, "n_sun_paths": 2},
+               "execution": {"n_cores": 1, "verbose": 0}}
+        E, params = dps.build_solver_params(cfg)
+        fl[zmax] = dps.propagate_weighted(E, params).sum(1)
+    Om, OL = params["Omega_m"], params["Omega_L"]
+    I = lambda zmax: quad(lambda z: calc_R_source(z, 0.0) * (1 + z) ** -2.5 / np.sqrt(Om * (1 + z) ** 3 + OL),
+                          0, zmax, points=[1.0], limit=200)[0]
+    ratio = fl[4.0] / fl[1.0]
+    assert np.ptp(ratio) < 1e-12 * ratio.mean()
+    assert abs(ratio.mean() / (I(4.0) / I(1.0)) - 1) < 5e-3

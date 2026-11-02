@@ -1,0 +1,28 @@
+{
+ "morphology": {
+  "gas_vs_cringe_diffuse": 0.9910011169093792,
+  "sources_vs_cringe_unresolved": 0.9849112063090338
+ },
+ "mean_emission_distance_kpc": {
+  "centre": {
+   "gas": 5.705545183749584,
+   "sources": 9.820445156375522
+  },
+  "anticentre": {
+   "gas": 0.9148354778255158,
+   "sources": 3.6876626602244733
+  }
+ },
+ "point": "m_Zd = 1e-24 eV, kappa = 300 (the Sun's potential at the Earth in units of Delta m^2_31 / 2E at 100 TeV; the local Galactic one is ~3e-4 of it at this 6-pc range), e-mu texture u = 0.5, eps' = 0.1; nu + nubar",
+ "f_e_1PeV": {
+  "centre_3d": 0.37273753240470714,
+  "anticentre_3d": 0.3585043563661862,
+  "centre_local": 0.371302376114031,
+  "sky_range_3d": [
+   0.34488788432374706,
+   0.37440430800101504
+  ]
+ },
+ "commit": "85bb249",
+ "seconds": 2.810764789581299
+}

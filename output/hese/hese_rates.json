@@ -1,0 +1,112 @@
+{
+ "astro_release_fit": {
+  "cascades": 39.51469373674864,
+  "tracks": 8.434575421817549,
+  "double cascades": 2.2143364624378306
+ },
+ "conv": {
+  "cascades": 3.8291174273929514,
+  "tracks": 3.942320155026163,
+  "double cascades": 0.138826091702304
+ },
+ "prompt": {
+  "cascades": 2.490031026899325,
+  "tracks": 0.4901384053338965,
+  "double cascades": 0.05906561235567931
+ },
+ "conv_release": {
+  "cascades": 3.738437862130522,
+  "tracks": 4.134132959809897,
+  "double cascades": 0.14182679351622135
+ },
+ "prompt_release": {
+  "cascades": 1.3286553291070529,
+  "tracks": 0.2616551386562399,
+  "double cascades": 0.038587720142533935
+ },
+ "muons": {
+  "cascades": 0.004264005925506353,
+  "tracks": 0.7935834093004814,
+  "double cascades": 0.0
+ },
+ "data": {
+  "cascades": 41.0,
+  "tracks": 17.0,
+  "double cascades": 2.0
+ },
+ "nominal_total": {
+  "cascades": 45.83810619696642,
+  "tracks": 13.66061739147809,
+  "double cascades": 2.4122281664958143
+ },
+ "atmospheric_band": {
+  "cascades": 1.8550881996393969,
+  "tracks": 1.2766034265582666,
+  "double cascades": 0.05608646176335358
+ },
+ "detector_band": {
+  "cascades": 7.32057250387669,
+  "tracks": 1.6398356927854079,
+  "double cascades": 0.4006550148563891
+ },
+ "detector_shifts": {
+  "dom_eff": {
+   "cascades": 7.319267434010317,
+   "tracks": 1.639124017895376,
+   "double cascades": 0.3831253525092962
+  },
+  "head_on": {
+   "cascades": 0.03398739370115514,
+   "tracks": 0.03479668223999352,
+   "double cascades": -0.03221711233233533
+  },
+  "anisotropy": {
+   "cascades": -0.13398086065128886,
+   "tracks": 0.033507375256897974,
+   "double cascades": 0.11270076693246847
+  }
+ },
+ "cases": {
+  "standard": {
+   "extragalactic": {
+    "cascades": 38.06532945602579,
+    "tracks": 8.754688588458858,
+    "double cascades": 2.23032612150859
+   },
+   "galactic": {
+    "cascades": 2.2521528735733987,
+    "tracks": 0.46364836923983854,
+    "double cascades": 0.10695418156891087
+   },
+   "seconds": 4.480377674102783
+  },
+  "dark portal": {
+   "extragalactic": {
+    "cascades": 39.62810317360318,
+    "tracks": 8.468698999588867,
+    "double cascades": 2.2256737073127595
+   },
+   "galactic": {
+    "cascades": 2.3518446830353543,
+    "tracks": 0.45937621144606466,
+    "double cascades": 0.10156042188876313
+   },
+   "seconds": 2.6721696853637695
+  },
+  "secret interactions": {
+   "extragalactic": {
+    "cascades": 24.88678594850012,
+    "tracks": 4.4575345721339925,
+    "double cascades": 1.0883327571709287
+   },
+   "galactic": {
+    "cascades": 2.252152873573402,
+    "tracks": 0.46364836923983904,
+    "double cascades": 0.10695418156891098
+   },
+   "seconds": 0.3853282928466797
+  }
+ },
+ "seconds": 10.280642986297607,
+ "commit": "a2ec980"
+}

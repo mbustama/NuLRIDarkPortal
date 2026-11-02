@@ -23,8 +23,8 @@ import os
 # their defaults, these libraries spin up one thread pool per *process*, and since this
 # solver's own parallelism comes from numba (prange, scaled via numba.set_num_threads in
 # propagate_spectrum) and from multiprocessing (across independent MW paths/Earth chords,
-# and across parameter configs in dark_portal_scanner.py / Minuit workers in
-# FrequentistAnalysis), an unconstrained BLAS thread pool multiplies against every one of
+# and across parameter configs in dark_portal_scanner.py / the analysis package's scan
+# workers), an unconstrained BLAS thread pool multiplies against every one of
 # those layers and can *slow down* a parallel run by 3-5x. Pinning BLAS to a single thread
 # here removes that hazard everywhere this module is imported.
 os.environ.setdefault("OMP_NUM_THREADS", "1")
@@ -32,6 +32,76 @@ os.environ.setdefault("MKL_NUM_THREADS", "1")
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "1")
 os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+
+
+# =============================================================================
+# NUMBA CACHE KEYED BY THE SOURCES (must run before numba is imported)
+# =============================================================================
+# numba validates an on-disk cache entry against the stamp of the function's OWN source
+# file only, so a jitted function calling a jitted function from another module
+# (dp_spatial -> dp_propagator.propagator_3x3, dp_cosmo -> eigenvectors_3x3, every kernel
+# -> the helpers below) keeps the callee's old machine code after the callee's module is
+# edited -- silently: on 2026-10-12 the spatial kernels kept running a replaced
+# propagator. The cache directory is therefore keyed by a hash of every source file in
+# this directory, so any edit starts a fresh cache (one full recompile). Directories of
+# other versions left unused for a day are removed. A NUMBA_CACHE_DIR set by the user is
+# respected as is.
+def _source_digest() -> str:
+    import hashlib
+    src = os.path.dirname(os.path.abspath(__file__))
+    h = hashlib.sha256()
+    for name in sorted(os.listdir(src)):
+        if name.endswith(".py"):
+            h.update(name.encode())
+            with open(os.path.join(src, name), "rb") as fh:
+                h.update(fh.read())
+    return h.hexdigest()[:16]
+
+
+def _configure_numba_cache():
+    if os.environ.get("NUMBA_CACHE_DIR"):
+        return
+    import shutil
+    import time
+    base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "__pycache__", "numba")
+    digest = _source_digest()
+    os.environ["NUMBA_CACHE_DIR"] = os.path.join(base, digest)    # inherited by pool children
+    try:
+        now = time.time()
+        for name in os.listdir(base):
+            path = os.path.join(base, name)
+            if name != digest and now - os.path.getmtime(path) > 86400.0:
+                shutil.rmtree(path, ignore_errors=True)
+    except OSError:
+        pass
+
+
+_configure_numba_cache()
+
+
+# NO AVX-512 IN NUMBA'S MACHINE CODE (2026-10-18). numba 0.60's LLVM 14 predates Zen 4: on
+# Tycho's AMD EPYC 9554 it tunes for znver3 while emitting AVX-512, a combination it
+# miscompiled -- the Earth's Yukawa density came out as 1e49-1e99 cm^-3 near the centre,
+# deterministically in one build of the old (fastmath) kernels and intermittently (1 of ~6
+# test-suite runs) in builds of the new ones; with the AVX-512 features off, the old code
+# equals pure Python at every probe point. Zen 4 executes AVX-512 at half width anyway. A
+# no-op on CPUs without it (the laptop, most CI runners); NUMBA_CPU_FEATURES set by the
+# user is respected. Set before numba's import here, and on its live config below.
+def _host_features_without_avx512():
+    try:
+        import llvmlite.binding as ll
+        ll.initialize()
+        ll.initialize_native_target()
+        ll.initialize_native_asmprinter()
+        return ll.get_host_cpu_features().flatten().replace("+avx512", "-avx512")
+    except Exception:
+        return None
+
+
+if not os.environ.get("NUMBA_CPU_FEATURES"):
+    _features = _host_features_without_avx512()
+    if _features:
+        os.environ["NUMBA_CPU_FEATURES"] = _features    # inherited by pool children
 
 
 import numpy as np
@@ -72,10 +142,58 @@ try:
 except ImportError:
     pass
 
+# FASTMATH KERNELS USE error_model="numpy" (2026-10-13). On Tycho's AMD EPYC 9554 (Zen 4)
+# nodes, numba's division-by-zero check fired spuriously under the full fastmath flag set:
+# dp_spatial._yk_direct raised ZeroDivisionError at r = 6370.96 km for m_eff = 1e-14 eV, while
+# the same code returned the exact value (equal to pure Python's) without the check, without
+# any one of the nnan/arcp/afn flags, or compiled for a generic CPU; the laptop never raised.
+# It failed every potential-plane job's global fit. Every fastmath kernel therefore uses
+# numpy's error model, which drops the checks (a true division by zero gives inf or nan); the
+# solver's own isfinite checks on the thermal grid and on every flux still raise loudly.
+# 2026-10-18: the check had been firing on a real miscompilation, which the numpy error model
+# then let through silently: the same kernels returned 1e49-1e58 cm^-3 near the Earth's centre
+# at ultralight masses on Zen 4 (fastmath; generic-CPU code and pure Python exact). The Yukawa
+# evaluations are now compiled without fastmath (dp_spatial, NO FASTMATH IN THE YUKAWA
+# EVALUATIONS); validated against pure Python at 48,825 radii, chords and masses on Tycho.
 try:
     import numba
     from numba import njit, prange
+    # numba reads NUMBA_CACHE_DIR once, at its own import, which may have come first
+    numba.config.CACHE_DIR = os.environ["NUMBA_CACHE_DIR"]
+    # likewise NUMBA_CPU_FEATURES (no AVX-512, above); its codegen reads it at the first compile
+    if os.environ.get("NUMBA_CPU_FEATURES"):
+        numba.config.CPU_FEATURES = os.environ["NUMBA_CPU_FEATURES"]
     HAS_NUMBA = True
+except ImportError:
+    HAS_NUMBA = False
+    numba = None
+
+# CACHE ENTRIES NAMED BY THEIR SIGNATURE (2026-10-18). numba names a new cache entry's data
+# file by the first number free in the index as ITS process last read it, so two processes
+# compiling different signatures of one function at once (pool workers, pytest-xdist) both
+# write <function>.1.nbc, and the index can end up pointing one signature at the other's
+# machine code: run on the wrong argument types it returned garbage (the Earth's Yukawa
+# density ~1e58 cm^-3 on Tycho). Named by a hash of the key (signature, CPU, bytecode), a
+# data file only ever holds its own signature's code, and it is written before the index
+# points at it; a concurrent index update can at worst drop an entry, which recompiles.
+if HAS_NUMBA:
+    from numba.core import caching as _nb_caching
+
+    def _save_by_key(self, key, data):
+        import hashlib
+        data_name = "%s.%s.nbc" % (self._index_name[:-len(".nbi")],
+                                   hashlib.sha256(repr(key).encode()).hexdigest()[:16])
+        self._save_data(data_name, data)
+        overloads = self._load_index()
+        if overloads.get(key) != data_name:
+            overloads[key] = data_name
+            self._save_index(overloads)
+
+    _nb_caching.IndexDataCacheFile.save = _save_by_key
+
+try:
+    if not HAS_NUMBA:
+        raise ImportError
 except ImportError:
     HAS_NUMBA = False
     numba = None
@@ -95,6 +213,41 @@ except ImportError:
     HAS_TQDM = False
     print("Warning: 'tqdm' not found. Progress bars will be disabled.")
     def tqdm(iterable, *args, **kwargs): return iterable
+
+def available_cores() -> int:
+    """Cores this process may use: its CPU affinity mask, capped by SLURM_CPUS_PER_TASK when
+    SLURM sets it, else os.cpu_count(). cpu_count() alone reports the whole machine -- 128 cores
+    on a Tycho node, whatever the job was given -- which oversubscribed every pool sized from it."""
+    try:
+        n = len(os.sched_getaffinity(0))
+    except (AttributeError, OSError):
+        n = os.cpu_count() or 1
+    slurm = os.environ.get("SLURM_CPUS_PER_TASK", "").strip()
+    if slurm.isdigit() and int(slurm) > 0:
+        n = min(n, int(slurm))
+    return max(1, n)
+
+
+def default_n_cores() -> int:
+    """Default pool size: every available core inside a SLURM job (the allocation is the
+    job's to use), all but one elsewhere, so a laptop stays responsive."""
+    n = available_cores()
+    if os.environ.get("SLURM_JOB_ID"):
+        return n
+    return n - 1 if n > 1 else 1
+
+
+def set_numba_threads(n: int) -> int:
+    """numba.set_num_threads(n), clamped to numba's pool (NUMBA_NUM_THREADS: the machine's cores
+    unless set). Returns the count set. numba raises for more threads than its pool has, and a
+    configuration may ask for more cores than the machine running it has: n_cores = 4 crashed
+    the solver on GitHub's 2-core runners (found 2026-10-13, when CI first ran with TBB)."""
+    if not HAS_NUMBA:
+        return 1
+    m = max(1, min(int(n), int(numba.config.NUMBA_NUM_THREADS)))
+    numba.set_num_threads(m)
+    return m
+
 
 def safe_print(msg: str):
     """Prints output safely without breaking the tqdm progress bar alignment."""
@@ -129,10 +282,26 @@ d_moon_eV_inv = 3.84e8 * m_to_eV_inv
 R_earth_eV_inv = 6371e3 * m_to_eV_inv
 R_core_eV_inv = 3480e3 * m_to_eV_inv
 
-# Total number of neutrons per celestial body (assuming Y_n = Y_p = 0.5 where applicable)
-N_n_sun = 2.972e56    
-N_n_earth = 1.785e51  
-N_n_moon = 1.098e49   
+# Total number of neutrons per celestial body -- point sources of the dark-portal potential,
+# which matter only for mediators light enough to reach across AU-scale distances.
+# Sun: present bulk composition, the protosolar X/Y/Z = 0.7154/0.2703/0.0142 (Asplund et al.
+#   2009) plus the ~0.038 Msun of hydrogen burned to helium (integrated luminosity, ~0.85 L_sun
+#   over 4.57 Gyr): Y = 0.308, i.e. 0.161 neutrons per nucleon.
+# Earth: PREM integrated with dp_spatial.earth_neutrons_per_gram (core Y_e 0.4656, mantle and
+#   crust 0.4957, top layer water): 0.514 neutrons per nucleon (PREM's mass is 5.973e27 g).
+# Moon: silicate rock (Y_e 0.4957) with a ~1.5% iron core (0.4656): 0.505 neutrons per nucleon.
+# Until 2026-10-12 the Sun and the Moon used 0.248 per nucleon (2.972e56, 1.098e49) and the
+# Earth 0.496 (1.785e51).
+N_n_sun = 1.929e56
+N_n_earth = 1.849e51
+N_n_moon = 2.232e49
+# Electrons (= protons) per body, for matter charges other than the neutron's (dp_matter,
+# docs/dev/SCOPE_WIDENING_PLAN.md): each body's nucleons less its neutrons above -- the Sun's
+# 1.98847e33 g and the Moon's 7.342e25 g at 1/m_u nucleons per gram (1.1975e57, 4.4215e49), and
+# the Earth's PREM integrated with dp_spatial.earth_electrons_per_gram (Y_e by layer, water on top).
+N_e_sun = 1.0046e57
+N_e_earth = 1.7480e51
+N_e_moon = 2.1895e49
 
 
 @njit(cache=True)
@@ -163,7 +332,7 @@ def construct_PMNS(th12: float, th13: float, th23: float, d_cp: float) -> np.nda
     return R23 @ R13 @ R12
 
 
-@njit(fastmath=True, cache=True)
+@njit(fastmath=True, error_model="numpy", cache=True)
 def calc_debye_mass_sq(g_D: float, u_arr: np.ndarray, T_nu: float, eta_bg: np.ndarray) -> float:
     """Calculates the Debye screening mass squared generated by the thermal CnuB plasma."""
     u_mag_4 = np.abs(u_arr)**4
@@ -172,7 +341,8 @@ def calc_debye_mass_sq(g_D: float, u_arr: np.ndarray, T_nu: float, eta_bg: np.nd
 
 
 def get_mass_eigenvalues(m_lightest: float, dm21_sq: float, dm31_sq: float, ordering: str) -> np.ndarray:
-    """Calculates the three absolute mass eigenvalues based on the lightest mass and ordering hierarchy."""
+    """Calculates the three absolute mass eigenvalues based on the lightest mass and ordering hierarchy.
+    dm31_sq is |Delta m^2_3l| (NuFIT): Delta m^2_31 for normal ordering, |Delta m^2_32| for inverted."""
     masses = np.zeros(3, dtype=np.float64)
     if ordering.lower().strip() == "inverted":
         masses[2] = m_lightest
@@ -185,7 +355,7 @@ def get_mass_eigenvalues(m_lightest: float, dm21_sq: float, dm31_sq: float, orde
     return masses
 
 
-@njit(fastmath=True, cache=True)
+@njit(fastmath=True, error_model="numpy", cache=True)
 def compute_dE_geometric(E_bins: np.ndarray) -> np.ndarray:
     """Computes per-bin energy widths from the geometric midpoints of a log-spaced E_bins grid.
 

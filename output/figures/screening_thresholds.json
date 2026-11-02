@@ -1,0 +1,34 @@
+{
+ "screening_mass_per_unit_coupling_eV": {
+  "kappa": {
+   "majorana": 2.2434389668989444e-05,
+   "dirac": 0.0004752715621974228
+  },
+  "emu": {
+   "majorana": 1.8777184563467753e-05,
+   "dirac": 0.00031483200926283195,
+   "theory_notes_T23": 9.678636404165276e-05
+  }
+ },
+ "kappa_per_eps_prime": 0.7386363636363636,
+ "thresholds": {
+  "Earth (its radius)": {
+   "inverse_distance_eV": 3.097268874587977e-14,
+   "g_D_U2": 1.6494852378529193e-09,
+   "eps_prime": 1.8691061424704325e-09
+  },
+  "Sun (1 AU)": {
+   "inverse_distance_eV": 1.3190307486631016e-18,
+   "g_D_U2": 7.024646022968547e-14,
+   "eps_prime": 7.959943338020805e-14
+  },
+  "Galaxy (8 kpc)": {
+   "inverse_distance_eV": 7.993607609294488e-28,
+   "g_D_U2": 4.257085284684572e-23,
+   "eps_prime": 4.823895402047803e-23
+  }
+ },
+ "eps_prime_max_MICROSCOPE": 2.9784615384615387e-25,
+ "P_bound_1e-20_eV": 2.02e-55,
+ "P_bound_1e-20_eV_cosmic_alone_estimate": 1.7221827731802262e-36
+}

@@ -1,0 +1,19 @@
+[
+ {
+  "ds": "proj_future",
+  "plane": "le_lmu_ul",
+  "kind": "asimov",
+  "ratios": [
+   -1.5
+  ]
+ },
+ {
+  "ds": "proj_future",
+  "plane": "le_ltau_ul_fx",
+  "kind": "asimov",
+  "ratios": [
+   -1.75,
+   -0.75
+  ]
+ }
+]

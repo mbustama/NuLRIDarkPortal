@@ -7,7 +7,7 @@ themselves part of the propagation physics.
 
 Extracted from dark_portal_scanner.py so that (a) the scanner holds only routines
 directly related to parameter scanning, and (b) consumers that need only this
-post-processing (e.g. FrequentistAnalysis's kernel.py) no longer have to import the
+post-processing (e.g. the analysis package's model) no longer have to import the
 whole scanner module -- which has import-time side effects (it globally sets
 dp_core.HAS_TQDM = False -- the flag lives in dp_core since the 2026-07 module
 split -- silencing the solver's progress bars for every other user in the same
@@ -32,7 +32,7 @@ except ImportError:
 from dark_portal_solver import compute_dE_geometric
 
 
-@njit("float64[:](float64[:], float64[:,:])", fastmath=True, cache=True)
+@njit("float64[:](float64[:], float64[:,:])", fastmath=True, error_model="numpy", cache=True)
 def compute_energy_averaged_ratios(E_bins: np.ndarray, Flux_array: np.ndarray) -> np.ndarray:
     """
     Computes the energy-averaged flavor ratios over the fully integrated spectrum.

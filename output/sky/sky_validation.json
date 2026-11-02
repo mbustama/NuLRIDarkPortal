@@ -1,0 +1,32 @@
+{
+ "note": "extragalactic: HESE 7.5-yr normalization (2.12e-18 per flavor at 100 TeV, p = 2.87); Galactic: CRINGE x 0.91 (pi0 x 4.99 for comparison), emission points in 3-D; dark portal point m_Zd = 1e-24 eV, kappa = 300, e-mu texture u = 0.5, eps' = 0.1",
+ "galactic_over_icecube_astro_20TeV": {
+  "cringe": 0.10967508750095173,
+  "pi0": 0.14719816504890526,
+  "icecube_bin_GeV": [
+   9999.6,
+   21543.5
+  ],
+  "icecube_statement": "~10% at ~20 TeV (arXiv:2607.25966)"
+ },
+ "galactic_share_allsky": {
+  "10TeV": 0.036259589454610656,
+  "100TeV": 0.06099473210942628,
+  "1000TeV": 0.010876543509577959,
+  "10000TeV": 0.0018914773787918617
+ },
+ "galactic_share_inner": {
+  "10TeV": 0.21967140325200885,
+  "100TeV": 0.3451988318202031,
+  "1000TeV": 0.07488960910201257,
+  "10000TeV": 0.011788447007128187
+ },
+ "anisotropy_fe_100TeV": {
+  "earth_bands_extragalactic": 1.2733777028373083e-06,
+  "galactic_component": 0.017529536605945695,
+  "total": 0.014438961215751445,
+  "sun_yearly_max_over_points": 0.001148007849132493
+ },
+ "commit": "d7ab1c0",
+ "seconds": 9.938431739807129
+}

@@ -1,0 +1,63 @@
+{
+ "note": "|transport without regeneration - direct quadrature| / free-streaming flux, at 9 energies x 3 mass states, 400 bins",
+ "cases": [
+  {
+   "texture": "tau",
+   "M_eV": 5000000.0,
+   "g": 0.01,
+   "max_err_q1": 0.012912079601109508,
+   "median_err_q1": 1.899063228375302e-07,
+   "max_err_q4": 0.00263095025810877,
+   "median_err_q4": 1.1915555844574055e-08,
+   "t_transport": 2.6471471786499023,
+   "t_reference": 0.7790889739990234
+  },
+  {
+   "texture": "tau",
+   "M_eV": 5000000.0,
+   "g": 0.1,
+   "max_err_q1": 0.0001589800198673602,
+   "median_err_q1": 6.55520006226909e-05,
+   "max_err_q4": 3.2999686669118397e-05,
+   "median_err_q4": 5.428638435860136e-06,
+   "t_transport": 2.6008543968200684,
+   "t_reference": 0.07477521896362305
+  },
+  {
+   "texture": "e",
+   "M_eV": 200000.0,
+   "g": 0.03,
+   "max_err_q1": 3.484939979916681e-05,
+   "median_err_q1": 1.0620677402053374e-05,
+   "max_err_q4": 2.1849006295866784e-06,
+   "median_err_q4": 6.649178680251039e-07,
+   "t_transport": 2.6466784477233887,
+   "t_reference": 0.03795766830444336
+  },
+  {
+   "texture": "universal",
+   "M_eV": 30000000.0,
+   "g": 0.3,
+   "max_err_q1": 0.00024600891432984744,
+   "median_err_q1": 4.9250752166233646e-05,
+   "max_err_q4": 3.789853160031408e-05,
+   "median_err_q4": 4.009248949292307e-06,
+   "t_transport": 2.6208343505859375,
+   "t_reference": 0.08322954177856445
+  },
+  {
+   "texture": "mu",
+   "M_eV": 1000000.0,
+   "g": 0.001,
+   "max_err_q1": 0.0058953217516493905,
+   "median_err_q1": 1.0483626924638405e-10,
+   "max_err_q4": 0.0005589040364740914,
+   "median_err_q4": 6.578979092165058e-12,
+   "t_transport": 2.6500234603881836,
+   "t_reference": 0.05548834800720215
+  }
+ ],
+ "host": "node803.cluster",
+ "commit": "124fd03",
+ "date": "2026-10-13 21:09"
+}

@@ -86,8 +86,8 @@ def _pool_warmup_worker():
     _sys.stdout = _io.StringIO()
     try:
         dps.run_solver({
-            "grid": {"n_E_bins": 8, "n_z_bins": 8, "n_mw_paths": 1, "n_earth_chords": 1,
-                     "N_steps_MW": 2, "N_steps_earth": 2},
+            "grid": {"n_E_bins": 8, "n_z_bins": 8, "n_sun_paths": 1, "n_earth_chords": 1,
+                     "N_steps_earth": 2},
             "execution": {"n_cores": 1, "verbose": 0},
         })
     except Exception:
@@ -139,7 +139,8 @@ def run_parameter_scan(param_name: str, param_values: np.ndarray, base_config: D
         described below lives next to it.
 
     The pool size is driven by base_config['execution']['n_cores'] (falling back to
-    cpu_count()-1 if unset), clamped to the cores actually available. Previously this
+    dp_core.default_n_cores() if unset), clamped to dp_core.available_cores() -- the
+    affinity mask capped by the SLURM allocation, not the whole machine. Previously this
     function always recomputed its own hardcoded cpu_count()-1 pool size regardless of
     what base_config['execution']['n_cores'] said, so that config field was silently
     dropped -- setting it in __main__ had no effect on the actual scan parallelism.
@@ -151,9 +152,9 @@ def run_parameter_scan(param_name: str, param_values: np.ndarray, base_config: D
     changed grid simply recomputes the points that differ. The file is removed after
     the final sorted output is written.
     """
-    available_cores = multiprocessing.cpu_count()
-    requested_cores = int(base_config.get('execution', {}).get('n_cores', available_cores - 1 if available_cores > 1 else 1))
-    n_cores = max(1, min(requested_cores, available_cores))
+    n_available = dp_core.available_cores()
+    requested_cores = int(base_config.get('execution', {}).get('n_cores', dp_core.default_n_cores()))
+    n_cores = max(1, min(requested_cores, n_available))
 
     header = _scan_checkpoint_header(param_name, base_config)
     checkpoint_file = output_file + ".partial.jsonl"
@@ -357,20 +358,17 @@ if __name__ == "__main__":
     parser.add_argument("--n_E_bins", type=int, default=200,
                         help="Energy bins during scans (reduced from the solver default for speed).")
     parser.add_argument("--n_z_bins", type=int, default=200)
-    parser.add_argument("--n_mw_paths", type=int, default=12,
-                        help="Milky Way trajectories per point (default 12; the convergence study "
-                             "in output/convergence/ found >= 6 sufficient at the studied points, "
-                             "but raise this and re-run tools/convergence_study.py when exploring "
-                             "very small m_Zd, where the unscreened galactic potential makes the "
-                             "solid-angle average anisotropic).")
+    parser.add_argument("--n_sun_paths", type=int, default=8,
+                        help="Directions to the Sun in its coherent transit (default 8: chi2 within "
+                             "0.03 of 32 at the potential planes' critical points, 2026-10-13).")
     parser.add_argument("--n_earth_chords", type=int, default=50,
                         help="Earth chords per point (default 50: the sub-percent knee of the "
                              "convergence study in output/convergence/; 12 suffices for "
                              "percent-level ratios).")
-    parser.add_argument("--N_steps_MW", type=int, default=25,
-                        help="25 agrees with a 400-step reference to ~1e-10 (tools/convergence_study.py).")
-    parser.add_argument("--n_cores", type=int,
-                        default=multiprocessing.cpu_count() - 1 if multiprocessing.cpu_count() > 1 else 1)
+    parser.add_argument("--transit_dtheta", type=float, default=0.002,
+                        help="Frame-table spacing of the transit to the Earth (dp_transit; error ~1e-5 at 0.002).")
+    parser.add_argument("--n_cores", type=int, default=dp_core.default_n_cores(),
+                        help="Pool size (default: all cores but one, or the whole SLURM allocation).")
     parser.add_argument("--output_dir", type=str, default="../output",
                         help="Scan data goes to <output_dir>/data/, the figure to <output_dir>/plots/.")
     parser.add_argument("--no_plot", action="store_true", help="Skip the 2x2 summary figure.")
@@ -386,9 +384,9 @@ if __name__ == "__main__":
     base_config.setdefault('grid', {})
     base_config['grid']['n_E_bins'] = args.n_E_bins
     base_config['grid']['n_z_bins'] = args.n_z_bins
-    base_config['grid']['n_mw_paths'] = args.n_mw_paths
+    base_config['grid']['n_sun_paths'] = args.n_sun_paths
     base_config['grid']['n_earth_chords'] = args.n_earth_chords
-    base_config['grid']['N_steps_MW'] = args.N_steps_MW
+    base_config['grid']['transit_dtheta'] = args.transit_dtheta
     base_config.setdefault('execution', {})
     # Drives run_parameter_scan's pool size (see its docstring).
     base_config['execution']['n_cores'] = args.n_cores
