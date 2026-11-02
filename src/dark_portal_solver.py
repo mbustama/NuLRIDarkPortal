@@ -1752,6 +1752,84 @@ def _flux_runs(E_run, params, setup, runs, band_costh=None):
     return [tuple(o) for o in out]
 
 
+def flux_stops(E_bins: np.ndarray, params: Dict) -> Dict:
+    """The flux of each flavor (neutrinos plus antineutrinos, (N_E, 3)) at the stops of the trip (2026-11-02, for
+    notebooks/fluxes_at_earth.ipynb): what a detector there would see, the beam decohered in the eigenstates of the
+    potential at that place.
+
+      'universe' -- arriving at the Milky Way: the populations at z = 0 in the eigenstates of today's cosmic potential;
+      'galaxy'   -- in the solar neighbourhood, outside the Sun's potential: the populations after the Galaxy's decays
+                    and scatterings (_crossing_bands, where _flux_runs applies them), carried adiabatically onto the
+                    eigenstates of the Galaxy's local potential (the transit's own density, without the Moon's);
+      'earth'    -- near the Earth, after the Sun, the Moon and the Earth's far exterior (dp_spatial.transit_to_earth);
+      'detector' -- the solver's output (propagation_worker).
+
+    The first three use the solver's own steps for the configured sources; the dark portal's path only (the gauge
+    models included), not secret interactions. Without a potential and without the Galaxy's processes, every stop is
+    the decohered arrival (tests/test_flux_stops.py)."""
+    import dp_transit
+    from dp_cosmo import yukawa_horizon_inv_m2
+    import dp_spatial
+    E_bins = np.asarray(E_bins, dtype=np.float64)
+    N = len(E_bins)
+    setup = _flux_setup(E_bins, params)
+    if setup.get('si', False):
+        raise ValueError("flux_stops follows the dark portal's path; secret interactions are not supported")
+    arr = _flux_from_setup(E_bins, params, setup, injection_weights(params), None, arrival_only=True)
+    P = [np.asarray(p, dtype=np.float64) for p in arr['P']]
+    Q = [p.copy() for p in P]
+    # the Galaxy's decays and scatterings, on the same conditions as _flux_runs, averaged over the declination bands
+    if (EXTRAGALACTIC_CROSSING and float(params['m_Zd_eV']) < SI_COSMOLOGY_MIN_M_EV
+            and params.get('absorption_model', 'lagrangian') == 'lagrangian'
+            and (params.get('relic_scattering', True) or params.get('neutrino_decay', True))
+            and params.get('earth_sky', 'up') == 'full'):
+        import dp_sky
+        sky = params.get('sky') or {}
+        dec_edges = (np.asarray(sky['dec_band_edges'], dtype=np.float64) if sky.get('dec_band_edges') is not None
+                     else dp_sky.default_dec_band_edges())
+        costh = np.sort(-np.sin(dec_edges))
+        Pc = np.zeros((1, N, 2, 3))
+        Pc[0, :, 0, :], Pc[0, :, 1, :] = P[0], P[1]
+        Qb = _crossing_bands(E_bins, params, setup, Pc, dec_edges)
+        if Qb is not None:
+            wb = np.diff(costh) / np.diff(costh).sum()
+            Qm = np.einsum('b,bis->is', wb, Qb[::-1][:, 0].reshape(len(wb), N, 6)).reshape(N, 2, 3)
+            Q = [np.ascontiguousarray(Qm[:, 0, :]), np.ascontiguousarray(Qm[:, 1, :])]
+    stops = {k: np.zeros((N, 3)) for k in ('universe', 'galaxy', 'earth')}
+    for s in range(2):
+        if not (np.any(P[s]) or np.any(Q[s])):
+            continue
+        args, kw = arr['handover'][s]
+        (M_rot, u_arr, m_Zd, g_D, eps_prime, T_nu0, use_debye, eta_bg, depth_km, use_SM, n_e_earth, anti,
+         n_sun_paths, n_chords) = args
+        st = dp_spatial._earth_setup(M_rot, u_arr, m_Zd, g_D, eps_prime, T_nu0, use_debye, eta_bg, depth_km, use_SM,
+                                     n_e_earth, anti, n_sun_paths, n_chords, kw['U_LRI_struct'], kw['V_SM_struct'],
+                                     kw['use_gpu'], kw['earth_step_scheme'], kw['earth_zenith_average'],
+                                     kw['earth_sky'], kw['earth_band_costh'], kw['earth_nodes_per_band'],
+                                     kw['matter_charge'], kw['debye_sq_z0'], kw['potential_product'])
+        Coef, m_eff, S = st['Coef'], st['m_eff'], st['U_LRI_struct']
+        S_signed = np.ascontiguousarray((np.sign(Coef) if Coef != 0.0 else 1.0) * np.asarray(S, dtype=np.complex128))
+        tab = dp_transit.frame_table(M_rot, S_signed, kw['transit_dtheta'])
+        coef2 = 2.0 * abs(float(Coef))
+        m_bare = m_Zd if kw['debye_sq_z0'] is not None else m_eff
+        rho_e, _, info = dp_spatial.transit_to_earth(
+            E_bins, Q[s], M_rot, S, Coef, m_eff, kw['n_n0_eV3'], kw['R_H_eV_inv'], st['earth_yk'],
+            n_sun_paths=n_sun_paths, transit_dtheta=kw['transit_dtheta'], sun_path_cos=kw['sun_path_cos'],
+            arrival=kw['arrival'], matter_charge=kw['matter_charge'],
+            m_bare=(m_Zd if kw['debye_sq_z0'] is not None else None))
+        # today's cosmic potential, unscreened, as the cosmological phase's (Coef carries 1 / m_eff^2)
+        n_cos = (dp_matter.cosmic_density(kw['matter_charge'], kw['n_n0_eV3']) * m_eff * m_eff
+                 * yukawa_horizon_inv_m2(m_bare * m_bare, kw['R_H_eV_inv'])) if m_eff > 0 else 0.0
+        for key, F, n in (('universe', P[s], n_cos), ('galaxy', Q[s], info['n_gal_eV3'])):
+            rho = np.empty((N, 3, 3), dtype=np.complex128)
+            dp_transit.galactic_map(E_bins, np.ascontiguousarray(F), coef2, float(n), tab["Q"], tab["Mp"], tab["s"],
+                                    tab["floor"], rho)
+            stops[key] += np.real(np.einsum('iaa->ia', rho))
+        stops['earth'] += np.real(np.einsum('iaa->ia', rho_e))
+    stops['detector'] = propagation_worker((E_bins, params))[1]
+    return stops
+
+
 # dp_galactic_path.vacuum_populations where the Galaxy's potential is negligible (False: the per-pixel sweep always;
 # the two are compared in tests/test_galactic_path.py), and the eigenbasis rotation below which it is
 GALACTIC_PATH_VACUUM = True
