@@ -244,7 +244,8 @@ def sun(E, uni, gal, sun_path_cos=0.0, x_max_au=None, n_pos=160):
 
 
 def earth(E, uni, sun_out, costh=-0.6, n_steps=None):
-    """One chord through the Earth to the detector, at cos(zenith) costh (< 0: up-going), from the surface:
+    """One chord through the Earth to the detector, the solver's chord nearest cos(zenith) costh (< 0: up-going), from
+    the surface (the returned costh is that chord's):
     dict(l_km (N_pos,) the distance travelled inside the Earth, L_km the chord's length, F_nu, F_nb), the chord's
     steps as dp_spatial._earth_chord_worker's, starting from sun_out's rho (that Sun path's)."""
     E = np.asarray(E, dtype=np.float64)
@@ -296,5 +297,5 @@ def earth(E, uni, sun_out, costh=-0.6, n_steps=None):
                 rec_l, rec_F = np.array(ls), np.zeros((len(ls), len(E), 3))
             rec_F[:, idx, :] = np.stack(Fs)
         out_F.append(rec_F)
-        L_chord = pick[0][1]
-    return dict(l_km=rec_l, L_km=float(L_chord), costh=float(costh), F_nu=out_F[0], F_nb=out_F[1])
+        L_chord, c_chord = pick[0][1], pick[0][0]
+    return dict(l_km=rec_l, L_km=float(L_chord), costh=float(c_chord), F_nu=out_F[0], F_nb=out_F[1])

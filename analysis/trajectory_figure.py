@@ -75,17 +75,26 @@ def _params(key, grid):
     return dps.build_solver_params(cfg)
 
 
+#: Per row, the grid's changes: secret interactions on 4 (n - 1) + 1 energies (the default grid's nodes among them,
+#: so the same observed energy): dp_si's redshift step is one energy bin, and a resonance that absorbs fully refills
+#: the flux one bin at a time -- finer bins, finer steps (sub-steps within a bin show the bins as a staircase instead)
+ROW_GRID = {"si": {"n_E_bins": 4 * (GRID["n_E_bins"] - 1) + 1}}
+
+
 def compute(path=CACHE, grid=None, keys=None):
     """Every row's species along the trip at the observed energy nearest E_OBS: per row, the positions and the fluxes
     (2 kinds, N_pos, 3 flavors) of each stage, saved to `path`."""
     _, tj = _solver()
     grid = dict(GRID, **(grid or {}))
     out = dict(np.load(path)) if (keys and os.path.exists(path)) else {}
+    # every row at the default grid's energy nearest E_OBS (a node of the finer rows' grids too)
+    E0 = np.geomspace(grid["E_min_eV"], grid["E_max_eV"], grid["n_E_bins"])
+    E_target = float(E0[np.argmin(np.abs(np.log(E0 / E_OBS)))])
     for key, _ in ROWS:
         if keys and key not in keys:
             continue
-        E, p = _params(key, grid)
-        i = int(np.argmin(np.abs(np.log(E / E_OBS))))
+        E, p = _params(key, dict(grid, **ROW_GRID.get(key, {})))
+        i = int(np.argmin(np.abs(np.log(E / E_target))))
         u = tj.universe(E, p, source_z=SHELL)
         out[f"{key}/E"] = E[i]
         out[f"{key}/z"] = u["z"]
@@ -111,7 +120,7 @@ def figure(data=None):
     the total once the shell's sources stop emitting."""
     d = data or load()
     W, H = 7.0, 6.9
-    left, right = 0.62, 0.06
+    left, right = 0.62, 0.16
     scale = (W - left - right) / (FIG3[-1][1] - FIG3[0][0])
     cols = [(left + (a - FIG3[0][0]) * scale, (b - a) * scale) for a, b in FIG3]
     top, bottom, rgap = 0.98, 0.62, 0.3
@@ -161,6 +170,8 @@ def figure(data=None):
         axs[2].set_xlim(1e4, 5e-5)
         axs[2].set_xticks([1e3, 1e0, 1e-3])
         axs[3].set_xlim(0.0, L_chord)
+        axs[3].set_xticks([0, 2000, 4000, 6000, 8000])
+        axs[3].xaxis.set_minor_locator(plt.MultipleLocator(1000))
         axs[0].set_ylabel("Flux / total\nat emission", fontsize=9)
         fig.text(cols[0][0] / W, (y0 + rh + 0.05) / H, label, fontsize=8.5, va="bottom", ha="left")
         if r == 0:
