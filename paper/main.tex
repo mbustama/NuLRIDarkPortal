@@ -117,7 +117,7 @@ Earlier studies treated these effects one at a time and simplified the trip.
 Studies of the potential evaluated it only at the detector~\cite{Agarwalla:2023sng}.
 Studies of the collisions took the relic neutrinos at rest~\cite{Bustamante:2020mep, Esteban:2021tub}, until a recent one let the lightest of them move~\cite{Wang:2025qap}.
 
-In this work, we follow high-energy neutrinos along their whole trip, through the Universe, the Milky Way, the Sun, and the Earth, computing the potential and the collisions together.
+In this work, we follow high-energy neutrinos along their whole trip, through the Universe, the Milky Way, the Sun, and the Earth, computing the potential and the collisions together (Fig.~\ref{fig:schematic}).
 We apply this calculation to the three families of mediators above and fit it to several IceCube data sets: the flavor composition and the spectrum, and the starting and through-going events.
 \textbf{How a new mediator changes the flux at Earth depends on where along the trip it acts, so reliable limits need the full trip.}
 \todo{The result shown in Fig.~\ref{fig:money}, once the money-plot runs are done.}
@@ -125,7 +125,16 @@ We apply this calculation to the three families of mediators above and fit it to
 Section~\ref{sec:models} introduces the mediators and the processes through which they act.
 Section~\ref{sec:trip} describes the trip, Sec.~\ref{sec:data} the data and the statistical method, and Sec.~\ref{sec:results} our results.
 Section~\ref{sec:conclusions} summarizes.
-The appendices give the vertices of each model, the transport in full, the thermal rates, the decays in a medium, the transport for secret interactions, and our treatment of the Earth.
+The appendices give the vertices of each model, the transport in full, the flux at the stops of the trip, the thermal rates, the decays in a medium, the transport for secret interactions, and our treatment of the Earth.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{figure*}[t!]
+ \centering
+ \includegraphics[width=\textwidth]{figures/trip_illustration.pdf}
+ \caption{\textbf{\textit{The trip of high-energy astrophysical neutrinos, and what happens along it.}} An artist's rendition, not to scale; each panel zooms in on the next. In the Universe, neutrinos from sources out to $z = 4$ can be absorbed on relic neutrinos, which returns secondaries at lower energy, scatter on them, or decay into a lighter neutrino and the mediator, while the potential of the Universe's electrons acts on them for $L_e - L_\alpha$. In the Milky Way, its stars and gas add their potential; the Galaxy also emits neutrinos of its own. From the Sun on, the potentials of the Sun, the Moon, and the Earth change the flavor coherently, along each path through the Earth to IceCube. Which of these processes act depends on the model and on the mass of the mediator (Sec.~\ref{sec:models}). See Sec.~\ref{sec:trip} for details.}
+ \label{fig:schematic}
+\end{figure*}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -238,14 +247,6 @@ The scalar has no longitudinal mode, so it has no such region.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-\begin{figure*}[t!]
- \centering
- \includegraphics[width=\textwidth]{figures/trip_illustration.pdf}
- \caption{\textbf{\textit{The trip of high-energy astrophysical neutrinos, and what happens along it.}} An artist's rendition, not to scale; each panel zooms in on the next. In the Universe, neutrinos from sources out to $z = 4$ can be absorbed on relic neutrinos, which returns secondaries at lower energy, scatter on them, or decay into a lighter neutrino and the mediator, while the potential of the Universe's electrons acts on them for $L_e - L_\alpha$. In the Milky Way, its stars and gas add their potential; the Galaxy also emits neutrinos of its own. From the Sun on, the potentials of the Sun, the Moon, and the Earth change the flavor coherently, along each path through the Earth to IceCube. Which of these processes act depends on the model and on the mass of the mediator (Sec.~\ref{sec:models}). See Sec.~\ref{sec:trip} for details.}
- \label{fig:schematic}
-\end{figure*}
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 \section{The trip}
 \label{sec:trip}
@@ -260,19 +261,12 @@ These states are the eigenstates $|a\rangle$, with $a = 1, 2, 3$, of the Hamilto
 \end{equation}
 where $U$ is the lepton mixing matrix, $E$ is the energy observed today, $z$ is the redshift, and $\mathbf{V}$ is the potential.
 For antineutrinos, $U \to U^*$ and $\mathbf{V} \to -\mathbf{V}^*$.
-Without a potential, the eigenstates are the mass states; where the potential dominates, they are nearly pure flavor states (Fig.~\ref{fig:levels}).
+Without a potential, the eigenstates are the mass states; where the potential dominates, they are nearly pure flavor states.
+In normal ordering, $\nu_1$, $\nu_2$, and $\nu_3$ become $\nu_\mu$, $\nu_\tau$, and $\nu_e$ for $L_e - L_\mu$, and $\nu_\tau$, $\nu_\mu$, and $\nu_e$ for $L_e - L_\tau$.
+For antineutrinos, the potential has the opposite sign, which exchanges the roles of $\nu_1$ and $\nu_3$.
 The cosmological potential varies on the scale of the Hubble time, far more slowly than the neutrinos oscillate, so each neutrino stays in its eigenstate as the potential evolves.
 Only collisions and decays move neutrinos between states.
 We follow the number of neutrinos in each state until they reach the Sun, where we switch to a coherent description.
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-\begin{figure}[t!]
- \centering
- \includegraphics[width=\columnwidth]{figures/potential_levels.pdf}
- \caption{\textbf{\textit{How a potential turns mass states into flavor states.}} The squared masses of the three states that travel, $\mu_a$, which are the eigenvalues of $2EH$ in Eq.~(\ref{equ:hamiltonian}) today, against the potential of $L_e - L_\mu$ times $2E$. Without a potential, the states are the mass states. Where the potential dominates, they are nearly pure flavor states: $\nu_1$ becomes $\nu_\mu$, $\nu_2$ becomes $\nu_\tau$, and $\nu_3$ becomes $\nu_e$. A neutrino that crosses this change slowly stays in its state, so its flavor changes with it. For antineutrinos, the potential changes sign. The lightest neutrino mass is $10^{-6}$~eV, in normal ordering, and the mixing parameters are those of our fits.}
- \label{fig:levels}
-\end{figure}
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 \smallskip
 \textit{Sources.}---We place the sources up to $z = 4$, with a number density that tracks the star-formation rate~\cite{Yuksel:2008cu}.
@@ -340,26 +334,17 @@ where $x$ is the distance along the path and $H(x)$ is the Hamiltonian of Eq.~(\
 The flux of flavor $\alpha$ at the detector is $\langle\nu_\alpha|\rho|\nu_\alpha\rangle$, averaged over the paths through the Earth from each direction.
 Along the way, the potentials of the Sun, of the Moon, and of the Earth itself switch on, each within its range.
 Where a potential switches on slowly compared to the oscillations, it turns each state into its own eigenstate.
-For instance, for $L_e - L_\mu$ at $10^{-20}$~eV, the potential of the Sun turns the mass state $\nu_2$ into $\nu_\tau$ (Fig.~\ref{fig:levels}).
+For instance, for $L_e - L_\mu$ at $10^{-20}$~eV, the potential of the Sun turns the mass state $\nu_2$ into $\nu_\tau$.
 We compute the potential of the Earth from Eq.~(\ref{equ:potential}), with the electron density of the Preliminary Reference Earth Model~\cite{Dziewonski:1981xy}.
 We neglect collisions and decays from the Sun on; decays would matter there only where the potential already dominates the change of flavor (Appendix~\ref{app:decay}).
 
 \smallskip
-\textit{The flux at Earth, stop by stop.}---Figure~\ref{fig:trip} shows the flux at four stops of the trip: as it reaches the Milky Way, after crossing it, near the Earth, and at the detector.
-Which stop shapes the flux depends on the mediator mass.
-At $10^{-20}$~eV, the flavor composition changes near the Earth, where the potential of the Sun acts.
-At $10^{-26}$~eV, it changes inside the Milky Way, whose potential also opens decays between the lightest neutrino and antineutrino states that drain part of the flux.
-Figure~\ref{fig:species} follows each species along the whole trip, position by position, for one benchmark of each family.
-Secret interactions and the dark portal, which have no potential, act only in the Universe, while $L_e - L_\mu$ changes the flavor in the Milky Way or near the Sun, depending on its mass.
+\textit{The flux along the trip.}---Figure~\ref{fig:species} follows each species along the whole trip, position by position, for one benchmark of each family.
+Secret interactions and the dark portal, which have no potential, act only in the Universe.
+For $L_e - L_\mu$, the place where the flavor changes depends on the mediator mass: at $10^{-26}$~eV, the Milky Way, whose potential also opens decays between the lightest neutrino and antineutrino states that drain part of the flux; at $10^{-20}$~eV, the neighborhood of the Sun.
+Appendix~\ref{app:stops} shows the flux at the stops of the trip across energies, for $L_e - L_\mu$.
 Figure~\ref{fig:collisions} shows the effect of the collisions, switching on the terms of Eq.~(\ref{equ:transport}) one at a time.
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-\begin{figure*}[t!]
- \centering
- \includegraphics[width=\textwidth]{figures/flux_stops.pdf}
- \caption{\textbf{\textit{Flux and flavor composition of high-energy neutrinos at the stops of their trip.}} \textit{Top:} the flux of all flavors, neutrinos plus antineutrinos, relative to its value on arrival at the Milky Way. \textit{Below:} the fraction of each flavor. The sources emit $\nu_e : \nu_\mu : \nu_\tau = 1 : 2 : 0$ with a spectrum $E^{-2.5}$; the neutrino masses follow the normal ordering, with a lightest mass of $10^{-6}$~eV. See Sec.~\ref{sec:trip} for details. Which stop shapes the flux depends on the range of the mediator: the Sun, for $M = 10^{-20}$~eV, and the Milky Way, for $M = 10^{-26}$~eV.}
- \label{fig:trip}
-\end{figure*}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \begin{figure*}[t!]
@@ -375,7 +360,7 @@ Figure~\ref{fig:collisions} shows the effect of the collisions, switching on the
 \begin{figure*}[t!]
  \centering
  \includegraphics[width=\textwidth]{figures/collision_terms.pdf}
- \caption{\textbf{\textit{Flux and flavor composition of high-energy neutrinos as the terms of the transport are switched on one at a time.}} \textit{Top:} the flux of all flavors, relative to the flux without a new interaction. \textit{Below:} the fraction of each flavor. Each line adds one term to those of the line before; sources and neutrino masses as in Fig.~\ref{fig:trip}. \textit{Left:} absorption carves dips at the resonances on the two heavier relic neutrinos, while the neutrinos it returns raise the flux below each dip. \textit{Right:} scatterings on the relics, which alone conserve the number of neutrinos, deepen the loss from decays. See Sec.~\ref{sec:trip} for details.}
+ \caption{\textbf{\textit{Flux and flavor composition of high-energy neutrinos as the terms of the transport are switched on one at a time.}} \textit{Top:} the flux of all flavors, relative to the flux without a new interaction. \textit{Below:} the fraction of each flavor. Each line adds one term to those of the line before. The sources emit $\nu_e : \nu_\mu : \nu_\tau = 1 : 2 : 0$ with a spectrum $E^{-2.5}$; the neutrino masses follow the normal ordering, with a lightest mass of $10^{-6}$~eV. \textit{Left:} absorption carves dips at the resonances on the two heavier relic neutrinos, while the neutrinos it returns raise the flux below each dip. \textit{Right:} scatterings on the relics, which alone conserve the number of neutrinos, deepen the loss from decays. See Sec.~\ref{sec:trip} for details.}
  \label{fig:collisions}
 \end{figure*}
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -617,6 +602,23 @@ Where the potential of the Galaxy opens decays that the cosmological one does no
 The eigenstates are tabulated on a grid in $\sigma$, since they depend on energy and redshift only through it.
 Near the Earth, we average over 8 paths past the Sun and over 12 chords through the Earth in each band of declination.
 
+\section{The flux at the stops of the trip}
+\label{app:stops}
+
+Figure~\ref{fig:trip} shows the flux and its flavor composition at four stops of the trip, from 10~TeV to 30~PeV: as it reaches the Milky Way, after crossing it, near the Earth, and at the detector.
+Which stop shapes the flux depends on the mediator mass.
+At $10^{-20}$~eV, the flavor composition changes near the Earth, where the potential of the Sun acts.
+At $10^{-26}$~eV, it changes inside the Milky Way, whose potential opens decays between the lightest neutrino and antineutrino states, draining part of the flux.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{figure*}[t!]
+ \centering
+ \includegraphics[width=\textwidth]{figures/flux_stops.pdf}
+ \caption{\textbf{\textit{Flux and flavor composition of high-energy neutrinos at the stops of their trip.}} \textit{Top:} the flux of all flavors, neutrinos plus antineutrinos, relative to its value on arrival at the Milky Way. \textit{Below:} the fraction of each flavor. The sources emit $\nu_e : \nu_\mu : \nu_\tau = 1 : 2 : 0$ with a spectrum $E^{-2.5}$; the neutrino masses follow the normal ordering, with a lightest mass of $10^{-6}$~eV. See Sec.~\ref{sec:trip} and Appendix~\ref{app:stops} for details. Which stop shapes the flux depends on the range of the mediator: the Sun, for $M = 10^{-20}$~eV, and the Milky Way, for $M = 10^{-26}$~eV.}
+ \label{fig:trip}
+\end{figure*}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section{Thermal absorption rates and the relics' helicity}
 \label{app:thermal}
 Absorption on a relic of mass $m_r$ is a resonance at $s = M^2$, where $s$ is the square of the energy of the collision in its center-of-momentum frame.
