@@ -1,7 +1,7 @@
 """
 diagrams.py -- the Feynman diagrams of the paper (2026-11-07; paper/paper_planning.md, Step 5, "The processes of
-each model"): every process the transport includes, drawn once (processes), and each model's vertices and the
-scalar's own diagrams (vertices). Drawn in the repository's style (analysis.figure_style.use() first); called from
+each model"): each model's vertex (vertices) and every process the transport includes, with the vector mediator
+and with the scalar (processes); the two figures sit one above the other on the same page. Drawn in the repository's style (analysis.figure_style.use() first); called from
 notebooks/paper_figures.ipynb, which saves them to paper/figures/.
 
 Conventions: the beam's neutrinos black, the relic neutrinos gray, the mediator X wavy (a vector: Z', Z_D, V) or
@@ -182,38 +182,73 @@ def longitudinal(ax, cx, cy):
 
 # ---------------------------------------------------------------- the figures
 
-PROCESSES = [
-    (potential, "(a) Potential of matter", r"$L_e - L_\alpha$"),
-    (s_channel, r"(b) Absorption, $s$ channel", "All models"),
-    (t_channel, r"(c) Scattering, $t$ channel", "All models"),
-    (lambda ax, cx, cy: t_channel(ax, cx, cy, crossed=True), r"(d) Scattering, $u$ channel", "All models"),
-    (pair, "(e) Pair production", "All models"),
-    (mediator_decay, "(f) Mediator decay", "All models"),
-    (nu_decay, "(g) Neutrino decay", r"$L_e - L_\alpha$, dark portal"),
-    (longitudinal, "(h) Longitudinal mode", "Vector mediators"),
-]
+# The processes (2026-11-07, Mauricio: one figure of processes, the vector mediator above the scalar, beside the
+# figure of vertices on the same page; in-place labels instead of a key). Vector diagrams (a)-(h):
+VECTOR = dict(
+    a=(potential, "(a) Potential of matter"),
+    b=(s_channel, r"(b) Absorption, $s$ channel"),
+    c=(t_channel, r"(c) Scattering, $t$ channel"),
+    d=(lambda ax, cx, cy: t_channel(ax, cx, cy, crossed=True), r"(d) Scattering, $u$ channel"),
+    e=(pair, "(e) Pair production"),
+    f=(mediator_decay, "(f) Mediator decay"),
+    g=(nu_decay, "(g) Neutrino decay"),
+    h=(longitudinal, "(h) Longitudinal mode"),
+)
+# the scalar's, for Majorana neutrinos: two neutrinos meet at its vertex (none for (a) and (h))
+SCALAR = dict(
+    b=lambda ax, cx, cy: s_channel(ax, cx, cy, "scalar", relic_bar=False, out=(r"$\nu$", r"$\nu$"), med=r"$\phi$"),
+    c=lambda ax, cx, cy: t_channel(ax, cx, cy, "scalar", med=r"$\phi$"),
+    d=lambda ax, cx, cy: t_channel(ax, cx, cy, "scalar", med=r"$\phi$", crossed=True),
+    e=lambda ax, cx, cy: pair(ax, cx, cy, "scalar", relic_bar=False, med=r"$\phi$"),
+    f=lambda ax, cx, cy: mediator_decay(ax, cx, cy, "scalar", out=(r"$\nu$", r"$\nu$"), med=r"$\phi$", anti=False),
+    g=lambda ax, cx, cy: nu_decay(ax, cx, cy, "scalar", med=r"$\phi$"),
+)
+ONLY = dict(a=r"$L_e - L_\alpha$ only", h="Vector mediators only")
+SMALL = TITLE - 2.5     # pt, the in-place notes
 
 
 def processes(width_in=7.0):
-    """Every process the transport includes (a)-(h), two rows of four. The mediator X is drawn as a vector; the
-    scalar's diagrams, with its own lines, are in vertices()."""
-    ncol, nrow = 4, 2
-    w, h = 4.4, 3.6                                   # cm per panel
-    top = 1.2                                         # cm, the key
-    W, H = ncol * w, nrow * h + top
+    """Every process the transport includes, (a)-(h), in two blocks of four columns: per block a row with the vector
+    mediator X (titles above) and a row with the scalar phi (Majorana neutrinos). The first beam neutrino is marked
+    "astro.", the first relic one "relic", the first f "(l or nu)"; the caption names the mediators."""
+    lab = 1.0                                         # cm, the row labels
+    w, hsr = 4.3, 2.55                                # cm: column, scalar row
+    HVR = dict(abcd=3.35, efgh=2.95)                  # cm: vector rows (two-line titles above, one-line below)
+    cyv, cys = 1.32, hsr / 2                          # cm: diagram centres
+    W = lab + 4 * w
+    H = sum(HVR.values()) + 2 * hsr
     fig = plt.figure(figsize=(width_in, width_in * H / W))
-    for k, (draw, title, models) in enumerate(PROCESSES):
-        r, c = divmod(k, ncol)
-        ax = panel(fig, [c / ncol, (nrow - 1 - r) * h / H, 1 / ncol, h / H], w, h)
-        draw(ax, w / 2, h / 2 - 0.15)
-        ax.text(w / 2, h - 0.25, title, ha="center", va="top", fontsize=TITLE)
-        ax.text(w / 2, 0.15, models, ha="center", va="bottom", fontsize=TITLE - 1.5, color=RELIC, style="italic")
-    key = fig.add_axes([0, nrow * h / H, 1, top / H])
-    key.axis("off")
-    for y, line in ((0.68, r"Mediator $X$: $Z'$ ($L_e - L_\alpha$), $Z_D$ (dark portal), $V$ or $\phi$ (secret "
-                           r"interactions; $\phi$'s own diagrams in the appendix)"),
-                    (0.22, r"Beam neutrinos black, relic neutrinos gray; $f$: a neutrino or a charged lepton")):
-        key.text(0.5, y, line, ha="center", va="center", fontsize=TITLE - 1.5)
+    y = H
+    for block, hvr in HVR.items():
+        y -= hvr
+        for c, p in enumerate(block):
+            ax = panel(fig, [(lab + c * w) / W, y / H, w / W, hvr / H], w, hvr)
+            draw, title = VECTOR[p]
+            cx = w / 2
+            draw(ax, cx, cyv)
+            ax.text(cx, hvr - 0.02, title.replace(", ", ",\n", 1), ha="center", va="top", fontsize=TITLE,
+                    linespacing=1.0)
+            if p in ONLY:
+                ax.text(cx, 0.02, ONLY[p], ha="center", va="bottom", fontsize=TITLE - 1.5, color=RELIC,
+                        style="italic")
+            if p == "a":                              # the first beam neutrino (potential's incoming nu_alpha)
+                ax.text(cx - 1.3, cyv + 0.65 - 0.12, "astro.", ha="left", va="top", fontsize=SMALL, color=INK)
+            if p == "b":                              # the first relic neutrino and the first f (s_channel's legs)
+                ax.text(cx - 0.45 - 0.95, cyv - 0.85 - 0.28, "relic", ha="right", va="top", fontsize=SMALL,
+                        color=RELIC)
+                ax.text(cx + 0.45 + 0.95, cyv + 0.85 - 0.28, r"($\ell$ or $\nu$)", ha="left", va="top",
+                        fontsize=SMALL)
+        rl = fig.add_axes([0, y / H, lab / W, hvr / H])
+        rl.axis("off")
+        rl.text(0.5, cyv / hvr, r"Vector $X$", rotation=90, ha="center", va="center", fontsize=TITLE - 0.5)
+        y -= hsr
+        for c, p in enumerate(block):
+            if p in SCALAR:
+                ax = panel(fig, [(lab + c * w) / W, y / H, w / W, hsr / H], w, hsr)
+                SCALAR[p](ax, w / 2, cys)
+        rl = fig.add_axes([0, y / H, lab / W, hsr / H])
+        rl.axis("off")
+        rl.text(0.5, 0.5, r"Scalar $\phi$", rotation=90, ha="center", va="center", fontsize=TITLE - 0.5)
     return fig
 
 
@@ -229,47 +264,34 @@ def _vertex_legs(ax, cx, cy, top, bottom, kind, med, arrows=(1, -1)):
     label(ax, (v[0] + 1.3, cy), med, va="center")
 
 
+# Each model's vertex, a plain junction without fermion-flow arrows so that it does not read as a process; the labels
+# carry the neutrinos' kinds (two neutrinos meet at a Majorana scalar's vertex; a Dirac scalar turns nu_L into nu_R)
 VERTICES = [
-    (lambda ax, cx, cy: _vertex_legs(ax, cx, cy, r"$\nu_\alpha$", r"$\bar\nu_\beta$", "vector", r"$Z_D$"),
-     "Dark portal\n", r"$g_D\,U_{\alpha 4} U^*_{\beta 4}$"),
+    (lambda ax, cx, cy: _vertex_legs(ax, cx, cy, r"$\nu_\alpha$", r"$\bar\nu_\beta$", "vector", r"$Z_D$",
+                                     arrows=(0, 0)), "Dark portal", r"$g_D\,U_{\alpha 4} U^*_{\beta 4}$"),
     (lambda ax, cx, cy: _vertex_legs(ax, cx, cy, r"$\ell$, $\nu_\ell$", r"$\bar\ell$, $\bar\nu_\ell$", "vector",
-                                     r"$Z'$"),
-     r"$L_e - L_\alpha$" + "\n", r"$+g'$ ($\ell = e$), $-g'$ ($\ell = \alpha$)"),
-    (lambda ax, cx, cy: _vertex_legs(ax, cx, cy, r"$\nu_\alpha$", r"$\bar\nu_\beta$", "vector", r"$V$"),
-     "Secret interactions:\nvector", r"$G_{\alpha\beta}$"),
+                                     r"$Z'$", arrows=(0, 0)), r"$L_e - L_\alpha$",
+     r"$+g'$ ($\ell = e$), $-g'$ ($\ell = \alpha$)"),
+    (lambda ax, cx, cy: _vertex_legs(ax, cx, cy, r"$\nu_\alpha$", r"$\bar\nu_\beta$", "vector", r"$V$",
+                                     arrows=(0, 0)), "Secret interactions,\nvector", r"$G_{\alpha\beta}$"),
     (lambda ax, cx, cy: _vertex_legs(ax, cx, cy, r"$\nu_\alpha$", r"$\nu_\beta$", "scalar", r"$\phi$",
-                                     arrows=(0, 0)),
-     "Secret interactions:\nscalar, Majorana", r"$G_{\alpha\beta}$"),
-    (lambda ax, cx, cy: _vertex_legs(ax, cx, cy, r"$\nu_{L\alpha}$", r"$\bar\nu_{R\beta}$", "scalar",
-                                     r"$\phi$"),
-     "Secret interactions:\nscalar, Dirac", r"$G_{\alpha\beta}$, $\nu_L \to \nu_R$"),
-]
-
-SCALAR = [
-    (lambda ax, cx, cy: s_channel(ax, cx, cy, "scalar", relic_bar=False, out=(r"$\nu$", r"$\nu$"),
-                                  med=r"$\phi$"), r"$s$ channel"),
-    (lambda ax, cx, cy: t_channel(ax, cx, cy, "scalar", med=r"$\phi$"), r"$t$ channel"),
-    (lambda ax, cx, cy: t_channel(ax, cx, cy, "scalar", med=r"$\phi$", crossed=True), r"$u$ channel"),
-    (lambda ax, cx, cy: pair(ax, cx, cy, "scalar", relic_bar=False, med=r"$\phi$"), "Pair production"),
-    (lambda ax, cx, cy: mediator_decay(ax, cx, cy, "scalar", out=(r"$\nu$", r"$\nu$"), med=r"$\phi$", anti=False),
-     "Mediator decay"),
+                                     arrows=(0, 0)), "Secret interactions,\nscalar, Majorana", r"$G_{\alpha\beta}$"),
+    (lambda ax, cx, cy: _vertex_legs(ax, cx, cy, r"$\nu_{L\alpha}$", r"$\bar\nu_{R\beta}$", "scalar", r"$\phi$",
+                                     arrows=(0, 0)), "Secret interactions,\nscalar, Dirac",
+     r"$G_{\alpha\beta}$, $\nu_L \to \nu_R$"),
 ]
 
 
 def vertices(width_in=7.0):
-    """Appendix figure: each model's vertex (top row) and the scalar's own diagrams, for Majorana neutrinos (bottom
-    row; on a Majorana scalar vertex two neutrinos meet, so its s channel starts from a relic neutrino)."""
-    ncol = 5
-    w, h, hv = 3.6, 3.3, 3.7                          # cm: panel width, scalar row, vertex row
-    W, H = ncol * w, h + hv
-    fig = plt.figure(figsize=(width_in, width_in * H / W))
+    """Each model's vertex, one row, with its coupling under it (the figure above the processes, same page)."""
+    hv = 3.6                                          # cm
+    W = 1.0 + 4 * 4.3                                 # cm, as processes()
+    n = len(VERTICES)
+    fig = plt.figure(figsize=(width_in, width_in * hv / W))
     for k, (draw, title, coupling) in enumerate(VERTICES):
-        ax = panel(fig, [k / ncol, h / H, 1 / ncol, hv / H], w, hv)
-        draw(ax, w / 2 + 0.2, hv / 2 + 0.1)
-        ax.text(w / 2, hv - 0.1, title, ha="center", va="top", fontsize=TITLE - 1, linespacing=1.1)
-        ax.text(w / 2, 0.3, coupling, ha="center", va="bottom", fontsize=TITLE - 1.5, color=RELIC)
-    for k, (draw, title) in enumerate(SCALAR):
-        ax = panel(fig, [k / ncol, 0, 1 / ncol, h / H], w, h)
-        draw(ax, w / 2, h / 2 - 0.1)
-        ax.text(w / 2, h - 0.2, r"$\phi$: " + title, ha="center", va="top", fontsize=TITLE - 1)
+        wv = W / n
+        ax = panel(fig, [k / n, 0, 1 / n, 1], wv, hv)
+        draw(ax, wv / 2 + 0.2, hv / 2 - 0.05)
+        ax.text(wv / 2, hv - 0.05, title, ha="center", va="top", fontsize=TITLE - 1, linespacing=1.05)
+        ax.text(wv / 2, 0.2, coupling, ha="center", va="bottom", fontsize=TITLE - 1.5, color=RELIC)
     return fig
