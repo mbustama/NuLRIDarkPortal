@@ -64,16 +64,17 @@
 \begin{document}
 
 \title{New interactions of high-energy cosmic neutrinos, from the Hubble scale to the Earth}
-\todo{Working title; the alternative is ``New neutrino interactions with high-energy astrophysical neutrinos''.}
 
 \author{Mauricio Bustamante\,\orcidlink{0000-0001-6923-0865}}
 \email{mbustamante@nbi.ku.dk}
 \affiliation{Niels Bohr International Academy, Niels Bohr Institute,\\University of Copenhagen, 2100 Copenhagen, Denmark}
 
 \author{Sudipta Das\,\orcidlink{0000-0002-5508-7751}}
+\email{sudipta-das@uiowa.edu}
 \affiliation{Department of Physics and Astronomy, University of Iowa, Iowa City, IA 52242, USA}
 
 \author{Sanjib Kumar Agarwalla\,\orcidlink{0000-0002-9714-8866}}
+\email{sanjib@iopb.res.in}
 \affiliation{Institute of Physics, Sachivalaya Marg, Sainik School Post, Bhubaneswar 751005, India}
 \affiliation{Homi Bhabha National Institute, Training School Complex, Anushakti Nagar, Mumbai 400094, India}
 
@@ -123,10 +124,17 @@ Earlier studies treated these effects one at a time and simplified the trip.
 Studies of the potential evaluated it only at the detector~\cite{Agarwalla:2023sng}.
 Studies of the collisions took the relic neutrinos at rest~\cite{Bustamante:2020mep, Esteban:2021tub}, until a recent one let the lightest of them move~\cite{Wang:2025qap}.
 
-In this work, we follow high-energy neutrinos along their whole trip, through the Universe, the Milky Way, the Sun, and the Earth, computing the potential and the collisions together (Fig.~\ref{fig:schematic}).
+In this work, we follow high-energy neutrinos along their whole trip, through the Universe, the Milky Way, the Sun, and the Earth, computing the potential and the collisions together.
 We apply this calculation to the three families of mediators above and fit it to several IceCube data sets: the flavor composition and the spectrum, and the starting and through-going events.
 \textbf{How a new mediator changes the flux at Earth depends on where along the trip it acts, so reliable limits need the full trip.}
-\todo{The result shown in Fig.~\ref{fig:money}, once the money-plot runs are done.}
+\todo{Figure~\ref{fig:money} shows \ldots: a paragraph that describes it in full, once the money-plot runs are done.}
+
+Figure~\ref{fig:schematic} shows the trip, as an artist's rendition in four panels that zoom in from one to the next.
+In the Universe, the neutrinos travel from their sources through the relic neutrinos, with which they can collide, and through the potential of the Universe's electrons.
+In the Milky Way, they cross the potential of its stars and gas, joined by the neutrinos that the Galaxy emits.
+Near the Sun, the potentials of the Sun, the Moon, and the Earth switch on.
+Inside the Earth, the neutrinos cross its layers on their way to IceCube, at the South Pole.
+Of the mediators above, only the gauge boson of a difference between lepton numbers couples to ordinary matter, which sources these potentials; every mediator acts through collisions with the relic neutrinos.
 
 Section~\ref{sec:models} introduces the mediators and the processes through which they act.
 Section~\ref{sec:trip} describes the trip, Sec.~\ref{sec:data} the data and the statistical method, and Sec.~\ref{sec:results} our results.
@@ -154,7 +162,10 @@ This boson couples to electrons as well as to neutrinos, so the electrons in ord
 In the second, the dark portal, a dark gauge boson reaches the known neutrinos only through their mixing with a new, dark neutrino~\cite{Bertuzzo:2018itn, Jana:2026pwx}.
 In the third, secret interactions, a scalar or vector mediator couples to neutrinos alone~\cite{Berryman:2022hds}.
 For the latter two, ordinary matter plays no role; only the relic neutrinos act on the high-energy neutrinos, by colliding with them.
-Figure~\ref{fig:processes} shows every process involved.
+
+Figure~\ref{fig:processes} shows every process that our calculation includes, each drawn once with a vector mediator and labeled with the models that it belongs to: (a) the potential of ordinary matter; (b) resonant absorption on a relic neutrino; (c, d) scattering on a relic, through the $t$ and $u$ channels; (e) the production of a pair of mediators; (f) the decay of the mediator; (g) the decay of a neutrino into a lighter one and the mediator; and (h) the longitudinal mode of a vector mediator.
+Of these, only the potential requires ordinary matter; the rest require only the relic neutrinos.
+Appendix~\ref{app:vertices} redraws the processes for a scalar.
 
 \smallskip
 \textit{$L_e - L_\alpha$.}---Under the symmetry $L_e - L_\alpha$, with $\alpha = \mu$ or $\tau$, the new boson $Z'$, of mass $M$, couples with strength $g'$ to the electron and its neutrino, and with the opposite sign to the charged lepton $\ell_\alpha$ and its neutrino:
@@ -319,7 +330,7 @@ A state can decay into a lighter one by emitting the mediator [Fig.~\ref{fig:pro
 Scatterings on the relics that transfer little momentum move neutrinos between states without changing their number [Fig.~\ref{fig:processes}(c, d)].
 When the relic changes its mass state in such a scattering, the neutrino also loses energy.
 In a potential, the states that decay are the eigenstates of Eq.~(\ref{equ:hamiltonian}), not the mass states (Appendix~\ref{app:decay}).
-The two processes compound: scatterings refill the states that decay, so together they drain the flux at a given energy more than either does alone (Fig.~\ref{fig:collisions}).
+The two processes compound: scatterings refill the states that decay, so together they drain the flux at a given energy more than either does alone.
 
 \smallskip
 \textit{The Milky Way.}---Today, the extragalactic flux enters the Milky Way, whose stars and gas~\cite{McMillan:2016jtx} add their own potential to the cosmological one.
@@ -345,11 +356,21 @@ We compute the potential of the Earth from Eq.~(\ref{equ:potential}), with the e
 We neglect collisions and decays from the Sun on; decays would matter there only where the potential already dominates the change of flavor (Appendix~\ref{app:decay}).
 
 \smallskip
-\textit{The flux along the trip.}---Figure~\ref{fig:species} follows each species along the whole trip, position by position, for one benchmark of each family.
+\textit{The flux along the trip.}---Figure~\ref{fig:species} shows the flux of each of the six species, the three flavors of neutrinos and of antineutrinos, position by position along the whole trip, for one benchmark of each family: a 10~MeV scalar coupled to $\nu_\tau$, for secret interactions; a $10^{-2}$~eV mediator mixed with $\nu_\tau$, for the dark portal; and $L_e - L_\mu$ at $10^{-26}$ and $10^{-20}$~eV.
+Its four columns match the panels of Fig.~\ref{fig:schematic}: the Universe, versus redshift; a line of sight across the Milky Way; a path past the Sun; and a chord through the Earth.
+The sources sit in a shell at $z = 1.8$--$2.2$.
+We show one observed energy, 495~TeV, and normalize each flux to the total after the sources stop emitting.
 Secret interactions and the dark portal, which have no potential, act only in the Universe.
 For $L_e - L_\mu$, the place where the flavor changes depends on the mediator mass: at $10^{-26}$~eV, the Milky Way, whose potential also opens decays between the lightest neutrino and antineutrino states that drain part of the flux; at $10^{-20}$~eV, the neighborhood of the Sun.
-For $L_e - L_\mu$, Appendix~\ref{app:stops} shows how this depends on energy.
-Figure~\ref{fig:collisions} shows the effect of the collisions, switching on the terms of Eq.~(\ref{equ:transport}) one at a time.
+Appendix~\ref{app:stops} shows how this depends on energy.
+
+\smallskip
+\textit{The collision terms, one at a time.}---Figure~\ref{fig:collisions} shows what each term of Eq.~(\ref{equ:transport}) does to the flux at the detector, versus energy, switching the terms on one at a time.
+Its top row shows the flux of all flavors over the flux with no new interaction; the rows below show the share of each flavor.
+For a 10~MeV scalar coupled to $\nu_\tau$, with $g = 10^{-3}$, the lines add in turn resonant absorption, the other collisions with the relics, and the thermal motion of the relics.
+For $L_e - L_\mu$ at $10^{-2}$~eV, with $g' = 10^{-6}$, they add the potential, the decays, and the scatterings on the relics.
+On the left, absorption opens a dip at each resonance with a $\nu_2$ or $\nu_3$ relic; the neutrinos that it gives back lift the flux just below.
+Adding the scatterings deepens the loss that the decays cause.
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -431,16 +452,16 @@ The threshold of 3.84 follows from Wilks's theorem, which may fail here, since t
 \textit{What each stage does to the limits.}---\todo{Fig.~\ref{fig:money}; the earlier standard, in-line formula.}
 
 \smallskip
-\textit{$L_e - L_\mu$ and $L_e - L_\tau$.}---\todo{Fig.~\ref{fig:lelalpha}; existing bounds~\cite{Bauer:2018onh, Sabti:2019mhn, Dror:2020fbh, Coloma:2020gfv, Garg:2026gwx, Baryakhtar:2017ngi, Wise:2018rnb}.}
+\textit{$L_e - L_\mu$ and $L_e - L_\tau$.}---\todo{Figure~\ref{fig:lelalpha} shows \ldots (a paragraph that describes it in full); existing bounds~\cite{Bauer:2018onh, Sabti:2019mhn, Dror:2020fbh, Coloma:2020gfv, Garg:2026gwx, Baryakhtar:2017ngi, Wise:2018rnb}.}
 
 \smallskip
-\textit{The dark portal.}---\todo{Fig.~\ref{fig:dp}; existing bounds~\cite{Blinov:2019gcj, Escudero:2019gfk, Bustamante:2016ciw}.}
+\textit{The dark portal.}---\todo{Figure~\ref{fig:dp} shows \ldots (a paragraph that describes it in full); existing bounds~\cite{Blinov:2019gcj, Escudero:2019gfk, Bustamante:2016ciw}.}
 
 \smallskip
-\textit{Secret interactions.}---\todo{Fig.~\ref{fig:si}; existing bounds~\cite{Blinov:2019gcj, Brdar:2020nbj, Berryman:2022hds}; the relativistic relic~\cite{Wang:2025qap}.}
+\textit{Secret interactions.}---\todo{Figure~\ref{fig:si} shows \ldots (a paragraph that describes it in full); existing bounds~\cite{Blinov:2019gcj, Brdar:2020nbj, Berryman:2022hds}; the relativistic relic~\cite{Wang:2025qap}.}
 
 \smallskip
-\textit{IceCube's MeV preference, or the discovery case.}---\todo{Fig.~\ref{fig:discovery}.}
+\textit{IceCube's MeV preference, or the discovery case.}---\todo{Figure~\ref{fig:discovery} shows \ldots (a paragraph that describes it in full).}
 
 \smallskip
 \textit{Future telescopes.}---\todo{Projected regions in Figs.~\ref{fig:lelalpha}--\ref{fig:si}.}
@@ -508,7 +529,9 @@ We evaluate the diagrams with Majorana neutrinos by the fermion-flow rules of Re
 For Dirac neutrinos, the scalar changes chirality at each vertex, connecting a state that feels the weak interaction, $\nu_L$ or $\bar\nu_R$, with a sterile one, $\nu_R$ or $\bar\nu_L$.
 A relic at rest presents both helicities to the high-energy neutrino.
 Part of the secondaries of each collision are then sterile; the transport tracks them apart from the visible ones, per mass state and energy.
-Figure~\ref{fig:vertices} draws each model's vertex and the diagrams with a scalar mediator.
+
+Figure~\ref{fig:vertices} shows, in its top row, how the mediator of each model couples, as in Eqs.~(\ref{equ:lag_le}), (\ref{equ:lag_dp}), and (\ref{equ:lag_si}).
+Its bottom row redraws the processes of Fig.~\ref{fig:processes} for a scalar, with Majorana neutrinos: each scalar vertex joins two neutrinos, so a high-energy neutrino is absorbed on a relic neutrino, not on a relic antineutrino.
 
 The longitudinal mode of a vector mediator couples through the divergence of the current it couples to.
 For Majorana neutrinos, written as left-handed Weyl fields $\chi_i$, the current $\sum_{ij} G'_{ij}\, \chi_i^\dagger \bar\sigma^\mu \chi_j$ has divergence $i \sum_{ij} G'_{ij} (m_i \chi_i \chi_j - m_j \chi_i^\dagger \chi_j^\dagger)$.
@@ -613,7 +636,9 @@ Near the Earth, we average over 8 paths past the Sun and over 12 chords through 
 \label{app:stops}
 
 Figure~\ref{fig:trip} shows the flux and its flavor composition at four stops of the trip, from 10~TeV to 30~PeV: as it reaches the Milky Way, after crossing it, near the Earth, and at the detector.
-It complements Fig.~\ref{fig:species}, which follows one energy along the trip, for the two masses of $L_e - L_\mu$ shown there: at $10^{-20}$~eV, the flavor composition changes at the stop near the Earth; at $10^{-26}$~eV, at the stop after the Milky Way, where the flux also drops.
+Its top row shows the flux of all flavors relative to that on arrival at the Milky Way; the rows below show the fraction of each flavor.
+Its two columns are the masses of $L_e - L_\mu$ in Fig.~\ref{fig:species}, with the same couplings.
+It complements Fig.~\ref{fig:species}, which follows one energy along the trip: at $10^{-20}$~eV, the flavor composition changes at the stop near the Earth; at $10^{-26}$~eV, at the stop after the Milky Way, where the flux also drops.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \begin{figure*}[t!]
@@ -654,8 +679,11 @@ After averaging over the azimuth of the final state, the squared amplitude of a 
 \end{equation}
 up to terms of order $m_r^2/s$, where $\mathcal{M}_L$ and $\mathcal{M}_R$ are the amplitudes for a massless relic of left- or right-handed chirality at the same $s$.
 A vector couples only to the left-handed part; a scalar couples to both, with the visible and sterile secondaries of Appendix~\ref{app:vertices}.
-Figure~\ref{fig:helicity} shows the consequences.
 We take the density of relics everywhere as the cosmological mean, neglecting their gravitational clustering in the Milky Way~\cite{Ringwald:2004np, deSalas:2017wtt, Mertsch:2019qjv}.
+
+Figure~\ref{fig:helicity} shows the consequences for a $\nu_e$-coupled mediator, with Dirac neutrinos: the flux over that with no new interaction, versus energy, for a scalar (top) and a vector (bottom), at $M = 31.6$~keV with $g = 2 \times 10^{-3}$ and $M = 4.22$~MeV with $g = 1.35 \times 10^{-3}$ (left and right), for lightest neutrino masses of $10^{-6}$~eV (thick lines) and 0.03~eV (thin lines).
+Its lines compare relics at rest, relics in motion without their helicity, and relics in motion with it.
+With a relativistic lightest relic, the helicity matters most: the scalar's resonance on it nearly disappears, while the vector's deepens.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \begin{figure*}[t!]
