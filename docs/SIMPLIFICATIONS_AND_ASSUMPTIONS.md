@@ -200,7 +200,11 @@ small, not yet measured), **open** (decided to remove or change, not yet done).
     A detector measures flavor with each flavor's own effective area and cross section; folding the flux through each
     measurement's response would fix it (the event data sets do).
 
-13. **IceCube's 2026 spectrum segments taken as independent** (their correlations are not published). *Accepted.*
+13. **IceCube's spectrum segments taken as independent** (their correlations are not published). *Accepted.*
+    Since 2026-11-07 the segments are the published table (IceCube:2025ewu, arXiv:2507.22234, Table 10, CF column;
+    `icecube_cf_2025`: 10 segments, 4.6 TeV-10 PeV), no longer those read off arXiv:2607.25966's Fig. 4
+    (`ic26_astrophysical`, 7 segments to 1 PeV, three error bars off by up to a factor 2); a segment measured at 0
+    keeps its 68% upper limit as the upper error and a zero lower one. (Mauricio, 2026-11-07)
 
 14. **HESE's detector systematics: the profile uses a per-bin model, and the reported chi^2 is the exact per-event
     evaluation at the profiled nuisances.** The release's four-point interpolation of the systematics has kinks at

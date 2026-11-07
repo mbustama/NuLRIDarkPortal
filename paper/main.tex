@@ -110,7 +110,7 @@ So does a test of these interactions that is independent of the early Universe.
 
 High-energy astrophysical neutrinos offer such a test~\cite{Ackermann:2022rqc, Arguelles:2022tki}.
 Discovered by IceCube~\cite{IceCube:2013low}, they reach the Earth with energies from TeV to PeV, after traveling up to gigaparsecs.
-IceCube now measures both their energy spectrum and their flavor composition~\cite{IceCube:2026plr, IceCube:2025ole}.
+IceCube now measures both their energy spectrum and their flavor composition~\cite{IceCube:2025tgp, IceCube:2025ewu, IceCube:2025ole}.
 On their way, a new mediator can act on them through the potential of the matter that they cross, which changes their flavor, and through collisions with the relic neutrinos left over from the early Universe~\cite{Ng:2014pca, Ioka:2014kca}.
 
 Earlier studies treated these effects one at a time and simplified the trip.
@@ -238,11 +238,20 @@ The scalar has no longitudinal mode, so it has no such region.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{figure*}[t!]
+ \centering
+ \includegraphics[width=\textwidth]{figures/trip_illustration.pdf}
+ \caption{\textbf{\textit{The trip of high-energy astrophysical neutrinos, and what happens along it.}} An artist's rendition, not to scale; each panel zooms in on the next. In the Universe, neutrinos from sources out to $z = 4$ can be absorbed on relic neutrinos, which returns secondaries at lower energy, scatter on them, or decay into a lighter neutrino and the mediator, while the potential of the Universe's electrons acts on them for $L_e - L_\alpha$. In the Milky Way, its stars and gas add their potential; the Galaxy also emits neutrinos of its own. From the Sun on, the potentials of the Sun, the Moon, and the Earth change the flavor coherently, along each path through the Earth to IceCube. Which of these processes act depends on the model and on the mass of the mediator (Sec.~\ref{sec:models}). See Sec.~\ref{sec:trip} for details.}
+ \label{fig:schematic}
+\end{figure*}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
 \section{The trip}
 \label{sec:trip}
 
 \smallskip
-\textit{What we follow.}---We follow neutrinos and antineutrinos separately, from their sources to the detector.
+\textit{What we follow.}---We follow neutrinos and antineutrinos separately, from their sources to the detector (Fig.~\ref{fig:schematic}).
 Over cosmological distances, the phases of their oscillations average out~\cite{Farzan:2008eg}, so the number of neutrinos in each of three states describes the flux fully.
 These states are the eigenstates $|a\rangle$, with $a = 1, 2, 3$, of the Hamiltonian
 \begin{equation}
@@ -251,10 +260,19 @@ These states are the eigenstates $|a\rangle$, with $a = 1, 2, 3$, of the Hamilto
 \end{equation}
 where $U$ is the lepton mixing matrix, $E$ is the energy observed today, $z$ is the redshift, and $\mathbf{V}$ is the potential.
 For antineutrinos, $U \to U^*$ and $\mathbf{V} \to -\mathbf{V}^*$.
-Without a potential, the eigenstates are the mass states.
+Without a potential, the eigenstates are the mass states; where the potential dominates, they are nearly pure flavor states (Fig.~\ref{fig:levels}).
 The cosmological potential varies on the scale of the Hubble time, far more slowly than the neutrinos oscillate, so each neutrino stays in its eigenstate as the potential evolves.
 Only collisions and decays move neutrinos between states.
 We follow the number of neutrinos in each state until they reach the Sun, where we switch to a coherent description.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{figure}[t!]
+ \centering
+ \includegraphics[width=\columnwidth]{figures/potential_levels.pdf}
+ \caption{\textbf{\textit{How a potential turns mass states into flavor states.}} The squared masses of the three states that travel, $\mu_a$, which are the eigenvalues of $2EH$ in Eq.~(\ref{equ:hamiltonian}) today, against the potential of $L_e - L_\mu$ times $2E$. Without a potential, the states are the mass states. Where the potential dominates, they are nearly pure flavor states: $\nu_1$ becomes $\nu_\mu$, $\nu_2$ becomes $\nu_\tau$, and $\nu_3$ becomes $\nu_e$. A neutrino that crosses this change slowly stays in its state, so its flavor changes with it. For antineutrinos, the potential changes sign. The lightest neutrino mass is $10^{-6}$~eV, in normal ordering, and the mixing parameters are those of our fits.}
+ \label{fig:levels}
+\end{figure}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 \smallskip
 \textit{Sources.}---We place the sources up to $z = 4$, with a number density that tracks the star-formation rate~\cite{Yuksel:2008cu}.
@@ -322,7 +340,7 @@ where $x$ is the distance along the path and $H(x)$ is the Hamiltonian of Eq.~(\
 The flux of flavor $\alpha$ at the detector is $\langle\nu_\alpha|\rho|\nu_\alpha\rangle$, averaged over the paths through the Earth from each direction.
 Along the way, the potentials of the Sun, of the Moon, and of the Earth itself switch on, each within its range.
 Where a potential switches on slowly compared to the oscillations, it turns each state into its own eigenstate.
-For instance, for $L_e - L_\mu$ at $10^{-20}$~eV, the potential of the Sun turns the mass state $\nu_2$ into $\nu_\tau$.
+For instance, for $L_e - L_\mu$ at $10^{-20}$~eV, the potential of the Sun turns the mass state $\nu_2$ into $\nu_\tau$ (Fig.~\ref{fig:levels}).
 We compute the potential of the Earth from Eq.~(\ref{equ:potential}), with the electron density of the Preliminary Reference Earth Model~\cite{Dziewonski:1981xy}.
 We neglect collisions and decays from the Sun on; decays would matter there only where the potential already dominates the change of flavor (Appendix~\ref{app:decay}).
 
@@ -361,8 +379,8 @@ Figure~\ref{fig:collisions} shows the effect of the collisions, switching on the
 The first combines two measurements of the diffuse flux by IceCube.
 One is the flavor composition measured with 11.4 years of medium-energy starting events~\cite{IceCube:2025ole}.
 We use its likelihood as a function of $(f_e, f_\mu)$ and compare it with the flavor composition of our flux between 10~TeV and 30~PeV.
-The other is the energy spectrum measured in 2026, given as the normalization of an $E^{-2}$ flux in separate energy segments~\cite{IceCube:2026plr}.
-We compute the same normalizations from our flux and compare them with the measured ones, with the asymmetric errors of each segment.
+The other is the energy spectrum measured with tracks and cascades together, given as the normalization of an $E^{-2}$ flux in separate energy segments~\cite{IceCube:2025ewu}.
+We compute the same normalizations from our flux and compare them with the ten measured ones between 4.6~TeV and 10~PeV, with the asymmetric errors of each segment.
 The second data set uses events instead: 7.5 years of high-energy starting events~\cite{IceCube:2020wum}, whose topologies carry information on flavor, and the through-going muon tracks above 3~TeV of the IceTracks-DR2 release, from its IC79 and IC86 configurations~\cite{IceCube:IceTracksDR2}.
 We fold our flux with the public detector responses of both.
 This set leaves out the flavor measurement, whose events overlap the starting events.
@@ -378,8 +396,8 @@ where $T$ is the exposure time, $\Phi_\alpha$ is the flux of flavor $\alpha$ at 
 The likelihood of each sample is Poisson, $-2\ln\mathcal{L} = 2 \sum_k [\mu_k - n_k + n_k \ln(n_k/\mu_k)]$, with $n_k$ the observed events.
 
 \smallskip
-\textit{The flux in the fits.}---The astrophysical flux is a broken power law, with a free normalization and free spectral indices above and below a break fixed at 24.5~TeV, where the flux measured by IceCube in 2026 bends~\cite{IceCube:2026plr}.
-The Galactic component~\cite{Schwefer:2022zly} has a normalization with a Gaussian prior centered on that fitted by IceCube, 0.91 times the template, with a width of 0.18.
+\textit{The flux in the fits.}---The astrophysical flux is a broken power law, with a free normalization and free spectral indices above and below a break fixed at 24.5~TeV, where IceCube's fit of tracks and cascades places it~\cite{IceCube:2025tgp, IceCube:2025ewu}.
+The Galactic component~\cite{Schwefer:2022zly} has a normalization with a Gaussian prior centered on that fitted by IceCube, 0.91 times the template, with a width of 0.18~\cite{IceCube:2026plr}.
 The source flavor composition is either fixed to that of pion decay, $(1/3, 2/3, 0)$, or fitted, with free fractions of $\nu_e$ at the extragalactic and at the Galactic sources and no $\nu_\tau$.
 The lightest neutrino mass varies from $10^{-6}$ to $0.1$~eV, in normal ordering, with a prior from cosmology on the sum of the masses, below 0.12~eV at 95\%~C.L.~\cite{Barenboim:2026mvn}.
 We fix the mixing parameters to the best fit of NuFIT~6.1~\cite{Esteban:2024eli}.

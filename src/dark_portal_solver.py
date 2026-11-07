@@ -125,7 +125,7 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                        goldstone: bool = False,
                        potential_product=None, relic_scattering: bool = True,
                        inj_window=(0.0, np.inf), earth_transfer: str = "off", neutrino_decay: bool = True,
-                       phi_cache=None, arrival_only: bool = False):
+                       phi_cache=None, arrival_only: bool = False, source_z=None, track=None):
     """
     Executes the complete spectrum integration, driving the underlying JIT kernels.
     Neutrinos and antineutrinos are evolved together through the cosmological phase (an
@@ -158,6 +158,14 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         E_source / (1+z), lies in [E_min, E_max) -- one piece of a broken power law (analysis/model.py); the
         default emits the whole power law.
       eta_bg: (3,) CnuB flavor asymmetries.
+      source_z: None, or (z_lo, z_hi) (2026-11-07, the paper's figure of the six species along the trip): the
+        sources emit only in the redshift steps whose midpoint lies in [z_lo, z_hi] -- a shell of sources.
+      track: None, or a list that receives the beam in flight after every redshift step, as dicts: z; F_nu, F_nb
+        (N_E, 3), the flux of each flavor of each kind, the populations decohered in the eigenstates of that step's
+        cosmic potential; and, on the dark portal's own path, P_nu, P_nb (the eigenstate populations) and c_nu, c_nb
+        (the step's sigma per unit energy, sp['c_z']) -- before the longitudinal-mode factors (goldstone), which the
+        solver applies at z = 0. Through dp_si (si_cosmology), its steps, the mass-state flux split in the injection's
+        proportions as the arrival's.
       n_sun_paths, n_earth_chords: directions to the Sun in its transit, and zenith chords.
       transit_dtheta: resolution of the transit to the Earth (dp_transit.build_frame_table).
       show_progress, verbose: progress bars / logging (verbose=2 adds z updates).
@@ -432,6 +440,14 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
             Hg = calc_H_Hubble_vec(zg, H0, Omega_m, Omega_L)
             Rg = np.array([calc_R_source(float(q), rho_evol) for q in zg])
             inj_I[kk] = 0.5 * (b_ - a_) * float(np.sum(wg * Rg * (1.0 + zg) ** (-p_index) / Hg))
+    # a shell of sources (source_z): the steps whose midpoint lies in [z_lo, z_hi] emit, the others do not
+    src_mask = np.ones(len(z_bins))
+    if source_z is not None:
+        z_lo, z_hi = float(source_z[0]), float(source_z[1])
+        z_c = np.concatenate(([z_bins[0]], 0.5 * (z_bins[1:] + z_bins[:-1])))
+        src_mask = ((z_c >= z_lo) & (z_c <= z_hi)).astype(np.float64)
+        if inj_I is not None:
+            inj_I = inj_I * src_mask
     # The new processes' rates over a step at its midpoint (2026-10-24): taken at the step's low-redshift end they were
     # first order, and where the soft scatterings and the decays compete (the Zeno-suppressed conversions fall as
     # ~(1+z)^-5) a few percent in the exponent became up to 17% of a drained flux at 200 steps. The rates' trapezoid
@@ -525,6 +541,8 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         ref = [dict(F=np.zeros((N_E, 3), dtype=np.float64), R=np.zeros(N_E, dtype=np.float64)) for _ in species]
 
     z_steps = range(1, len(z_bins)) if (arrival_flavor is None and not si_cosmology) else range(0)
+    tracked = track if (track is not None and lagrangian) else None
+    track_proj = np.empty((N_E, 3, 3), dtype=np.float64) if tracked is not None else None
     iterator = tqdm(z_steps, desc="Cosmo Phase", leave=False) if (dp_core.HAS_TQDM and show_progress) else z_steps
     z_print_mod = max(1, len(z_bins) // 10)
     if verbose == 2:
@@ -532,7 +550,7 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
     for k in iterator:
         z = z_bins[k]
         dt = dz / (calc_H_Hubble(z, H0, Omega_m, Omega_L) * (1.0 + z))
-        R_z = calc_R_source(z, rho_evol)
+        R_z = calc_R_source(z, rho_evol) * src_mask[k]
         if verbose == 2 and k % z_print_mod == 0:
             safe_print(f"Cosmological propagation: currently integrating at redshift z = {z:.4f}")
         if not lagrangian:
@@ -601,6 +619,14 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                                     jump_I[k], ref[i_s]["F"], no_wd, False)
         if loss_C is not None and jump_unit is not None:
             _loss_half(species, ref, k, C_mid, decay_I, E_bins, N_E, kappa_loss)
+        if tracked is not None:
+            snap = []
+            for sp in species:
+                _cosmo_projections(E_bins, sp["P_table"], sp["log_s0"], sp["inv_dlogs"], sp["c_z"][k], track_proj)
+                snap.append(np.einsum('iak,ik->ia', track_proj, sp["F"]))
+            tracked.append(dict(z=float(z), F_nu=snap[0], F_nb=snap[1], P_nu=np.array(species[0]["F"]),
+                                P_nb=np.array(species[1]["F"]), c_nu=float(species[0]["c_z"][k]),
+                                c_nb=float(species[1]["c_z"][k])))
     if ladder is not None:
         _zeta_note("cosmological", ladder.diag[0])
     if verbose == 2:
@@ -611,6 +637,7 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         if not lagrangian:
             raise ValueError("si_cosmology needs absorption_model = 'lagrangian'")
         import dp_si
+        si_track = []
         st = dict(z_substeps=1, E_extension=10.0)
         st.update(si_settings or {})
         g_mass = dp_si.mass_basis_couplings_model(ab[0].G, U_pmns, "vector", True)
@@ -628,7 +655,9 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                                     inj_window=(0.0, np.inf) if si_combined else (inj_lo, inj_hi),
                                     thermal="full" if st.get("thermal_products") else True, decay=decay_rates,
                                     relic_loss=(None if loss_C is None else
-                                                (np.asarray(z_bins, dtype=np.float64), loss_C, loss_beam)))
+                                                (np.asarray(z_bins, dtype=np.float64), loss_C, loss_beam)),
+                                    **({} if si_combined else dict(source_z=source_z,
+                                                                   track=si_track if track is not None else None)))
         if si_combined:
             # below 1 keV with both a potential and hard scatterings (2026-10-22; notes, 'Soft scatterings on the
             # relics'): the dark-portal phase's eigenstate populations (the potential, the soft scatterings) rescaled
@@ -646,6 +675,11 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
             order = np.argsort(np.real(np.diag(M_sq)))
             for sp, w_s in zip(species, (w_nu, w_nb)):
                 sp["F"] = np.ascontiguousarray(F_mass[:, order] * (w_s / w_tot if w_tot > 0 else 0.0))
+            if track is not None:
+                Pm = np.abs(U_pmns) ** 2
+                for z_t, Fm in si_track:
+                    Ff = Fm @ Pm.T
+                    track.append(dict(z=z_t, F_nu=Ff * (w_nu / w_tot), F_nb=Ff * (w_nb / w_tot)))
     if goldstone and arrival_flavor is None and lagrangian and G_coupling is not None \
             and float(m_Zd) < SI_COSMOLOGY_MIN_M_EV:
         # the vector's longitudinal-mode scatterings (2026-10-25, Mauricio: the lepton-number planes; notes 'Secret
@@ -655,15 +689,17 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         # max_E theta(E) (1 - R_tot(E)), theta the potential's sigma / Delta m^2_21 averaged over redshift with the
         # absorption's weight (1+z)/H, recorded as meta['zeta']['goldstone']
         import dp_si_light
+        g_track = [] if track is not None else None
         gf = dp_si_light.goldstone_factors(E_bins, G_coupling, U_pmns, m_nu_bg_arr, m_Zd, T_nu0, eta_mass, H0,
-                                           Omega_m, Omega_L, float(z_bins[0]), p_index, rho_evol, decay_rates)
+                                           Omega_m, Omega_L, float(z_bins[0]), p_index, rho_evol, decay_rates,
+                                           track=g_track)
         if gf is not None:
             R_gs, Rt_gs = gf
             wz = (1.0 + z_bins) / calc_H_Hubble_vec(z_bins, H0, Omega_m, Omega_L)
             cz_w = float(np.sum(wz * np.abs(c_z_arr)) / np.sum(wz))
             dm21 = float(np.real(M_sq[1, 1]))
             _zeta_note("goldstone", float(np.max(E_bins * cz_w / dm21 * np.abs(1.0 - Rt_gs))))
-            for sp in species:
+            for i_s, sp in enumerate(species):
                 S_sig = -sp["S_eff"] if sp["anti"] else sp["S_eff"]
                 if q_sign * np.sign(pp) < 0.0:
                     S_sig = -S_sig
@@ -675,6 +711,29 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                     T = np.abs(V0.conj().T @ W) ** 2                # T[i, a]: eigenstate a's mass content
                     fac[j] = R_gs[j] @ T
                 sp["F"] = np.ascontiguousarray(sp["F"] * fac)
+                if tracked and g_track:
+                    # the beam in flight with the same factors along the way: the reference beam's ratio at each step
+                    # (linear in z between dp_si's steps), on each step's eigenstates; at z = 0 the arrival's
+                    zg = np.array([t[0] for t in g_track])
+                    Rg = np.stack([t[1] for t in g_track])
+                    o = np.argsort(zg)
+                    kind = ("nu", "nb")[i_s]
+                    for ent in tracked:
+                        if ("P_" + kind) not in ent:
+                            continue
+                        Rz = np.empty((N_E, 3))
+                        for i in range(3):
+                            Rz[:, i] = [np.interp(ent["z"], zg[o], Rg[o, j, i]) for j in range(N_E)]
+                        sig = np.abs(E_bins * ent["c_" + kind])
+                        Pk = ent["P_" + kind]
+                        Ff = np.empty((N_E, 3))
+                        for j in range(N_E):
+                            _, W = np.linalg.eigh(sp["M_rot"] + sig[j] * S_sig)
+                            T = np.abs(V0.conj().T @ W) ** 2
+                            Pf = Pk[j] * (Rz[j] @ T)
+                            Ff[j] = (np.abs(W) ** 2) @ Pf
+                        ent["F_" + kind] = Ff                         # P_ stays the populations before the factors
+                        ent["goldstone"] = True
     if arrival_flavor is not None:
         f_arr = np.asarray(arrival_flavor, dtype=np.float64)
         if f_arr.shape != (3,) or np.any(f_arr < 0.0):
@@ -1145,7 +1204,7 @@ def _flux_setup(E_bins: np.ndarray, params: Dict) -> Dict:
 
 def _flux_from_setup(E_bins: np.ndarray, params: Dict, setup: Dict, injection,
                      rho_src: np.ndarray = None, band_costh=None, arrival_flavor=None,
-                     arrival_basis: str = "flavor", arrival_only: bool = False):
+                     arrival_basis: str = "flavor", arrival_only: bool = False, source_z=None, track=None):
     """The neutrino and antineutrino fluxes at the detector, each (N_E, 3), from a _flux_setup.
 
     Arguments: E_bins, params, setup -- as for _flux_setup; injection -- (w_nu, w_nb), the
@@ -1180,6 +1239,7 @@ def _flux_from_setup(E_bins: np.ndarray, params: Dict, setup: Dict, injection,
         # mass floored at the heaviest neutrino (dp_si_light.subkev_inputs); 1 keV and above as before
         sub = _si_subkev(E_bins, params, setup)
         kw_sub = {} if sub is None else dict(decay=sub['decay'], relic_loss=sub['relic_loss'])
+        si_track = [] if track is not None else None
         F_mass = dp_si.propagate_si(E_bins, params['z_max'], params['H0_eV'], params['Omega_m'], params['Omega_L'],
                                     U, params['m_nu_bg_arr'], params['T_nu0_eV'],
                                     setup['eta_mass'] if sub is None else sub['eta'], rho_src,
@@ -1190,8 +1250,14 @@ def _flux_from_setup(E_bins: np.ndarray, params: Dict, setup: Dict, injection,
                                     z_substeps=si_p['z_substeps'], E_extension=si_p['E_extension'],
                                     mediator=si_p['mediator'], dirac_sterile=si_p['dirac_sterile'],
                                     thermal=si_p.get('thermal', False),
-                                    inj_window=params.get('inj_window_eV', (0.0, np.inf)), **kw_sub)
+                                    inj_window=params.get('inj_window_eV', (0.0, np.inf)), **kw_sub,
+                                    **({} if source_z is None and track is None else
+                                       dict(source_z=source_z, track=si_track)))
         F_fl = np.ascontiguousarray(F_mass @ (np.abs(U) ** 2).T)
+        if track is not None:
+            for z_t, Fm in si_track:
+                Ff = Fm @ (np.abs(U) ** 2).T
+                track.append(dict(z=z_t, F_nu=Ff * (w_nu / w_tot), F_nb=Ff * (w_nb / w_tot)))
         if not np.isfinite(F_fl).all():
             raise ValueError(f"Non-finite flux from the secret-interaction transport at m_phi_eV="
                              f"{si_p['m_phi_eV']:.6g}, g_phi texture {si_p['g_flavor'].tolist()}.")
@@ -1238,7 +1304,8 @@ def _flux_from_setup(E_bins: np.ndarray, params: Dict, setup: Dict, injection,
         si_settings=_dark_portal_si_settings(params),
         potential_product=params.get('potential_product', None),
         inj_window=params.get('inj_window_eV', (0.0, np.inf)),
-        earth_transfer=params.get('earth_transfer', 'off'), arrival_only=arrival_only
+        earth_transfer=params.get('earth_transfer', 'off'), arrival_only=arrival_only,
+        source_z=source_z, track=track
     )
 
 

@@ -24,7 +24,8 @@ source; numbers marked *prelim.* change after the final runs. The full planning 
 
 Data sets, as in the figures' legends (never internal names such as `now_ic26`):
 - **IceCube flavor + spectrum:** the flavor composition from 11.4 years of medium-energy starting events
-  (IceCube:2025ole) and IceCube's 2026 spectrum (IceCube:2026plr).
+  (IceCube:2025ole) and the spectrum of tracks and cascades combined (IceCube:2025ewu, its Table 10, CF
+  column; the break from its Table 3, CF BPL).
 - **IceCube events:** 7.5 years of high-energy starting events (IceCube:2020wum) and 11.6 years of through-going
   tracks (IceTracks-DR2).
 - **Future telescopes:** the eight detectors combined, 10 years each.

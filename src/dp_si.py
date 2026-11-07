@@ -2765,7 +2765,8 @@ def propagate_si(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta
                  p_index, rho_evol, Phi_0, M, g_mass, majorana=True, channels="full",
                  phiphi="coherent", z_substeps=1, E_extension=10.0, n_u=4096,
                  return_diagnostics=False, regeneration=True, mediator="scalar", dirac_sterile="track",
-                 Gamma_vis=0.0, thermal=False, inj_window=(0.0, np.inf), decay=None, relic_loss=None):
+                 Gamma_vis=0.0, thermal=False, inj_window=(0.0, np.inf), decay=None, relic_loss=None,
+                 source_z=None, track=None):
     """Cosmological transport of the astrophysical neutrinos under secret interactions.
 
     Arguments: E_bins -- the (geometric) energy grid of the result, eV; z_max, H0 (eV),
@@ -2808,7 +2809,12 @@ def propagate_si(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta
     # the 2026-10-24 processes only when set (a substituted _transport_columns, as the tests' reference, need not
     # know them)
     extra = {k: v for k, v in (("decay", decay), ("relic_loss", relic_loss)) if v is not None}
-    if return_diagnostics or not np.any(g_arr):
+    # a shell of sources or the flux in flight (2026-11-07, the paper's figure of the species along the trip):
+    # source_z = (z_lo, z_hi), only the steps whose midpoint lies there emit; track, a list that receives
+    # (z, flux (N_E, 3) of the mass states) after every step. Transported as given, outside the column cache.
+    if source_z is not None or track is not None:
+        extra.update(source_z=source_z, track=track)
+    if return_diagnostics or not np.any(g_arr) or source_z is not None or track is not None:
         P_src = (np.abs(np.asarray(U_pmns)) ** 2).T @ np.asarray(rho_src, dtype=np.float64)
         out = _transport_columns(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta_mass, rho_evol, M,
                                  g_arr, majorana, channels, phiphi, z_substeps, E_extension, n_u, regeneration,
@@ -2922,11 +2928,12 @@ def _loss_columns(Fs, E, L_lo, L_hi, dt, relic_loss):
 def _transport_columns(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta_mass, rho_evol, M, g_mass,
                        majorana, channels, phiphi, z_substeps, E_extension, n_u, regeneration, mediator,
                        dirac_sterile, Gamma_vis, thermal, columns, return_diagnostics=False, decay=None,
-                       relic_loss=None):
+                       relic_loss=None, source_z=None, track=None):
     """The transport (propagate_si's physics) of several sources at once: columns is a list of (P_src (3,) the
     mass-state composition, p_index, inj_window (eV), Phi_0, rho_src (3,) or None -- the flavor composition, used only
     without a coupling, by the free-streaming closed form). Returns the list of (N_E, 3) fluxes, or with
-    return_diagnostics the list of (flux, info) pairs (propagate_si's)."""
+    return_diagnostics the list of (flux, info) pairs (propagate_si's). source_z, track: as propagate_si's (the
+    first column's flux in flight)."""
     from dp_core import compute_dE_geometric
     E_bins = np.asarray(E_bins, dtype=np.float64)
     N_E = len(E_bins)
@@ -3076,11 +3083,22 @@ def _transport_columns(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu
     if not full and steps is None and K * J.nbytes + 3 * K * Nq.nbytes <= _STEP_TERMS_MAX_BYTES:
         store = []
     S0 = np.zeros((N, n_st, C))
+
+    def _snap(L):
+        if track is not None:
+            Fv = sum(wt * Fk for (_, wt), Fk in zip(runs, Fs))
+            track.append((float(np.exp(L) - 1.0), np.array(Fv[:N_E, :3, 0], dtype=np.float64)))
+
     for m in range(K - 1, -1, -1):
         L_lo, L_hi = L_edges[m], L_edges[m + 1]
+        # a shell of sources (source_z): only the steps whose midpoint lies in [z_lo, z_hi] emit
+        shell = 1.0
+        if source_z is not None:
+            z_c = float(np.exp(0.5 * (L_lo + L_hi)) - 1.0)
+            shell = 1.0 if float(source_z[0]) <= z_c <= float(source_z[1]) else 0.0
         for k, (P_c, p_c, w_c, phi_c, rho_c) in enumerate(columns):
             dt, T_inj = _step_time_and_injection(L_lo, L_hi, H0, Omega_m, Omega_L, p_c, rho_evol, phi_c)
-            S0[:, :3, k] = np.outer(Eps[k] * (T_inj / dt), np.asarray(P_c, dtype=np.float64))
+            S0[:, :3, k] = np.outer(Eps[k] * (T_inj / dt) * shell, np.asarray(P_c, dtype=np.float64))
         if relic_loss is not None:
             # the energy loss in two halves around the step's collisions and injection
             _loss_columns(Fs, E, L_lo, L_hi, 0.5 * dt, relic_loss)
@@ -3102,6 +3120,7 @@ def _transport_columns(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu
                                dec_kfull, dec_kex, dec_fex, dec_mom, float(np.exp(0.5 * (L_lo + L_hi))), use_dec)
             if relic_loss is not None:
                 _loss_columns(Fs, E, L_lo, L_hi, 0.5 * dt, relic_loss)
+            _snap(L_lo)
             continue
         if steps is not None:
             J, Nq, Lq, Dq = steps[K - 1 - m]
@@ -3128,6 +3147,7 @@ def _transport_columns(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu
                            dec_kfull, dec_kex, dec_fex, dec_mom, float(np.exp(0.5 * (L_lo + L_hi))), use_dec)
         if relic_loss is not None:
             _loss_columns(Fs, E, L_lo, L_hi, 0.5 * dt, relic_loss)
+        _snap(L_lo)
     if store is not None:
         _STEP_TERMS.clear()
         _STEP_TERMS[skey] = store

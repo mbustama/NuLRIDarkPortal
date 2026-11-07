@@ -830,13 +830,15 @@ def goldstone_yukawa(G_flavor, U, masses, M):
 
 
 def goldstone_factors(E, G_flavor, U, masses, M, T_nu0, eta, H0, Omega_m, Omega_L, z_max, p_index, rho_evol, decay,
-                      z_substeps=2):
+                      z_substeps=2, track=None):
     """(R (N_E, 3), R_tot (N_E,)) or None where the largest |Y| is below GOLDSTONE_Y_MIN: per mass state, dp_si's flux
     with the Goldstone channels (Majorana scalar channels, lambda = Y; relics thermal) over the same without them, the
     decays in both (decay: dp_si's (Gam, spec) or None), for a fixed reference source (equal flavors, the whole
     spectrum, index p_index), so that the runs the analysis adds up add up exactly (as the 'combined' mode's factor);
     R_tot the same for the sum over the states. The collision mass is max(M, m_heaviest), as the scalar's
-    (subkev_inputs: only the pair channel's collinear logarithm depends on it)."""
+    (subkev_inputs: only the pair channel's collinear logarithm depends on it). track: None, or a list that receives
+    (z, R(z) (N_E, 3)) after every dp_si step, the same ratio for the reference beam in flight (2026-11-07, the
+    paper's figure of the species along the trip); its last entry, at z = 0, is R."""
     import dp_si
     m = np.asarray(masses, dtype=np.float64)
     Y = goldstone_yukawa(G_flavor, U, m, M)
@@ -847,10 +849,16 @@ def goldstone_factors(E, G_flavor, U, masses, M, T_nu0, eta, H0, Omega_m, Omega_
     Mc = max(float(M), float(np.max(m)))
     args = (E, float(z_max), H0, Omega_m, Omega_L, U, m, T_nu0, np.asarray(eta, dtype=np.float64), src,
             float(p_index), float(rho_evol), 1.0, Mc)
+    t1, t0 = ([], []) if track is not None else (None, None)
     F1 = dp_si.propagate_si(*args, np.ascontiguousarray(Y), majorana=True, mediator="scalar", thermal="full",
-                            z_substeps=z_substeps, decay=decay)
+                            z_substeps=z_substeps, decay=decay, track=t1)
     F0 = dp_si.propagate_si(*args, np.ascontiguousarray(Y * GOLDSTONE_OFF), majorana=True, mediator="scalar",
-                            thermal=False, z_substeps=z_substeps, decay=decay)
+                            thermal=False, z_substeps=z_substeps, decay=decay, track=t0)
+    if track is not None:
+        for (z1, A1), (z0, A0) in zip(t1, t0):
+            if abs(z1 - z0) > 1e-12:
+                raise ValueError("goldstone_factors: the two transports' steps differ")
+            track.append((z1, np.divide(A1, A0, out=np.ones_like(A1), where=A0 > 0.0)))
     R = np.divide(F1, F0, out=np.ones_like(F1), where=F0 > 0.0)
     t0 = F0.sum(axis=1)
     Rt = np.divide(F1.sum(axis=1), t0, out=np.ones_like(t0), where=t0 > 0.0)

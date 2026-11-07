@@ -71,7 +71,7 @@ BPL = dict(E_break_GeV=10 ** 4.39, norm=1.77e-18, norm_E_GeV=1e5, p_index=2.735,
            low={"start": 1.31, "bounds": [0.5, 2.5], "space": "linear", "nodes": 3})
 GRID_IC26 = {"n_E_bins": 439, "E_min_eV": 10 ** (13.0 - 39 * D_LOG), "E_max_eV": 3e16}    # down to 4.57 TeV
 DATASETS_BPL = {
-    "now_ic26": {"data": {"surface": "icecube_mese_2025", "spectrum": "ic26_astrophysical",
+    "now_ic26": {"data": {"surface": "icecube_mese_2025", "spectrum": "icecube_cf_2025",
                           "flavor_band_eV": [1e13, 3e16]}, "grid": GRID_IC26},
     "now_events": copy.deepcopy(DATASETS["now_events"]),
     "proj_2050": {"data": {"surface": "pion_2050_case_5", "spectrum": "ic26_astrophysical",

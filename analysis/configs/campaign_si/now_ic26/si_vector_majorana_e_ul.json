@@ -3,7 +3,7 @@
  "name": "si_vector_majorana_e_ul",
  "data": {
   "surface": "icecube_mese_2025",
-  "spectrum": "ic26_astrophysical",
+  "spectrum": "icecube_cf_2025",
   "flavor_band_eV": [
    10000000000000.0,
    3e+16

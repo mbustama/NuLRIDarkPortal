@@ -4,7 +4,16 @@ spectra.py
 Measured astrophysical spectra as data terms (Mauricio, 2026-10-14: the flux normalization and shape float in the
 statistical analysis; the flavor fits with the Galactic component take IceCube's 2026 spectrum as data).
 
-  ic26_astrophysical  IceCube 2026 (arXiv:2607.25966), Figure 4: the astrophysical flux of the combined fit, the
+  icecube_cf_2025     IceCube's combined fit of tracks and cascades (Phys. Rev. D 113, 062002 (2026), arXiv:2507.22234,
+                      INSPIRE IceCube:2025ewu), Appendix B, Table 10, CF column (Mauricio, 2026-11-07: the published
+                      table replaces the figure read below): per flavor (nu + nubar), an E^-2 normalization in each of
+                      13 bands, 3 per decade from 1 TeV, then 10-100 PeV, with asymmetric errors; where the best fit is 0
+                      the table's 68% upper limit is the upper error, the lower one 0
+                      (src/data/icecube_cf_2025_table10.json). Inside the fits' grid (4.6 TeV - 30 PeV): the 10 bands
+                      from 4.6 TeV to 10 PeV.
+  ic26_astrophysical  (superseded 2026-11-07; kept for the earlier campaigns) the combined fit as plotted in IceCube
+                      2026 (arXiv:2607.25966), Figure 4, whose caption cites the letter IceCube:2025tgp; its values
+                      match Table 10's to a few percent, three error bars differ by up to a factor 2: the astrophysical flux of the combined fit, the
                       all-sky (isotropic) component alongside the Galactic templates, per flavor (nu + nubar, the
                       all-flavor flux over 3), in segments of 1/3 decade from 4.6 TeV to 1 PeV, each an E^-2
                       normalization with its error bar (src/data/ic26_fig4_digitized.json, read from the figure's
@@ -23,6 +32,9 @@ import numpy as np
 from . import REPO_DIR
 
 SPECTRA = {
+    "icecube_cf_2025": dict(file=os.path.join(REPO_DIR, "src", "data", "icecube_cf_2025_table10.json"),
+                            key="cf_per_flavour",
+                            source="IceCube:2025ewu (arXiv:2507.22234), Table 10, CF column (segmented fit)"),
     "ic26_astrophysical": dict(file=os.path.join(REPO_DIR, "src", "data", "ic26_fig4_digitized.json"),
                                key="astrophysical_all_sky_per_flavour",
                                source="IceCube 2026, arXiv:2607.25966 Fig. 4 (combined fit, astrophysical component)"),
@@ -67,8 +79,10 @@ def segments(E_GeV, phi, E_lo, E_hi) -> np.ndarray:
 
 
 def chi2(C, data: dict) -> float:
-    """sum ((C - D) / sigma)^2, sigma the upper error where C > D and the lower one otherwise."""
+    """sum ((C - D) / sigma)^2, sigma the upper error where C > D and the lower one otherwise. A segment measured
+    at 0 has a zero lower error: C = D = 0 adds nothing there (a flux is never negative)."""
     C = np.asarray(C, dtype=np.float64)
     D = data["value"]
     sig = np.where(C > D, data["hi"] - D, D - data["lo"])
-    return float(np.sum(((C - D) / sig) ** 2))
+    r = np.divide(C - D, sig, out=np.zeros_like(C), where=sig > 0.0)
+    return float(np.sum(r ** 2))

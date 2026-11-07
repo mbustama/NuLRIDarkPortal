@@ -54,6 +54,41 @@ def _gal_raw(name="pion_2050_case_5_si_e_gal", n_E=60):
     return raw
 
 
+#: IceCube:2025ewu, Table 10, CF column, the 10 bands inside the fits' grid (4.6 TeV - 10 PeV): N (1e-18 GeV^-1
+#: cm^-2 s^-1 sr^-1 at 100 TeV, E^-2), its lower and upper errors.
+TABLE_10_CF = [(3.1, 1.5, 2.1), (3.36, 0.63, 1.10), (4.42, 0.48, 0.74), (2.03, 0.39, 0.40), (1.81, 0.37, 0.38),
+               (0.089, 0.089, 0.350), (0.85, 0.42, 0.43), (0.41, 0.25, 0.36), (0.0, 0.0, 0.20), (0.017, 0.017, 0.073)]
+
+
+def test_icecube_cf_2025_is_table_10_inside_the_grid():
+    d = spectra.load("icecube_cf_2025", 10 ** (13.0 - 39 * 3.477121254719662 / 399) / 1e9, 3e7)   # GRID_IC26
+    N, m, p = (np.array(c) * 1e-8 for c in zip(*TABLE_10_CF))
+    assert len(d["value"]) == 10
+    np.testing.assert_allclose(d["E_lo"], 1e3 * 10 ** (np.arange(2, 12) / 3.0), rtol=1e-12)
+    np.testing.assert_allclose(d["E_hi"], 1e3 * 10 ** (np.arange(3, 13) / 3.0), rtol=1e-12)
+    np.testing.assert_allclose(d["value"], N, rtol=1e-12, atol=1e-24)
+    np.testing.assert_allclose(d["value"] - d["lo"], m, rtol=1e-12, atol=1e-24)
+    np.testing.assert_allclose(d["hi"] - d["value"], p, rtol=1e-12, atol=1e-24)
+    # the zero lower errors: the measured values give 0, each band one sigma up gives 1, one sigma down gives 1
+    # except the band measured at 0 (down = 0 = the value)
+    assert spectra.chi2(d["value"], d) == 0.0
+    assert spectra.chi2(d["hi"], d) == pytest.approx(10.0)
+    assert spectra.chi2(d["lo"], d) == pytest.approx(9.0)
+    assert len(spectra.load("icecube_cf_2025")["value"]) == 13
+
+
+def test_table_10_is_what_the_milky_way_paper_plots_per_flavour():
+    """The conventions (per flavor, nu + nubar; E^2 Phi of an E^-2 normalization at 100 TeV): the 7 segments that
+    arXiv:2607.25966 Fig. 4 plots on its per-flavour axis, 4.6 TeV - 1 PeV, equal Table 10's CF column within a third
+    of its error bars."""
+    t = spectra.load("icecube_cf_2025", 4e3, 1.01e6)
+    o = spectra.load("ic26_astrophysical")
+    np.testing.assert_allclose(o["E_lo"], t["E_lo"], rtol=1e-4)
+    np.testing.assert_allclose(o["E_hi"], t["E_hi"], rtol=1e-4)
+    half_width = 0.5 * (t["hi"] - t["lo"])
+    assert np.all(np.abs(o["value"] - t["value"]) < 0.33 * half_width)
+
+
 def test_configs_wire_the_spectrum_and_the_index_nodes():
     cfg = config_mod.from_dict(_gal_raw(), "")
     assert cfg.spectrum == "ic26_astrophysical"
