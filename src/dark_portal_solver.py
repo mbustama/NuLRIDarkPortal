@@ -1701,7 +1701,11 @@ def _flux_runs(E_run, params, setup, runs, band_costh=None):
     to the band's populations (linear in them: its responses to the three unit inputs, kept by the handover's
     transfer reuse), the whole sky the bands weighted by their widths in cos(zenith) (as the handover's own); the
     bands are the sky's (params['sky'] dec_band_edges) where the caller asks for none. Elsewhere, and with
-    EXTRAGALACTIC_CROSSING off, the runs as _flux_from_setup."""
+    EXTRAGALACTIC_CROSSING off, the runs as _flux_from_setup. The simplified trips (params['trip'], TRIPS) go to
+    _flux_runs_simplified."""
+    trip = params.get('trip', 'full')
+    if trip != 'full':
+        return _flux_runs_simplified(E_run, params, setup, runs, band_costh, trip)
     plain = [lambda w=w, r=r: _flux_from_setup(E_run, params, setup, w, r, band_costh=band_costh) for w, r in runs]
     if (not EXTRAGALACTIC_CROSSING or setup.get('si', False) or not runs
             or float(params['m_Zd_eV']) >= SI_COSMOLOGY_MIN_M_EV
@@ -1828,6 +1832,95 @@ def flux_stops(E_bins: np.ndarray, params: Dict) -> Dict:
         stops['earth'] += np.real(np.einsum('iaa->ia', rho_e))
     stops['detector'] = propagation_worker((E_bins, params))[1]
     return stops
+
+
+# The simplified trips of the paper's Fig. 1 (2026-11-07; paper/paper_planning.md, Step 5), params['trip']:
+#   'full'     -- the solver as it is (the default);
+#   'no_local' -- the beam as it arrives at the Milky Way, as if nothing local acted: the populations at z = 0 in
+#                 today's cosmic eigenstates (flux_stops' 'universe'), the same in every band;
+#   'detector' -- the earlier standard (Agarwalla, Bustamante, Das & Narang, JHEP 08 (2023) 113, Sec. 5): no
+#                 transport and no collisions; the source flavors decohere in the eigenstates of the total potential
+#                 at the detector -- the transit's ambient density (the cosmic mean, the Galaxy, the Sun, the Moon)
+#                 plus the Earth's own at the detector's depth -- the same in every band.
+# The dark portal's path only (the gauge models included); the Galactic emission (galactic_allsky) is unchanged.
+TRIPS = ("full", "no_local", "detector")
+
+
+def _local_frame(E_run, handover, with_detector):
+    """For one kind's handover (_flux_from_setup's arrival_only), as in flux_stops: the frame table, coef2 = 2 |Coef|,
+    today's cosmic density n_cos; and, with_detector, the total density at the detector (the transit's ambient
+    density, from dp_spatial.transit_to_earth, plus the Earth's own at the detector's depth), else None."""
+    import dp_transit
+    from dp_cosmo import yukawa_horizon_inv_m2
+    import dp_spatial
+    args, kw = handover
+    (M_rot, u_arr, m_Zd, g_D, eps_prime, T_nu0, use_debye, eta_bg, depth_km, use_SM, n_e_earth, anti,
+     n_sun_paths, n_chords) = args
+    st = dp_spatial._earth_setup(M_rot, u_arr, m_Zd, g_D, eps_prime, T_nu0, use_debye, eta_bg, depth_km, use_SM,
+                                 n_e_earth, anti, n_sun_paths, n_chords, kw['U_LRI_struct'], kw['V_SM_struct'],
+                                 kw['use_gpu'], kw['earth_step_scheme'], kw['earth_zenith_average'],
+                                 kw['earth_sky'], kw['earth_band_costh'], kw['earth_nodes_per_band'],
+                                 kw['matter_charge'], kw['debye_sq_z0'], kw['potential_product'])
+    Coef, m_eff, S = st['Coef'], st['m_eff'], st['U_LRI_struct']
+    S_signed = np.ascontiguousarray((np.sign(Coef) if Coef != 0.0 else 1.0) * np.asarray(S, dtype=np.complex128))
+    tab = dp_transit.frame_table(M_rot, S_signed, kw['transit_dtheta'])
+    m_bare = m_Zd if kw['debye_sq_z0'] is not None else m_eff
+    n_cos = (dp_matter.cosmic_density(kw['matter_charge'], kw['n_n0_eV3']) * m_eff * m_eff
+             * yukawa_horizon_inv_m2(m_bare * m_bare, kw['R_H_eV_inv'])) if m_eff > 0 else 0.0
+    n_det = None
+    if with_detector:
+        _, n_amb, _ = dp_spatial.transit_to_earth(
+            E_run, np.zeros((len(E_run), 3)), M_rot, S, Coef, m_eff, kw['n_n0_eV3'], kw['R_H_eV_inv'],
+            st['earth_yk'], n_sun_paths=n_sun_paths, transit_dtheta=kw['transit_dtheta'],
+            sun_path_cos=kw['sun_path_cos'], arrival=kw['arrival'], matter_charge=kw['matter_charge'],
+            m_bare=(m_Zd if kw['debye_sq_z0'] is not None else None))
+        R_km = float(st['earth_yk'][0][2])
+        n_det = float(n_amb) + (dp_spatial.yukawa_profile_density(R_km - float(depth_km), st['earth_yk'])
+                                * dp_core.cm_inv3_to_eV3 if m_eff > 0 else 0.0)
+    return tab, 2.0 * abs(float(Coef)), float(n_cos), n_det
+
+
+def _flux_runs_simplified(E_run, params, setup, runs, band_costh, trip):
+    """_flux_runs for the simplified trips (TRIPS): the whole-sky fluxes, and, with band_costh, every band the same.
+    'detector' takes the number of neutrinos from a run without collisions (G_coupling zero: no absorption, decay or
+    scattering; the potential conserves the number) and the composition from the sources."""
+    import dp_transit
+    if trip not in TRIPS:
+        raise ValueError(f"params['trip'] must be one of {TRIPS}, got {trip!r}")
+    if setup.get('si', False):
+        raise ValueError("the simplified trips follow the dark portal's path; secret interactions are not supported")
+    N = len(E_run)
+    p_run, s_run = params, setup
+    if trip == 'detector':
+        p_run = dict(params, G_coupling=np.zeros((3, 3), dtype=np.complex128))
+        s_run = _flux_setup(E_run, p_run)
+    out = []
+    for w, r in runs:
+        arr = _flux_from_setup(E_run, p_run, s_run, w, r, arrival_only=True)
+        F = []
+        for s in range(2):
+            P = np.ascontiguousarray(np.asarray(arr['P'][s], dtype=np.float64))
+            if not np.any(P):
+                F.append(np.zeros((N, 3)))
+                continue
+            tab, coef2, n_cos, n_det = _local_frame(E_run, arr['handover'][s], trip == 'detector')
+            pops, n = P, n_cos
+            if trip == 'detector':
+                src = np.asarray(setup['rho_src'] if r is None else r, dtype=np.float64)
+                flav = np.ascontiguousarray(P.sum(axis=1)[:, None] * (src / src.sum())[None, :])
+                pops, n = np.empty((N, 3)), n_det
+                dp_transit.flavor_populations(E_run, flav, coef2, n, tab["Q"], tab["Mp"], tab["s"], tab["floor"],
+                                              pops)
+            rho = np.empty((N, 3, 3), dtype=np.complex128)
+            dp_transit.galactic_map(E_run, np.ascontiguousarray(pops), coef2, float(n), tab["Q"], tab["Mp"],
+                                    tab["s"], tab["floor"], rho)
+            F.append(np.ascontiguousarray(np.real(np.einsum('iaa->ia', rho))))
+        if band_costh is None:
+            out.append((F[0], F[1]))
+        else:
+            n_b = len(band_costh) - 1
+            out.append((F[0], F[1], np.repeat(F[0][None], n_b, axis=0), np.repeat(F[1][None], n_b, axis=0)))
+    return out
 
 
 # dp_galactic_path.vacuum_populations where the Galaxy's potential is negligible (False: the per-pixel sweep always;
@@ -2382,6 +2475,9 @@ def build_solver_params(config: Dict) -> Tuple[np.ndarray, Dict]:
     params['thermal_products'] = bool(config['dark_portal'].get('thermal_products', False))
     params['relic_scattering'] = bool(config['dark_portal'].get('relic_scattering', True))
     params['neutrino_decay'] = bool(config['dark_portal'].get('neutrino_decay', True))
+    params['trip'] = str(config['dark_portal'].get('trip', 'full'))
+    if params['trip'] not in TRIPS:
+        raise ValueError(f"dark_portal.trip must be one of {TRIPS}, got {params['trip']!r}")
     if params['absorption_model'] not in ('lagrangian', 'theory_notes'):
         raise ValueError(f"dark_portal.absorption_model must be 'lagrangian' or 'theory_notes', got "
                          f"{config['dark_portal']['absorption_model']!r}")

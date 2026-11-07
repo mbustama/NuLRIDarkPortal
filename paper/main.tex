@@ -1,0 +1,725 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+% New interactions of high-energy cosmic neutrinos (working title).
+% Skeleton of 2026-11-07: sections, figure placements and the plan's content as
+% gray to-do notes; no prose yet (paper/paper_planning.md, Step 6).
+%
+% Build: pdflatex main && bibtex main && pdflatex main && pdflatex main
+%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\documentclass[linenumbers, aps, prd, twocolumn, superscriptaddress, floatfix, longbibliography, nofootinbib]{revtex4-2}
+
+\pdfoutput=1
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{placeins}
+
+\usepackage[colorlinks=true,breaklinks=true]{hyperref}
+\usepackage[dvipsnames]{xcolor}
+\definecolor{darkred}{rgb}{0.5,0,0}
+\definecolor{darkblue}{rgb}{0,0,0.5}
+\definecolor{firebrick}{rgb}{0.75,0.125,0.125}
+\definecolor{darkgreen}{rgb}{0,0.5,0}
+\hypersetup{urlcolor=darkblue,
+	    citecolor=darkgreen,
+	    linkcolor=firebrick}
+
+\usepackage{orcidlink}
+
+\setcounter{topnumber}{3}
+\setcounter{dbltopnumber}{2}
+\setcounter{bottomnumber}{0}
+\renewcommand{\topfraction}{0.95}
+\renewcommand{\dbltopfraction}{0.95}
+\renewcommand{\textfraction}{0.05}
+\renewcommand{\floatpagefraction}{0.8}
+\renewcommand{\dblfloatpagefraction}{0.8}
+
+\newcommand{\ie}{{\it i.e.}}
+\newcommand{\Ie}{{\it I.e.}}
+\newcommand{\eg}{{\it e.g.}}
+\newcommand{\Eg}{{\it E.g.}}
+\newcommand{\cf}{{\it cf.}}
+\newcommand{\etc}{{\it etc.}}
+\newcommand{\eq}{Eq.}
+\newcommand{\eqs}{Eqs.}
+\newcommand{\fig}{Fig.}
+\newcommand{\Fig}{Fig.}
+\providecommand{\Ref}{}
+\AtBeginDocument{\renewcommand{\Ref}{Ref.}}
+\newcommand{\Refs}{Refs.}
+\newcommand{\Tab}{Table}
+\newcommand{\Tabs}{Tabs.}
+\newcommand{\equ}[1]{\eq~(\ref{equ:#1})}
+\newcommand{\figu}[1]{\fig~\ref{fig:#1}}
+\newcommand{\tabl}[1]{\Tab~\ref{tab:#1}}
+\newcommand{\MB}[1]{\textcolor{cyan}{[MB: #1]}}
+\newcommand{\todo}[1]{\textcolor{gray}{[#1]}}
+\newcommand{\placeholder}[1]{\fbox{\parbox{0.9\columnwidth}{\centering\vspace{2.5cm}\todo{#1}\vspace{2.5cm}}}}
+
+\begin{document}
+
+\title{New interactions of high-energy cosmic neutrinos, from the Hubble scale to the Earth}
+\todo{Working title; the alternative is ``New neutrino interactions with high-energy astrophysical neutrinos''.}
+
+\author{Mauricio Bustamante\,\orcidlink{0000-0001-6923-0865}}
+\email{mbustamante@nbi.ku.dk}
+\affiliation{Niels Bohr International Academy, Niels Bohr Institute,\\University of Copenhagen, 2100 Copenhagen, Denmark}
+\todo{Co-authors: to decide.}
+
+\date{\today}
+
+\begin{abstract}
+\todo{(1) The question: light mediators of new neutrino interactions act on high-energy astrophysical neutrinos all along their trip.
+(2) What we do: follow the flux from the sources through the Universe, the Milky Way, the Sun and the Earth, with the potential and the collisions on the relic neutrinos together, for three families of models.
+(3) What we fit: IceCube's flavor composition and spectrum, and its starting and through-going events.
+(4) What we find: which stage of the trip matters where, and the resulting limits, with where they compete.
+(5) Context: future telescopes.}
+\end{abstract}
+
+\maketitle
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Introduction}
+\label{sec:introduction}
+
+Do neutrinos feel new interactions, carried by light particles that couple to them?
+Many extensions of the Standard Model contain such a mediator: a gauge boson of a difference between lepton numbers~\cite{He:1990pn, Foot:1990mn, He:1991qd}, a dark gauge boson that reaches the neutrinos through their mixing with a dark neutrino~\cite{Bertuzzo:2018itn, Jana:2026pwx}, or a scalar or vector through which neutrinos interact among themselves~\cite{Berryman:2022hds}.
+Because the mediator is light, its effects reach far.
+It can act over long distances, or resonate when neutrinos collide with other neutrinos at specific energies.
+Either way, its effects build up over the distance that the neutrinos travel.
+
+Laboratory experiments, neutrino oscillations, and cosmology constrain these mediators strongly over wide ranges of mass and coupling~\cite{Bauer:2018onh, Coloma:2020gfv, Blinov:2019gcj, Escudero:2019gfk, Dror:2020fbh}.
+These probes work over terrestrial or solar distances, or in the early Universe, where their reach depends on assumptions about its history.
+Effects that accumulate over cosmological distances at high energies lie beyond their reach.
+So does a test of these interactions that is independent of the early Universe.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{figure}[t!]
+ \centering
+ \placeholder{Fig.~1 (money plot): how each stage of the trip moves the limits; $L_e - L_\mu$, IceCube HESE + DR2; full calculation, the potential at the detector only, and one intermediate step; existing bounds in gray.}
+ \caption{\todo{Headline; what the curves are; see Sec.~\ref{sec:results}; takeaway.}}
+ \label{fig:money}
+\end{figure}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+High-energy astrophysical neutrinos offer such a test~\cite{Ackermann:2022rqc, Arguelles:2022tki}.
+Discovered by IceCube~\cite{IceCube:2013low}, they reach the Earth with energies from TeV to PeV, after traveling up to gigaparsecs.
+IceCube now measures both their energy spectrum and their flavor composition~\cite{IceCube:2026plr, IceCube:2025ole}.
+On their way, a new mediator can act on them through the potential of the matter that they cross, which changes their flavor, and through collisions with the relic neutrinos left over from the early Universe~\cite{Ng:2014pca, Ioka:2014kca}.
+
+Earlier studies treated these effects one at a time and simplified the trip.
+Studies of the potential evaluated it only at the detector~\cite{Agarwalla:2023sng}.
+Studies of the collisions took the relic neutrinos at rest~\cite{Bustamante:2020mep, Esteban:2021tub}, until a recent one let the lightest of them move~\cite{Wang:2025qap}.
+
+In this work, we follow high-energy neutrinos along their whole trip, through the Universe, the Milky Way, the Sun, and the Earth, computing the potential and the collisions together.
+We apply this calculation to the three families of mediators above and fit it to several IceCube data sets: the flavor composition and the spectrum, and the starting and through-going events.
+\textbf{How a new mediator changes the flux at Earth depends on where along the trip it acts, so reliable limits need the full trip.}
+\todo{The result shown in Fig.~\ref{fig:money}, once the money-plot runs are done.}
+
+Section~\ref{sec:models} introduces the mediators and the processes through which they act.
+Section~\ref{sec:trip} describes the trip, Sec.~\ref{sec:data} the data and the statistical method, and Sec.~\ref{sec:results} our results.
+Section~\ref{sec:conclusions} summarizes.
+The appendices give the vertices of each model, the transport in full, the thermal rates, the decays in a medium, the transport for secret interactions, and our treatment of the Earth.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{New light mediators}
+\label{sec:models}
+
+Many extensions of the Standard Model contain a light particle that couples to neutrinos and mediates a new interaction.
+We consider three families of such mediators, which act on high-energy neutrinos in different ways.
+In the first, a new gauge boson couples to the difference between electron number and muon or tau number~\cite{He:1990pn, Foot:1990mn, He:1991qd}.
+This boson couples to electrons as well as to neutrinos, so the electrons in ordinary matter source a potential that changes the flavor of the neutrinos.
+In the second, the dark portal, a dark gauge boson reaches the known neutrinos only through their mixing with a new, dark neutrino~\cite{Bertuzzo:2018itn, Jana:2026pwx}.
+In the third, secret interactions, a scalar or vector mediator couples to neutrinos alone~\cite{Berryman:2022hds}.
+For the latter two, ordinary matter plays no role; only the relic neutrinos, left over from the early Universe, act on the high-energy neutrinos, by colliding with them.
+Figure~\ref{fig:processes} shows every process involved.
+
+\smallskip
+\textit{$L_e - L_\alpha$.}---Under the symmetry $L_e - L_\alpha$, with $\alpha = \mu$ or $\tau$, the new boson $Z'$, of mass $M$, couples with strength $g'$ to the electron and its neutrino, and with the opposite sign to the charged lepton $\ell_\alpha$ and its neutrino:
+\begin{equation}
+ \label{equ:lag_le}
+ \begin{split}
+ \mathcal{L}_{L_e - L_\alpha} = -g' Z'_\mu \big( & \bar e \gamma^\mu e + \bar\nu_e \gamma^\mu P_L \nu_e \\
+  & - \bar\ell_\alpha \gamma^\mu \ell_\alpha - \bar\nu_\alpha \gamma^\mu P_L \nu_\alpha \big) \;,
+ \end{split}
+\end{equation}
+where $P_L$ projects onto left-handed states.
+A neutrino at position $\mathbf{r}$ feels the potential of the electrons within a distance of about $1/M$, the range of the interaction [Fig.~\ref{fig:processes}(a)]~\cite{Agarwalla:2023sng}:
+\begin{equation}
+ \label{equ:potential}
+ \begin{split}
+ \mathbf{V}(\mathbf{r}) &= g'^2\, \Phi_e(\mathbf{r})\, \mathbf{S}_\alpha \;, \\
+ \Phi_e(\mathbf{r}) &= \int d^3 r'\, n_e(\mathbf{r}')\, \frac{e^{-M |\mathbf{r} - \mathbf{r}'|}}{4\pi |\mathbf{r} - \mathbf{r}'|} \;,
+ \end{split}
+\end{equation}
+where $n_e$ is the number density of electrons, $\mathbf{S}_\mu = {\rm diag}(1, -1, 0)$ and $\mathbf{S}_\tau = {\rm diag}(1, 0, -1)$ in the flavor basis.
+Antineutrinos feel $-\mathbf{V}$.
+The electrons of the Universe, of the Milky Way, of the Sun, of the Moon, and of the Earth all contribute.
+Each body contributes once the range reaches it, so the lighter the mediator, the more distant the matter that the neutrinos feel.
+Above twice the electron mass, the mediator also decays into charged-lepton pairs [Fig.~\ref{fig:processes}(f)].
+
+\smallskip
+\textit{The dark portal.}---In the dark portal, no Standard Model particle carries charge under the new gauge symmetry, $U(1)_D$.
+A dark neutrino carries it and mixes with the known neutrinos.
+The dark gauge boson, $Z_D$, has mass $M$ and coupling $g_D$.
+It reaches the known neutrinos through the mixing of the dark neutrino with each flavor $\alpha$, $U_{\alpha 4}$~\cite{Bertuzzo:2018itn, Jana:2026pwx}:
+\begin{equation}
+ \label{equ:lag_dp}
+ \begin{split}
+ \mathcal{L}_{\rm DP} &= -Z_{D\mu} \sum_{\alpha\beta} G_{\alpha\beta}\, \bar\nu_\alpha \gamma^\mu P_L \nu_\beta \;, \\
+ G_{\alpha\beta} &= g_D\, U_{\alpha 4} U^*_{\beta 4} \;.
+ \end{split}
+\end{equation}
+The coupling matrix $G$ has rank one.
+We let the dark neutrino mix with one flavor at a time, so that the interaction has strength $g_D |U_{\alpha 4}|^2$ on $\nu_\alpha$.
+In the model of Ref.~\cite{Jana:2026pwx}, $Z_D$ also mixes with the $Z$ boson, which would let matter source a potential, as for $L_e - L_\alpha$.
+That mixing is at most $(v_\varphi / v_H)(M / m_Z)$, which follows from Eq.~(6) of Ref.~\cite{Jana:2026pwx} and the structure of its gauge sector.
+Here, $v_\varphi$ and $v_H$ are the vacuum values of the Higgs doublets with and without dark charge, and $m_Z$ is the mass of the $Z$ boson.
+Their ratio, $v_\varphi / v_H$, is at most a few.
+At the light masses where a potential could act, this bound lies 8 to 30 orders of magnitude below the mixing that IceCube data could detect.
+We set the mixing to zero, so only the relic neutrinos act on the high-energy neutrinos.
+
+\smallskip
+\textit{Secret interactions.}---Here a new mediator couples to neutrinos alone, with a flavor structure set by a matrix $G$.
+A scalar, $\phi$, and a vector, $V$, couple as
+\begin{equation}
+ \label{equ:lag_si}
+ \begin{split}
+ \mathcal{L}_\phi &= -\kappa\, \phi \sum_{\alpha\beta} G_{\alpha\beta}\, \bar\nu_\alpha \nu_\beta \;, \\
+ \mathcal{L}_V &= -V_\mu \sum_{\alpha\beta} G_{\alpha\beta}\, \bar\nu_\alpha \gamma^\mu P_L \nu_\beta \;,
+ \end{split}
+\end{equation}
+with $\kappa = 1/2$ for Majorana neutrinos and $\kappa = 1$ for Dirac neutrinos.
+We take $G$ equal to $g$ times ${\rm diag}(1, 0, 0)$, ${\rm diag}(0, 1, 0)$, ${\rm diag}(0, 0, 1)$, or the identity, so that the mediator couples with strength $g$ to one flavor or to all of them equally.
+With two mediators and two kinds of neutrino, these choices give 16 models.
+For Dirac neutrinos, the scalar flips chirality: each vertex joins a left-handed neutrino, which interacts weakly, to a right-handed one, which does not.
+Collisions then turn part of the high-energy flux into right-handed neutrinos, which IceCube cannot detect.
+Dirac relic neutrinos also keep the helicity they had when they decoupled, so moving relics present the two helicities in unequal proportions (Appendix~\ref{app:thermal}).
+
+\smallskip
+\textit{What each mediator does, by mass.}---The mass of the mediator decides which of the processes in Fig.~\ref{fig:processes} matter.
+A high-energy neutrino of energy $E$ meets a relic neutrino of mass $m_r$ at resonance when $E = M^2/(2 m_r)$.
+For mediator masses of roughly a keV to tens of MeV, this resonance falls inside IceCube's energy range for at least one relic mass state, depending on the neutrino masses.
+For instance, for $M = 10$~MeV, the resonances on the two heavier relics fall at 1.0 and 5.8~PeV.
+There, absorption carves dips in the spectrum [Fig.~\ref{fig:processes}(b)], while the decays of the mediator return neutrinos of lower energy [Fig.~\ref{fig:processes}(f)].
+For lighter mediators, the high-energy neutrinos also scatter on the relics with small momentum transfer, which moves them between states [Fig.~\ref{fig:processes}(c, d)].
+If the mediator is lighter than the difference between two neutrino masses, the heavier neutrino can decay into the lighter one and the mediator [Fig.~\ref{fig:processes}(g)].
+For vector mediators, the rates of these processes grow as the mediator becomes lighter, through its longitudinal mode.
+
+\smallskip
+\textit{Where the models hold.}---When the neutrino masses break the symmetry behind the current to which a vector couples, the longitudinal mode of the vector couples to neutrinos like a scalar at energies far above $M$~\cite{Dror:2020fbh}.
+For the vectors of Eqs.~(\ref{equ:lag_le}), (\ref{equ:lag_dp}), and (\ref{equ:lag_si}), its couplings to the neutrino mass states $\nu_i$ and $\nu_j$ are~\cite{Allwicher:2021rtd}
+\begin{equation}
+ \label{equ:goldstone}
+ Y_{ij} = \frac{i}{M} \left( G'_{ij}\, m_i + G'_{ji}\, m_j \right) \;,
+\end{equation}
+where $m_i$ is the mass of $\nu_i$ and $G'$ is the coupling matrix in the basis of mass states [Fig.~\ref{fig:processes}(h)].
+These couplings grow as $1/M$.
+Tree-level perturbative unitarity requires the largest partial-wave amplitude that they produce to stay below $1/2$ in magnitude~\cite{Allwicher:2021rtd}.
+For $L_e - L_\mu$, this excludes $g' > 10^{1.76}\, M/{\rm eV}$ when the lightest neutrino is nearly massless; heavier neutrinos lower this line.
+We mark the excluded region in our figures and draw no conclusions from it.
+The scalar has no longitudinal mode, so it has no such region.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{figure*}[t!]
+ \centering
+ \includegraphics[width=\textwidth]{figures/feynman_processes.pdf}
+ \caption{\textbf{\textit{The processes of the trip.}} Every process that our calculation includes, drawn once, with the models it belongs to under each diagram. The mediator is drawn as a vector; for a scalar, the same diagrams hold with a dashed line, and Fig.~\ref{fig:vertices} shows them for Majorana neutrinos. Pair production, (e), proceeds also through the diagram with the two mediators exchanged. Only the potential, (a), needs ordinary matter; every other process needs only the relic neutrinos. See Sec.~\ref{sec:models} for details.}
+ \label{fig:processes}
+\end{figure*}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{The trip}
+\label{sec:trip}
+
+\smallskip
+\textit{What we follow.}---We follow neutrinos and antineutrinos separately, from their sources to the detector.
+Over cosmological distances, the phases of their oscillations average out~\cite{Farzan:2008eg}, so the number of neutrinos in each of three states describes the flux fully.
+These states are the eigenstates $|a\rangle$, with $a = 1, 2, 3$, of the Hamiltonian
+\begin{equation}
+ \label{equ:hamiltonian}
+ H(E, z) = \frac{U\, {\rm diag}(m_1^2, m_2^2, m_3^2)\, U^\dagger}{2E(1+z)} + \mathbf{V}(z) \;,
+\end{equation}
+where $U$ is the lepton mixing matrix, $E$ is the energy observed today, $z$ is the redshift, and $\mathbf{V}$ is the potential.
+For antineutrinos, $U \to U^*$ and $\mathbf{V} \to -\mathbf{V}^*$.
+Without a potential, the eigenstates are the mass states.
+The cosmological potential varies on the scale of the Hubble time, far more slowly than the neutrinos oscillate, so each neutrino stays in its eigenstate as the potential evolves.
+Only collisions and decays move neutrinos between states.
+We follow the number of neutrinos in each state until they reach the Sun, where we switch to a coherent description.
+
+\smallskip
+\textit{Sources.}---We place the sources up to $z = 4$, with a number density that tracks the star-formation rate~\cite{Yuksel:2008cu}.
+Each emits neutrinos and antineutrinos with a power-law energy spectrum and a flavor composition $(f_{e,S}, f_{\mu,S}, f_{\tau,S})$.
+At the source, this mixture of flavors splits incoherently over the eigenstates there, each flavor $\nu_\alpha$ contributing to state $a$ in proportion to $|\langle\nu_\alpha|a\rangle|^2$.
+In the analysis (Sec.~\ref{sec:data}), the spectrum is a broken power law, built from solutions at fixed spectral index.
+
+\smallskip
+\textit{The cosmological transport.}---From the sources to today, the number $F_a(E, z)$ of neutrinos per unit energy in state $a$ evolves as
+\begin{equation}
+ \label{equ:transport}
+ \begin{split}
+ \frac{\partial F_a}{\partial t} = \; & \mathcal{S}_a - \Gamma^{\rm abs}_a F_a + \mathcal{R}_a + \sum_{b \neq a} \left( R_{ab} F_b - R_{ba} F_a \right) \\
+ & + \frac{\partial}{\partial E} \left( b_a F_a \right) - \Gamma^{\rm dec}_a F_a + \mathcal{D}_a \;,
+ \end{split}
+\end{equation}
+with $dt = -dz / [(1+z) H(z)]$ and $H(z)$ the Hubble rate.
+The terms are, in order: the sources; absorption on the relics [Fig.~\ref{fig:processes}(b)] and the neutrinos it returns, $\mathcal{R}_a$ [Fig.~\ref{fig:processes}(f)]; scatterings on the relics that move neutrinos between states [Fig.~\ref{fig:processes}(c, d)]; the energy that neutrinos lose to relics that change mass in those scatterings; and the decay of state $a$ into lighter ones, together with the daughters $\mathcal{D}_a$ that decays feed into it [Fig.~\ref{fig:processes}(g)].
+Because $E$ is the energy observed today, the redshift enters through it, with no separate term.
+Antineutrinos obey the same equation.
+The neutrinos returned by absorption couple the two kinds.
+At MeV masses, where the potential is negligible, the eigenstates are the mass states.
+There we solve the same equation with every channel of Fig.~\ref{fig:processes}(b)--(e), pair production included (Appendix~\ref{app:si}).
+Appendix~\ref{app:transport} gives every term in full.
+
+\smallskip
+\textit{Absorption on the relics.}---State $a$ is absorbed at the rate
+\begin{equation}
+ \label{equ:absorption}
+ \Gamma^{\rm abs}_a(E, z) = \sum_r \Gamma_r(E, z)\, \frac{1}{2} \left| (U^\dagger G W)_{ra} \right|^2 \;,
+\end{equation}
+where $r$ runs over the relic mass states, $W$ holds the eigenvectors of Eq.~(\ref{equ:hamiltonian}) in the flavor basis, and $\Gamma_r$ is the rate of resonant absorption on relic $r$ per unit coupling.
+Thus, the absorption amplitude combines coherently the flavor content of state $a$ and that of relic $r$.
+For instance, in vacuum, a coupling equal for all flavors absorbs mass state $j$ only on relic $j$.
+We average $\Gamma_r$ over the thermal momenta of the relics, at temperature $T_{\nu,0}(1+z)$, with $T_{\nu,0} = 1.68 \times 10^{-4}$~eV today.
+This average matters most when the lightest relic is relativistic, which broadens its resonance~\cite{Wang:2025qap}.
+At MeV masses, the thermal motion of the relics enters every collision term, not only the resonance.
+For Dirac relics, we also account for their helicity (Appendix~\ref{app:thermal}).
+Each absorption of a neutrino of energy $E'$ returns a neutrino and an antineutrino, with energy spectra $3E^2/E'^3$ and $3(E' - E)^2/E'^3$.
+
+\smallskip
+\textit{Decays and scatterings.}---For light mediators, two more processes move neutrinos between states.
+A heavier state decays into a lighter one and the mediator [Fig.~\ref{fig:processes}(g)]; for Majorana neutrinos, the daughter can also be an antineutrino.
+Scatterings on the relics with small momentum transfer move neutrinos between states without changing their number [Fig.~\ref{fig:processes}(c, d)].
+When the relic changes its mass state in such a scattering, the neutrino also loses energy.
+In a potential, the states that decay are the eigenstates of Eq.~(\ref{equ:hamiltonian}), not the mass states (Appendix~\ref{app:decay}).
+The two processes compound: scatterings refill the states that decay, so together they drain the flux at a given energy more than either does alone (Fig.~\ref{fig:collisions}).
+
+\smallskip
+\textit{The Milky Way.}---Today, the extragalactic flux enters the Milky Way, whose stars and gas~\cite{McMillan:2016jtx} add their own potential to the cosmological one.
+This potential also changes slowly along the way, so each state passes smoothly into the matching eigenstate of the potential near the Sun.
+Where the potential of the Milky Way opens decays that the cosmological one does not, we instead follow the flux across the Galaxy direction by direction, with the rates of Eq.~(\ref{equ:transport}).
+The Milky Way also emits neutrinos of its own, made by cosmic rays that collide with its gas and by unresolved sources~\cite{Schwefer:2022zly, IceCube:2023ame}.
+We follow them from where they are emitted, along each line of sight, through the same processes.
+Absorption on the relics is negligible inside the Galaxy, whose column of relics is about $10^{-5}$ of the cosmological one.
+
+\smallskip
+\textit{The Sun, the Moon, and the Earth.}---From the Sun on, we follow the flux coherently.
+Its density matrix starts as $\rho = \sum_a N_a |a\rangle\langle a|$, with $N_a$ the number of neutrinos, extragalactic and Galactic, in state $a$, and evolves as
+\begin{equation}
+ \label{equ:coherent}
+ \frac{d\rho}{dx} = -i \left[ H(x), \rho \right] \;,
+\end{equation}
+where $x$ is the distance along the path and $H(x)$ is the Hamiltonian of Eq.~(\ref{equ:hamiltonian}) today, plus the potential of the Standard Model inside the Earth.
+The flux of flavor $\alpha$ at the detector is $\langle\nu_\alpha|\rho|\nu_\alpha\rangle$, averaged over the paths through the Earth from each direction.
+Along the way, the potentials of the Sun, of the Moon, and of the Earth itself switch on, each within its range.
+Where a potential switches on slowly compared to the oscillations, it turns each state into its own eigenstate.
+For instance, for $L_e - L_\mu$ at $10^{-20}$~eV, the potential of the Sun turns the mass state $\nu_2$ into $\nu_\tau$.
+We compute the potential of the Earth from Eq.~(\ref{equ:potential}), with the electron density of the Preliminary Reference Earth Model~\cite{Dziewonski:1981xy}.
+We neglect collisions and decays from the Sun on; decays would matter there only where the potential already dominates the change of flavor (Appendix~\ref{app:decay}).
+
+\smallskip
+\textit{The flux at Earth, stop by stop.}---Figure~\ref{fig:trip} shows the flux at four stops of the trip: as it reaches the Milky Way, after crossing it, near the Earth, and at the detector.
+Which stop shapes the flux depends on the mediator mass.
+At $10^{-20}$~eV, the flavor composition changes near the Earth, where the potential of the Sun acts.
+At $10^{-26}$~eV, it changes inside the Milky Way, whose potential also opens decays between the lightest neutrino and antineutrino states that drain part of the flux.
+Figure~\ref{fig:collisions} shows the effect of the collisions, switching on the terms of Eq.~(\ref{equ:transport}) one at a time.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{figure*}[t!]
+ \centering
+ \includegraphics[width=\textwidth]{figures/flux_stops.pdf}
+ \caption{\textbf{\textit{Flux and flavor composition of high-energy neutrinos at the stops of their trip.}} \textit{Top:} the flux of all flavors, neutrinos plus antineutrinos, relative to its value on arrival at the Milky Way. \textit{Below:} the fraction of each flavor. The sources emit $\nu_e : \nu_\mu : \nu_\tau = 1 : 2 : 0$ with a spectrum $E^{-2.5}$; the neutrino masses follow the normal ordering, with a lightest mass of $10^{-6}$~eV. See Sec.~\ref{sec:trip} for details. Which stop shapes the flux depends on the range of the mediator: the Sun, for $M = 10^{-20}$~eV, and the Milky Way, for $M = 10^{-26}$~eV.}
+ \label{fig:trip}
+\end{figure*}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{figure*}[t!]
+ \centering
+ \includegraphics[width=\textwidth]{figures/collision_terms.pdf}
+ \caption{\textbf{\textit{Flux and flavor composition of high-energy neutrinos as the terms of the transport are switched on one at a time.}} \textit{Top:} the flux of all flavors, relative to the flux without a new interaction. \textit{Below:} the fraction of each flavor. Each line adds one term to those of the line before; sources and neutrino masses as in Fig.~\ref{fig:trip}. \textit{Left:} absorption carves dips at the resonances on the two heavier relic neutrinos, while the neutrinos it returns raise the flux below each dip. \textit{Right:} scatterings on the relics, which alone conserve the number of neutrinos, deepen the loss from decays. See Sec.~\ref{sec:trip} for details.}
+ \label{fig:collisions}
+\end{figure*}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Data and statistical method}
+\label{sec:data}
+
+\smallskip
+\textit{Data.}---We fit three data sets, each on its own.
+The first combines two measurements of the diffuse flux by IceCube.
+One is the flavor composition measured with 11.4 years of medium-energy starting events~\cite{IceCube:2025ole}.
+We use its likelihood as a function of $(f_e, f_\mu)$ and compare it with the flavor composition of our flux between 10~TeV and 30~PeV.
+The other is the energy spectrum measured in 2026, given as the normalization of an $E^{-2}$ flux in separate energy segments~\cite{IceCube:2026plr}.
+We compute the same normalizations from our flux and compare them with the measured ones, with the asymmetric errors of each segment.
+The second data set uses events instead: 7.5 years of high-energy starting events~\cite{IceCube:2020wum}, whose topologies carry information on flavor, and the through-going muon tracks above 3~TeV of the IceTracks-DR2 release, from its IC79 and IC86 configurations~\cite{IceCube:IceTracksDR2}.
+We fold our flux with the public detector responses of both.
+This set leaves out the flavor measurement, whose events overlap the starting events.
+The third data set is a forecast: the events that eight neutrino telescopes would detect over 10 years each, computed without a new interaction: IceCube, IceCube-Gen2~\cite{IceCube-Gen2:2020qha}, KM3NeT/ARCA~\cite{KM3Net:2016zxf}, Baikal-GVD~\cite{Baikal-GVD:2020irv}, P-ONE~\cite{P-ONE:2020ljt}, TRIDENT~\cite{TRIDENT:2022hql}, NEON~\cite{Zhang:2024slv}, and HUNT~\cite{Huang:2023mzt}.
+
+\smallskip
+\textit{Expected events.}---In bin $k$ of an event sample, we expect
+\begin{equation}
+ \label{equ:events}
+ \mu_k = T \sum_\alpha \int dE\, d\Omega\; \Phi_\alpha(E, \Omega)\, A^{(k)}_\alpha(E, \Omega) + \mu^{\rm bkg}_k \;,
+\end{equation}
+where $T$ is the exposure time, $\Phi_\alpha$ is the flux of flavor $\alpha$ at the detector, from direction $\Omega$, $A^{(k)}_\alpha$ is the effective area that leads into bin $k$, and $\mu^{\rm bkg}_k$ counts the background of atmospheric neutrinos and muons.
+The likelihood of each sample is Poisson, $-2\ln\mathcal{L} = 2 \sum_k [\mu_k - n_k + n_k \ln(n_k/\mu_k)]$, with $n_k$ the observed events.
+
+\smallskip
+\textit{The flux in the fits.}---The astrophysical flux is a broken power law, with a free normalization and free spectral indices above and below a break fixed at 24.5~TeV, where the flux measured by IceCube in 2026 bends~\cite{IceCube:2026plr}.
+The Galactic component~\cite{Schwefer:2022zly} has a normalization with a Gaussian prior centered on that fitted by IceCube, 0.91 times the template, with a width of 0.18.
+The source flavor composition is either fixed to that of pion decay, $(1/3, 2/3, 0)$, or fitted, with free fractions of $\nu_e$ at the extragalactic and at the Galactic sources and no $\nu_\tau$.
+The lightest neutrino mass varies from $10^{-6}$ to $0.1$~eV, in normal ordering, with a prior from cosmology on the sum of the masses, below 0.12~eV at 95\%~C.L.~\cite{Barenboim:2026mvn}.
+We fix the mixing parameters to the best fit of NuFIT~6.1~\cite{Esteban:2024eli}.
+\todo{The size of the effect of the mixing parameters on the limits, estimated separately.}
+
+\smallskip
+\textit{Backgrounds and detector systematics.}---For the event samples, the background of atmospheric neutrinos carries the uncertainties of the hadronic yields in air showers, parametrized as in Ref.~\cite{Barr:2006it}, together with the tilt of the spectrum of cosmic rays and the normalization of the prompt neutrinos.
+For the starting events, we also vary the normalizations of the conventional atmospheric neutrinos and of the atmospheric muons; for the tracks, the normalization of each configuration of the detector.
+We minimize over all of them, each with its prior.
+
+\smallskip
+\textit{How a limit is read.}---At each mediator mass $M$ and coupling $g$, we minimize $\chi^2 = -2\ln\mathcal{L}$ over every other parameter, and compute
+\begin{equation}
+ \label{equ:dchi2}
+ \Delta\chi^2(M, g) = \chi^2(M, g) - \min_{g'} \chi^2(M, g') \;.
+\end{equation}
+A coupling is disfavored at 95\%~C.L.\ when $\Delta\chi^2 \geq 3.84$.
+For light mediators whose decays change the flux at every coupling in our range, the reference is instead the fit without a new interaction.
+We do not use the region beyond perturbative unitarity (Sec.~\ref{sec:models}).
+The threshold of 3.84 follows from Wilks's theorem, which may fail here, since the coupling has a boundary and has no effect below some value.
+\todo{Coverage tests: pseudo-experiments at chosen true values; the coverage found; whether a Feldman--Cousins construction is needed; what is conservative.}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Results}
+\label{sec:results}
+
+\smallskip
+\textit{What each stage does to the limits.}---\todo{Fig.~\ref{fig:money}; the earlier standard, in-line formula.}
+
+\smallskip
+\textit{$L_e - L_\mu$ and $L_e - L_\tau$.}---\todo{Fig.~\ref{fig:lelalpha}; existing bounds~\cite{Bauer:2018onh, Sabti:2019mhn, Dror:2020fbh, Coloma:2020gfv, Garg:2026gwx, Baryakhtar:2017ngi, Wise:2018rnb}.}
+
+\smallskip
+\textit{The dark portal.}---\todo{Fig.~\ref{fig:dp}; existing bounds~\cite{Blinov:2019gcj, Escudero:2019gfk, Bustamante:2016ciw}.}
+
+\smallskip
+\textit{Secret interactions.}---\todo{Fig.~\ref{fig:si}; existing bounds~\cite{Blinov:2019gcj, Brdar:2020nbj, Berryman:2022hds}; the relativistic relic~\cite{Wang:2025qap}.}
+
+\smallskip
+\textit{IceCube's MeV preference, or the discovery case.}---\todo{Fig.~\ref{fig:discovery}.}
+
+\smallskip
+\textit{Future telescopes.}---\todo{Projected regions in Figs.~\ref{fig:lelalpha}--\ref{fig:si}.}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{figure*}[t!]
+ \centering
+ \placeholder{Fig.~4: $L_e - L_\mu$ and $L_e - L_\tau$, $10^{-30}$ to $10^9$~eV (after the final run).}
+ \caption{\todo{Caption.}}
+ \label{fig:lelalpha}
+\end{figure*}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{figure*}[t!]
+ \centering
+ \placeholder{Fig.~5: the dark portal, textures $e$, $\mu$, $\tau$ (after the final run).}
+ \caption{\todo{Caption.}}
+ \label{fig:dp}
+\end{figure*}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{figure*}[t!]
+ \centering
+ \placeholder{Fig.~6: secret interactions (after the secret-interaction campaign).}
+ \caption{\todo{Caption.}}
+ \label{fig:si}
+\end{figure*}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{figure}[t!]
+ \centering
+ \placeholder{Fig.~7: IceCube's MeV preference, or the discovery case.}
+ \caption{\todo{Caption.}}
+ \label{fig:discovery}
+\end{figure}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Summary and outlook}
+\label{sec:conclusions}
+
+\todo{A recap for a fresh reader; main findings in bold; limitations; outlook; a closing statement that makes a new point.}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\appendix
+
+\section{The vertices of each model}
+\label{app:vertices}
+The transport works in the basis of neutrino mass states, $\nu_i$, related to the flavor states by $\nu_\alpha = \sum_i U_{\alpha i} \nu_i$.
+For the vector mediators of Eqs.~(\ref{equ:lag_le}), (\ref{equ:lag_dp}), and (\ref{equ:lag_si}), the mass states couple through the Hermitian matrix $G' = U^\dagger G U$, with $G = g' \mathbf{S}_\alpha$ for $L_e - L_\alpha$.
+For a scalar and Majorana neutrinos, they couple through the complex symmetric matrix $\lambda = U^T G U$.
+This matrix is real only without CP violation.
+For $\delta_{\rm CP} = 212^\circ$, even a coupling equal for all flavors has off-diagonal entries of 9--13\% of $g$.
+No rate depends on the Majorana phases.
+When the scalar couples to a single flavor $\alpha$, so does $\delta_{\rm CP}$, since then $|\lambda_{ij}| = g\, |U_{\alpha i}| |U_{\alpha j}|$.
+For a scalar and Dirac neutrinos, the coupling is $-\phi \sum_{ij} h_{ij}\, \bar\nu_i \nu_j$, with $h = U^\dagger G U$.
+We give the right-handed neutrinos the same mixing as the left-handed ones, since nothing observable fixes their basis.
+
+We evaluate the diagrams with Majorana neutrinos by the fermion-flow rules of Ref.~\cite{Denner:1992me}.
+For Dirac neutrinos, the scalar changes chirality at each vertex, connecting a state that feels the weak interaction, $\nu_L$ or $\bar\nu_R$, with a sterile one, $\nu_R$ or $\bar\nu_L$.
+A relic at rest presents both helicities to the high-energy neutrino.
+Part of the secondaries of each collision are then sterile; we follow the visible and the sterile ones separately, per mass state and energy.
+Figure~\ref{fig:vertices} shows the vertices of each model and the diagrams of the scalar.
+
+The longitudinal mode of a vector mediator couples through the divergence of the current it couples to.
+For Majorana neutrinos, written as left-handed Weyl fields $\chi_i$, the current $\sum_{ij} G'_{ij}\, \chi_i^\dagger \bar\sigma^\mu \chi_j$ has divergence $i \sum_{ij} G'_{ij} (m_i \chi_i \chi_j - m_j \chi_i^\dagger \chi_j^\dagger)$.
+At energies far above $M$, the longitudinal mode then acts as a scalar with the couplings $Y_{ij}$ of Eq.~(\ref{equ:goldstone}), through the term $-\frac{1}{2} \sum_{ij} Y_{ij}\, \phi\, \chi_i \chi_j + {\rm h.c.}$ in the Lagrangian~\cite{Allwicher:2021rtd}.
+We require the largest eigenvalue of the tree-level partial-wave matrices of these couplings, for two-fermion states with total angular momentum $J = 0$ and for fermion-scalar states with $J = 1/2$, to stay below $1/2$ in magnitude~\cite{Allwicher:2021rtd}.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{figure*}[t!]
+ \centering
+ \includegraphics[width=0.96\textwidth]{figures/feynman_vertices.pdf}
+ \caption{\textbf{\textit{The vertices of each model, and the diagrams of the scalar mediator.}} \textit{Top:} the vertex of each model, with its coupling from Eqs.~(\ref{equ:lag_le}), (\ref{equ:lag_dp}), and (\ref{equ:lag_si}). \textit{Bottom:} the processes of Fig.~\ref{fig:processes} for a scalar and Majorana neutrinos. On this vertex two neutrinos meet, so the absorption starts from a relic neutrino rather than an antineutrino. For Dirac neutrinos, every scalar vertex turns a left-handed neutrino into a right-handed one. See Appendix~\ref{app:vertices} for details.}
+ \label{fig:vertices}
+\end{figure*}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\section{The transport equation in full}
+\label{app:transport}
+This appendix gives every term of Eq.~(\ref{equ:transport}) and the transport inside the Milky Way.
+The neutrinos and the antineutrinos are followed as two coupled populations, $F_a$ and $\bar F_a$; we write the terms for neutrinos.
+
+\smallskip
+\textit{Sources.}---Sources of comoving number density $R(z)$, distributed as the star-formation rate~\cite{Yuksel:2008cu}, each emit $\Phi_0 E_s^{-p}$ neutrinos per unit energy $E_s$ at the source.
+Split over the eigenstates at the source,
+\begin{equation}
+ \label{equ:source}
+ \begin{split}
+ \mathcal{S}_a(E, z) = \; & w_\nu\, \Phi_0\, [E(1+z)]^{-p}\, R(z)\, (1+z) \\
+ & \times \sum_\alpha f_{\alpha,S}\, |\langle\nu_\alpha|a\rangle|^2 \;,
+ \end{split}
+\end{equation}
+where $w_\nu$ and $w_{\bar\nu}$ weigh the two kinds, the eigenstates are those of the potential at the sources, and the factor $(1+z)$ converts the energy at the source into the energy observed today.
+
+\smallskip
+\textit{Absorption and its secondaries.}---The rate of absorption is that of Eq.~(\ref{equ:absorption}).
+Each absorption returns a neutrino and an antineutrino.
+The neutrinos returned into state $a$ at energy $E$ are
+\begin{equation}
+ \label{equ:secondaries}
+ \begin{split}
+ \mathcal{R}_a = \beta_a \int_E^\infty dE' \bigg[ & \frac{3E^2}{E'^3} \sum_c \Gamma^{\rm abs}_c F_c \\
+ & + \frac{3(E'-E)^2}{E'^3} \sum_c \bar\Gamma^{\rm abs}_c \bar F_c \bigg]_{E'} \;,
+ \end{split}
+\end{equation}
+where the first term comes from absorbed neutrinos and the second from absorbed antineutrinos.
+The share of the secondaries that enter state $a$, $\beta_a = {\rm Re}(W^\dagger G G^\dagger W)_{aa} / [{\rm Tr}(G G^\dagger) + 24\pi\Gamma_{\rm vis}/M]$, follows from the coupling of the mediator to that state, with $\Gamma_{\rm vis}$ its width into charged leptons.
+Summed over states, it is the branching ratio of the mediator into neutrinos.
+
+\smallskip
+\textit{Scatterings on the relics.}---Scatterings with small momentum transfer move neutrinos from state $a$ to state $b$ at the rate
+\begin{equation}
+ \label{equ:soft}
+ R_{ba} = \Gamma_{\rm u}(z)\, |G_{ba}|^2\, \frac{\omega_{ab}^2}{\omega_{ab}^2 + D_{ab}^2} \;,
+\end{equation}
+where $G_{ba} = \langle b|G|a\rangle$, and $\omega_{ab}$ is the difference between the energies of the two states.
+The damping $D_{ab}$ combines the rates at which scatterings and decays remove neutrinos from the two states.
+When it exceeds the splitting $\omega_{ab}$, the conversions are suppressed.
+The rate per unit coupling squared, $\Gamma_{\rm u}(z) \propto n_{\rm hel} (1+z)^3 / [M^2 + m_D^2(z)]$, grows with the number density of relics per helicity and mass state today, $n_{\rm hel} = 3\zeta(3) T_{\nu,0}^3 / (4\pi^2)$, and falls with the mass of the mediator, increased by its screening mass $m_D$ in the gas of relics.
+
+\smallskip
+\textit{Energy loss to relics that change mass.}---A scattering that leaves the relic in a heavier mass state costs the neutrino energy.
+Averaged over the relics, this lowers the observed energy at the rate
+\begin{equation}
+ \label{equ:loss}
+ b_a(E, z) = \frac{C(z)\, (G G^\dagger)_{aa}}{1+z} \;,
+\end{equation}
+where $C(z)$ sums, over every pair of relic mass states $r \neq s$, the rate of such scatterings times the energy they cost, $(m_s^2 - m_r^2)/(2E_r)$, averaged over the thermal energies $E_r$ of the relics.
+
+\smallskip
+\textit{Decays.}---The loss and gain terms of decays are those of Appendix~\ref{app:decay}.
+
+\smallskip
+\textit{The Milky Way.}---Inside the Galaxy, the number $G_a(E, \ell, \hat n)$ of neutrinos that travel toward the Sun along direction $\hat n$, at distance $\ell$ from it, evolves as
+\begin{equation}
+ \label{equ:galactic}
+ \begin{split}
+ -\frac{\partial G_a}{\partial \ell} = \; & j_a + \sum_{b \neq a} \left( R_{ab} G_b - R_{ba} G_a \right) \\
+ & + \frac{\partial}{\partial E} \left( b_a G_a \right) - \Gamma^{\rm dec}_a G_a + \mathcal{D}_a \;,
+ \end{split}
+\end{equation}
+with every rate evaluated today, in the eigenstates of the local potential.
+Absorption is left out, since the column of relics across the Galaxy is about $10^{-5}$ of the cosmological one.
+The Galaxy emits, per unit length,
+\begin{equation}
+ \label{equ:emission}
+ \begin{split}
+ j_a = \; & \tfrac{3}{2}\, N_{\rm G}\, I(E, \hat n) \left[ w_{\rm gas}\, q_{\rm gas}(\ell, \hat n) + (1 - w_{\rm gas})\, q_{\rm src}(\ell, \hat n) \right] \\
+ & \times \sum_\alpha f_\alpha\, |\langle\nu_\alpha|a\rangle|^2 \;,
+ \end{split}
+\end{equation}
+where $I$ is the intensity per flavor, neutrinos plus antineutrinos, of the template of Ref.~\cite{Schwefer:2022zly}, so that the factor $3/2$ gives all three flavors of one kind.
+The normalization $N_{\rm G}$ is free in the fits, and $w_{\rm gas}$ is the share of the emission from the gas.
+The distributions $q_{\rm gas}$ and $q_{\rm src}$ of the emission from the gas and from unresolved sources along the line of sight are normalized to one, and $(f_e, f_\mu, f_\tau) = (x, 1-x, 0)$ is the flavor composition at emission.
+Where the potential of the Galaxy opens decays that the cosmological one does not, the extragalactic flux crosses the Galaxy by the same equation without emission, along every line of sight, and is then averaged within each band of declination.
+
+\smallskip
+\textit{Solving it.}---We solve Eq.~(\ref{equ:transport}) on 439 energies, from 4.6~TeV to 30~PeV, and 200 steps in redshift, from $z = 4$ to today.
+The eigenstates are tabulated on a grid in $\sigma$, since they depend on energy and redshift only through it.
+Near the Earth, we average over 8 paths past the Sun and over 12 chords through the Earth in each band of declination.
+
+\section{Thermal absorption rates and the relics' helicity}
+\label{app:thermal}
+Absorption on a relic of mass $m_r$ is a resonance at $s = M^2$, where $s$ is the square of the energy of the collision in its center-of-momentum frame.
+For a relic at rest, $s = 2E(1+z)\, m_r$.
+The relics, however, move, with Fermi--Dirac momenta at the temperature $T_{\nu,0}(1+z)$.
+A relic of energy $E_p$ and momentum $p$ that meets the high-energy neutrino at an angle $\theta$ gives $s = m_r^2 + 2E(1+z)\, \epsilon$, with $\epsilon = E_p - p\cos\theta$.
+Thus, the motion of the relics spreads the resonance over a range of energies, most of all for a relativistic lightest relic~\cite{Wang:2025qap}.
+The resonance is far narrower than any grid in energy, so we integrate the Breit--Wigner rate over the momenta of the relics semi-analytically, treating the narrow zone around the resonance with exact antiderivatives.
+For a vector coupled to left-handed neutrinos, the width of the mediator is $\Gamma = M\, {\rm Tr}(G G^\dagger) / (24\pi)$, plus its width into charged leptons where those decays are open.
+
+At MeV masses, we average every term of the collision over the momenta of the relics, not only the resonance.
+Each product of a collision is boosted along the incoming neutrino by a Lorentz factor of about $E/\sqrt{s} \sim 10^8$.
+Its share of the energy is the same in the frame of the relic as in the cosmological frame, so the energy spectra of the products depend on $s$ alone.
+Averaging over the momenta of the relics then reduces to averaging over $s$.
+
+A Dirac relic retains its helicity from the time of decoupling: $-1/2$ for a neutrino and $+1/2$ for an antineutrino.
+At rest and averaged over directions, it is unpolarized; in motion, its spin follows its momentum.
+The spin of a relic neutrino along the direction of the incoming neutrino is
+\begin{equation}
+ \label{equ:polarization}
+ \pi = \frac{E_p\, \epsilon - m_r^2}{p\, \epsilon} \;,
+\end{equation}
+from $-1$ for a relic that moves along with the incoming neutrino to $+1$ for one that moves against it.
+After averaging over the azimuth of the final state, the squared amplitude of a collision is
+\begin{equation}
+ \label{equ:helicity_mix}
+ |\mathcal{M}|^2 = \frac{1 + \pi}{2}\, |\mathcal{M}_L|^2 + \frac{1 - \pi}{2}\, |\mathcal{M}_R|^2 \;,
+\end{equation}
+up to terms of order $m_r^2/s$, where $\mathcal{M}_L$ and $\mathcal{M}_R$ are the amplitudes for a massless relic of left- or right-handed chirality at the same $s$.
+A vector couples only to the left-handed part; a scalar couples to both, with the visible and sterile secondaries of Appendix~\ref{app:vertices}.
+Figure~\ref{fig:helicity} shows the consequences.
+We take the density of relics everywhere as the cosmological mean, neglecting their gravitational clustering in the Milky Way~\cite{Ringwald:2004np, deSalas:2017wtt, Mertsch:2019qjv}.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{figure*}[t!]
+ \centering
+ \includegraphics[width=0.9\textwidth]{figures/dirac_relic_helicity.pdf}
+ \caption{\textbf{\textit{Flux of high-energy neutrinos with secret interactions on Dirac relic neutrinos, with and without the helicity of the relics.}} The flux relative to that without a new interaction, for a mediator coupled to $\nu_e$. Keeping the helicity matters most when the lightest relic is relativistic: for the scalar, the resonance on it nearly disappears; for the vector, it deepens. See Appendix~\ref{app:thermal} for details.}
+ \label{fig:helicity}
+\end{figure*}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\section{Decays in a medium}
+\label{app:decay}
+A neutrino $\nu_i$ decays into a lighter $\nu_j$ and the mediator when $m_i > m_j + M$ [Fig.~\ref{fig:processes}(g)].
+In vacuum, a neutrino of observed energy $E'$ at redshift $z$ decays at the rate $\Gamma_{i \to j} = \Gamma^{\rm rest}_{ij}\, m_i / [E'(1+z)]$, with $\Gamma^{\rm rest}_{ij}$ the rate at rest.
+The daughter carries a fraction $x = E/E'$ of the energy of its parent, distributed as
+\begin{equation}
+ \label{equ:daughters}
+ \frac{d\Gamma^{\rm keep,\,flip}_{i \to j}}{dE} = \frac{\Gamma_{i \to j}}{E'} \left[ a + b\, x + \frac{c}{x} \right]^{\rm keep,\,flip}_{ij}
+\end{equation}
+between the kinematic limits $x_-$ and $x_+$, with coefficients $a$, $b$, $c$ that follow from the helicity amplitudes of the decay.
+The daughter keeps the helicity of its parent (``keep'') or, for Majorana neutrinos, flips it and emerges as an antineutrino (``flip'').
+Every decay keeps one neutrino, so decays conserve the number of neutrinos while they lower their energy.
+
+Inside a potential, decays connect the eigenstates of Eq.~(\ref{equ:hamiltonian}), since those are the states in which the neutrinos propagate.
+Writing the potential as $\mathbf{V} = A\, \mathbf{S}$, the effective masses squared, $\mu_a(\sigma)$, are the eigenvalues of ${\rm diag}(m_i^2) + \sigma\, U^\dagger \mathbf{S} U$, with $\sigma = 2E(1+z) A$.
+A parent in state $a$ at energy $E'$ gives a daughter in state $b$ at energy $xE'$; parent and daughter are projected on their own eigenvectors, evaluated at $\sigma$ and $x\sigma$, respectively.
+Energy conservation fixes the transverse momentum of the daughter,
+\begin{equation}
+ \label{equ:window}
+ k_T^2 = (1 - x) \left[ x\, \mu_a(\sigma) - \mu_b(x\sigma) \right] - x M^2 \geq 0 \;,
+\end{equation}
+and the rate is $d\Gamma_{a \to b}/dx = |\mathcal{A}_{a \to b}|^2 / [16\pi E'(1+z)]$, with the amplitude
+\begin{equation}
+ \label{equ:medium_amp}
+ \mathcal{A}_{a \to b} = \sum_{ij} c^*_{jb}(x\sigma)\, c_{ia}(\sigma)\, \mathcal{V}_{ji} \;.
+\end{equation}
+Here, $c_{ia} = \langle\nu_i|a\rangle$, and $\mathcal{V}_{ji}$ is the vacuum amplitude for $\nu_i$ to decay into $\nu_j$ and the mediator.
+The potential does not act as a mass in the amplitude; it enters only through the eigenvectors and the kinematic window.
+A state cannot decay into itself or into a state of the same kind that lies above it, so the lowest state of each kind decays only by flipping its helicity.
+A potential also opens the decay of a neutrino state into the antineutrino state with the same label, which is closed in vacuum.
+Without a potential, these rates reduce to those of Eq.~(\ref{equ:daughters}).
+
+This treatment is valid as long as the width of every state stays well below its separation from the other states in effective mass squared, \ie, as long as $\zeta_a = 2E'(1+z)\, \Gamma_a / \min_b |\mu_a - \mu_b| \ll 1$; the corrections are of order $\zeta_a$.
+Near the line of perturbative unitarity, at $g/M$ of 10 to 100~eV$^{-1}$, $\zeta_a$ reaches 0.1--0.5, so the decay rates there are uncertain by that fraction.
+\todo{The outcome of the mapping of $\zeta_a$ in the final run.}
+
+Two kinds of decay are left out.
+First, we take the mediator as invisible.
+Its decays back into neutrinos are open only for $M > 2 m_1$; they would add neutrinos at the lowest energies of the spectrum.
+\todo{Decision B: the outcome of the check.}
+Second, we neglect decays from the Sun on.
+There, they change a state by more than $10^{-3}$ only where the potential already dominates the change of flavor, at $\sigma / \Delta m^2_{21} \geq 840$ in the Sun and $\geq 3.4 \times 10^5$ in the Earth; the lowest states, as which the flux arrives, never decay there.
+
+\section{The secret-interaction transport}
+\label{app:si}
+Where the potential is negligible, the eigenstates are the mass states, and we follow the number $F_i(E, z)$ of neutrinos per unit energy in each mass state $\nu_i$.
+For Majorana neutrinos, one population holds both helicities of each mass state, since the interaction treats them alike; we split it between neutrinos and antineutrinos in the proportions of the sources.
+For Dirac neutrinos, we follow the visible and the sterile states of each mass state separately, six populations in all.
+The populations evolve as
+\begin{equation}
+ \label{equ:si_transport}
+ \begin{split}
+ \frac{\partial F_i}{\partial t} = \; & \mathcal{S}_i - \Gamma_i F_i + \sum_j \int_E^\infty dE'\, K_{ij}(E, E')\, \Gamma_j(E')\, F_j(E') \\
+ & - \Gamma^{\rm dec}_i F_i + \sum_j \int_E^\infty dE'\, \frac{d\Gamma_{j \to i}}{dE}(E' \to E)\, F_j(E') \;,
+ \end{split}
+\end{equation}
+where $\Gamma_i$ is the total rate of collisions on the relics, and $K_{ij}(E, E')$ is the energy spectrum of the neutrinos in state $i$ produced by a collision of a neutrino in state $j$ at energy $E'$.
+The last two terms are the decays of the neutrinos into the mediator (Appendix~\ref{app:decay}).
+The rate $\Gamma_i$ sums the $s$, $t$, and $u$ channels, their interferences, and pair production [Fig.~\ref{fig:processes}(b)--(e)], each averaged over the momenta of the relics (Appendix~\ref{app:thermal}).
+Each collision between two neutrinos produces two neutrinos.
+Each pair production produces four when the mediators decay into neutrinos, which they do at once.
+The products of the $t$ and $u$ channels at small momentum transfer return close to the incident energy; we treat their return as a drift in energy rather than as a transfer between energy bins.
+
+For the scalar, we take the cross sections of Ref.~\cite{Esteban:2021tub}, Appendix~A, with two corrections.
+First, the Majorana mass states couple through the complex matrix $\lambda = U^T G U$ (Appendix~\ref{app:vertices}), which Ref.~\cite{Esteban:2021tub} takes as real; the two agree only without CP violation.
+Second, pair production sums the exchanged mass states coherently, which changes its cross section by factors of 0.08 to 2 with respect to the printed form.
+For the vector, we derive the cross sections from Eq.~(\ref{equ:lag_si}).
+We checked every cross section against an explicit computation of the amplitudes with Dirac matrices and helicity spinors.
+
+We use this transport for secret interactions at every mass, and for the dark portal and $L_e - L_\alpha$ at MeV masses, where their potential is negligible.
+Below 1~keV, it also carries the scatterings with large momentum transfer of the dark portal and $L_e - L_\alpha$, for couplings above $10^{-4}$.
+
+\section{The Earth's chords}
+\label{app:earth}
+A neutrino that reaches the detector from zenith angle $\theta_z$ crosses a chord of the Earth or, from above, only the ice over the detector.
+Along each chord, we evolve the density matrix by Eq.~(\ref{equ:coherent}) in steps.
+Each step takes the exact mean density of the Preliminary Reference Earth Model~\cite{Dziewonski:1981xy} over its length, computed layer by layer.
+When the range of the mediator approaches the thickness of a layer, we use instead the density smoothed by the Yukawa factor of Eq.~(\ref{equ:potential}), which relaxes across each boundary between layers over a length $1/M$.
+The phase accumulated by the potential then equals its integral along the chord, whatever the number of steps; we use 25.
+The same integral gives the Earth's potential at the detector and, where the range exceeds the radius of the Earth, outside it.
+
+We average the chords over the sky with equal weight per $\cos\theta_z$, within each band of declination.
+At MeV masses, the potential accumulates a phase of $10^5$ to $10^8$~rad across the Earth, so the off-diagonal blocks of the density matrix oscillate rapidly from chord to chord.
+An equal-weight mean over a finite set of chords would keep these oscillations as noise.
+Instead, we integrate each block against its phase over $\cos\theta_z$, which reproduces the exact average over the sky to $10^{-5}$.
+
+\section{Existing bounds}
+\label{app:bounds}
+\todo{The bounds shown in gray, their sources and how they were obtained.}
+
+\bibliography{references}
+
+\end{document}

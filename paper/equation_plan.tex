@@ -1,0 +1,136 @@
+\documentclass[11pt]{article}
+\usepackage[margin=2.2cm]{geometry}
+\usepackage{amsmath, amssymb}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\definecolor{firebrick}{rgb}{0.75,0.125,0.125}
+\newcommand{\checked}[1]{\par\noindent\textit{Check:} #1}
+\newcommand{\inline}[1]{\par\noindent\textit{In-line after it:} #1}
+\newcommand{\open}[1]{\par\noindent\textcolor{firebrick}{\textit{Open:} #1}}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{4pt}
+
+\begin{document}
+
+\begin{center}
+{\large\bfseries New interactions of high-energy cosmic neutrinos: equations plan}\\[2pt]
+Step 3 of the paper plan, draft of 2026-11-07, for sign-off
+\end{center}
+
+Nine display equations in the main text; the derivations in the appendices.
+The equations are taken from \texttt{notes/notes.tex} (sections named below) and rewritten in the paper's notation: $M$ the mediator mass, $g$ its coupling (with $g'$ for $L_e - L_\alpha$ and $g_D$ for the dark portal), $\alpha, \beta$ flavors, $i, j$ mass states, $a, b$ the eigenstates in a potential.
+Each check names the test or validation that verified the formula in the code.
+
+%--------------------------------------------------------
+\section*{Main text}
+
+\subsection*{Sec.~II. New light mediators}
+
+\textbf{Eq.~(1): the couplings of the three families.}
+For $L_e - L_\alpha$ ($\alpha = \mu, \tau$), the dark portal, and secret interactions through a scalar $\phi$ or a vector $V$:
+\begin{align}
+ \mathcal{L}_{L_e - L_\alpha} &= -g' Z'_\mu \left( \bar e \gamma^\mu e - \bar\ell_\alpha \gamma^\mu \ell_\alpha
+   + \bar\nu_e \gamma^\mu P_L \nu_e - \bar\nu_\alpha \gamma^\mu P_L \nu_\alpha \right) \;, \nonumber \\
+ \mathcal{L}_{\rm DP} &= -Z_{D\mu} \sum_{\alpha\beta} G_{\alpha\beta}\, \bar\nu_\alpha \gamma^\mu P_L \nu_\beta \;, \qquad
+   G_{\alpha\beta} = g_D\, U_{\alpha 4} U^*_{\beta 4} \;, \nonumber \\
+ \mathcal{L}_{\rm SI} &= -\tfrac12 \sum_{\alpha\beta} G_{\alpha\beta}\, \bar\nu_\alpha \nu_\beta\, \phi
+   \quad \text{or} \quad -\sum_{\alpha\beta} G_{\alpha\beta}\, \bar\nu_\alpha \gamma^\mu P_L \nu_\beta\, V_\mu \;.
+\end{align}
+\inline{the dark portal's mediator reaches the active neutrinos only through their mixing $U_{\alpha 4}$ with the dark neutrino; its $Z$ mixing is set to zero (the potential planes were dropped, 2026-10-24); the secret-interaction textures: $G$ proportional to ${\rm diag}(1,0,0)$, $(0,1,0)$, $(0,0,1)$ or the identity; Majorana or Dirac neutrinos.}
+\checked{definitions; the Majorana mass-basis couplings $\lambda = U^T G U$ (notes, ``Model and cross sections''; tests).}
+\open{the Dirac forms (notes, ``Dirac neutrinos and a vector mediator''); whether to keep the dark portal's $Z$-mixing term, with $\kappa = \epsilon' g / c_W$ added to every flavor, as a remark (check the factor against \texttt{dp\_absorption.dark\_portal\_coupling}).}
+
+\textbf{Eq.~(2): the potential of the electrons, for $L_e - L_\alpha$.}
+\begin{equation}
+ \mathbf{V}(\mathbf{r}) = g'^2\, \Phi_e(\mathbf{r})\, {\rm diag}(1, -1, 0) \;, \qquad
+ \Phi_e(\mathbf{r}) = \int d^3 r'\, n_e(\mathbf{r}')\, \frac{e^{-M |\mathbf{r} - \mathbf{r}'|}}{4\pi |\mathbf{r} - \mathbf{r}'|} \;,
+\end{equation}
+with ${\rm diag}(1, 0, -1)$ for $L_e - L_\tau$, and $-\mathbf{V}^*$ for antineutrinos.
+\inline{the bodies that source it: the Universe's electrons (uniform, out to the Hubble radius), the Milky Way's (stars, cold and hot gas), the Sun's, the Moon's and the Earth's; each switches on when $1/M$ exceeds its distance.}
+\checked{the Earth's $\Phi_e$ as its exact Yukawa integral (notes, ``The Earth's own potential''); potential-dominated closed form to $10^{-11}$.}
+\open{the overall normalization against the code's \texttt{Coef}, on one test point.}
+
+\textbf{Eq.~(3): where the models hold.}
+The mediator's longitudinal mode couples like a scalar with Yukawa couplings
+\begin{equation}
+ Y_{ij} = \frac{i}{M} \left( G'_{ij}\, m_i + G'_{ji}\, m_j \right) \;,
+\end{equation}
+with $G'$ the couplings in the mass basis; tree-level perturbative unitarity requires the largest partial wave $|{\rm Re}\, a_J| \leq 1/2$.
+\inline{for $L_e - L_\mu$ this excludes $g' > 10^{1.76}\, M/{\rm eV}$ (lightest mass $10^{-6}$ eV); hatched in the figures.}
+\checked{\texttt{tests/test\_unitarity.py} reproduces Allwicher \textit{et al.}'s Eqs.~(4.7), (6.2), (6.4).}
+
+\subsection*{Sec.~III. The trip}
+
+\textbf{Eq.~(4): the states that are followed.}
+\begin{equation}
+ H(E, z) = \frac{U\, {\rm diag}(m_1^2, m_2^2, m_3^2)\, U^\dagger}{2E(1+z)} + \mathbf{V}(z) \;,
+\end{equation}
+for neutrinos ($U \to U^*$, $\mathbf{V} \to -\mathbf{V}^*$ for antineutrinos); its eigenstates $|a\rangle$, with flavor content $|\langle\nu_\alpha|a\rangle|^2$.
+\inline{the potential changes over a Hubble time, against oscillation lengths of at most parsecs, so each state keeps its population; only collisions and decays move neutrinos between states.}
+\checked{closed form where the potential dominates, to $10^{-11}$.}
+
+\textbf{Eq.~(5): the cosmological transport.}
+For the population $F_a(E, z)$ of state $a$, at observed energy $E$, with $dt = -dz / [(1+z) H(z)]$:
+\begin{equation}
+ \frac{\partial F_a}{\partial t} = \mathcal{S}_a - \Gamma^{\rm abs}_a F_a + \mathcal{R}_a
+ + \sum_{b \neq a} \left( R_{ab} F_b - R_{ba} F_a \right) + \frac{\partial}{\partial E}\left( b_a F_a \right)
+ - \Gamma^{\rm dec}_a F_a + \mathcal{D}_a \;,
+\end{equation}
+sources, absorption on the relics and its secondaries $\mathcal{R}_a$, soft scatterings, the energy lost to relics that change mass, decays and their daughters $\mathcal{D}_a$.
+\inline{the same for antineutrinos; the two kinds are coupled through the secondaries.}
+\checked{number conservation without absorption and decay; no effect for $U_{\alpha 4} \to 0$; the Z-burst normalization (notes, ``The normalization of the resonant absorption'').}
+\open{whether the secondaries' spectra appear here or only in the appendix.}
+
+\textbf{Eq.~(6): the absorption on the relics.}
+\begin{equation}
+ \Gamma^{\rm abs}_a(E, z) = \sum_r \Gamma_r(E, z)\, \frac12 \left| (U^\dagger G W)_{ra} \right|^2 \;,
+\end{equation}
+with $W$ the eigenvectors of Eq.~(4) and $\Gamma_r$ the Breit--Wigner rate on relic mass state $r$, averaged over its thermal momenta.
+\inline{the resonance energy, $E_{\rm res} = M^2 / (2 m_r)$: 1.0 and 5.76~PeV for $M = 10$~MeV, on $\nu_3$ and $\nu_2$.}
+\checked{thermal kernel against brute force ($\leq 1.8 \times 10^{-4}$); the Dirac relics' helicity against brute force.}
+
+\textbf{Eq.~(7): from the Sun to the detector.}
+\begin{equation}
+ \frac{d\rho}{dx} = -i \left[ H(x), \rho \right] \;, \qquad \rho = \sum_a F_a\, |a\rangle\langle a| \ \text{at the Sun} \;,
+\end{equation}
+with $H(x)$ that of Eq.~(4) at $z = 0$ plus the Standard Model's matter potential.
+\inline{the flux of flavor $\alpha$ at the detector is $\langle\nu_\alpha|\rho|\nu_\alpha\rangle$, averaged over the Earth's chords.}
+\checked{unitarity of the propagator; the Sun's $L_e - L_\mu$ potential maps $\nu_2$ onto $\nu_\tau$ (in the tests of the flux at each stop of the trip).}
+
+\subsection*{Sec.~IV. Data and statistical method}
+
+\textbf{Eq.~(8): the expected events.}
+The number of events in bin $k$ of a data set, from the flux $\Phi_\alpha$ of each flavor and kind at the detector,
+\begin{equation}
+ \mu_k = T \sum_\alpha \int dE \, d\Omega \; \Phi_\alpha(E, \Omega)\, A^{(k)}_\alpha(E, \Omega) + \mu^{\rm bkg}_k \;,
+\end{equation}
+with $A^{(k)}_\alpha$ the effective area into bin $k$ and $T$ the exposure.
+\checked{HESE expectation exact (2026-10-14); DR2 tracks against the events (\texttt{dr2\_validation.py}).}
+\open{the precise forms (HESE topologies; DR2 smearing) from the notes, ``Track rates with IceTracks-DR2'' and ``Starting events with HESE''.}
+
+\textbf{Eq.~(9): how a limit is read.}
+\begin{equation}
+ \Delta\chi^2(M, g) = \chi^2(M, g) - \min_{g} \chi^2(M, g) \;, \qquad \chi^2 = \min_{\boldsymbol{\eta}} \left[ -2 \ln \mathcal{L}(M, g, \boldsymbol{\eta}) \right] \;,
+\end{equation}
+with $\boldsymbol{\eta}$ the nuisance parameters (source spectrum and composition, atmospheric fluxes, lightest neutrino mass); a coupling is disfavored at 95\%~C.L.\ when $\Delta\chi^2 \geq 3.84$.
+\checked{coverage tests: planned (statistical-soundness plan).}
+
+%--------------------------------------------------------
+\section*{In-line, Sec.~V (for Fig.~1)}
+
+The earlier standard: the flavor composition at Earth from the potential at the detector alone,
+$f_{\beta,\oplus} = \sum_\alpha f_{\alpha,S} \sum_a |W_{\alpha a}|^2 |W_{\beta a}|^2$, with $W$ the eigenvectors at the total potential at the detector.
+\checked{\texttt{tests/test\_trips.py}: it returns the source composition where that potential dominates.}
+
+%--------------------------------------------------------
+\section*{Appendices}
+
+\begin{itemize}[leftmargin=*,itemsep=0pt]
+ \item The transport equation in full: every secondary spectrum; the Galactic transport and emission; the source term (notes, ``The transport equation in full'').
+ \item The thermal absorption rates and the Dirac relics' helicity.
+ \item Decays in a medium; where the transport leaves them out.
+ \item The secret-interaction transport, all channels (notes, ``Transport'').
+ \item The Earth's chords and the zenith average.
+\end{itemize}
+
+\end{document}
