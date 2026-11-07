@@ -35,9 +35,9 @@ def _gauge(model, m, g):
     return dps.build_solver_params(config)
 
 
-def _si(m, g):
-    config = {"secret_interactions": {"enabled": True, "mediator": "scalar", "neutrino_type": "majorana",
-                                      "m_phi_eV": m, "g_phi": g, "texture": "tau"},
+def _si(m, g, mediator="scalar", neutrino_type="majorana", texture="tau"):
+    config = {"secret_interactions": {"enabled": True, "mediator": mediator, "neutrino_type": neutrino_type,
+                                      "m_phi_eV": m, "g_phi": g, "texture": texture},
               "cosmology": {"m_lightest_eV": 1e-6}, "standard_mixing": MIXING,
               "source": {"p_index": 2.5}, "grid": GRID, "execution": {"n_cores": 1, "verbose": 0}}
     return dps.build_solver_params(config)
@@ -48,8 +48,13 @@ def _tot(d, k):
 
 
 @pytest.mark.parametrize("make", [lambda: _gauge("L_e-L_mu", 1e-26, 1e-27), lambda: _si(1e7, 1e-3),
+                                  lambda: _si(1e7, 1e-3, mediator="vector"),
+                                  lambda: _si(1e7, 1e-3, neutrino_type="dirac"),
+                                  lambda: _si(1e7, 1e-3, mediator="vector", neutrino_type="dirac"),
+                                  lambda: _si(1e7, 1e-3, texture="universal"),
                                   lambda: _gauge("L_e-L_mu", 1e7, 1e-3)],
-                         ids=["le_lmu_ultralight_goldstone", "si_scalar_tau", "le_lmu_mev_dp_si"])
+                         ids=["le_lmu_ultralight_goldstone", "si_scalar_tau", "si_vector_majorana", "si_scalar_dirac",
+                              "si_vector_dirac", "si_scalar_universal", "le_lmu_mev_dp_si"])
 def test_track_ends_on_the_arrival_and_shells_add_up(make):
     E, p = make()
     u = tj.universe(E, p)
