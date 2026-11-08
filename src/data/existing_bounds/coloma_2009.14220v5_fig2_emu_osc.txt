@@ -1,0 +1,30 @@
+# Coloma, Gonzalez-Garcia & Maltoni, arXiv:2009.14220v5 (25 Apr 2024), Fig. 2 (page 14, figure printed rotated), panel L_e - L_mu; curve: OSC (This work), black line bounding the hatched region
+# C.L.: 2 sigma, Delta chi^2 > 4 (95.45% C.L.), Eq. (3.6), one-dimensional upper bound on g' at each M
+# coupling convention: g' of L = -g' (a_e ebar gamma^a e + b_e nuebar gamma^a P_L nu_e + b_mu ... + b_tau ...) Z'_a (Coloma Eq. 2.1, printed p. 3 = PDF p. 4), L_e-L_alpha: a_e = b_e = 1, b_alpha = -1 (Table 1) = our g'
+# excluded side: above the curve (larger g' at fixed M)
+# method: vector paths extracted with PyMuPDF; axes calibrated on the drawn ticks (g' ticks 1e-14..1e-26 every 2 decades, M ticks 1e-15, 1e-9, 1e-3 eV), tick values from the PDF text layer; clipped to the plotted frame (M = 1e-19..1e-1 eV)
+# columns: log10(M/eV)  log10(g')
+-18.99702	-26.01483
+-16.35000	-26.01027
+-15.94999	-25.99744
+-15.55000	-25.97301
+-15.45000	-25.95951
+-15.30000	-25.93421
+-15.10000	-25.89994
+-15.00000	-25.87032
+-14.75007	-25.75000
+-14.60000	-25.67977
+-14.44999	-25.58494
+-14.00000	-25.24255
+-13.95000	-25.19612
+-13.88829	-25.15000
+-13.78745	-25.10000
+-13.30000	-24.97150
+-13.25000	-24.94836
+-13.20000	-24.93201
+-12.95000	-24.79351
+-12.80000	-24.68782
+-12.45000	-24.38306
+-11.90000	-23.84189
+-9.75000	-21.68641
+-1.05823	-12.99464

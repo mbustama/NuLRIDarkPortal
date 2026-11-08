@@ -1,0 +1,49 @@
+# Berryman et al. (white paper), arXiv:2203.01955v1, Fig. 9 (scalar mediator, compilation); curve: dark-red fill "IceCube HESE 6 yr", higher-mass dip (open contour on the top edge); original source: arXiv:2001.04994 (WP ref. [158]); coupling: universal (flavor)
+# C.L.: as in the original source (not stated in the white paper)
+# coupling convention: white-paper Eq. (2.1), PDF p. 4 (printed p. 2): "L > g_{alpha beta} phi nu_alpha nu_beta" (two-component, scalar; no 1/2 and no h.c. written); Fig. 9 is "modified from Ref. [158]" (Bustamante, Rosenstrom, Shalgar & Tamborra, arXiv:2001.04994) and each curve keeps the normalization of that compilation; its Lab g_ee and g_mumu lines coincide (<0.05 dex) with Blinov et al. 1905.02727 Fig. 1, whose convention is (1/2)(g nu nu phi + h.c.)
+# excluded side: inside the dip: between the curve and g = 1
+# method: vector paths extracted with PyMuPDF from arXiv:2203.01955v1 page 20, Fig. 9; axes calibrated on the drawn major ticks (log10(M/MeV) = -5..4, log10 g = -13..0) with values from the PDF text layer; clipped to the plotted frame; mass converted to eV
+# columns: log10(M/eV)  log10(g_{alpha beta})
+7.29201	-0.00000
+7.30002	-0.04025
+7.31002	-0.09467
+7.32002	-0.14611
+7.33002	-0.20996
+7.34002	-0.28304
+7.35002	-0.35604
+7.36002	-0.42748
+7.37002	-0.49384
+7.38002	-0.56342
+7.39002	-0.62386
+7.40002	-0.68519
+7.41002	-0.74038
+7.42002	-0.79107
+7.43002	-0.83135
+7.44002	-0.86643
+7.45002	-0.90161
+7.46002	-0.92972
+7.47002	-0.95111
+7.48002	-0.95186
+7.49001	-0.95066
+7.50002	-0.94584
+7.51002	-0.91730
+7.52002	-0.89560
+7.53002	-0.88114
+7.54002	-0.85978
+7.55002	-0.82207
+7.56002	-0.78120
+7.57001	-0.73787
+7.58001	-0.69279
+7.59001	-0.64663
+7.60002	-0.60010
+7.61001	-0.55390
+7.62001	-0.50872
+7.63001	-0.46526
+7.64001	-0.42421
+7.65001	-0.38627
+7.66001	-0.35215
+7.67001	-0.32252
+7.68001	-0.29810
+7.69001	-0.27958
+7.70001	-0.26765
+7.70001	-0.00000

@@ -20,8 +20,8 @@ the mediator takes the rest). On that window dGamma/dz = a + b z + c / z exactly
 For m_j, M -> 0 the window is [0, 1], the kept half 2(1-z) f_T + 2 z f_L, the flipped half the mirror (the earlier
 massless kernels, f_L = 1/(1 + 2 M^2/m_i^2)); with massive daughters the kept share is not 1/2 (1/3 at m_i = 0.112,
 m_j = 0.1 eV for real couplings; it depends on the coupling's phase) and nearly degenerate masses leave the daughter
-almost all the energy (z in [0.80, 1.00] at m_i = 0.112, m_j = 0.1, m_Zd = 1e-3 eV). The mediator is taken as
-invisible.
+almost all the energy (z in [0.80, 1.00] at m_i = 0.112, m_j = 0.1, m_Zd = 1e-3 eV). The mediator is
+invisible here; since 2026-11-07 (decision B) dp_mediator follows it and its decay back into neutrino pairs.
 
 The step (decay_step): a top-down sweep over the energy bins, like the cosmological cascade (dp_cosmo): the
 daughters of the bins above arrive first, then the bin's own populations decay, exactly for any rate x step, heaviest
@@ -39,6 +39,12 @@ from numba import njit
 
 # NumPy 2 renamed trapz to trapezoid (CI runs NumPy 2, the pinned environment 1.26)
 _trapz = getattr(np, "trapezoid", None) or getattr(np, "trapz")
+
+# Decision C's bracket (Mauricio, 2026-10-24; run 2026-11-07): the share of the relics' decay daughters kept as relics
+# by relic_composition. 1 is the model (the number kept: all nu_1, three times the number); 0 keeps none (the number
+# of nu_1 unchanged). An audit setting: only tools/bracket_relic_population.py sets it, in its own worker processes
+# (it is not part of any configuration nor of the flux cache's key); everything else runs with 1.
+BRACKET_DAUGHTERS = 1.0
 
 
 def rest_rates(G_flavor, U, masses, M, majorana=True):
@@ -464,5 +470,5 @@ def relic_composition(Gam, masses, eta, T_nu0, H0, Omega_m, Omega_L, z_ref=1.0, 
         eta[i] -= dec
         for j in range(3):
             if Gam[i, j] > 0.0:
-                eta[j] += dec * Gam[i, j] / tot[i]
+                eta[j] += dec * Gam[i, j] / tot[i] * BRACKET_DAUGHTERS
     return eta

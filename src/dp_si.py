@@ -55,6 +55,7 @@ import numpy as np
 
 from dp_core import njit, prange
 import numba  # after dp_core (it sets numba's CPU features)
+import dp_mediator  # noqa: E402 (after dp_core)
 from dp_thermal import (relic_state_rates_analytic, _GL16_X as _TGL16_X, _GL16_W as _TGL16_W,
                         _GL10_X as _TGL10_X, _GL10_W as _TGL10_W, _FD16 as _TFD16)
 
@@ -672,7 +673,9 @@ def _phiphi_g(u, beta, delta):
         e = np.exp(u)
         a = beta * e / (1.0 + e)
         b = beta / (1.0 + e)
-    x = 0.5 * (1.0 - beta) + a
+    # x_- = (1 - beta) / 2 = 2 mu / (1 + beta) = sqrt(delta), without the cancellation of 1 - beta (2026-11-08: for
+    # mu below ~1e-16 it rounded to zero, x to a ~ delta e^-25)
+    x = np.sqrt(delta) + a
     ra = a / (a + delta)
     rb = b / (b + delta)
     return (2.0 * x - 1.0) ** 2 * ra * ra * rb * rb / beta, x
@@ -995,12 +998,18 @@ def _vv_g(u, beta, delta, mu):
         e = np.exp(u)
         a = beta * e / (1.0 + e)
         b = beta / (1.0 + e)
-    x = 0.5 * (1.0 - beta) + a
-    T = b + delta
-    U = a + delta
-    D = (T * T + U * U) * a * b + 4.0 * mu * T * U
-    g = D * a * b / (beta * T * T * U * U)
-    gL = 2.0 * mu * (1.0 - x) * (1.0 - x) * a * b / (beta * T * T * x * x)
+    # x_- = (1 - beta) / 2 = 2 mu / (1 + beta), without the cancellation of 1 - beta (2026-11-08, the secret-
+    # interaction pilot below 1 keV: for mu below ~1e-16 it rounded to zero, x to a ~ delta e^-25, and at mu ~ 1e-77
+    # x^2 underflowed in gL -- a division by zero at the two lightest mediators of the vector planes)
+    x = 2.0 * mu / (1.0 + beta) + a
+    # in the ratios ra = a / U, rb = b / T (<= 1) the same expressions without squaring delta-sized numbers (at
+    # mu ~ 1e-80, delta ~ 1e-160 and U^2 underflowed): g = (b^2 ra^2 + a^2 rb^2 + 4 mu ra rb) / beta,
+    # gL = 2 (1-x)^2 rb^2 (a / x) (mu / (x b)) / beta -- exact rewritings, valid while delta = mu^2 is representable
+    # (mu > ~1e-154: mediators above ~1e-67 eV at these energies)
+    ra = a / (a + delta)
+    rb = b / (b + delta)
+    g = (b * b * ra * ra + a * a * rb * rb + 4.0 * mu * ra * rb) / beta
+    gL = 2.0 * (1.0 - x) * (1.0 - x) * rb * rb * (a / x) * (mu / (x * b)) / beta
     return g, gL, x
 
 
@@ -1807,8 +1816,53 @@ def _phi_functions(Mx):
 
 
 @njit(cache=True)
+def _med_rows_si(Mx, Mx6, tdec, dec_br, mprod, mdec, mrate, Ez, dt):
+    """A bin's exact system with its mediators (_si_sweep_cols_med; 2026-11-08, as dp_sweep._med_rows): Mx6 the n
+    states' Mx (n x n, _bin_matrix) and, in rows and columns n..n+2, the mediators by LF helicity -- made by the bin's
+    decays into the bin itself (state a's decay exponent tdec[a] over the step, its branching dec_br[a, c], the
+    folded tables' own-bin share mprod[a, c, lam, 0]), decaying (dp_mediator.decay_exponent at E zp1 = Ez), their
+    neutrinos in the bin itself (mdec[lam, kd, st, 0] into state 3 kd + st: one kind, both kinds of the mass state st,
+    for Majorana; visible kd = 0 and sterile kd = 1 for Dirac's six states, 2026-11-08). Returns the mediators' decay
+    exponent."""
+    n = Mx.shape[0]
+    nk = mdec.shape[1]
+    for r in range(n + 3):
+        for c in range(n + 3):
+            Mx6[r, c] = Mx[r, c] if (r < n and c < n) else 0.0
+    for a in range(n):
+        if tdec[a] <= 0.0:
+            continue
+        for c in range(n):
+            br = dec_br[a, c]
+            if br == 0.0:
+                continue
+            for lam in range(3):
+                Mx6[n + lam, a] += tdec[a] * br * mprod[a, c, lam, 0]
+    tz, _ = dp_mediator.decay_exponent(mrate, Ez, dt)
+    for lam in range(3):
+        Mx6[n + lam, n + lam] = -tz
+        for kd in range(nk):
+            for st in range(3):
+                Mx6[3 * kd + st, n + lam] += tz * mdec[lam, kd, st, 0]
+    return tz
+
+
+@njit(cache=True)
 def _si_sweep_cols(F, E, dE, S0, J, Nq, Lq, Dq, jt, w, qe, Ctau, Creg, tabB, tabO, node, dt, reg, diag, exact_bin,
                    dec_rate, dec_br, dec_own, dec_kfull, dec_kex, dec_fex, dec_mom, zp1, use_dec):
+    """_si_sweep_cols_med without the mediator's decay back (the code before 2026-11-07, bit for bit)."""
+    C = F.shape[2]
+    _si_sweep_cols_med(F, E, dE, S0, J, Nq, Lq, Dq, jt, w, qe, Ctau, Creg, tabB, tabO, node, dt, reg, diag, exact_bin,
+                       dec_rate, dec_br, dec_own, dec_kfull, dec_kex, dec_fex, dec_mom, zp1, use_dec,
+                       False, np.zeros((1, 3, C)), np.zeros((3, 3, 3, 1)), np.zeros((3, 3), dtype=np.int64),
+                       np.zeros((3, 3, 3, 2)), np.zeros((3, 1, 3, 1)), np.zeros(3, dtype=np.int64),
+                       np.zeros((3, 1, 3, 2)), 0.0, np.zeros((1, 3, C)), np.zeros((1, C, 1, 3)), np.zeros((C, 12)))
+
+
+@njit(cache=True)
+def _si_sweep_cols_med(F, E, dE, S0, J, Nq, Lq, Dq, jt, w, qe, Ctau, Creg, tabB, tabO, node, dt, reg, diag, exact_bin,
+                       dec_rate, dec_br, dec_own, dec_kfull, dec_kex, dec_fex, dec_mom, zp1, use_dec,
+                       use_med, Zm, mprod, mnprod, mpsum, mdec, mndec, mdsum, mrate, pendZ, pendM, mdiag):
     """_si_sweep for several sources at once (2026-10-18): F, S0 and reg are (N, n, C), one column per source, diag
     (C, 6). With use_dec (2026-10-24; dp_decay, Majorana): the decay into the mediator as one more channel of every
     bin -- state a decays at dec_rate[a] / (E zp1) (rest rate x mass over the energy, the lab rate), its daughter in
@@ -1828,7 +1882,20 @@ def _si_sweep_cols(F, E, dE, S0, J, Nq, Lq, Dq, jt, w, qe, Ctau, Creg, tabB, tab
     a column's result does not depend on the batch it was computed in; against _si_sweep it agrees to rounding.
     n transported states (F.shape[1]: the 3 mass states, or 6 for a Dirac scalar on polarized relics -- visible then
     sterile) and nr relic slots (Nq.shape[1]: the 3 relic states, or 6 -- their left- then right-chiral shares, 2026-10-21);
-    the tensors are [q, a, r, c] over those. With n = nr = 3 the arithmetic is the earlier 3-state sweep's."""
+    the tensors are [q, a, r, c] over those. With n = nr = 3 the arithmetic is the earlier 3-state sweep's.
+    use_med (2026-11-07, decision B; Majorana, n = 3, with use_dec): the mediators the decays make, Zm (N, 3, C) per
+    unit energy by LF helicity, and their decay back into neutrino pairs (dp_mediator; the one flux holding both kinds:
+    Mediator.fold()'s tables mprod (3, 3, 3, K) per parent and daughter mass state, mdec (3, 1, 3, K) both kinds'
+    neutrinos), as dp_sweep.step_full_med: per bin the mediators are in its exact system (_med_rows_si: made by the
+    bin's decays into it, from the bins above, decaying at mrate / (E zp1), mrate = Gamma_Z m_Zd, their neutrinos in
+    the bin itself; without exact_bin -- the scalar, the Goldstone factors -- in its step-average scheme, the same
+    terms as n + 3 populations, 2026-11-08); after it, its decays' mediators into the bins below (pendZ (N, 3, C),
+    numbers per unit time) and its decayed mediators' neutrinos into the bins below (pendM (N, C, 1, 3)), constant
+    sources there. mdiag (C, dp_mediator.NDIAG) the bookkeeping. The secret interactions below 1 keV (2026-11-08;
+    dp_mediator.SIMediator.arrays): the same with their mediator -- the scalar as one population (slot 0; the other two
+    stay empty) -- and, for Dirac neutrinos, n = 6: mprod (6, 6, 3, K) per decay of state a into c, mdec (3, 2, 3, K)
+    and pendM (N, C, 2, 3) the mediators' neutrinos into the visible (kind 0, states 0-2) and the sterile (kind 1,
+    states 3-5) populations."""
     N = F.shape[0]
     n = F.shape[1]
     C = F.shape[2]
@@ -1868,7 +1935,30 @@ def _si_sweep_cols(F, E, dE, S0, J, Nq, Lq, Dq, jt, w, qe, Ctau, Creg, tabB, tab
     addm = np.zeros((Nd, n, C, 3))    # whose windows hold the bin wholly; entered at the window's top bin,
     subm = np.zeros((Nd, n, C, 3))    # removed below its bottom bin
     pend = np.zeros((Nd, n, C))       # the bins a window's edges cut: their exact numbers
+    qgeo = 1.0 / (hgeo * hgeo)
+    Mx6 = np.zeros((n + 3, n + 3))
+    x06 = np.zeros(n + 3)
+    S6 = np.zeros(n + 3)
+    Dmed = np.zeros((C, 3))           # the mediators decayed over the step (Dm is the drift)
+    Q6 = np.zeros((n + 3, n + 3))     # the scalar's scheme with the mediators (not exact_bin)
+    Am6 = np.empty((n + 3, n + 3))
+    Ainv6 = np.empty((n + 3, n + 3))
+    e6 = np.empty(n + 3)
+    a16 = np.empty(n + 3)
+    g6 = np.empty(n + 3)
+    rhs6 = np.empty(n + 3)
+    R6 = np.empty(n + 3)
     for j in range(N - 1, -1, -1):
+        if use_med:
+            # the mediators' neutrinos from the bins above (mass states; Majorana both kinds in one, Dirac visible and
+            # sterile, states 3 kd + c), per unit energy and time
+            for k in range(C):
+                for kd in range(pendM.shape[2]):
+                    for c in range(3):
+                        v = pendM[j, k, kd, c]
+                        if v != 0.0:
+                            reg[j, 3 * kd + c, k] += v / dE[j]
+                            pendM[j, k, kd, c] = 0.0
         if use_dec:
             # the daughters of the bins above, per unit energy over this bin
             elo = E[j] / hgeo
@@ -1960,7 +2050,89 @@ def _si_sweep_cols(F, E, dE, S0, J, Nq, Lq, Dq, jt, w, qe, Ctau, Creg, tabB, tab
         for k in range(C):
             for a in range(n):
                 S[a, k] = S0[j, a, k] + reg[j, a, k]
-        if exact_bin:
+        if exact_bin and use_med:
+            # the bin's mediators in its exact system (2026-11-08, as dp_sweep.step_full_med): rows n..n+2 their LF
+            # helicities -- made by the bin's decays into the bin itself, from the bins above (a constant source),
+            # decaying, their neutrinos landing in the bin itself
+            _bin_matrix(tau, lose, Q, Qn, Mx)
+            tz = _med_rows_si(Mx, Mx6, tdec, dec_br, mprod, mdec, mrate, E[j] * zp1, dt)
+            Em6, P16, P26 = _phi_functions(Mx6)
+            for k in range(C):
+                for r in range(n + 3):
+                    x06[r] = F[j, r, k] if r < n else Zm[j, r - n, k]
+                    S6[r] = S[r, k] if r < n else pendZ[j, r - n, k] / dE[j]
+                for r in range(3):
+                    pendZ[j, r, k] = 0.0
+                for a in range(n + 3):
+                    avg = 0.0
+                    fn = 0.0
+                    for b in range(n + 3):
+                        avg += P16[a, b] * x06[b] + P26[a, b] * S6[b] * dt
+                        fn += Em6[a, b] * x06[b] + P16[a, b] * S6[b] * dt
+                    if a < n:
+                        R[a, k] = max(tau[a], 0.0) / dt * avg
+                        Fnew[a] = fn
+                    else:
+                        Zm[j, a - n, k] = fn
+                        Dmed[k, a - n] = tz * avg * dE[j]         # the mediators decayed over the step
+                for c in range(n):
+                    F[j, c, k] = Fnew[c]
+                    diag[k, 5] += S0[j, c, k] * dt * dE[j]
+        elif use_med:
+            # the scalar's scheme (below) with the bin's mediators (2026-11-08; the Goldstone factors run the decay
+            # back through it): each of the n + 3 populations its own exponential -- the n states their events, the
+            # mediators (LF helicities) their decays at mrate / (E zp1) -- and what lands in the bin held at its step
+            # average: the n states' secondaries Q, the mediators made by the bin's decays into the bin itself, the
+            # decayed mediators' neutrinos in it; one (n + 3) system for the step-averaged event rates. Number exact
+            # in the step, as the n-state scheme (what leaves the bin is what lands outside it)
+            tz, _ = dp_mediator.decay_exponent(mrate, E[j] * zp1, dt)
+            for r in range(n + 3):
+                for c in range(n + 3):
+                    Q6[r, c] = Q[r, c] if (r < n and c < n) else 0.0
+            for a in range(n):
+                if tdec[a] > 0.0 and tau[a] > 0.0:
+                    for c in range(n):
+                        br = dec_br[a, c]
+                        if br != 0.0:
+                            for lam in range(3):
+                                Q6[n + lam, a] += tdec[a] / tau[a] * br * mprod[a, c, lam, 0]
+            for lam in range(3):
+                for kd in range(mdec.shape[1]):
+                    for st in range(3):
+                        Q6[3 * kd + st, n + lam] = mdec[lam, kd, st, 0]
+            for a in range(n + 3):
+                Ga = (max(tau[a], 0.0) if a < n else tz) / dt
+                e6[a], a16[a], g6[a] = _absorption_factors(Ga, dt)
+            for c in range(n + 3):
+                for a in range(n + 3):
+                    Am6[c, a] = (dt if c == a else 0.0) - g6[c] * Q6[c, a]
+            Ainv6[:, :] = np.linalg.inv(Am6)
+            for k in range(C):
+                for r in range(n + 3):
+                    x06[r] = F[j, r, k] if r < n else Zm[j, r - n, k]
+                    S6[r] = S[r, k] if r < n else pendZ[j, r - n, k] / dE[j]
+                for r in range(3):
+                    pendZ[j, r, k] = 0.0
+                for a in range(n + 3):
+                    rhs6[a] = x06[a] * (1.0 - e6[a]) + S6[a] * g6[a]
+                for a in range(n + 3):
+                    acc = 0.0
+                    for b in range(n + 3):
+                        acc += Ainv6[a, b] * rhs6[b]
+                    R6[a] = acc
+                for c in range(n + 3):
+                    sc = S6[c]
+                    for a in range(n + 3):
+                        sc += Q6[c, a] * R6[a]
+                    fn = x06[c] * e6[c] + sc * a16[c]
+                    if c < n:
+                        F[j, c, k] = fn
+                        R[c, k] = R6[c]
+                        diag[k, 5] += S0[j, c, k] * dt * dE[j]
+                    else:
+                        Zm[j, c - n, k] = fn
+                        Dmed[k, c - n] = R6[c] * dt * dE[j]       # the mediators decayed over the step
+        elif exact_bin:
             _bin_matrix(tau, lose, Q, Qn, Mx)
             Em, P1, P2 = _phi_functions(Mx)
             for k in range(C):
@@ -2041,6 +2213,29 @@ def _si_sweep_cols(F, E, dE, S0, J, Nq, Lq, Dq, jt, w, qe, Ctau, Creg, tabB, tab
                                     subm[j - k2, c, k, 0] += v0
                                     subm[j - k2, c, k, 1] += v1
                                     subm[j - k2, c, k, 2] += v2
+                            if use_med:
+                                # the decays' mediators, into the bins below this one (numbers per unit time; those
+                                # in the bin itself were in its exact system)
+                                Kp = min(mnprod[a, c], j + 1)
+                                for lam in range(3):
+                                    sn = mprod[a, c, lam, 0]
+                                    se = sn
+                                    ek = qgeo
+                                    for kk in range(1, Kp):
+                                        v = mprod[a, c, lam, kk]
+                                        if v != 0.0:
+                                            pendZ[j - kk, lam, k] += nd * v
+                                            sn += v
+                                            se += v * ek
+                                        ek *= qgeo
+                                    mdiag[k, 0] += nd * dt * sn
+                                    mdiag[k, 1] += nd * dt * E[j] * se
+                                    mdiag[k, 2] += nd * dt * (mpsum[a, c, lam, 0] - sn)
+                                    mdiag[k, 3] += nd * dt * E[j] * (mpsum[a, c, lam, 1] - se)
+        if use_med:
+            # the bin's decayed mediators' neutrinos in the bins below (constant sources there)
+            for k in range(C):
+                dp_mediator.daughters_below(Dmed[k], j, E[j], hgeo, dt, mdec, mndec, mdsum, pendM[:, k], mdiag[k])
         for k in range(C):
             own = 0.0
             for c in range(n):
@@ -2428,9 +2623,9 @@ def _thermal_weights(m, T, c0, Delta, smax, sdiv, thr, W, pol=0):
         for u in range(nsub):
             ua = x0 + h * u
             ub = x0 + h * (u + 1)
-            if pol != 0 and ua < lm < ub:
-                # split at sigma = m (2026-10-21): the chiral shares' densities have a kink there (rho a weaker one;
-                # pol 0 unsplit, its arithmetic that of the campaign planes)
+            if ua < lm < ub:
+                # split at sigma = m: the chiral shares' densities have a kink there (2026-10-21), rho a weaker one
+                # (split too since 2026-11-08)
                 for sgm in range(2):
                     pa = ua if sgm == 0 else lm
                     hh = (lm - ua) if sgm == 0 else (ub - lm)
@@ -2766,7 +2961,7 @@ def propagate_si(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta
                  phiphi="coherent", z_substeps=1, E_extension=10.0, n_u=4096,
                  return_diagnostics=False, regeneration=True, mediator="scalar", dirac_sterile="track",
                  Gamma_vis=0.0, thermal=False, inj_window=(0.0, np.inf), decay=None, relic_loss=None,
-                 source_z=None, track=None):
+                 source_z=None, track=None, decay_back=None):
     """Cosmological transport of the astrophysical neutrinos under secret interactions.
 
     Arguments: E_bins -- the (geometric) energy grid of the result, eV; z_max, H0 (eV),
@@ -2794,6 +2989,14 @@ def propagate_si(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta
     left- and right-chiral components in shares that depend on its speed and direction (Dirac 2026-10-21:
     model_spec, polarized).
 
+    decay_back (2026-11-07, decision B; with decay, Majorana): None, or (G_flavor, Gamma_vis_Z, m_Zd) -- the mediator's
+    whole coupling (flavor basis), visible width and its own mass (the decays' mediator: not M, which may be a
+    screened or collision mass): the mediators the decays make decay back into neutrino pairs in flight (dp_mediator,
+    the folded tables on the transport's grid); None keeps them invisible. A secret interaction below 1 keV
+    (2026-11-08, dp_si_light.subkev_inputs' decay_back): (G_flavor, 0.0, M, mediator, majorana), its own vertex
+    (dp_mediator.SIMediator; Dirac: the six states' visible and sterile daughters). MEDIATOR_LAST: the run's mediators
+    (cleared at every call; on a cached column, rebuilt from the unit sources' records).
+
     Returns the (N_E, 3) mass-state fluxes at z = 0 of the visible neutrinos (both helicities), on
     E_bins; with return_diagnostics also a dict of the number and energy bookkeeping (of the first
     run: for Dirac 'track', visible plus sterile).
@@ -2806,9 +3009,11 @@ def propagate_si(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta
     step. With return_diagnostics the source is transported as given (one column), its bookkeeping returned."""
     E_bins = np.asarray(E_bins, dtype=np.float64)
     g_arr = np.ascontiguousarray(g_mass, dtype=np.complex128)
+    MEDIATOR_LAST.clear()
     # the 2026-10-24 processes only when set (a substituted _transport_columns, as the tests' reference, need not
     # know them)
-    extra = {k: v for k, v in (("decay", decay), ("relic_loss", relic_loss)) if v is not None}
+    extra = {k: v for k, v in (("decay", decay), ("relic_loss", relic_loss), ("decay_back", decay_back))
+             if v is not None}
     # a shell of sources or the flux in flight (2026-11-07, the paper's figure of the species along the trip):
     # source_z = (z_lo, z_hi), only the steps whose midpoint lies there emit; track, a list that receives
     # (z, flux (N_E, 3) of the mass states) after every step. Transported as given, outside the column cache.
@@ -2824,7 +3029,7 @@ def propagate_si(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta
         return out[0]
     phys = _physics_key(E_bins, z_max, H0, Omega_m, Omega_L, masses, T_nu0, eta_mass, rho_evol, M, g_arr, majorana,
                         channels, phiphi, z_substeps, E_extension, n_u, regeneration, mediator, dirac_sterile,
-                        Gamma_vis, thermal, decay, relic_loss)
+                        Gamma_vis, thermal, decay, relic_loss, decay_back)
     col = _column_key(p_index, inj_window)
     T = _COLUMNS.get((phys, col))
     if T is None:
@@ -2834,14 +3039,27 @@ def propagate_si(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta
         Fs = _transport_columns(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta_mass, rho_evol, M,
                                 g_arr, majorana, channels, phiphi, z_substeps, E_extension, n_u, regeneration,
                                 mediator, dirac_sterile, Gamma_vis, thermal, specs, False, **extra)
+        med = dict(MEDIATOR_LAST)
         for i, c in enumerate(want):
             _COLUMNS[(phys, c)] = np.stack(Fs[3 * i:3 * i + 3])          # (3 unit sources, N_E, 3)
+            if med:
+                # the mediators of the three unit sources (run 0's: the Majorana flux), to rebuild on a cached call
+                _COLUMNS_MED[(phys, c)] = (np.stack([med["Z"][0][:, :, 3 * i + j] for j in range(3)]),
+                                           np.stack([med["diag"][0][3 * i + j] for j in range(3)]), med["E"])
         while len(_COLUMNS) > _COLUMNS_MAX:
-            _COLUMNS.popitem(last=False)
+            old = _COLUMNS.popitem(last=False)[0]
+            _COLUMNS_MED.pop(old, None)
         T = _COLUMNS[(phys, col)]
     else:
         _COLUMNS.move_to_end((phys, col))
     P_src = (np.abs(np.asarray(U_pmns)) ** 2).T @ np.asarray(rho_src, dtype=np.float64)
+    MEDIATOR_LAST.clear()
+    if (phys, col) in _COLUMNS_MED:
+        # the run's mediators: linear in the source (the largest sigma, diag's last slot, is 0 in dp_si's vacuum)
+        Zu, Du, Eg = _COLUMNS_MED[(phys, col)]
+        w = float(Phi_0) * P_src
+        MEDIATOR_LAST.update(Z=[np.tensordot(w, Zu, axes=1)[:, :, None]], diag=[np.tensordot(w, Du, axes=1)[None, :]],
+                             E=Eg)
     return np.ascontiguousarray(float(Phi_0) * (P_src[0] * T[0] + P_src[1] * T[1] + P_src[2] * T[2]))
 
 
@@ -2850,6 +3068,10 @@ def propagate_si(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta
 # with its own (batch_hint).
 _COLUMNS = OrderedDict()
 _COLUMNS_MAX = 256
+# the last transport's mediators (decision B): their populations at z = 0 (invisible) and bookkeeping, per run; and
+# the cached columns' (per unit source)
+MEDIATOR_LAST = {}
+_COLUMNS_MED = {}
 _BATCH_HINT = []
 
 
@@ -2865,7 +3087,7 @@ def dp_decay_nslot():
 
 def _physics_key(E_bins, z_max, H0, Omega_m, Omega_L, masses, T_nu0, eta_mass, rho_evol, M, g_mass, majorana,
                  channels, phiphi, z_substeps, E_extension, n_u, regeneration, mediator, dirac_sterile, Gamma_vis,
-                 thermal, decay=None, relic_loss=None):
+                 thermal, decay=None, relic_loss=None, decay_back=None):
     """Everything a unit-source transport depends on (propagate_si's arguments but the source's composition,
     spectral index, normalization and emission window)."""
     import hashlib
@@ -2884,6 +3106,13 @@ def _physics_key(E_bins, z_max, H0, Omega_m, Omega_L, masses, T_nu0, eta_mass, r
         h.update(b"relic_loss")
         for a in relic_loss:
             h.update(np.ascontiguousarray(a, dtype=np.float64).tobytes())
+    if decay_back is not None:
+        h.update(b"decay_back")
+        h.update(np.ascontiguousarray(decay_back[0], dtype=np.complex128).tobytes())
+        h.update(repr((float(decay_back[1]), float(decay_back[2]))).encode())
+        if len(decay_back) > 3:
+            # a secret interaction's mediator (2026-11-08): its vertex and the neutrinos' kind
+            h.update(repr((str(decay_back[3]), bool(decay_back[4]))).encode())
     h.update(repr((float(z_max), float(H0), float(Omega_m), float(Omega_L), float(T_nu0), float(rho_evol), float(M),
                    bool(majorana), str(channels), str(phiphi), int(z_substeps), float(E_extension), int(n_u),
                    bool(regeneration), str(mediator), str(dirac_sterile), float(Gamma_vis),
@@ -2928,7 +3157,7 @@ def _loss_columns(Fs, E, L_lo, L_hi, dt, relic_loss):
 def _transport_columns(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu0, eta_mass, rho_evol, M, g_mass,
                        majorana, channels, phiphi, z_substeps, E_extension, n_u, regeneration, mediator,
                        dirac_sterile, Gamma_vis, thermal, columns, return_diagnostics=False, decay=None,
-                       relic_loss=None, source_z=None, track=None):
+                       relic_loss=None, source_z=None, track=None, decay_back=None):
     """The transport (propagate_si's physics) of several sources at once: columns is a list of (P_src (3,) the
     mass-state composition, p_index, inj_window (eV), Phi_0, rho_src (3,) or None -- the flavor composition, used only
     without a coupling, by the free-streaming closed form). Returns the list of (N_E, 3) fluxes, or with
@@ -3038,6 +3267,32 @@ def _transport_columns(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu
                                            masses, E, majorana)
         dec_rate, dec_br, dec_own = arr["rate"], arr["br"], arr["own"]
         dec_kfull, dec_kex, dec_fex, dec_mom = arr["kfull"], arr["kex"], arr["fex"], arr["mom"]
+    # the mediators the decays make, decaying back into neutrino pairs (decision B, 2026-11-07; dp_mediator's folded
+    # tables on this grid): per run and column, by LF helicity
+    use_med = decay_back is not None and use_dec
+    if use_med:
+        if len(decay_back) == 3:
+            # the dark portal's and L_e - L_alpha's vector (Majorana; dp_medium's vertex), folded
+            if not majorana or n_st != 3:
+                raise NotImplementedError("dp_si: the dark portal's decay back is implemented for Majorana neutrinos")
+            # the mediator's own mass m_Zd (the review's finding 3: M here is the collision mass, Debye-screened)
+            med_tabs = dp_mediator.cached(decay_back[0], U_pmns, masses, float(decay_back[2]), E,
+                                          float(decay_back[1])).fold()
+            med_dec = np.ascontiguousarray(med_tabs[3][:, None, :, :])
+            med_dsum = np.ascontiguousarray(med_tabs[5][:, None, :, :])
+        else:
+            # a secret interaction's mediator below 1 keV (2026-11-08; dp_mediator.SIMediator): its own vertex and
+            # kind, the bare M (not the collision mass); Dirac: six states, the daughters visible or sterile
+            G_db, Gv_db, M_db, med_db, maj_db = decay_back
+            if bool(maj_db) != bool(majorana) or n_st != (3 if majorana else 6) or float(Gv_db) != 0.0:
+                raise NotImplementedError("dp_si: the decay back's tables are for another kind of neutrino, or the "
+                                          "transport lacks Dirac's six states")
+            med_tabs = dp_mediator.si_cached(G_db, U_pmns, masses, float(M_db), E, med_db, bool(maj_db)).arrays
+            med_dec, med_dsum = med_tabs[3], med_tabs[5]
+        med_Z = [np.zeros((N, dp_mediator.NPOL, C)) for _ in runs]
+        med_pZ = np.zeros((N, dp_mediator.NPOL, C))
+        med_pM = np.zeros((N, C, med_dec.shape[1], 3))
+        med_diag = [np.zeros((C, dp_mediator.NDIAG)) for _ in runs]
     diags = [np.zeros((C, 6)) for _ in runs]
     reg = np.zeros((N, n_st, C))
     J = np.zeros((N, 3, 4))
@@ -3115,9 +3370,18 @@ def _transport_columns(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu
                 Nq, Lq, Dq = (np.ascontiguousarray(np.concatenate([bl[i] for bl in blocks], axis=1)) for i in range(3))
                 Rth = np.ascontiguousarray(np.concatenate([bl[3] for bl in blocks], axis=0))
             for k in range(len(runs)):
-                _si_sweep_cols(Fs[k], E, dE, S0, Jone, Nq, Lq, Dq, spec["jt"], spec["w"], spec["qe"], spec["Ctau"],
-                               Cregs[k], Rth, Oth, node_th, dt, reg, diags[k], prof == 1, dec_rate, dec_br, dec_own,
-                               dec_kfull, dec_kex, dec_fex, dec_mom, float(np.exp(0.5 * (L_lo + L_hi))), use_dec)
+                if not use_med:
+                    _si_sweep_cols(Fs[k], E, dE, S0, Jone, Nq, Lq, Dq, spec["jt"], spec["w"], spec["qe"], spec["Ctau"],
+                                   Cregs[k], Rth, Oth, node_th, dt, reg, diags[k], prof == 1, dec_rate, dec_br,
+                                   dec_own, dec_kfull, dec_kex, dec_fex, dec_mom, float(np.exp(0.5 * (L_lo + L_hi))),
+                                   use_dec)
+                else:
+                    _si_sweep_cols_med(Fs[k], E, dE, S0, Jone, Nq, Lq, Dq, spec["jt"], spec["w"], spec["qe"],
+                                       spec["Ctau"], Cregs[k], Rth, Oth, node_th, dt, reg, diags[k], prof == 1,
+                                       dec_rate, dec_br, dec_own, dec_kfull, dec_kex, dec_fex, dec_mom,
+                                       float(np.exp(0.5 * (L_lo + L_hi))), use_dec, True, med_Z[k], med_tabs[0],
+                                       med_tabs[1], med_tabs[2], med_dec, med_tabs[4], med_dsum, med_tabs[6], med_pZ,
+                                       med_pM, med_diag[k])
             if relic_loss is not None:
                 _loss_columns(Fs, E, L_lo, L_hi, 0.5 * dt, relic_loss)
             _snap(L_lo)
@@ -3142,15 +3406,25 @@ def _transport_columns(E_bins, z_max, H0, Omega_m, Omega_L, U_pmns, masses, T_nu
             if masses[r] <= 0.0:
                 node[:, r] = 0
         for k in range(len(runs)):
-            _si_sweep_cols(Fs[k], E, dE, S0, J, Nq, Lq, Dq, spec["jt"], spec["w"], spec["qe"], spec["Ctau"],
-                           Cregs[k], tB, tO, node, dt, reg, diags[k], prof == 1, dec_rate, dec_br, dec_own,
-                           dec_kfull, dec_kex, dec_fex, dec_mom, float(np.exp(0.5 * (L_lo + L_hi))), use_dec)
+            if not use_med:
+                _si_sweep_cols(Fs[k], E, dE, S0, J, Nq, Lq, Dq, spec["jt"], spec["w"], spec["qe"], spec["Ctau"],
+                               Cregs[k], tB, tO, node, dt, reg, diags[k], prof == 1, dec_rate, dec_br, dec_own,
+                               dec_kfull, dec_kex, dec_fex, dec_mom, float(np.exp(0.5 * (L_lo + L_hi))), use_dec)
+            else:
+                _si_sweep_cols_med(Fs[k], E, dE, S0, J, Nq, Lq, Dq, spec["jt"], spec["w"], spec["qe"], spec["Ctau"],
+                                   Cregs[k], tB, tO, node, dt, reg, diags[k], prof == 1, dec_rate, dec_br, dec_own,
+                                   dec_kfull, dec_kex, dec_fex, dec_mom, float(np.exp(0.5 * (L_lo + L_hi))), use_dec,
+                                   True, med_Z[k], med_tabs[0], med_tabs[1], med_tabs[2], med_dec, med_tabs[4],
+                                   med_dsum, med_tabs[6], med_pZ, med_pM, med_diag[k])
         if relic_loss is not None:
             _loss_columns(Fs, E, L_lo, L_hi, 0.5 * dt, relic_loss)
         _snap(L_lo)
     if store is not None:
         _STEP_TERMS.clear()
         _STEP_TERMS[skey] = store
+    if use_med:
+        MEDIATOR_LAST.clear()
+        MEDIATOR_LAST.update(Z=[np.array(z) for z in med_Z], diag=[np.array(d) for d in med_diag], E=E.copy())
     F_all = sum(wt * Fk for (_, wt), Fk in zip(runs, Fs))
     outs = []
     for k in range(C):

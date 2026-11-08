@@ -1,0 +1,8 @@
+# Blinov, Kelly, Krnjaic & McDermott, arXiv:1905.02727v2, Fig. 1 (same line in all four panels: universal, nu_e, nu_mu, nu_tau); curve: BBN, thin solid red, real scalar, baryon density of the MInu fit: m_phi > 0.6 MeV (Table II)
+# C.L.: 95% (Eq. 8)
+# coupling convention: L > -(1/2) m_phi^2 phi^2 + (1/2)(g_phi^{alpha beta} nu_alpha nu_beta phi + h.c.), nu_alpha two-component left-handed (Blinov Eq. 3, p. 2); Majorana neutrinos; real scalar phi unless stated
+# excluded side: LEFT of the vertical line (M below it), for every coupling shown (1e-4 < g < 1): the bound assumes phi thermalized with neutrinos before neutrino decoupling, which Blinov show holds for all couplings of interest
+# method: vector paths extracted with PyMuPDF; axes calibrated on the drawn major ticks (m_phi 1e-3..1e3 MeV, g 1e-4..1) with values from the PDF text layer; clipped to the plotted frame; mass converted to eV
+# columns: log10(M/eV)  log10(g_phi)
+5.77815	-4.00000
+5.77815	0.00000

@@ -1,0 +1,49 @@
+# Dror, arXiv:2004.04750v2, Fig. 4, center-left: L_e - L_tau, Majorana panel; curve: pink; neutrinoless double-beta decay with X emission (KamLAND-Zen Majoron limit, Eq. 20)
+# C.L.: not stated in the paper
+# coupling convention: coupling g_X of L_X = g_X X^mu Qhat_ii (l_i^dag sigmabar_mu l_i - l_i^c dag sigmabar_mu l_i^c + nu_i^dag sigmabar_mu nu_i), Qhat = diag(1,-1,0) [L_e-L_mu] or diag(1,0,-1) [L_e-L_tau] (Dror Eq. 2, p. 2) = our g'
+# excluded side: above the curve (larger coupling at fixed mass)
+# method: vector paths extracted with PyMuPDF; axes calibrated on the 30 x / 13 y major ticks (one per decade; labels 1e-34..1e-6 eV, 1e-32..1e-20); clipped to the plotted frame
+# columns: log10(M/eV)  log10(g_X)
+-29.60558	-32.00047
+-29.21054	-31.60537
+-29.09203	-31.48668
+-28.97345	-31.36831
+-28.55254	-30.94727
+-28.13155	-30.52646
+-28.01304	-30.40785
+-27.89446	-30.28942
+-27.05256	-29.44738
+-26.93404	-29.32895
+-26.81554	-29.21033
+-26.39485	-28.78953
+-25.97386	-28.36848
+-25.85535	-28.25011
+-25.73685	-28.13143
+-25.31586	-27.71038
+-24.89495	-27.28964
+-24.77636	-27.17096
+-24.65785	-27.05253
+-24.23686	-26.63154
+-23.81595	-26.21074
+-23.69737	-26.09213
+-23.57886	-25.97369
+-22.73696	-25.13166
+-22.61845	-25.01323
+-22.49986	-24.89455
+-22.07895	-24.47381
+-21.65797	-24.05276
+-21.53946	-23.93408
+-21.42087	-23.81571
+-20.99996	-23.39466
+-20.57897	-22.97386
+-20.46046	-22.85524
+-20.34196	-22.73681
+-19.50006	-21.89477
+-19.38147	-21.77634
+-19.26296	-21.65772
+-18.84197	-21.23692
+-18.42106	-20.81587
+-18.30248	-20.69751
+-18.18397	-20.57883
+-17.76298	-20.15784
+-17.36028	-19.75524

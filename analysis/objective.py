@@ -12,7 +12,9 @@ Sterile mixing beyond unitarity (u_e^2 + u_mu^2 + u_tau^2 > 1, which the boxes o
 cannot exclude) is evaluated on the unit sphere and charged UNITARITY_SLOPE per unit of
 excess, a continuous wall the fitters step back from. FrequentistAnalysis called the
 propagation directly and returned finite chi^2 there. Other points the solver rejects, and
-non-finite results, return WALL.
+non-finite results, return WALL. A linear-algebra failure (numpy's LinAlgError, a ValueError
+subclass) is never a wall: it stops the run as a RuntimeError, since a wall reads as excluded
+(2026-11-08).
 """
 import time
 from typing import Mapping, Sequence
@@ -24,6 +26,12 @@ from .model import ALIASES, FlavorModel, sum_of_masses, sum_of_masses_grad
 from .parameters import GaussianPrior, HalfGaussianPrior, ParameterSet
 
 WALL = 1e9
+
+
+def _linalg_stop(values: Mapping, err: Exception) -> RuntimeError:
+    """The error a linear-algebra failure inside the model becomes: a RuntimeError, which stops the run (never a
+    wall, chi^2 = WALL, which would read as an excluded point)."""
+    return RuntimeError(f"objective: linear-algebra failure at {dict(values)!r}: {err}")
 UNITARITY_SLOPE = 1e4
 U_KEYS = ("u_e", "u_mu", "u_tau")
 DERIVED = {"sum_masses_eV": sum_of_masses}
@@ -104,6 +112,8 @@ class Objective:
                 data += surfaces.chi2(f[0], f[1], self.data)
             if self.events is not None:
                 data += self.events.chi2(values)
+        except np.linalg.LinAlgError as err:
+            raise _linalg_stop(values, err) from err
         except ValueError:
             data = WALL
         if not np.isfinite(data):
@@ -151,6 +161,8 @@ class Objective:
             excess = UNITARITY_SLOPE * (u2 - 1.0)
         try:
             data, g = self.events.chi2_and_grad(values, names)
+        except np.linalg.LinAlgError as err:
+            raise _linalg_stop(values, err) from err
         except ValueError:
             data, g = WALL, np.zeros(len(names))
         if not np.isfinite(data) or not np.all(np.isfinite(g)):

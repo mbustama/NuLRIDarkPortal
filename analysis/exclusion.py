@@ -71,7 +71,8 @@ def corrected(here, xn, yn):
     code (recheck.*.jsonl, the fixed grid's records; a solution whose stored chi2 was missing, a failed fit, only
     through a refit), a refit (refine_recheck.*.jsonl) taking over where it went lower. Source: 'grid' for the
     summary's points, else the record file's name. Then the relic-scattering reruns (rerun_rs.*.jsonl), which replace
-    the value at their points. Empty without either."""
+    the value at their points, and last the rho fix's values (rho_fix.*.jsonl, 2026-11-08), which replace it too.
+    Empty without any."""
     out = {}
     for r in _records(glob.glob(os.path.join(here, "recheck.*.jsonl"))):
         st = r.get("stored")
@@ -92,6 +93,12 @@ def corrected(here, xn, yn):
         if r.get("chi2") is not None and r.get("stored") is not None:
             k = (r["source"], _key(r["held"], xn, yn))
             out[k] = min(out.get(k, float(r["stored"])), float(r["stored"]), float(r["chi2"]))
+    # the rho fix (2026-11-08; dp_thermal / dp_si: rho's far-from-resonance angular quadrature and its weights split at
+    # sigma = m): the dark portal's MeV planes at their 95% boundary and column minima, re-evaluated with the new code,
+    # refitted where chi^2 moved by more than 0.05 (the lower of the two) -- new code at those points, so they take over
+    for r in _records(glob.glob(os.path.join(here, "rho_fix.*.jsonl"))):
+        if r.get("chi2") is not None:
+            out[(r["source"], _key(r["held"], xn, yn))] = float(r["chi2"])
     return out
 
 

@@ -152,6 +152,12 @@ def _build_default_config() -> Dict:
             # the analysis generates its Asimov data -- the Standard Model -- that way (analysis/config.objective).
             "relic_scattering": True,
             "neutrino_decay": True,
+            # The mediators the neutrinos' decays make below 1 keV, nu_i -> nu_j + Z_D (2026-11-07, decision B;
+            # dp_mediator): True -- they decay back into neutrino pairs in flight where m_Zd > m_k + m_l (their energy
+            # returns to the beam as neutrinos and antineutrinos); False -- invisible (the code before, bit for bit).
+            # Since 2026-11-08 also the secret interactions' mediator below 1 keV (dp_mediator.SIMediator; the
+            # secret interactions read neutrino_decay and relic_scattering here too): one setting for every model.
+            "mediator_decay_back": True,
             # The trip (2026-11-07, the paper's Fig. 1; dark_portal_solver.TRIPS): 'full'; 'no_local' -- the beam as
             # it arrives at the Milky Way, nothing local acting; 'detector' -- the earlier standard, the source
             # flavors decohered at the total potential at the detector, no transport and no collisions.

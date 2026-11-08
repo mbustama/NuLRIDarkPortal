@@ -1,0 +1,46 @@
+# Blinov, Kelly, Krnjaic & McDermott, arXiv:1905.02727v2, Fig. 1, panel bottom-left, "nu_mu coupling"; curve: purple: K -> mu nu phi (Br(K -> mu nu nu nubar) < 2.4e-6); coupling on the axis: g_phi^{mu alpha}
+# C.L.: not stated for the laboratory bounds
+# coupling convention: L > -(1/2) m_phi^2 phi^2 + (1/2)(g_phi^{alpha beta} nu_alpha nu_beta phi + h.c.), nu_alpha two-component left-handed (Blinov Eq. 3, p. 2); Majorana neutrinos; real scalar phi unless stated
+# excluded side: above / to the upper left of the curve
+# method: vector paths extracted with PyMuPDF; axes calibrated on the drawn major ticks (m_phi 1e-3..1e3 MeV, g 1e-4..1) with values from the PDF text layer; clipped to the plotted frame; mass converted to eV
+# columns: log10(M/eV)  log10(g_phi)
+2.99877	-1.85404
+6.74000	-1.85305
+7.03000	-1.85023
+7.21000	-1.84610
+7.35000	-1.84032
+7.46000	-1.83322
+7.55000	-1.82494
+7.63000	-1.81501
+7.70000	-1.80371
+7.76000	-1.79157
+7.82000	-1.77661
+7.87000	-1.76151
+7.92000	-1.74350
+7.96000	-1.72663
+8.00000	-1.70715
+8.04000	-1.68465
+8.08000	-1.65859
+8.11000	-1.63632
+8.14000	-1.61135
+8.17000	-1.58328
+8.20000	-1.55163
+8.23000	-1.51582
+8.26000	-1.47513
+8.29000	-1.42863
+8.32000	-1.37517
+8.35000	-1.31315
+8.37000	-1.26602
+8.39000	-1.21332
+8.41000	-1.15396
+8.43000	-1.08650
+8.45000	-1.00896
+8.47000	-0.91852
+8.49000	-0.81100
+8.51000	-0.67993
+8.53000	-0.51604
+8.56000	-0.22697
+8.57000	-0.16003
+8.58000	-0.12254
+8.59000	-0.10674
+8.69664	-0.00011

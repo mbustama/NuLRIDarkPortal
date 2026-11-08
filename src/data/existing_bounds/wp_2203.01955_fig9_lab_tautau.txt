@@ -1,0 +1,9 @@
+# Berryman et al. (white paper), arXiv:2203.01955v1, Fig. 9 (scalar mediator, compilation); curve: pink dash-dot "Lab g_tautau"; original source: particle decays, arXiv:1802.00009 (WP ref. [37]); coupling: g_tautau
+# C.L.: as in the original source (not stated in the white paper)
+# coupling convention: white-paper Eq. (2.1), PDF p. 4 (printed p. 2): "L > g_{alpha beta} phi nu_alpha nu_beta" (two-component, scalar; no 1/2 and no h.c. written); Fig. 9 is "modified from Ref. [158]" (Bustamante, Rosenstrom, Shalgar & Tamborra, arXiv:2001.04994) and each curve keeps the normalization of that compilation; its Lab g_ee and g_mumu lines coincide (<0.05 dex) with Blinov et al. 1905.02727 Fig. 1, whose convention is (1/2)(g nu nu phi + h.c.)
+# excluded side: above the line
+# method: vector paths extracted with PyMuPDF from arXiv:2203.01955v1 page 20, Fig. 9; axes calibrated on the drawn major ticks (log10(M/MeV) = -5..4, log10 g = -13..0) with values from the PDF text layer; clipped to the plotted frame; mass converted to eV
+# columns: log10(M/eV)  log10(g_{alpha beta})
+1.00008	-0.53021
+3.00005	-0.53021
+9.24965	-0.53021

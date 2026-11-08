@@ -1,0 +1,8 @@
+# Blinov, Kelly, Krnjaic & McDermott, arXiv:1905.02727v2, Fig. 1, panel bottom-right, "nu_tau coupling"; curve: purple: tau -> l nu nu phi (g_tautau < 0.3, Ref. [49]); coupling on the axis: g_phi^{tau alpha}
+# C.L.: not stated for the laboratory bounds
+# coupling convention: L > -(1/2) m_phi^2 phi^2 + (1/2)(g_phi^{alpha beta} nu_alpha nu_beta phi + h.c.), nu_alpha two-component left-handed (Blinov Eq. 3, p. 2); Majorana neutrinos; real scalar phi unless stated
+# excluded side: above / to the upper left of the curve
+# method: vector paths extracted with PyMuPDF; axes calibrated on the drawn major ticks (m_phi 1e-3..1e3 MeV, g 1e-4..1) with values from the PDF text layer; clipped to the plotted frame; mass converted to eV
+# columns: log10(M/eV)  log10(g_phi)
+3.00142	-0.57512
+8.99890	-0.57512

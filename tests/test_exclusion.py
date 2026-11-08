@@ -156,6 +156,25 @@ def test_relic_scattering_reruns_replace(tmp_path):
     assert ("grid", (7.0, -2.5)) not in corr
 
 
+def test_rho_fix_replaces_last(tmp_path):
+    """The rho fix's values (2026-11-08) replace every earlier correction at their points, higher or lower (the new
+    code's chi^2, not a better minimum); a failed one does not."""
+    x = 10.0 ** np.arange(4.0, 8.01, 1.0)
+    y = 10.0 ** np.arange(-6.0, -1.9, 0.5)
+    chi = np.where(np.log10(y)[None, :] >= -3.0, 30.0, 0.0) * np.ones((len(x), 1))
+    write_plane(tmp_path / "p" / "plane_m_Zd_eV_g_D.json", x, y, chi)
+    held = lambda m, g: {"m_Zd_eV": 10.0 ** m, "g_D": 10.0 ** g}
+    with open(tmp_path / "p" / "rerun_rs.0.jsonl", "w") as f:
+        f.write(json.dumps(dict(source="grid", held=held(6.0, -3.5), chi2=1.0)) + "\n")
+    with open(tmp_path / "p" / "rho_fix.0.jsonl", "w") as f:
+        f.write(json.dumps(dict(source="grid", held=held(6.0, -3.5), chi2=4.0)) + "\n")    # higher: taken
+        f.write(json.dumps(dict(source="grid", held=held(5.0, -3.0), chi2=3.5)) + "\n")    # lower: taken
+        f.write(json.dumps(dict(source="grid", held=held(7.0, -2.5), chi2=None)) + "\n")   # failed: not
+    corr = ex.corrected(str(tmp_path / "p"), "m_Zd_eV", "g_D")
+    assert corr[("grid", (6.0, -3.5))] == 4.0 and corr[("grid", (5.0, -3.0))] == 3.5
+    assert ("grid", (7.0, -2.5)) not in corr
+
+
 def test_column_between_masses_reads_its_own_minimum(tmp_path):
     """A mass between the grid's sampled from 1e-5 up (refine_grid's new masses; 2026-10-22): Delta chi^2 from its own
     minimum (and the no-effect chi^2), not from its neighbours' -- where the data prefer an effect at a depth that

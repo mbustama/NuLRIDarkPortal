@@ -1,0 +1,51 @@
+# Blinov, Kelly, Krnjaic & McDermott, arXiv:1905.02727v2, Fig. 1, panel top-right, "nu_e coupling"; curve: purple: K -> e nu phi (Br(K->e nu)/Br(K->mu nu)) and double-beta decay (|g_ee| < 1e-4 for m_phi < 2 MeV); coupling on the axis: g_phi^{e alpha}
+# C.L.: not stated for the laboratory bounds
+# coupling convention: L > -(1/2) m_phi^2 phi^2 + (1/2)(g_phi^{alpha beta} nu_alpha nu_beta phi + h.c.), nu_alpha two-component left-handed (Blinov Eq. 3, p. 2); Majorana neutrinos; real scalar phi unless stated
+# excluded side: above / to the upper left of the curve; for M below the first point the excluded region reaches the plot floor g = 1e-4 (double-beta decay; the true bound lies below the plotted range)
+# method: vector paths extracted with PyMuPDF; axes calibrated on the drawn major ticks (m_phi 1e-3..1e3 MeV, g 1e-4..1) with values from the PDF text layer; clipped to the plotted frame; mass converted to eV
+# columns: log10(M/eV)  log10(g_phi)
+6.08473	-4.00055
+6.10116	-3.94958
+6.12961	-3.83415
+6.15806	-3.70641
+6.27186	-3.22509
+6.30031	-3.06896
+6.32876	-2.85231
+6.35722	-2.61932
+6.38567	-2.44846
+6.41412	-2.38702
+6.89778	-2.38507
+7.12539	-2.38182
+7.29610	-2.37674
+7.40990	-2.37111
+7.52371	-2.36262
+7.60906	-2.35360
+7.69441	-2.34143
+7.75131	-2.33106
+7.80822	-2.31844
+7.86512	-2.30306
+7.92202	-2.28432
+7.97892	-2.26146
+8.03582	-2.23354
+8.06427	-2.21730
+8.09273	-2.19931
+8.12118	-2.17935
+8.14963	-2.15717
+8.17808	-2.13249
+8.20653	-2.10498
+8.23498	-2.07422
+8.26343	-2.03976
+8.29188	-2.00102
+8.32033	-1.95729
+8.34878	-1.90771
+8.37724	-1.85119
+8.40569	-1.78633
+8.43414	-1.71131
+8.46259	-1.62365
+8.49104	-1.51989
+8.51949	-1.39493
+8.54794	-1.24088
+8.57639	-1.04653
+8.60484	-0.79536
+8.63329	-0.50373
+8.64858	0.00039

@@ -1,0 +1,53 @@
+# Bauer, Foldenauer & Jaeckel, arXiv:1803.05466v3, Fig. 14 upper panel (current bounds), U(1)_{L_mu-L_e}; curve: blue dashed line labelled "White Dwarfs"; white-dwarf cooling by plasmon decay through the Z' (Sec. 3.6, Eqs. 37-40, from Dreiner et al. arXiv:1303.7232): excluded 1.12e-5 GeV^-2 < C_WD = 2 g^2/(3 M^2) < 4.50e-3 GeV^-2; only the lower edge is drawn (the fill polygon has zero area), the trapping upper edge g = 0.082 M/GeV is not drawn
+# C.L.: not stated (the bound of Ref. [77])
+# coupling convention: g_x of L = -g_x j^x_mu X^mu, j^{i-j}_mu = Lbar_i gamma_mu L_i + lbar_i gamma_mu l_i - (i->j) (Bauer Eqs. 2-3, p. 3); y axis g_{mu e} [g_{e tau}] = epsilon e (caption) = our g' (overall sign of the charges irrelevant)
+# excluded side: above the curve
+# method: vector paths extracted with PyMuPDF; axes calibrated on the drawn ticks (M_A' 1e-2..10 GeV, g 1e-8..1e-3); clipped to the plotted frame, M = 2.0 MeV .. 80 GeV; mass converted to eV
+# columns: log10(M/eV)  log10(g')
+6.30104	-5.09571
+6.35002	-5.04679
+6.45003	-4.94693
+6.50002	-4.89697
+6.60004	-4.79711
+6.65003	-4.74719
+6.70003	-4.69722
+6.75003	-4.64730
+6.80002	-4.59733
+6.85003	-4.54741
+6.90004	-4.49744
+6.95003	-4.44751
+7.00003	-4.39755
+7.05004	-4.34762
+7.10003	-4.29766
+7.15003	-4.24773
+7.20002	-4.19777
+7.25003	-4.14784
+7.30003	-4.09787
+7.35002	-4.04792
+7.40003	-3.99799
+7.45004	-3.94803
+7.50002	-3.89806
+7.55003	-3.84814
+7.60004	-3.79817
+7.65002	-3.74821
+7.70003	-3.69824
+7.75003	-3.64831
+7.80002	-3.59835
+7.90004	-3.49842
+7.95003	-3.44845
+8.05004	-3.34852
+8.10002	-3.29856
+8.15003	-3.24855
+8.20002	-3.19859
+8.25003	-3.14858
+8.30003	-3.09854
+8.35002	-3.04869
+8.40003	-2.99892
+8.45004	-2.94903
+8.50002	-2.89915
+8.60003	-2.79922
+8.65002	-2.74925
+8.75004	-2.64932
+8.80002	-2.59932
+8.85003	-2.54931
+8.88060	-2.51877

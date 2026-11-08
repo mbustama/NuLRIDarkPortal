@@ -41,6 +41,11 @@ kinds. Dirac: a flipped daughter of a visible neutrino has the sterile helicity 
 flips chirality, so for it most daughters are sterile), and a sterile neutrino decays as fast as a visible one (the
 total rate does not depend on the spin), its flipped daughters visible again: dp_si follows six states, visible
 (0-2) and sterile (3-5), the kinds alike (CP: the rates depend on |coupling|^2 and Re(coupling^2) only).
+
+The mediator's decay back (2026-11-08; decision B extended; dp_mediator.SIMediator, docs item 22 (g)): where
+M > m_k + m_l the mediator a decay makes decays in flight, X -> nu_k nu_l (Dirac: nu_k nubar_l), at Gamma_X M / E,
+its daughters returned to dp_si's populations (Dirac: visible or sterile); by dark_portal.mediator_decay_back (on by
+default; subkev_inputs' decay_back), off the code before, bit for bit. Not on the Galactic paths (~1e-5 of the path).
 """
 import numpy as np
 
@@ -274,6 +279,8 @@ SUBKEV_M_EV = 1e3            # below it the processes of this module act (dark_p
 DECAY_MIN_H = 1e-8           # the decays are kept where the lab rate at the grid's lowest energy exceeds this x H0
 LOSS_MIN = 1e-6              # the relic loss is kept where it moves the grid's lowest energy by more than this
 LOSS_Z_NODES = 101           # C(z) on these nodes, uniform in z (linear interpolation in dp_si._loss_columns)
+DECAY_BACK_MIN = 1e-8        # the mediators' decay back is followed where their decay exponent over the whole path
+                             # at the grid's lowest energy reaches this (as dp_mediator.setup's tau_min)
 
 
 def _mean_left_inv_E(m, T, n=600):
@@ -307,6 +314,8 @@ def loss_coefficient(G_flavor, U, masses, eta, T_nu0, z, M, mD2, majorana=True):
             continue
         Tr = T_nu0 * (1.0 + z) * eta[r] ** (1.0 / 3.0)
         inv = _mean_left_inv_E(m[r], Tr)
+        if eta[r] > 1.0 + 1e-12:
+            inv *= dp_relic_loss.BRACKET_INV_E           # decision C's bracket (dp_relic_loss)
         for s in range(3):
             if s != r:
                 acc += eta[r] * abs(Gp[s, r]) ** 2 * 0.5 * (m[s] ** 2 - m[r] ** 2) * inv
@@ -314,9 +323,17 @@ def loss_coefficient(G_flavor, U, masses, eta, T_nu0, z, M, mD2, majorana=True):
 
 
 def subkev_inputs(G_flavor, U, masses, M, mediator, majorana, T_nu0, eta_mass, H0, Omega_m, Omega_L, z_max, E_min,
-                  decay_on=True, relic_scattering=True):
+                  decay_on=True, relic_scattering=True, decay_back=None):
     """dp_si's inputs for a secret-interaction point below 1 keV (2026-10-25): dict(M_coll, eta, decay, relic_loss,
-    meta).
+    decay_back, meta).
+
+    decay_back (2026-11-08; decision B extended to the secret interactions; dp_mediator.SIMediator): the mediators the
+    decays make decay back into neutrino pairs in flight, X -> nu_k nu_l (nu_k nubar_l for Dirac) where M > m_k + m_l.
+    The setting: True, False, or None for the configuration's default (dp_config's dark_portal.mediator_decay_back, the
+    one default; dark_portal_solver passes the run's). The returned decay_back is dp_si's (G_flavor, 0.0, M, mediator,
+    majorana) where they act -- with decays (decay not None), a pair open and the mediator's decay exponent over the
+    path at E_min (dp_mediator.si_path_exponent; meta['mediator_path_exponent']) at least DECAY_BACK_MIN -- else None:
+    the transport then is the code before, bit for bit.
 
     eta: the relics per mass state after their own decays by z = 1 (dp_decay.relic_composition, with this model's
     rates; as the dark-portal phase). decay: dict(Gam, spec, majorana) for dp_si (rest rates and daughter spectra),
@@ -368,7 +385,17 @@ def subkev_inputs(G_flavor, U, masses, M, mediator, majorana, T_nu0, eta_mass, H
             if path > LOSS_MIN * float(E_min):
                 relic_loss = (z_nodes, C, beam)
     meta["M_coll"] = M_coll
-    return dict(M_coll=M_coll, eta=eta, decay=decay, relic_loss=relic_loss, meta=meta)
+    if decay_back is None:
+        import dp_config
+        decay_back = bool(dp_config.DEFAULT_CONFIG["dark_portal"]["mediator_decay_back"])
+    db = None
+    if decay_back and decay is not None:
+        import dp_mediator
+        tau = dp_mediator.si_path_exponent(G, U, m, M, med, majorana, E_min, H0, Omega_m, Omega_L, z_max)
+        meta["mediator_path_exponent"] = tau
+        if tau >= DECAY_BACK_MIN:
+            db = (G, 0.0, M, med, bool(majorana))
+    return dict(M_coll=M_coll, eta=eta, decay=decay, relic_loss=relic_loss, decay_back=db, meta=meta)
 
 
 # ------------------------------------------------------------------------------------------------------------------
@@ -830,7 +857,7 @@ def goldstone_yukawa(G_flavor, U, masses, M):
 
 
 def goldstone_factors(E, G_flavor, U, masses, M, T_nu0, eta, H0, Omega_m, Omega_L, z_max, p_index, rho_evol, decay,
-                      z_substeps=2, track=None):
+                      z_substeps=2, track=None, decay_back=None):
     """(R (N_E, 3), R_tot (N_E,)) or None where the largest |Y| is below GOLDSTONE_Y_MIN: per mass state, dp_si's flux
     with the Goldstone channels (Majorana scalar channels, lambda = Y; relics thermal) over the same without them, the
     decays in both (decay: dp_si's (Gam, spec) or None), for a fixed reference source (equal flavors, the whole
@@ -838,7 +865,9 @@ def goldstone_factors(E, G_flavor, U, masses, M, T_nu0, eta, H0, Omega_m, Omega_
     R_tot the same for the sum over the states. The collision mass is max(M, m_heaviest), as the scalar's
     (subkev_inputs: only the pair channel's collinear logarithm depends on it). track: None, or a list that receives
     (z, R(z) (N_E, 3)) after every dp_si step, the same ratio for the reference beam in flight (2026-11-07, the
-    paper's figure of the species along the trip); its last entry, at z = 0, is R."""
+    paper's figure of the species along the trip); its last entry, at z = 0, is R. decay_back: dp_si's (2026-11-07,
+    decision B; the review's finding 2): the mediators of the decays decaying back into neutrino pairs, in both
+    transports -- the factor then multiplies populations that hold their neutrinos too."""
     import dp_si
     m = np.asarray(masses, dtype=np.float64)
     Y = goldstone_yukawa(G_flavor, U, m, M)
@@ -850,10 +879,14 @@ def goldstone_factors(E, G_flavor, U, masses, M, T_nu0, eta, H0, Omega_m, Omega_
     args = (E, float(z_max), H0, Omega_m, Omega_L, U, m, T_nu0, np.asarray(eta, dtype=np.float64), src,
             float(p_index), float(rho_evol), 1.0, Mc)
     t1, t0 = ([], []) if track is not None else (None, None)
+    kw = {} if decay_back is None else dict(decay_back=decay_back)
+    keep = dict(dp_si.MEDIATOR_LAST)          # the run's own transport's mediators, not these reference runs'
     F1 = dp_si.propagate_si(*args, np.ascontiguousarray(Y), majorana=True, mediator="scalar", thermal="full",
-                            z_substeps=z_substeps, decay=decay, track=t1)
+                            z_substeps=z_substeps, decay=decay, track=t1, **kw)
     F0 = dp_si.propagate_si(*args, np.ascontiguousarray(Y * GOLDSTONE_OFF), majorana=True, mediator="scalar",
-                            thermal=False, z_substeps=z_substeps, decay=decay, track=t0)
+                            thermal=False, z_substeps=z_substeps, decay=decay, track=t0, **kw)
+    dp_si.MEDIATOR_LAST.clear()
+    dp_si.MEDIATOR_LAST.update(keep)
     if track is not None:
         for (z1, A1), (z0, A0) in zip(t1, t0):
             if abs(z1 - z0) > 1e-12:
