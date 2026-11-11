@@ -16,7 +16,13 @@ dom_eff (0.99 +- 0.1), head_on (0 +- 0.5) and anisotropy (1 +- 0.2) within the e
 detector weights); for DR2 a normalization per configuration (0.1). The astrophysical flux is the model's (its own
 parameters fitted outside); DR2 uses nu_mu + nubar_mu (the release's effective areas).
 
--2 ln L = 2 sum [mu - n + n ln(n / mu)] over both data sets plus the nuisances' priors. The nuisances are found with
+MESE (audit decisions 2026-11-09; IceCubeRates/starting_events/mese.py): the 11.4-year starting events, cascades and
+double cascades in reconstructed energy (the release's 1-D histograms), mu_t = astro_t + mese_conv_norm Conv_t +
+mese_muon_norm Muon_t, the release's Conv and Muon columns (IceCube's fit) with one free normalization each (>= 0, no
+prior), shared by the morphologies. Its gate against IceCube's released likelihood failed (tools/mese_gate.py:
+energy alone separates nu_e from nu_tau less well than IceCube's own fit); used by Mauricio's decision, stated.
+
+-2 ln L = 2 sum [mu - n + n ln(n / mu)] over the data sets plus the nuisances' priors. The nuisances are found with
 the detector weights per bin (IceCubeRates.starting_events.hese.BinDetector, exact on the grid one systematic at a
 time), and the value returned is evaluated with the exact per-event weights at them: per bin the weights are not exact
 away from the grid (up to 0.02 in -2 ln L at fixed nuisances), so the per-bin model only steers the profile.
@@ -45,6 +51,8 @@ HESE_PRIORS = {"hese_conv_norm": (0.0, 0.4, (-1.0, 3.0)), "hese_muon_norm": (1.0
 DR2_NORM_PRIOR = 0.1
 PROMPT_BOUNDS = (-1.0, 5.0)
 DEFAULT_DR2 = dict(configs=("IC79", "IC86"), E_reco_min_log10=3.5, dec_min_deg=-5.0)
+DEFAULT_MESE = dict(topologies=("cascades", "double_cascades"))
+MESE_NORMS = {"mese_conv_norm": (1.0, (0.0, 5.0)), "mese_muon_norm": (1.0, (0.0, 10.0))}   # free: centre, bounds
 MU_FLOOR = 1e-3                   # bins with data: the deviance continued quadratically below MU_FLOOR x n
 NEG_PENALTY = 1e6                 # empty bins: + NEG_PENALTY mu^2 below mu = 0
 
@@ -229,26 +237,47 @@ class _DR2:
             self.deriv[c] = np.stack([tmpl(p) for p in self.atm_params])
 
 
+class _MESE:
+    """MESE: the band-flux fold per morphology and the release's histograms, concatenated over the morphologies."""
+
+    def __init__(self, E_nodes_GeV, band_edges, topologies=DEFAULT_MESE["topologies"]):
+        from IceCubeRates.starting_events import mese
+        topologies = tuple(topologies)
+        bad = set(topologies) - set(mese.TOPOLOGIES)
+        if bad or not topologies:
+            raise ValueError(f"data.events.mese.topologies: use {mese.TOPOLOGIES}, got {topologies}")
+        self.topologies = topologies
+        self.fold = mese.MESEFold(E_nodes_GeV, band_edges, topologies)
+        h = [mese.histograms(t) for t in topologies]
+        self.data = np.concatenate([x["data"] for x in h]).astype(np.float64)
+        self.conv = np.concatenate([x["conv"] for x in h])
+        self.muon = np.concatenate([x["muon"] for x in h])
+
+    def __call__(self, F_nu, F_nb):
+        out = self.fold(F_nu, F_nb)
+        return np.concatenate([out[t] for t in self.topologies])
+
+
 class EventLikelihood:
     """-2 ln L of the event data at the model's values, profiled over the event nuisances (see the module
     docstring).
 
     Arguments:
       model: a FlavorModel in sky mode (its energy grid and declination bands).
-      spec: the configuration's data.events, {"hese": {...} or true, "dr2": {...} or true} (either or both; HESE keys:
-        mc, detector -- paths, default NULRI_HESE_MC and NULRI_HESE_DETSYS; DR2 keys: configs, E_reco_min_log10,
-        dec_min_deg).
+      spec: the configuration's data.events, {"hese": {...} or true, "dr2": {...} or true, "mese": {...} or true} (any
+        of them; HESE keys: mc, detector -- paths, default NULRI_HESE_MC and NULRI_HESE_DETSYS; DR2 keys: configs,
+        E_reco_min_log10, dec_min_deg; MESE keys: topologies, default cascades and double cascades).
     """
 
     def __init__(self, model, spec: Mapping):
         spec = dict(spec)
-        bad = set(spec) - {"hese", "dr2"}
+        bad = set(spec) - {"hese", "dr2", "mese"}
         if bad or not spec:
-            raise ValueError(f"data.events: use 'hese' and/or 'dr2', got {sorted(spec)}")
+            raise ValueError(f"data.events: use 'hese', 'dr2' and/or 'mese', got {sorted(spec)}")
         self.model = model
         E, self.band_edges = model.grid()
         self.E_GeV = E / 1e9
-        self.hese = self.dr2 = None
+        self.hese = self.dr2 = self.mese = None
         # a data set is on when named with its settings, an empty {} meaning the defaults (until 2026-10-15 an empty
         # {} read as off: the campaign's HESE + DR2 planes had no data); off only when absent, false or null
         if _enabled(spec.get("hese")):
@@ -263,10 +292,16 @@ class EventLikelihood:
             if bad:
                 raise ValueError(f"data.events.dr2: unknown keys {sorted(bad)}")
             self.dr2 = _DR2(self.E_GeV, self.band_edges, **d)
-        if self.hese is None and self.dr2 is None:
+        if _enabled(spec.get("mese")):
+            d = dict(DEFAULT_MESE, **(spec["mese"] if isinstance(spec["mese"], Mapping) else {}))
+            bad = set(d) - set(DEFAULT_MESE)
+            if bad:
+                raise ValueError(f"data.events.mese: unknown keys {sorted(bad)}")
+            self.mese = _MESE(self.E_GeV, self.band_edges, **d)
+        if self.hese is None and self.dr2 is None and self.mese is None:
             # an event term without data would return chi^2 = 0 everywhere (as the campaign's first HESE + DR2
             # planes did): refuse it
-            raise ValueError(f"data.events {spec}: neither HESE nor DR2 is on (use {{}} for the defaults)")
+            raise ValueError(f"data.events {spec}: no data set is on (use {{}} for the defaults)")
         # the nuisances: name, centre, sigma, bounds
         pri = FA.Atmospheric().priors()
         nz = [(p, 0.0, pri[p], (None, None)) for p in FA.ATM_PARAMS if p != "prompt"]   # held by their priors
@@ -277,7 +312,12 @@ class EventLikelihood:
                    for s in self.hese.names]
         if self.dr2 is not None:
             nz += [(f"dr2_norm_{c}", 0.0, DR2_NORM_PRIOR, (-0.9, 1.0)) for c in self.dr2.configs]
+        free = set()
+        if self.mese is not None:
+            nz += [(k, c, 1.0, b) for k, (c, b) in MESE_NORMS.items()]            # sigma 1: units only, no prior
+            free |= set(MESE_NORMS)
         self.names = [n[0] for n in nz]
+        self.prior = np.array([n[0] not in free for n in nz], dtype=np.float64)   # 1 where a Gaussian prior acts
         self.centre = np.array([n[1] for n in nz])
         self.sigma = np.array([n[2] for n in nz])
         self.bounds = [n[3] for n in nz]
@@ -302,6 +342,8 @@ class EventLikelihood:
         if self.dr2 is not None:
             Fmu = F_nu[:, :, 1] + F_nb[:, :, 1]
             out["dr2"] = {c: self.dr2.fold[c](Fmu) for c in self.dr2.configs}
+        if self.mese is not None:
+            out["mese"] = self.mese(F_nu, F_nb)
         return out
 
     # ------------------------------------------------------------------ the profile
@@ -357,7 +399,15 @@ class EventLikelihood:
                         g[idx[pname]] += gd[k]
                     g[idx["prompt"]] += (1.0 + nc) * (w @ D.prompt[c])
                     g[idx[f"dr2_norm_{c}"]] += w @ B
-        z = (x - self.centre) / self.sigma
+        if self.mese is not None:
+            M = self.mese
+            mu = A["mese"] + v["mese_conv_norm"] * M.conv + v["mese_muon_norm"] * M.muon
+            dev, w = _poisson(mu, M.data, grad=True)
+            f += dev
+            if grad:
+                g[idx["mese_conv_norm"]] += w @ M.conv
+                g[idx["mese_muon_norm"]] += w @ M.muon
+        z = (x - self.centre) / self.sigma * self.prior
         f += float(z @ z)
         g += 2.0 * z / self.sigma
         return f, g
@@ -427,11 +477,15 @@ class EventLikelihood:
                     cols[idx["prompt"]] = (1.0 + nc) * D.prompt[c_]
                     cols[idx[f"dr2_norm_{c_}"]] = B
                 add(mu, D.data[c_], cols)
-        z = (x - self.centre) / self.sigma
+        if self.mese is not None:
+            M = self.mese
+            mu = A["mese"] + v["mese_conv_norm"] * M.conv + v["mese_muon_norm"] * M.muon
+            add(mu, M.data, {idx["mese_conv_norm"]: M.conv, idx["mese_muon_norm"]: M.muon} if hess else {})
+        z = (x - self.centre) / self.sigma * self.prior
         f += float(z @ z)
         if hess:
             g += 2.0 * z / self.sigma
-            Hm[np.diag_indices(n_par)] += 2.0 / self.sigma ** 2
+            Hm[np.diag_indices(n_par)] += 2.0 * self.prior / self.sigma ** 2
         return f, g, Hm
 
     def _gauss_newton(self, A, x0, tol=1e-12, max_iter=200):
@@ -529,7 +583,7 @@ class EventLikelihood:
         priors; per data set."""
         v = self._unpack(x)
         theta = np.array([v[p] for p in self.atm_params])
-        out = dict(hese=0.0, dr2=0.0)
+        out = dict(hese=0.0, dr2=0.0, mese=0.0)
         if self.hese is not None:
             H = self.hese
             f = H.factors({s: v[s] for s in H.names})
@@ -547,9 +601,14 @@ class EventLikelihood:
                 mu = A["dr2"][c] + (1.0 + v[f"dr2_norm_{c}"]) * B
                 out["dr2"] += _deviance(mu, D.data[c])
                 out["dr2_mu"][c] = mu
-        z = (x - self.centre) / self.sigma
+        if self.mese is not None:
+            M = self.mese
+            mu = A["mese"] + v["mese_conv_norm"] * M.conv + v["mese_muon_norm"] * M.muon
+            out["mese"] = _deviance(mu, M.data)
+            out["mese_mu"] = mu
+        z = (x - self.centre) / self.sigma * self.prior
         out["priors"] = float(z @ z)
-        out["total"] = out["hese"] + out["dr2"] + out["priors"]
+        out["total"] = out["hese"] + out["dr2"] + out["mese"] + out["priors"]
         return out
 
     def chi2(self, values: Mapping) -> float:
@@ -558,7 +617,7 @@ class EventLikelihood:
         A = self.astro(values)
         x, r = self.profile(A)
         ex = self.exact(x, A)
-        self.last = dict(nuisances=self._unpack(x), hese=ex["hese"], dr2=ex["dr2"], priors=ex["priors"],
+        self.last = dict(nuisances=self._unpack(x), hese=ex["hese"], dr2=ex["dr2"], mese=ex["mese"], priors=ex["priors"],
                          profile_value=float(r.fun), profile_converged=bool(r.converged), profile_nit=int(r.nit),
                          profile_message=str(r.message))
         return ex["total"]
@@ -574,6 +633,8 @@ class EventLikelihood:
         if self.dr2 is not None:
             Fmu = F_nu[:, :, 1] + F_nb[:, :, 1]
             out["dr2"] = {c: self.dr2.fold[c](Fmu) for c in self.dr2.configs}
+        if self.mese is not None:
+            out["mese"] = self.mese(F_nu, F_nb)
         return out
 
     def _exact_grads(self, x, A):
@@ -621,7 +682,15 @@ class EventLikelihood:
                 gx[idx[f"dr2_norm_{c}"]] += r @ B
                 gx[[idx[p] for p in self.atm_params]] += (1.0 + nc) * (D.deriv[c] @ r)
                 gx[idx["prompt"]] += (1.0 + nc) * (r @ D.prompt[c])
-        gx += 2.0 * (x - self.centre) / self.sigma ** 2
+        self._g_mese = None
+        if self.mese is not None:
+            M = self.mese
+            mu = A["mese"] + v["mese_conv_norm"] * M.conv + v["mese_muon_norm"] * M.muon
+            _, r = _poisson(mu, M.data, grad=True)
+            self._g_mese = r
+            gx[idx["mese_conv_norm"]] += r @ M.conv
+            gx[idx["mese_muon_norm"]] += r @ M.muon
+        gx += 2.0 * self.prior * (x - self.centre) / self.sigma ** 2
         return g_ev, g_dr2, gx
 
     def _profile_shift(self, x, A, gx):
@@ -638,6 +707,7 @@ class EventLikelihood:
         try:
             vv[free] = np.linalg.solve(Hm[np.ix_(free, free)], gx[free])
         except np.linalg.LinAlgError:
+            self._c_mese = None
             return None, {}
         v = self._unpack(x)
         idx = {n: i for i, n in enumerate(self.names)}
@@ -684,6 +754,14 @@ class EventLikelihood:
                 h = np.where(pos, 2.0 * D.data[c_] / (m * m), np.where(mu < 0.0, 2.0 * NEG_PENALTY, 0.0))
                 Jv = (1.0 + nc) * (vt @ D.deriv[c_] + vv[idx["prompt"]] * D.prompt[c_]) + vv[idx[f"dr2_norm_{c_}"]] * B
                 c_dr2[c_] = -h * Jv
+        self._c_mese = None
+        if self.mese is not None:
+            M = self.mese
+            mu = A["mese"] + v["mese_conv_norm"] * M.conv + v["mese_muon_norm"] * M.muon
+            pos = M.data > 0
+            m = np.where(pos, np.maximum(mu, MU_FLOOR * M.data), 1.0)
+            h = np.where(pos, 2.0 * M.data / (m * m), np.where(mu < 0.0, 2.0 * NEG_PENALTY, 0.0))
+            self._c_mese = -h * (vv[idx["mese_conv_norm"]] * M.conv + vv[idx["mese_muon_norm"]] * M.muon)
         return c_hese, c_dr2
 
     def chi2_and_grad(self, values: Mapping, names):
@@ -698,7 +776,7 @@ class EventLikelihood:
         A = self._astro_from(F_nu, F_nb)
         x, r = self.profile(A)
         ex = self.exact(x, A)
-        self.last = dict(nuisances=self._unpack(x), hese=ex["hese"], dr2=ex["dr2"], priors=ex["priors"],
+        self.last = dict(nuisances=self._unpack(x), hese=ex["hese"], dr2=ex["dr2"], mese=ex["mese"], priors=ex["priors"],
                          profile_value=float(r.fun), profile_converged=bool(r.converged), profile_nit=int(r.nit),
                          profile_message=str(r.message))
         g_ev, g_dr2, gx = self._exact_grads(x, A)
@@ -714,6 +792,8 @@ class EventLikelihood:
                 dmu = d_nu[:, :, 1] + d_nb[:, :, 1]
                 for c in self.dr2.configs:
                     grad[j] += (g_dr2[c] + c_dr2.get(c, 0.0)) @ self.dr2.fold[c](dmu)
+            if self.mese is not None:
+                grad[j] += (self._g_mese + (0.0 if self._c_mese is None else self._c_mese)) @ self.mese(d_nu, d_nb)
         return float(ex["total"]), grad
 
     # ------------------------------------------------------------------ Asimov data
@@ -729,4 +809,6 @@ class EventLikelihood:
         if self.dr2 is not None:
             for c in self.dr2.configs:
                 self.dr2.data[c] = ex["dr2_mu"][c].copy()
+        if self.mese is not None:
+            self.mese.data = ex["mese_mu"].copy()
         self._z0 = (x - self.centre) / self.sigma

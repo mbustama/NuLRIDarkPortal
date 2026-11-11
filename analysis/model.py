@@ -145,6 +145,48 @@ LINEAR_KEYS = SOURCE_KEYS + ("nubar_to_nu_ratio", "Phi_0") + GALACTIC_KEYS + tup
 ALIASES = {"s12sq": "th12_deg", "s13sq": "th13_deg", "s23sq": "th23_deg"}
 DISK_CACHE_ENV = "NULRI_FLUX_CACHE"
 DISK_CACHE_VERSION = 1
+# E11 (audit 2026-11-08): the solver's data files guard the cache key. The solver reads only .npz files from src/data
+# and from galactic.data_dir, which is looked up first (dp_galactic._path, dp_transit.MW_SKY_DENSITY_FILES). The stored
+# runs were made with these contents: MD5s read 2026-11-10 in the Tycho checkouts nulri_sidecay, nulri_smfix and
+# nulri_refit_set and in this repository, all identical, data_dir unset in every campaign configuration. A key gets
+# the data files only when they differ from these, so those runs stay reachable and a changed file never reuses one.
+SOLVER_DATA_BASELINE = {
+    "galactic_cringe.npz": "36b9b975bb824b4f3c692394f0d1fe2a",
+    "galactic_emission.npz": "165b3311e2c24ad72997fed889e89746",
+    "galactic_pi0.npz": "bdb0e72fb4a5fdf614491eaeb69ec2a4",
+    "mw_neff_tables.npz": "7063e68f617937bb56b0b55d185fc071",
+    "mw_neff_tables_electrons.npz": "6c0ae09f6f2b4db8d49163f8ac3da01f",
+    "mw_sky_density.npz": "36d6c48e0a38b637f72e2c7f9e658477",
+    "mw_sky_density_electrons.npz": "3a57c036d0bd0849572744e112086416",
+}
+SOLVER_DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "data")
+_md5_memo: Dict[tuple, str] = {}
+
+
+def _file_md5(path: str) -> str:
+    st = os.stat(path)
+    key = (os.path.abspath(path), st.st_size, st.st_mtime_ns)
+    if key not in _md5_memo:
+        h = hashlib.md5()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1 << 20), b""):
+                h.update(chunk)
+        _md5_memo[key] = h.hexdigest()
+    return _md5_memo[key]
+
+
+def solver_data_files(data_dir: Optional[str] = None, src_data: str = SOLVER_DATA_DIR) -> Dict[str, str]:
+    """{name: MD5} of the .npz files the solver can read, each taken where the solver finds it (data_dir first)."""
+    dirs = ([data_dir] if data_dir else []) + [src_data]
+    names = sorted({n for d in dirs if os.path.isdir(d) for n in os.listdir(d) if n.endswith(".npz")})
+    out = {}
+    for n in names:
+        for d in dirs:
+            p = os.path.join(d, n)
+            if os.path.isfile(p):
+                out[n] = _file_md5(p)
+                break
+    return out
 SITE_POLE_DEG = 89.9
 P_NODES_N = 7             # solver runs per propagation point when p_index floats (fractions to ~2e-4 under strong SI)
 _SECTIONS = ("cosmology", "standard_mixing", "matter_charge", "dark_portal", "secret_interactions", "source", "grid",
@@ -291,6 +333,7 @@ def spline_weight_derivatives(nodes, p: float) -> np.ndarray:
 # The parameters whose derivatives the model gives in closed form (site_band_flux_jacobian; 2026-10-17): the
 # extragalactic and Galactic normalizations and compositions (linear) and the spectral indices (through the cubic
 # spline between the solver runs at the index nodes)
+E1_NU_ONLY = {"is_antineutrino": "false"}      # the neutrino-only run of a free antineutrino share (audit E1)
 GRADIENT_NAMES = ("norm_astro", "norm_gal", "f_e_S", "f_mu_S", "f_tau_S", "f_e_S_gal", "p_index", "p_index_low")
 LOG_RATIO_CLIP = 30.0     # |log(F_r / F_0)| kept below this in the mixing templates (a bin absorbed away in one run)
 LOG_FACTOR_CLIP = 60.0    # and the templates' total exponent (an extrapolation far beyond the points)
@@ -359,8 +402,14 @@ class FlavorModel:
     def __init__(self, solver_config: Mapping, free_names: Sequence[str] = (), cache_size: int = 512,
                  p_nodes: Optional[Sequence[float]] = None, sky: bool = False,
                  flavor_band_eV: Optional[Sequence[float]] = None, pure_flavor_basis: bool = False,
-                 sites: Sequence[float] = (), p1_nodes: Optional[Sequence[float]] = None, templates: Sequence = ()):
+                 sites: Sequence[float] = (), p1_nodes: Optional[Sequence[float]] = None, templates: Sequence = (),
+                 flavor_weighting: str = "flux"):
         sc, own = split_analysis_keys(solver_config)
+        if flavor_weighting not in ("flux", "mese"):
+            raise ValueError(f"flavor_weighting must be 'flux' or 'mese', got {flavor_weighting!r}")
+        # how fractions() reduces the composition to one value (audit decision A3, 2026-11-09): 'flux' the flux-weighted
+        # average over the band; 'mese' the constant composition with MESE's expected events per flavor (analysis/mese.py)
+        self.flavor_weighting = flavor_weighting
         self.potential_sign = float(own.get("potential_sign", 1.0))
         if self.potential_sign not in (1.0, -1.0):
             raise ValueError("dark_portal.potential_sign must be +1 or -1")
@@ -398,8 +447,11 @@ class FlavorModel:
                              "extragalactic flux's normalization against the Galactic one, e.g. "
                              "dp_galactic.icecube_2026_anchor()")
         if self.sky:
-            if self.ratio_free:
-                raise ValueError("sky mode (the event likelihoods) does not float nubar_to_nu_ratio")
+            # audit decision E1 (Mauricio, 2026-11-09, "One overall share, same flavors"): in sky mode a free
+            # nubar_to_nu_ratio combines each point's run with the configured emission (the stored runs) and a run
+            # with neutrinos only (source.is_antineutrino 'false'); transport is linear in the emission (_e1_mix)
+            if self.ratio_free and str(base["source"].get("is_antineutrino", "sum")).strip().lower() not in ("sum", "both"):
+                raise ValueError("a free nubar_to_nu_ratio needs source.is_antineutrino 'sum'")
             if base["sky"]["extragalactic_norm"] is None:
                 raise ValueError("sky mode needs sky.extragalactic_norm: the events need the flux in physical units")
             base["sky"]["output"] = "bands"
@@ -513,8 +565,10 @@ class FlavorModel:
 
     @staticmethod
     def _without_index(key: tuple) -> tuple:
-        # the Galactic component depends on neither the spectral index nor the extragalactic sources' window
-        return tuple(item for item in key if not (item[0] == "source" and (item[1] == "p_index"
+        # the Galactic component depends on neither the spectral index nor the extragalactic sources' window, nor on
+        # their neutrino/antineutrino emission (E1's neutrino-only runs; propagate_sky_basis's Galactic part never
+        # reads injection_weights, dark_portal_solver.py:2393-2470, read 2026-11-09)
+        return tuple(item for item in key if not (item[0] == "source" and (item[1] in ("p_index", "is_antineutrino")
                                                                            or item[1] in WINDOW_KEYS)))
 
     def _gal_get(self, key: tuple):
@@ -552,8 +606,13 @@ class FlavorModel:
         if not self.disk_cache:
             return None
         solver = {k: v for k, v in cfg.items() if k not in ("execution", "output")}
-        ident = dict(solver=solver, basis=self.basis, ratio_free=self.ratio_free, galactic=self.galactic,
+        # sky mode keeps ratio_free False in the key: its free ratio (E1) combines ordinary sky runs, whose files
+        # are those of a model with the ratio fixed (and sky mode refused a free ratio before 2026-11-09)
+        ident = dict(solver=solver, basis=self.basis, ratio_free=self.ratio_free and not self.sky, galactic=self.galactic,
                      code=dp_core._source_digest(), version=DISK_CACHE_VERSION)
+        data = solver_data_files((cfg.get("galactic") or {}).get("data_dir"))
+        if data != SOLVER_DATA_BASELINE:                     # E11: only then, so the stored runs keep their keys
+            ident["data"] = data
         if self.sky:
             ident["sky"] = "propagate_sky_basis, single-precision bands"
             if self.site_lats:
@@ -620,6 +679,8 @@ class FlavorModel:
             out.extend((x, False) for x in ([v] if nodes is None else [dict(v, p_index=float(pk)) for pk in nodes]))
             if not at0:
                 out.extend(self._template_runs(v, nodes))
+        if self._e1:
+            out += [(dict(v, **E1_NU_ONLY), t) for v, t in out]
         return out
 
     # ------------------------------------------------------------------ mixing templates (templates.py, 2026-10-18)
@@ -780,7 +841,7 @@ class FlavorModel:
     def gradient_names(self) -> tuple:
         """The names whose derivatives extragalactic_band_jacobian gives in closed form: GRADIENT_NAMES and the
         templated mixing parameters."""
-        return tuple(GRADIENT_NAMES) + tuple(self.templates)
+        return tuple(GRADIENT_NAMES) + tuple(self.templates) + (("nubar_to_nu_ratio",) if self._e1 else ())
 
     def prefetch(self, values_list) -> int:
         """Computes the solver runs of these values that are neither cached nor on disk in parallel, through
@@ -1134,6 +1195,51 @@ class FlavorModel:
             raise ValueError("band_fluxes needs the model in sky mode (the event likelihoods)")
         if self.executor is not None:
             self.prefetch(self._evaluation_values(values))
+        if self._e1:
+            _, s_nu, s_nb, run = self._eg_band_fluxes(values)
+            _, v_nu, v_nb, _ = self._eg_band_fluxes(dict(values, **E1_NU_ONLY))
+            F_nu, F_nb = self._e1_mix(values, (s_nu, s_nb), (v_nu, v_nb))
+        else:
+            _, F_nu, F_nb, run = self._eg_band_fluxes(values)
+        if run["gal_nu"] is not None:
+            x = float(values.get("f_e_S_gal", self.default("f_e_S_gal")))
+            if not 0.0 <= x <= 1.0:
+                raise ValueError(f"f_e_S_gal must lie in [0, 1], got {x}")
+            g = float(values.get("norm_gal", self.default("norm_gal"))) / self.default("norm_gal")
+            G_nu, G_nb = run["gal_nu"], run["gal_nb"]
+            if self._need_templates(values):
+                G_nu, G_nb, _, _ = self._template_galactic(values, run)
+            F_nu = F_nu + g * (x * G_nu[0] + (1.0 - x) * G_nu[1])
+            F_nb = F_nb + g * (x * G_nb[0] + (1.0 - x) * G_nb[1])
+        return run["E"], F_nu, F_nb
+
+    @property
+    def _e1(self) -> bool:
+        """Sky mode with a free antineutrino share (audit decision E1)."""
+        return bool(self.sky and self.ratio_free)
+
+    def _e1_weights(self, values: Mapping):
+        """(w_nu, w_nb, dw_nu/dR, dw_nb/dR) at the values' nubar_to_nu_ratio R, and (w0_nu, w0_nb) of the configured
+        emission (the stored runs'): neutrinos and antineutrinos in the ratio R, the same flavors, total emission 1
+        (as dark_portal_solver.injection_weights)."""
+        R = float(values.get("nubar_to_nu_ratio", self.base["source"]["nubar_to_nu_ratio"]))
+        R0 = float(self.base["source"]["nubar_to_nu_ratio"])
+        if not (R > 0.0 and np.isfinite(R) and R0 > 0.0 and np.isfinite(R0)):
+            raise ValueError(f"nubar_to_nu_ratio must be positive and finite, got {R} (configured {R0})")
+        d = 1.0 / (1.0 + R) ** 2
+        return 1.0 / (1.0 + R), R / (1.0 + R), -d, d, 1.0 / (1.0 + R0), R0 / (1.0 + R0)
+
+    def _e1_mix(self, values: Mapping, s: tuple, v: tuple, deriv: bool = False):
+        """E1's flux (or any quantity linear in the emission) from the configured run's s = (nu, nubar) and the
+        neutrino-only run's v: the antineutrino-only run is (s - w0_nu v) / w0_nb, and the flux at ratio R is
+        w_nu v + w_nb (s - w0_nu v) / w0_nb (exactly s at the configured ratio). deriv: its derivative in R instead."""
+        w_nu, w_nb, dw_nu, dw_nb, w0_nu, w0_nb = self._e1_weights(values)
+        a, b = (dw_nu, dw_nb) if deriv else (w_nu, w_nb)
+        return tuple(a * vi + b * (si - w0_nu * vi) / w0_nb for si, vi in zip(s, v))
+
+    def _eg_band_fluxes(self, values: Mapping):
+        """(E, F_nu, F_nb, run): band_fluxes' extragalactic part (norm_astro, the composition, the indices) and the
+        first run it read (which carries the Galactic bands)."""
         if self.E_break is None:
             b_nu, b_nb, K, run = self._bands_index(values, self.p_nodes)
         else:
@@ -1150,18 +1256,7 @@ class FlavorModel:
         else:
             b_nu, b_nb = b_nu[0], b_nb[0]
         scale = float(values.get("norm_astro", 1.0)) * K
-        F_nu, F_nb = scale * b_nu, scale * b_nb
-        if run["gal_nu"] is not None:
-            x = float(values.get("f_e_S_gal", self.default("f_e_S_gal")))
-            if not 0.0 <= x <= 1.0:
-                raise ValueError(f"f_e_S_gal must lie in [0, 1], got {x}")
-            g = float(values.get("norm_gal", self.default("norm_gal"))) / self.default("norm_gal")
-            G_nu, G_nb = run["gal_nu"], run["gal_nb"]
-            if self._need_templates(values):
-                G_nu, G_nb, _, _ = self._template_galactic(values, run)
-            F_nu = F_nu + g * (x * G_nu[0] + (1.0 - x) * G_nu[1])
-            F_nb = F_nb + g * (x * G_nb[0] + (1.0 - x) * G_nb[1])
-        return run["E"], F_nu, F_nb
+        return run["E"], scale * b_nu, scale * b_nb, run
 
     def _bands_index_jac(self, values: Mapping, nodes, names: Sequence[str] = ()):
         """_bands_index (the same arithmetic) with the derivatives in p_index of log(bands), element by element, and
@@ -1198,13 +1293,28 @@ class FlavorModel:
         return float(np.dot(spline_weight_derivatives(nodes, p), lK))
 
     def extragalactic_band_jacobian(self, values: Mapping, names: Sequence[str]):
+        """_eg_band_jacobian, with a free antineutrino share (E1) the mix of the configured run's and the
+        neutrino-only run's (_e1_mix), and the derivative in nubar_to_nu_ratio."""
+        if not self._e1:
+            return self._eg_band_jacobian(values, names)
+        names = list(names)
+        inner = [n for n in names if n != "nubar_to_nu_ratio"]
+        E, s_nu, s_nb, ds = self._eg_band_jacobian(values, inner)
+        _, v_nu, v_nb, dv = self._eg_band_jacobian(dict(values, **E1_NU_ONLY), inner)
+        F_nu, F_nb = self._e1_mix(values, (s_nu, s_nb), (v_nu, v_nb))
+        dF = {n: self._e1_mix(values, ds[n], dv[n]) for n in inner}
+        if "nubar_to_nu_ratio" in names:
+            dF["nubar_to_nu_ratio"] = self._e1_mix(values, (s_nu, s_nb), (v_nu, v_nb), deriv=True)
+        return E, F_nu, F_nb, dF
+
+    def _eg_band_jacobian(self, values: Mapping, names: Sequence[str]):
         """(E, F_nu, F_nb, dF): the extragalactic flux per declination band, as band_fluxes(values, norm_gal=0) gives
         it (the same arithmetic, so the same values), and its derivatives in each of `names` (GRADIENT_NAMES), in
         closed form: {name: (dF_nu, dF_nb)}, zero for names it does not depend on. norm_astro and the source
         composition enter linearly; the indices through the spline in p (exact derivatives of the same spline) and,
         with a broken power law, the pieces' join (E_b / E_ref)^(p_low - p) K(p_low)."""
         names = list(names)
-        key = (tuple(sorted((k, float(v)) for k, v in values.items())), tuple(names))
+        key = (tuple(sorted((k, v if isinstance(v, str) else float(v)) for k, v in values.items())), tuple(names))
         memo = getattr(self, "_eg_jac", None)
         if memo is not None and memo[0] == key:
             return memo[1]
@@ -1364,7 +1474,7 @@ class FlavorModel:
         South Pole's for a site within SITE_POLE_DEG of it."""
         # the extragalactic part is every site's (isotropic before the Earth): computed once per values for all of
         # them (2026-10-15; the future detectors ask for five sites per chi^2)
-        key = tuple(sorted((k, float(v)) for k, v in values.items()))
+        key = tuple(sorted((k, v if isinstance(v, str) else float(v)) for k, v in values.items()))
         memo = getattr(self, "_site_eg", None)
         if memo is not None and memo[0] == key:
             E, F_nu, F_nb = memo[1]
@@ -1453,10 +1563,15 @@ class FlavorModel:
         return np.array([comp[k] for k in SOURCE_KEYS])
 
     def fractions(self, values: Mapping) -> np.ndarray:
-        """Energy-averaged (f_e, f_mu, f_tau) at the detector, f_tau = 1 - f_e - f_mu."""
+        """Energy-averaged (f_e, f_mu, f_tau) at the detector, f_tau = 1 - f_e - f_mu: flux-weighted, or weighted by
+        MESE's expected events per flavor (flavor_weighting 'mese', audit decision A3)."""
         E, F = self.flux(values)
         if self.flavor_band is not None:
             m = (E >= self.flavor_band[0] * (1.0 - 1e-9)) & (E <= self.flavor_band[1] * (1.0 + 1e-9))
             E, F = E[m], F[m]
+        if self.flavor_weighting == "mese":
+            from .mese import event_weighted_fractions
+            r = event_weighted_fractions(E, F)
+            return np.array([r[0], r[1], 1.0 - r[0] - r[1]])
         r = compute_energy_averaged_ratios(E, F)
         return np.array([r[0], r[1], 1.0 - r[0] - r[1]])

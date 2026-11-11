@@ -2585,7 +2585,12 @@ def build_solver_params(config: Dict) -> Tuple[np.ndarray, Dict]:
     params['th23'] = float(np.radians(config['standard_mixing']['th23_deg']))
     params['d_cp'] = float(np.radians(config['standard_mixing']['d_cp_deg']))
     params['use_SM_potential'] = config['standard_mixing']['use_SM_potential']
-    params['n_e_earth_eV3'] = float(config['standard_mixing']['n_e_earth_cm3'] * cm_inv3_to_eV3)
+    sm_profile = str(config['standard_mixing'].get('SM_potential_profile', 'prem')).strip().lower()
+    if sm_profile not in ('prem', 'constant'):
+        raise ValueError(f"standard_mixing.SM_potential_profile must be 'prem' or 'constant', got {sm_profile!r}")
+    # None: PREM's electron density along each chord (dp_spatial._earth_setup); a number: one density everywhere
+    params['n_e_earth_eV3'] = (None if sm_profile == 'prem'
+                               else float(config['standard_mixing']['n_e_earth_cm3'] * cm_inv3_to_eV3))
     # Optional flavor-structure overrides for the coherent forward-scattering potentials
     # (neutrino convention; antineutrino conjugation is applied centrally in
     # propagate_spectrum). See parse_structure_matrix_3x3 for the accepted JSON format.

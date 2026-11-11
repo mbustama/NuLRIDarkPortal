@@ -324,6 +324,8 @@ def test_n_e_earth_cm3_affects_flux_when_SM_potential_enabled(tmp_path):
     cfg["execution"]["verbose"] = 0
     cfg["execution"]["n_cores"] = 1
     cfg["standard_mixing"]["use_SM_potential"] = True
+    cfg["standard_mixing"]["SM_potential_profile"] = "constant"   # the one-density profile (since 2026-11-08 'prem'
+    #                                                               is the default; tests/test_sm_earth_potential.py)
 
     cfg_lo = copy.deepcopy(cfg)
     cfg_lo["standard_mixing"]["n_e_earth_cm3"] = 1.0e23

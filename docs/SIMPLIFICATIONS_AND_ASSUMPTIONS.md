@@ -9,7 +9,10 @@ small, not yet measured), **open** (decided to remove or change, not yet done).
 
 ## Propagation
 
-1. **Absorption in the Earth applied after the flavor conversion.** *To quantify.* (2026-10-17)
+1. **Absorption in the Earth applied after the flavor conversion.** *Bounded* (2026-11-08; his call "Bound is enough"):
+   it matters only where flavor changes inside the Earth (the L_e - L_alpha potential) and only for the flavor-dependent
+   parts of absorption, which concern at most 3e-4 (up-going nubar_e at 4-10 PeV) and 10% (up-going nu_tau above
+   100 TeV) of HESE's astrophysical events (HESE Monte Carlo at the broken power law). (2026-10-17)
    The solver propagates only flavor through the Earth (the new force's potential), never removing neutrinos; the
    standard absorption comes from the detector responses (HESE's Monte Carlo propagates each event through the
    Earth; DR2's effective areas include absorption; the future detectors multiply by NuFlavorSingleSource's survival
@@ -23,8 +26,18 @@ small, not yet measured), **open** (decided to remove or change, not yet done).
    Cross sections are fixed at the values in the public responses. Varying them properly needs the Earth propagation
    with regeneration and effective areas rebuilt with the varied cross sections, which we do not do.
 
-3. **Standard matter effects off in the Earth** (`use_SM_potential: false`). *Accepted.*
-   At TeV-PeV the standard matter potential barely changes the flavor of neutrinos arriving as decohered states.
+3. **Standard matter effects off in the Earth** (`use_SM_potential: false`). *Wrong for L_e - L_alpha; fixed in the
+   code 2026-11-08* (Mauricio: "It is incorrect"). The justification written here on 2026-10-17 (mine, never put to
+   him) held only without a new potential in the Earth: on an arriving mixture of mass states the SM potential changes
+   the flavor by <= 1.4e-3 at 100 GeV and ~1e-5 above 1 TeV (core-crossing, scratchpad sm_earth_check.py). With the
+   L_e - L_alpha potential the arriving states are not mass states and both potentials act together in the Earth.
+   Both are flavor-diagonal, so within a chord only the vacuum term changes flavor, by at most ~Delta m^2_31 L / E
+   (0.016 at 10 TeV, 0.16 at 1 TeV, order 1 at 100 GeV through the core). The code put one constant density on every
+   chord when asked; since 2026-11-08 standard_mixing.SM_potential_profile = "prem" (default) takes PREM's electron
+   density step by step (dp_spatial._sm_electron_seq; tests/test_sm_earth_potential.py: an independent evolution to
+   1e-9), "constant" the code before. Every run so far has it off: the dark portal, the secret interactions and every
+   MeV plane are unaffected (no new potential in the Earth); the L_e - L_alpha planes below 1 keV are to be rerun with
+   it on.
 
 4. **New physics acts on the astrophysical flux only, not on atmospheric neutrinos.** *Accepted (conservative).*
    The atmospheric neutrinos crossing the Earth would also feel the new potential; leaving that out can only weaken
@@ -97,7 +110,8 @@ small, not yet measured), **open** (decided to remove or change, not yet done).
    `docs/dev/BROKEN_POWER_LAW.md`) The two pieces are split at the energy today, each a population with its own
    redshift weighting.
 
-8. **Sources without redshift evolution, up to z = 4.** *Accepted (fixed choice).*
+8. **Sources up to z = 4, their density tracking the star-formation rate** (dp_cosmo.calc_R_source: (1+z)^3.4 to z = 1,
+   (1+z)^-0.3 beyond; no evolution added to it, rho_evol = 0; wording corrected 2026-11-08). *Accepted (fixed choice).*
 
 9. **Source flavor composition** at pion decay (1/3, 2/3, 0) in the nominal planes; fitted as (x, 1 - x, 0) in the
    `_fx` twins, extragalactic and Galactic independently. No tau neutrinos at the sources. *Accepted.*
@@ -259,8 +273,10 @@ small, not yet measured), **open** (decided to remove or change, not yet done).
     at worst 0.35% in flux and 9e-4 in flavor fractions for the lower index (strong MeV absorption); ~1e-5 for the
     potential. *Accepted.* (2026-10-15)
 
-19. **Sky resolution:** HEALPix N_side 8, the Earth crossed on 2 chords per direction band, the Sun averaged
-    isotropically. *Accepted.*
+19. **Sky resolution:** HEALPix N_side 8, the Earth crossed on 12 chords per declination band (grid.n_earth_chords),
+    the Sun on 8 paths at Gauss-Legendre cosines of the angle to it (grid.n_sun_paths; the sky isotropic around it).
+    *Accepted.* (Corrected 2026-11-08: it read 2 chords and an isotropic Sun average; the campaigns run 12 and 8.)
+    The accuracy of 12 chords per band is not measured.
 
 20. **The thermal kernels' grid (a bug, fixed 2026-10-21).** In every MeV transport with thermal products (the
     campaign's L_e-L_mu, L_e-L_tau and dark-portal MeV planes, and the 1-10 keV end of the ultralight and potential
@@ -295,12 +311,12 @@ small, not yet measured), **open** (decided to remove or change, not yet done).
 22. **Ultralight mediators: relic mass changes, neutrino decay, the models' range of validity, the potential planes
     (2026-10-24; notes Sec. 12.8).** (a) A soft scattering that leaves the relic in a heavier mass state costs the beam
     Delta m^2/(2 p^-) per event; at 1e-9 eV and g_D = 1e-4 there are ~1e19 such events. Implemented 2026-10-24
-    (src/dp_relic_loss.py, both transports): **to quantify** (validation on Tycho, stage 2). (b) For m_Zd < m_i - m_j the heavier neutrinos decay into the lightest and the mediator
+    (src/dp_relic_loss.py, both transports): **validated** before the final run (4f09ab4, 2026-10-25: convergence audits, the validation map, an independent review). (b) For m_Zd < m_i - m_j the heavier neutrinos decay into the lightest and the mediator
     (Majorana rate twice the Dirac one); for g_D >~ 1e-7 the beam arrives as nu_1 and the relics are nu_1 only.
     Implemented 2026-10-24 (src/dp_decay.py, both transports; relics' composition after decays by z = 1, a hotter
     Fermi-Dirac nu_1 gas standing for the daughters; the mediator invisible; daughter kernels from massless
     kinematics; where the potential dominates, the incoherent split over eigenstates -- wrong, replaced 2026-10-25 by
-    (e)): **to quantify** (stage 2).
+    (e)): **validated** before the final run (4f09ab4, 2026-10-25; 400 redshift steps where decays act).
     Bounded so far (2026-10-24): the time the relics' composition is taken at is immaterial -- it enters only through the soft
     scatterings and the energy loss, and where those act at all the relics have long decayed: their decay exponent
     grows as g^2 (m/m_Zd)^2, the scatterings as g^4 / m_Zd^2 (at g = 1e-8 the exponent is already >= 1e7 wherever the
@@ -314,7 +330,8 @@ small, not yet measured), **open** (decided to remove or change, not yet done).
     population where the decay is open is modelled as all nu_1 with three times the number, a Fermi-Dirac gas at
     3^(1/3) T; the true one depends on the dark sector's history (the mediator decays back into nu_1 pairs when
     m_Zd > 2 m_1, the daughters are colder than that gas). The jumps scale with the relics' number, the energy loss
-    with number x <1/E>: **to bracket** in stage 2 (number x1 to x3, <1/E> x1/2 to x2). (c) Where the couplings of the mediator's longitudinal mode (its
+    with number x <1/E>: **bracketed** 2026-11-08 (decision C; number x1 to x3, <1/E> x1/2 to x2): only the number moves
+    limits, at m_Zd = 1e-2 eV, 10 points in the IceCube-spectrum planes, where x3 gives the weaker limit. (c) Where the couplings of the mediator's longitudinal mode (its
     Goldstone, Y_ij = i (G'_ij m_i + G'_ji m_j)/m_Zd) break perturbative unitarity (src/dp_unitarity.py, against
     Allwicher et al., JHEP 10 (2021) 129), the planes keep their ranges and the region is marked as not allowed
     (Mauricio, 2026-10-24). The boundary falls with the lightest mass (c from 2.46 to 1.25 for the e texture between
@@ -556,3 +573,26 @@ small, not yet measured), **open** (decided to remove or change, not yet done).
     hold at every mu, so the tables move everywhere by the old forms' cancellation: <= 4e-14 of the scalar's pair
     table, <= 3e-16 of the vector's (mu = 1e-30-0.5, against 917dbff) -- at 1 keV and above no longer bit for bit
     with the code before 2026-11-08.
+
+25. **The present-data sets and the forecasts after the audit of 2026-11-08** (2026-11-11; docs/dev/AUDIT_2026-11-08_
+    resolution.md, docs/dev/C1_FORECAST_PORT.md, docs/dev/REVIEW_2026-11-11_physics.md). *Accepted, to state:*
+    (a) set 1 compares IceCube's flavor likelihood (released grid, fitted under IceCube's broken power law) with our
+    flux's composition averaged over 5 TeV-10 PeV and weighted by MESE's expected events, as if constant in energy;
+    measured at one ultralight block: weighting by flux instead moves the limit by <= 0.4%, the single-power-law grid
+    by <= 0.1% (review item 3; the other families pending);
+    (b) set 1's spectrum segments are taken as independent (their correlations are not published); with a neighbour
+    correlation of -0.3 the limit at one ultralight block moves by 2.3-2.9% (review item 5; others pending); the
+    spectrum's break is our source model's, fixed at 24.5 TeV;
+    (c) set 2's MESE term uses reconstructed energy only (the release's 1-D projections) and fails its gate against
+    IceCube's flavor result (TS at f_e = 0: 1.42 vs 8.65), his choice to use it and state it; DR2's tracks near the
+    horizon at 4-10 TeV are 11% below our atmospheric model (B7: our single-power-law index 2.62 vs IceCube's 2.37);
+    nu_tau -> tau -> mu tracks are left out of DR2 (B3; 6.2% of IceCube's astrophysical tracks at 1:1:1, 16.7 of 270 per year, from the
+    Plan A IceCube card's channels, review check 2026-11-11);
+    (d) the antineutrino share at the sources is free between 1:2 and 1:1 (E1), built linearly from a neutrino-only
+    run and the standard run; the Galactic flux keeps 1:1;
+    (e) forecasts: Plan A's detector models average neutrinos and antineutrinos except the Glashow piece; tracks are
+    binned in declination band and energy, showers and double cascades in energy only; the solver's crossing of the
+    Earth is the South Pole's at every site (exact without a matter effect; the open part of C2 for ultralight
+    L_e - L_alpha); IceCube's and Gen2's starting events 5-7% below Plan A's own diffuse counts (flavor-blind);
+    (f) the 95% edge is read with a monotone cubic in log10 g between samples (review item 8); where it and straight
+    lines differ by more than 2%, couplings are to be added near the edge (tools/edge_refine_list.py).

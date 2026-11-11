@@ -1,303 +1,268 @@
 """
-future_events.py -- the future detectors' event likelihood for the projections (docs/dev/FUTURE_DETECTORS_PLAN.md;
-Mauricio, 2026-10-14/15): NuFlavorSingleSource's eight detectors (IceCubeRates.future: its models vendored unchanged,
-counted per channel, reconstructed energy and local cos-zenith band by IceCubeRates.future.diffuse), against the
-model's flux per local zenith at each detector's site (FlavorModel.site_band_fluxes), with NuFlavorSingleSource's
-main-analysis uncertainties profiled inside the term:
+future_events.py -- the future telescopes' event likelihood for the forecasts, on NuFlavorSingleSource's Plan A
+detector models (audit finding C1, 2026-11-11; docs/dev/C1_FORECAST_PORT.md). Replaces the 2026-10-15 version, which
+used the models that project withdrew.
 
-  mu_k = (1 + eff_k) s_k + escale_k s_k^escale + misid_k s_k^misid
-         + n_k B_k + sum_g theta_g GB_k,g + escale_k BX_k^escale + misid_k BX_k^misid
+The responses (IceCubeRates/data/future_planA/<card>.pkl, from tools/build_forecast_planA.py and
+tools/assemble_forecast_planA.py on Tycho, Plan A's final code unchanged) give, per card, topology and declination band
+of the solver's sky (20 bands, equal in sin dec), events per live year per unit flux integral per sr over the card's
+true-energy bins, per flavor (nu + nubar, the cards' average), the Glashow piece apart, and Plan A's nuisance templates
+and priors. The card carries its site, the Earth's absorption by local zenith and the rotation through the day; the
+input is the flux per declination band before the Earth (FlavorModel's sky bands; at the South Pole the solver's
+crossing of the Earth, which changes nothing for the dark portal and the secret interactions, C2).
 
-per block k = (detector part, channel): s the astrophysical events (the model's flux, the signal here), B the
-atmospheric background (NuFlavorSingleSource's MCEq table, with its atmospheric-muon multipliers), n_k its
-normalization (10% prior), theta_g the Barr parameters, the cosmic-ray index and the prompt normalization (shared, with
-NuFlavorSingleSource's priors), eff, escale, misid per block (DET_PRIOR; no PSF: no rings). No cross-section variation
-(Mauricio, 2026-10-15; NuFlavorSingleSource has it at 5%): it needs the Earth propagation with regeneration and
-effective areas rebuilt with the varied cross sections.
--2 ln L = 2 sum [mu - n + n ln(n / mu)] (continued smoothly below a floor, as the HESE and DR2 terms) + the
-priors; the data of a projection: the Asimov expectation at the
-configuration's asimov values (standard physics) with the nuisances at their centres. The expectation is linear in
-every nuisance, so -2 ln L is convex in them and its Hessian exact: the profile takes projected Newton steps within
-their bounds (2026-10-15: 4-5 steps, ~0.03 s, where L-BFGS-B took ~2000 iterations and 8-10 s and stopped ~1e-7
-short of the minimum).
+Blocks (his choice, 2026-11-11): tracks per declination band and measured energy; showers and double cascades in
+measured energy only (their bands summed). Per block k
 
-Detector sets as NuFlavorSingleSource's run.py (config_parts): 'All8_base' (its main case: IceCube, the six water
-detectors and IceCube-Gen2, published selections), 'All_<sc>', 'Current_<sc>', 'Gen2_<sc>', single parts.
+  mu_k = s_k + B_k + sum_p x_p (S_k,p + BX_k,p)
+
+s the astrophysical events of the model's flux (the signal), B Plan A's background (atmosphere, muons, published
+backgrounds; its diffuse flux removed: it is our signal), x_p each nuisance's deviation from its centre in its prior's
+units, S and BX its templates on the signal and the background (Plan A's blocks.assemble: efficiencies, energy scales,
+misidentification, the energy model's deposits, the atmosphere's pieces). Pointing nuisances act within a band only
+and are left out. The Glashow piece follows the nubar_e flux: twice its share of the card's nu_e + nubar_e response.
+Live time: 10 years per detector (Plan A's D105); 'All8' adds IceCube's starting events over Gen2's years (its IceCube
+strings, Plan A's D49). -2 ln L = the Poisson deviance (continued smoothly below a floor, as the other event terms)
+plus the Gaussian priors; the data of a forecast: the Asimov expectation at the configuration's asimov values. The
+expectation is linear in every nuisance: the profile takes projected Newton steps (exact Hessian) within the bounds.
 """
 import os
-import sys
+import pickle
+from types import SimpleNamespace
 from typing import Mapping
 
 import numpy as np
 from scipy.optimize import minimize
 
-from types import SimpleNamespace
-
 from . import REPO_DIR
 from .events import MU_FLOOR, NEG_PENALTY, _poisson
 
-if REPO_DIR not in sys.path:
-    sys.path.insert(0, REPO_DIR)
-from IceCubeRates.future import nfss_detectors as ND  # noqa: E402
-from IceCubeRates.future import nfss_forecast as NF  # noqa: E402
-from IceCubeRates.future.diffuse import ATM_PARAMS, COSZ_EDGES, KEYS, DiffuseDetector  # noqa: E402
-
-WATER = ("ARCA", "GVD", "P-ONE", "TRIDENT", "NEON", "HUNT")
-GRADIENT_TOL = 1e-20         # the profile's Newton decrement for chi2_and_grad: to its rounding floor
-# the detectors' latitudes (deg), as NuFlavorSingleSource's calibrate() sets them (checked in the tests)
-SITE_LAT = {"IceCube": -89.99, "Gen2": -89.99, "ARCA": 36.27, "GVD": 51.77, "P-ONE": 47.7, "TRIDENT": 17.4,
-            "NEON": 17.4, "HUNT": 17.4}
-BKG_PRIOR = 0.10
-DET_PARAMS = ("eff", "escale", "misid")
+DATA_DIR = os.environ.get("NULRI_FORECAST_BLOCKS", os.path.join(REPO_DIR, "IceCubeRates", "data", "future_planA"))
+CARDS = ("icecube", "arca", "gvd", "pone", "trident", "neon", "hunt", "gen2")
+YEARS = 10.0
+FLAVORS = ("e", "mu", "tau")
+DROP_KINDS = ("pointing", "dnn")
+GRADIENT_TOL = 1e-20
+N_SUB = 8                    # sub-points per true-energy bin for the flux integrals (log-midpoint rule)
+ALIASES = {"All8_base": "All8"}
 
 
-def config_parts(config: str):
-    """NuFlavorSingleSource's detector configurations (code/run.py CONFIGS): the detector parts they combine."""
-    if config == "IceCube":
-        return ["IceCube"]
-    name, sc = config.rsplit("_", 1)
-    if sc not in ("base", "mid", "ded"):
-        raise ValueError(f"unknown future-detector configuration {config!r}")
-    gen2 = ["Gen2_IC", "Gen2_new_" + sc]
-    sets = {"Current": ["IceCube", "ARCA_" + sc, "GVD_" + sc], "All": ["IceCube"] + [w + "_" + sc for w in WATER],
-            "All8": ["IceCube"] + [w + "_" + sc for w in WATER] + gen2, "Gen2": gen2}
-    if name in sets:
-        return sets[name]
-    if name in WATER:
-        return [config]
-    raise ValueError(f"unknown future-detector configuration {config!r}")
-
-
-def part_lat(part: str) -> float:
-    return SITE_LAT[part.split("_")[0]]
+def config_entries(config: str):
+    """[(card, topologies or None for all, label)] of a detector configuration: 'All8' (Plan A's eight telescopes and
+    Gen2's IceCube strings), 'Current' (IceCube, ARCA, GVD), 'IceCube', or one card."""
+    config = ALIASES.get(config, config)
+    if config == "All8":
+        return [(c, None, c) for c in CARDS] + [("icecube", ("shw", "dc"), "gen2_ic")]
+    if config == "Current":
+        return [(c, None, c) for c in ("icecube", "arca", "gvd")]
+    if config.lower() in CARDS:
+        return [(config.lower(), None, config.lower())]
+    raise ValueError(f"unknown future-detector configuration {config!r}; known: All8, Current, {', '.join(CARDS)}")
 
 
 def config_sites(config: str):
-    """The latitudes the model must provide per-zenith fluxes for."""
-    return sorted({part_lat(p) for p in config_parts(config)})
+    """The latitudes the model must provide its own Galactic bands for: none (the cards take the sky's declination
+    bands and carry their sites)."""
+    config_entries(config)
+    return []
+
+
+def load_card(card: str) -> dict:
+    with open(os.path.join(DATA_DIR, f"{card}.pkl"), "rb") as fh:
+        return pickle.load(fh)
+
+
+def _flux_points(lgt_edges, n_sub=N_SUB):
+    """(lg points, W (n_true, n_points)): bin integrals of a flux known at the points, phi_i = W[i] @ Phi(points)."""
+    lo, hi = np.asarray(lgt_edges[:-1]), np.asarray(lgt_edges[1:])
+    u = (np.arange(n_sub) + 0.5) / n_sub
+    lg = lo[:, None] + (hi - lo)[:, None] * u[None, :]
+    w = np.log(10.0) * 10.0 ** lg * ((hi - lo) / n_sub)[:, None]
+    n = len(lo)
+    W = np.zeros((n, n * n_sub))
+    for i in range(n):
+        W[i, i * n_sub:(i + 1) * n_sub] = w[i]
+    return lg.ravel(), W
 
 
 class FutureEventLikelihood:
-    """-2 ln L of the future detectors' events at the model's values, profiled over their nuisances (module docstring).
+    """-2 ln L of the future telescopes' events at the model's values, profiled over their nuisances (module docstring).
 
-    Arguments: model -- a FlavorModel in sky mode built with sites=config_sites(config); spec -- {"config":
-    "All8_base"}."""
+    Arguments: model -- a FlavorModel in sky mode; spec -- {"config": "All8"}."""
 
     def __init__(self, model, spec: Mapping):
         spec = dict(spec)
         bad = set(spec) - {"config"}
         if bad:
             raise ValueError(f"data.events.future: unknown keys {sorted(bad)}; known: config")
-        self.config = str(spec.get("config", "All8_base"))
+        self.config = ALIASES.get(str(spec.get("config", "All8")), str(spec.get("config", "All8")))
         self.model = model
-        out, _ = ND.calibrate(verbose=False)
-        self.dets = [DiffuseDetector(n, out[n]) for n in config_parts(self.config)]
-        E_eV, _ = model.grid()
+        E_eV, band_edges = model.grid()
         self._lgE_model = np.log10(np.asarray(E_eV, dtype=np.float64) / 1e9)
-        lo, hi = self._lgE_model[0], self._lgE_model[-1]
-        lg = np.log10(NF.E)
-        self._inside = (lg >= lo - 1e-9) & (lg <= hi + 1e-9)
-        self._lg = np.clip(lg, lo, hi)
-        # np.interp's linear interpolation in log E as fixed gather weights (2026-10-17: one vectorized step for all
-        # directions and flavors instead of a call per band and flavor; equal to rounding)
-        xp = self._lgE_model
-        j = np.clip(np.searchsorted(xp, self._lg, side="right") - 1, 0, len(xp) - 2)
-        self._ij, self._it = j, (self._lg - xp[j]) / (xp[j + 1] - xp[j])
-        self.blocks = [(d, ch) for d in self.dets for ch in d.channels]
-        # each block's responses stacked over the six (flavor, kind) KEYS and laid out per cos-zenith bin, (nz,
-        # 6 nE, nb): its signals and the gradient's adjoint pass are batched matrix products (2026-10-17: ~1000 small
-        # einsums per evaluation before; the same sums to rounding)
-        def stacked(get):
-            A = np.stack([get(k) for k in KEYS])                         # (6, nE, nb, nz)
-            return np.ascontiguousarray(A.transpose(3, 0, 1, 2).reshape(A.shape[3], -1, A.shape[2]))
-        self._Rz = [dict(s=stacked(lambda k, d=d, ch=ch: d.R[ch][k]),
-                         escale=stacked(lambda k, d=d, ch=ch: d.RX[ch][k]["escale"]),
-                         misid=stacked(lambda k, d=d, ch=ch: d.RX[ch][k]["misid"])) for d, ch in self.blocks]
-        gparams = list(ATM_PARAMS)
-        names, centre, sigma, bounds = [], [], [], []
-        for d, ch in self.blocks:
-            names.append(f"{d.name}|{ch}|bkg")
-            centre.append(1.0)
-            sigma.append(BKG_PRIOR)
-            bounds.append((0.2, 3.0))
-        for p in gparams:
-            names.append(p)
-            centre.append(0.0)
-            s = NF.global_prior(p)
-            sigma.append(s)
-            bounds.append((-5.0 * s, 5.0 * s))
-        self._own = []
-        for d, ch in self.blocks:
-            own = {}
-            for p in DET_PARAMS:
-                if p == "misid" and ch == "trk":
+        sin_model = np.sin(np.asarray(band_edges, dtype=np.float64))
+        cards = {}
+        for card, _, _ in config_entries(self.config):
+            if card not in cards:
+                cards[card] = load_card(card)
+                if not np.allclose(cards[card]["sin_edges"], sin_model, atol=1e-9):
+                    raise ValueError(f"{card}: the responses' declination bands are not the model's")
+        self.nb = len(sin_model) - 1
+        # the blocks: (label, topology, band or None) with their per-point responses
+        self.blocks, priors = [], {}
+        self._pts = {}                                   # (card, topo) -> (lg points, inside mask, gather j, t)
+        for card, topos, label in config_entries(self.config):
+            d = cards[card]
+            priors.update(d["priors"])
+            for topo, rec in d["topos"].items():
+                if topos is not None and topo not in topos:
                     continue
-                own[p] = len(names)
-                names.append(f"{d.name}|{ch}|{p}")
-                centre.append(0.0)
-                s = NF.DET_PRIOR[p]
-                sigma.append(s)
-                bounds.append((max(-5.0 * s, -0.9), 5.0 * s))
-            self._own.append(own)
-        self.names, self.centre, self.sigma = names, np.array(centre), np.array(sigma)
-        self.bounds = bounds
-        self._gidx = {p: names.index(p) for p in gparams}
-        self._gparams = gparams
-        # backgrounds, flattened per block
-        self._B, self._GB, self._BX = [], [], []
-        for d, ch in self.blocks:
-            self._B.append(d.B[ch].reshape(-1))
-            self._GB.append({p: d.GB[ch][p].reshape(-1) for p in gparams})
-            self._BX.append({p: d.BX[ch][p].reshape(-1) for p in ("escale", "misid")})
-        # the expectation is linear in every nuisance, mu_k = s_k + A_k x[cols_k] (_design): the profile is a convex
-        # problem that Newton's method solves exactly in a few steps (profile; 2026-10-15)
-        self._cols = []
-        for k, own in enumerate(self._own):
-            self._cols.append(np.array([k] + [own[p] for p in DET_PARAMS if p in own]
-                                       + [self._gidx[p] for p in gparams], dtype=np.int64))
-        self._lo = np.array([b[0] for b in bounds])
-        self._hi = np.array([b[1] for b in bounds])
+                key = (card, topo)
+                if key not in self._pts:
+                    lg, W = _flux_points(rec["lgt_edges"])
+                    self._pts[key] = self._gather(lg) + (W,)
+                W = self._pts[key][-1]
+                bands = [(b, e) for b, e in enumerate(rec["bands"]) if e is not None]
+                groups = [bands] if rec["energy_only"] else [[be] for be in bands]
+                for grp in groups:
+                    blk = self._block(label, topo, key, W, grp, rec["energy_only"])
+                    if blk is not None:
+                        self.blocks.append(blk)
+        # the nuisances
+        names = sorted({p for b in self.blocks for p in b["cols"]})
+        self.names = names
+        pr = [priors[n] for n in names]
+        self.gauss = np.array([p["kind"] == "gauss" for p in pr])
+        self.centre = np.zeros(len(names))                # deviations from the prior's centre
+        self.width = np.array([p["width"] if p["kind"] == "gauss" else 1.0 for p in pr])
+        self._lo = np.array([p["lo"] for p in pr])
+        self._hi = np.array([p["hi"] for p in pr])
+        self.prior_centre = {n: p["centre"] for n, p in zip(names, pr)}
+        idx = {n: i for i, n in enumerate(names)}
+        for b in self.blocks:
+            b["cidx"] = np.array([idx[p] for p in b["cols"]], dtype=np.int64)
         self.data = None
-        self._z0 = np.zeros(len(names))
+        self._x0 = np.zeros(len(names))
         self.last = {}
-        self.n_calls = 0
-        self.n_newton = 0
-        self.n_fallback = 0
+        self.n_calls = self.n_newton = self.n_fallback = 0
         self.newton_fail = ""
 
+    # ---------------------------------------------------------------- set-up
+    def _gather(self, lg):
+        """Linear interpolation in log E onto the model's grid as gather weights; zero outside it."""
+        xp = self._lgE_model
+        inside = (lg >= xp[0] - 1e-9) & (lg <= xp[-1] + 1e-9)
+        lgc = np.clip(lg, xp[0], xp[-1])
+        j = np.clip(np.searchsorted(xp, lgc, side="right") - 1, 0, len(xp) - 2)
+        return lg, inside, j, (lgc - xp[j]) / (xp[j + 1] - xp[j])
+
+    def _block(self, label, topo, key, W, grp, energy_only):
+        """One block: its signal responses per (band, flavor) and Glashow per band, as matrices on the flux points
+        (M = W^T R, n_points x n_bins), for the nominal and each signal template; its background and templates."""
+        T = YEARS
+        sig = {}                                   # name ('' nominal or a nuisance) -> {(b, f or 'gr'): M}
+        bkg, bx = 0.0, {}
+        for b, e in grp:
+            kinds = e["kinds"]
+            gr = e.get("Rb_gr")
+            for name, R, Rg in [("", e["Rb"], gr)] + [(p, e["RXb"][p], (e.get("RXb_gr") or {}).get(p))
+                                                        for p in e["RXb"] if kinds.get(p) not in DROP_KINDS]:
+                dst = sig.setdefault(name, {})
+                for f in FLAVORS:
+                    Rf = R[f] - (Rg[f] if Rg is not None else 0.0)
+                    dst[(b, f)] = T * (W.T @ Rf)
+                if Rg is not None:
+                    dst[(b, "gr")] = T * (W.T @ Rg["e"])
+            bkg = bkg + T * e["B_total"]
+            for p, v in e["BX"].items():
+                if p.startswith("astro_") or kinds.get(p) in DROP_KINDS:
+                    continue
+                bx[p] = bx.get(p, 0.0) + T * np.asarray(v, dtype=np.float64)
+        n_bins = len(np.atleast_1d(bkg))
+        if not any(np.any(M) for M in sig[""].values()) and not np.any(bkg):
+            return None
+        cols = sorted(set(sig) - {""} | set(bx))
+        bx = {p: (np.asarray(bx[p], dtype=np.float64) if p in bx else np.zeros(n_bins)) for p in cols}
+        return dict(label=label, topo=topo, key=key, band=None if energy_only else grp[0][0], sig=sig,
+                    B=np.asarray(bkg, dtype=np.float64), BX=bx, cols=cols)
+
     # ---------------------------------------------------------------- the astrophysical events
-    def _interp_log(self, L):
-        """np.interp of L (N_z, N_E_model, 3) along energy at the detectors' energies, vectorized: (N_z, nE, 3)."""
-        j, t = self._ij, self._it
-        a = L[:, j, :]
-        return a + t[None, :, None] * (L[:, j + 1, :] - a)
+    def _fluxes(self, values, names=None):
+        """Per declination band (south to north), the nu and nubar fluxes on the model's grid (and derivatives)."""
+        if names is None:
+            _, F_nu, F_nb = self.model.site_band_fluxes(values, -90.0)
+            return F_nu[::-1], F_nb[::-1], None
+        _, F_nu, F_nb, dF = self.model.site_band_flux_jacobian(values, -90.0, names)
+        return F_nu[::-1], F_nb[::-1], {n: (dF[n][0][::-1], dF[n][1][::-1]) for n in names}
 
-    def _stack(self, phi_nu, phi_nb):
-        """(N_z, nE, 3) per kind -> (N_z, 6 nE) in KEYS order ((e, nu), (e, nubar), (mu, nu), ...)."""
-        fl_index = {"e": 0, "mu": 1, "tau": 2}
-        return np.concatenate([(phi_nb if bar else phi_nu)[:, :, fl_index[fl]] for fl, bar in KEYS], axis=1)
-
-    def _phi(self, F):
-        """(N_z, N_E_model, 3) per cos-zenith band -> the flux on the detectors' energy grid, (N_z, nE, 3) (log-log;
-        zero outside the model's grid)."""
+    def _phi(self, key, F):
+        """F (nb, N_E, 3) -> (nb, n_points, 3) at a block's flux points, log-log, zero outside the model's grid."""
+        _, inside, j, t = self._pts[key][:4]
         L = np.log(np.maximum(F, 1e-300))
-        return np.exp(self._interp_log(L)) * self._inside[None, :, None]
+        a = L[:, j, :]
+        return np.exp(a + t[None, :, None] * (L[:, j + 1, :] - a)) * inside[None, :, None]
 
-    def _phi_jac(self, F, dFs):
-        """_phi(F) and, for each derivative dF of F, the derivative of _phi: the log-log interpolation is linear in
-        log F with fixed weights, so d phi = phi * interp(dF / F) exactly (zero where F sits at the 1e-300 floor, as
-        log max(F, 1e-300) does)."""
-        phi = self._phi(F)
-        pos = F > 1e-300
-        safe = np.where(pos, F, 1.0)
-        dphi = {n: phi * self._interp_log(np.where(pos, dF / safe, 0.0)) for n, dF in dFs.items()}
-        return phi, dphi
+    def _point_fluxes(self, F_nu, F_nb):
+        """{key: (Phi (nb, n_pts, 3) nu + nubar, Phi_gr (nb, n_pts) = 2 nubar_e)}."""
+        out = {}
+        for key in self._pts:
+            pn, pb = self._phi(key, F_nu), self._phi(key, F_nb)
+            out[key] = (pn + pb, 2.0 * pb[:, :, 0])
+        return out
 
-    def signals(self, values):
-        """Per block: the signal and its templates (flattened), for the model's values."""
-        fluxes = {}
-        for d in self.dets:
-            lat = part_lat(d.name)
-            if lat not in fluxes:
-                _, F_nu, F_nb = self.model.site_band_fluxes(values, lat)
-                if F_nu.shape[0] != len(COSZ_EDGES) - 1:
-                    raise ValueError("the model's direction bands must be the detectors' cos-zenith bins")
-                fluxes[lat] = self._stack(self._phi(F_nu), self._phi(F_nb))
-        return self._signals_from(fluxes)
-
-    def _signals_from(self, fluxes):
-        """Per block: the signal and its templates (flattened, reconstructed bin major), from each site's flux in the
-        stacked layout (_stack): s[b, z] = sum over keys and energies of phi[z, k e] R[z, k e, b]."""
+    def _signals(self, P):
+        """Per block: {'': nominal signal, p: signal template} from the point fluxes P."""
         S = []
-        for (d, ch), Rz in zip(self.blocks, self._Rz):
-            P = fluxes[part_lat(d.name)][:, None, :]                          # (nz, 1, 6 nE)
+        for blk in self.blocks:
+            Phi, Pgr = P[blk["key"]]
             out = {}
-            for key in ("s", "escale", "misid"):
-                out[key] = np.ascontiguousarray(np.matmul(P, Rz[key])[:, 0, :].T).reshape(-1)    # (nb, nz) -> flat
+            for name, Ms in blk["sig"].items():
+                v = 0.0
+                for (b, f), M in Ms.items():
+                    v = v + (Pgr[b] if f == "gr" else Phi[b, :, FLAVORS.index(f)]) @ M
+                out[name] = np.asarray(v, dtype=np.float64)
             S.append(out)
         return S
 
+    def signals(self, values):
+        F_nu, F_nb, _ = self._fluxes(values)
+        return self._signals(self._point_fluxes(F_nu, F_nb))
+
     # ---------------------------------------------------------------- expectation and profile
-    def _mu(self, x, S, grad=False):
-        mus, parts = [], []
-        for k, (sk, own) in enumerate(zip(S, self._own)):
-            eff = x[own["eff"]]
-            mu = (1.0 + eff) * sk["s"] + x[own["escale"]] * (sk["escale"] + self._BX[k]["escale"])
-            if "misid" in own:
-                mu = mu + x[own["misid"]] * (sk["misid"] + self._BX[k]["misid"])
-            mu = mu + x[k] * self._B[k]
-            for p in self._gparams:
-                mu = mu + x[self._gidx[p]] * self._GB[k][p]
-            mus.append(mu)
-        return mus
-
-    def _dev(self, x, S, data, grad=True):
-        mus = self._mu(x, S)
-        f = 0.0
-        g = np.zeros_like(x)
-        for k, (mu, n, sk, own) in enumerate(zip(mus, data, S, self._own)):
-            # the Poisson deviance, continued smoothly where no physical expectation goes (events._poisson): trial
-            # steps of the profile into negative expectations stay finite, with consistent gradients
-            dev, r = _poisson(mu, n, grad=True)
-            f += dev
-            g[k] += r @ self._B[k]
-            g[own["eff"]] += r @ sk["s"]
-            g[own["escale"]] += r @ (sk["escale"] + self._BX[k]["escale"])
-            if "misid" in own:
-                g[own["misid"]] += r @ (sk["misid"] + self._BX[k]["misid"])
-            for p in self._gparams:
-                g[self._gidx[p]] += r @ self._GB[k][p]
-        z = (x - self.centre) / self.sigma
-        f += float(z @ z)
-        g += 2.0 * z / self.sigma
-        return f, g
-
     def _design(self, S):
-        """Per block, the columns of the expectation's linear dependence on its nuisances (in _cols' order): the
-        background (its normalization multiplies it), the signal (efficiency), the energy scale's and the
-        mis-identification's templates (signal and background), and each global atmospheric template."""
         A = []
-        for k, (sk, own) in enumerate(zip(S, self._own)):
-            cols = [self._B[k], sk["s"], sk["escale"] + self._BX[k]["escale"]]
-            if "misid" in own:
-                cols.append(sk["misid"] + self._BX[k]["misid"])
-            cols += [self._GB[k][p] for p in self._gparams]
-            A.append(np.ascontiguousarray(np.stack(cols, axis=1)))
+        for blk, s in zip(self.blocks, S):
+            cols = [s.get(p, 0.0) + blk["BX"][p] for p in blk["cols"]]
+            A.append(np.ascontiguousarray(np.stack(cols, axis=1)) if cols else np.zeros((len(blk["B"]), 0)))
         return A
 
+    def _mu(self, x, S, A=None):
+        A = self._design(S) if A is None else A
+        return [s[""] + blk["B"] + Ak @ x[blk["cidx"]] for blk, s, Ak in zip(self.blocks, S, A)]
+
     def _fgh(self, x, A, S, data, hess=True):
-        """-2 ln L (the continued Poisson deviance plus the priors), its gradient and its Hessian at the nuisances
-        x (the Hessian exact: the expectation is linear in x)."""
         n_par = len(x)
         f, g = 0.0, np.zeros(n_par)
         H = np.zeros((n_par, n_par)) if hess else None
-        for k, (Ak, sk, n) in enumerate(zip(A, S, data)):
-            c = self._cols[k]
-            mu = sk["s"] + Ak @ x[c]
+        for blk, Ak, s, n in zip(self.blocks, A, S, data):
+            c = blk["cidx"]
+            mu = s[""] + blk["B"] + Ak @ x[c]
             dev, r = _poisson(mu, n, grad=True)
             f += dev
             if hess:
                 g[c] += Ak.T @ r
-                # the continued deviance's second derivative (events._poisson): 2 n / max(mu, MU_FLOOR n)^2 in bins
-                # with data, 0 in empty bins (2 NEG_PENALTY below mu = 0)
                 pos = n > 0
                 m = np.where(pos, np.maximum(mu, MU_FLOOR * n), 1.0)
                 h = np.where(pos, 2.0 * n / (m * m), np.where(mu < 0.0, 2.0 * NEG_PENALTY, 0.0))
                 H[np.ix_(c, c)] += Ak.T @ (h[:, None] * Ak)
-        z = (x - self.centre) / self.sigma
+        z = np.where(self.gauss, x / self.width, 0.0)
         f += float(z @ z)
         if hess:
-            g += 2.0 * z / self.sigma
-            H[np.diag_indices(n_par)] += 2.0 / self.sigma ** 2
+            g += np.where(self.gauss, 2.0 * z / self.width, 0.0)
+            H[np.diag_indices(n_par)] += np.where(self.gauss, 2.0 / self.width ** 2, 0.0)
         return f, g, H
 
     def _newton(self, S, data, x0, tol=1e-12, max_iter=100):
-        # (tol below ~1e-14 reaches the rounding floor: then a decrement that stops falling ends the iteration)
-        """The profile by projected Newton steps within the nuisances' bounds (Bertsekas 1982): a nuisance at a
-        bound whose gradient pushes outward stays there, the others take the Newton step of their block of the
-        exact Hessian, and a backtracking search on the step projected into the bounds keeps the descent. Returns
-        (x, chi^2, iterations) once the free nuisances' Newton decrement falls below tol (chi^2 then within tol / 2 of
-        the minimum: the problem is convex), or None (the caller falls back to L-BFGS-B)."""
+        """Projected Newton steps within the bounds (as the 2026-10-15 version): (x, chi^2, iterations) or None."""
         A = self._design(S)
         lo, hi = self._lo, self._hi
         x = np.clip(np.array(x0, dtype=np.float64), lo, hi)
@@ -317,8 +282,6 @@ class FutureEventLikelihood:
             if not np.isfinite(dec) or dec < 0.0:
                 self.newton_fail = f"no descent direction (decrement {dec:g})"
                 return None
-            # converged: below tol, or stalled at f's rounding (the decrement no longer halving below 1e-9: chi^2
-            # within 5e-10; GitHub's runners sat at 2e-11 - 6e-11 for 100 steps, 2026-10-18)
             if dec < tol or (dec < 1e-9 and it > 0 and dec >= 0.5 * prev_dec):
                 return x, f, it
             prev_dec = dec
@@ -331,101 +294,101 @@ class FutureEventLikelihood:
                 t *= 0.5
                 if t < 1e-12:
                     if dec < 1e-6:
-                        # converged to the rounding of f: the predicted decrease (dec / 2 < 5e-7 in chi^2) is below
-                        # what f resolves, so no step can show it (machine-dependent: GitHub's runners, 2026-10-18)
                         return x, f, it
                     self.newton_fail = f"line search failed (decrement {dec:g})"
                     return None
             x = xn
             f, g, H = self._fgh(x, A, S, data)
-        self.newton_fail = f"no convergence in {max_iter} steps (decrement {dec:g})"
+        self.newton_fail = f"no convergence in {max_iter} steps"
         return None
 
     def profile(self, S, data, tol=1e-12):
-        """The nuisances minimizing -2 ln L within their bounds: projected Newton steps from the last profile's
-        nuisances (exact in a few steps: the problem is convex; 400 times faster than L-BFGS-B, which needed ~2000
-        iterations), L-BFGS-B if Newton ever stalls."""
-        x0 = np.clip(self.centre + self.sigma * self._z0, self._lo, self._hi)
-        out = self._newton(S, data, x0, tol=tol)
+        out = self._newton(S, data, self._x0, tol=tol)
         if out is not None:
             x, f, it = out
             self.n_newton += 1
-            self._z0 = (x - self.centre) / self.sigma
-            return x, SimpleNamespace(fun=f, x=self._z0.copy(), success=True, nit=it)
+            self._x0 = x.copy()
+            return x, SimpleNamespace(fun=f, x=x, success=True, nit=it)
         self.n_fallback += 1
-        return self.profile_lbfgsb(S, data)
+        A = self._design(S)
 
-    def profile_lbfgsb(self, S, data):
-        zb = [((lo - c) / s, (hi - c) / s) for (lo, hi), c, s in zip(self.bounds, self.centre, self.sigma)]
+        def fun(x):
+            f, g, _ = self._fgh(x, A, S, data, hess=True)
+            return f, g
+        r = minimize(fun, np.clip(self._x0, self._lo, self._hi), jac=True, method="L-BFGS-B",
+                     bounds=list(zip(self._lo, self._hi)), options=dict(maxiter=5000, ftol=1e-15, gtol=1e-9))
+        self._x0 = np.array(r.x)
+        return np.array(r.x), r
 
-        def fun(z):
-            f, g = self._dev(self.centre + self.sigma * z, S, data)
-            return f, g * self.sigma
-        r = minimize(fun, np.clip(self._z0, [b[0] for b in zb], [b[1] for b in zb]), jac=True, method="L-BFGS-B",
-                     bounds=zb, options=dict(maxiter=5000, ftol=1e-15, gtol=1e-9))
-        self._z0 = np.array(r.x)
-        return self.centre + self.sigma * r.x, r
-
-    def chi2(self, values: Mapping) -> float:
+    def _need_data(self):
         if self.data is None:
             raise ValueError("the future detectors' likelihood has no data: a projection needs Asimov data "
                              "(set_asimov, i.e. the analysis' --asimov or data_centre)")
+
+    def chi2(self, values: Mapping) -> float:
+        self._need_data()
         self.n_calls += 1
-        S = self.signals(values)
-        x, r = self.profile(S, self.data)
+        x, r = self.profile(self.signals(values), self.data)
         self.last = dict(nuisances=dict(zip(self.names, x.tolist())), value=float(r.fun), converged=bool(r.success),
                          nit=int(r.nit))
         return float(r.fun)
 
     def chi2_and_grad(self, values: Mapping, names):
-        """chi2(values) (the same value) and its gradient in `names` (model.GRADIENT_NAMES), (chi2, array).
-
-        The profile's minimum is differentiable with the nuisances held at their optimum (Danskin's theorem: its
-        minimum is unique -- the problem is strictly convex -- within bounds that do not depend on the parameters;
-        checked against re-profiled finite differences on the campaign's likelihood, interior and with 31 nuisances
-        at their bounds, 2026-10-17). So the gradient is the deviance's derivative through the signal templates at
-        the optimum: the per-bin residuals contracted once with the responses (an adjoint pass), then with each
-        derivative of the fluxes (FlavorModel.site_band_flux_jacobian), which is exact. The profile here runs to its
-        rounding floor (GRADIENT_TOL): the gradient's error is first order in the nuisances' residual error."""
-        if self.data is None:
-            raise ValueError("the future detectors' likelihood has no data: a projection needs Asimov data "
-                             "(set_asimov, i.e. the analysis' --asimov or data_centre)")
+        """chi2(values) and its gradient in `names`: the deviance's derivative through the signal at the profiled
+        nuisances (Danskin: the profile's minimum is unique, the problem strictly convex), contracted with the
+        model's flux derivatives (site_band_flux_jacobian at the South Pole: the sky's bands)."""
+        self._need_data()
         self.n_calls += 1
         names = list(names)
-        fluxes, dfluxes = {}, {}
-        for d in self.dets:
-            lat = part_lat(d.name)
-            if lat not in fluxes:
-                _, F_nu, F_nb, dF = self.model.site_band_flux_jacobian(values, lat, names)
-                if F_nu.shape[0] != len(COSZ_EDGES) - 1:
-                    raise ValueError("the model's direction bands must be the detectors' cos-zenith bins")
-                pn, dpn = self._phi_jac(F_nu, {n: dF[n][0] for n in names})
-                pb, dpb = self._phi_jac(F_nb, {n: dF[n][1] for n in names})
-                fluxes[lat] = self._stack(pn, pb)
-                dfluxes[lat] = {n: self._stack(dpn[n], dpb[n]) for n in names}
-        S = self._signals_from(fluxes)
+        F_nu, F_nb, dF = self._fluxes(values, names)
+        P = self._point_fluxes(F_nu, F_nb)
+        S = self._signals(P)
         x, r = self.profile(S, self.data, tol=GRADIENT_TOL)
         self.last = dict(nuisances=dict(zip(self.names, x.tolist())), value=float(r.fun), converged=bool(r.success),
                          nit=int(r.nit))
-        Q = {lat: np.zeros_like(P) for lat, P in fluxes.items()}              # d chi2 / d phi, (nz, 6 nE) per site
-        for (d, ch), Rz, mu, n_obs, own in zip(self.blocks, self._Rz, self._mu(x, S), self.data, self._own):
-            _, res = _poisson(mu, n_obs, grad=True)
-            Wt = res.reshape(d.B[ch].shape).T[:, :, None]                     # (nz, nb, 1): d chi2 / d mu
-            q = (1.0 + x[own["eff"]]) * np.matmul(Rz["s"], Wt) + x[own["escale"]] * np.matmul(Rz["escale"], Wt)
-            if "misid" in own:
-                q = q + x[own["misid"]] * np.matmul(Rz["misid"], Wt)
-            Q[part_lat(d.name)] += q[:, :, 0]
-        grad = np.array([sum(float(np.sum(Q[lat] * dfluxes[lat][n])) for lat in Q) for n in names])
+        # d chi2 / d Phi at the points, per key: Q (nb, n_pts, 3) for nu + nubar, Qgr (nb, n_pts) for 2 nubar_e
+        Q = {k: (np.zeros(P[k][0].shape), np.zeros(P[k][1].shape)) for k in P}
+        for blk, s, mu, n in zip(self.blocks, S, self._mu(x, S), self.data):
+            _, res = _poisson(mu, n, grad=True)
+            coef = {"": 1.0}
+            coef.update({p: x[i] for p, i in zip(blk["cols"], blk["cidx"])})
+            q, qg = Q[blk["key"]]
+            for name, Ms in blk["sig"].items():
+                c = coef.get(name, 0.0)
+                if c == 0.0:
+                    continue
+                for (b, f), M in Ms.items():
+                    v = c * (M @ res)
+                    if f == "gr":
+                        qg[b] += v
+                    else:
+                        q[b, :, FLAVORS.index(f)] += v
+        grad = np.zeros(len(names))
+        for key, (q, qg) in Q.items():
+            pn, pb = self._phi(key, F_nu), self._phi(key, F_nb)
+            _, inside, j, t = self._pts[key][:4]
+
+            def dphi(F, dFn, phi):
+                pos = F > 1e-300
+                rel = np.where(pos, dFn / np.where(pos, F, 1.0), 0.0)
+                a = rel[:, j, :]
+                return phi * (a + t[None, :, None] * (rel[:, j + 1, :] - a))
+            for i, nme in enumerate(names):
+                dn, db = dphi(F_nu, dF[nme][0], pn), dphi(F_nb, dF[nme][1], pb)
+                grad[i] += float(np.sum(q * (dn + db))) + float(np.sum(qg * 2.0 * db[:, :, 0]))
         return float(r.fun), grad
 
     def set_asimov(self, values: Mapping, nuisances: Mapping = None) -> None:
-        x = self.centre.copy()
+        x = np.zeros(len(self.names))
         for k, v in (nuisances or {}).items():
             x[self.names.index(k)] = float(v)
-        self.data = [np.array(m) for m in self._mu(x, self.signals(values))]
-        self._z0 = (x - self.centre) / self.sigma
+        # expectations below 1e-30 events are empty bins: a data value of ~1e-320 underflows the deviance's floor
+        # (MU_FLOOR n) to zero and divides by it (2026-11-11, the first Plan A forecast pilot)
+        self.data = [np.where(np.abs(m) < 1e-30, 0.0, np.array(m, dtype=np.float64))
+                     for m in self._mu(x, self.signals(values))]
+        self._x0 = x.copy()
 
     def expected(self, values: Mapping):
-        """{(part, channel): (nb, nz) expected events} at the nuisances' centres: signal and background."""
-        mus = self._mu(self.centre, self.signals(values))
-        return {(d.name, ch): m.reshape(d.B[ch].shape) for (d, ch), m in zip(self.blocks, mus)}
+        """{(label, topology, band): (signal, background)} at the nuisances' centres."""
+        S = self.signals(values)
+        return {(b["label"], b["topo"], b["band"]): (s[""], b["B"]) for b, s in zip(self.blocks, S)}

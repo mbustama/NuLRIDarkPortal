@@ -667,3 +667,33 @@ def test_merged_blocks_take_the_standard_model_reference(tmp_path):
     own.write_text(json.dumps(m))
     lx, G, F, yn, C = exclusion.field(str(own))
     assert not np.isfinite(np.ma.filled(F[:, 0].astype(float), np.nan)).any()
+
+
+def test_cache_key_guards_solver_data(tmp_path, monkeypatch):
+    """E11 (audit 2026-11-08): with the stored runs' data files the flux cache's key has no data entry, so it is the
+    key those runs were stored under; a changed data file (here found first in galactic.data_dir) changes the key, and
+    the key comes back with the file."""
+    import shutil
+    from analysis import model as model_mod
+    assert model_mod.solver_data_files() == model_mod.SOLVER_DATA_BASELINE
+    m = config_mod.from_dict(_tiny_raw(profiles={}, planes=[])).model()
+    m.disk_cache = str(tmp_path / "cache")
+
+    def path(data_dir=None):
+        cfg = copy.deepcopy(m.base)
+        cfg["galactic"]["data_dir"] = data_dir
+        return m._disk_path(cfg)
+
+    base = path()
+    with monkeypatch.context() as mp:              # a baseline that does not match: the data enter the key
+        mp.setattr(model_mod, "SOLVER_DATA_BASELINE", {})
+        assert path() != base
+    copy_dir = tmp_path / "data"
+    copy_dir.mkdir()
+    shutil.copy(os.path.join(model_mod.SOLVER_DATA_DIR, "galactic_cringe.npz"), copy_dir)
+    same = path(str(copy_dir))
+    with open(copy_dir / "galactic_cringe.npz", "ab") as f:
+        f.write(b"\0")
+    assert path(str(copy_dir)) != same
+    shutil.copy(os.path.join(model_mod.SOLVER_DATA_DIR, "galactic_cringe.npz"), copy_dir)
+    assert path(str(copy_dir)) == same

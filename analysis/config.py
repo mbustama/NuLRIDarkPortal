@@ -8,12 +8,14 @@ and which fits and scans to run. Example: analysis/configs/pion_2050_case_5.json
   {
     "name": "...",                       label of the analysis (output file stems)
     "data": {"surface": "pion_2050_case_5"[, "spectrum": "ic26_astrophysical"]
-             [, "events": {"hese": {...}, "dr2": {...}}, "flavor_band_eV": [lo, hi]]},
+             [, "events": {"hese": {...}, "dr2": {...}, "mese": {...}}, "flavor_band_eV": [lo, hi], "flavor_weighting": "flux"|"mese"]},
                                          the flavor surface, and optionally a measured spectrum
                                          (spectra.py; needs the extragalactic flux in physical units),
                                          or the event likelihoods (events.py; HESE and/or DR2 tracks,
                                          never with the spectrum, which is fitted to the same events), with
-                                         the flavor fractions averaged over flavor_band_eV of the grid;
+                                         the flavor fractions averaged over flavor_band_eV of the grid, weighted
+                                         by the flux or by MESE's expected events per flavor ('mese', audit
+                                         decision A3, analysis/mese.py);
                                          with the events the surface may be left out (2026-10-14: HESE's
                                          events are also MESE's, so the event data set drops its surface)
     "solver": {section: {key: value}},   partial solver configuration (DEFAULT_CONFIG layout);
@@ -111,6 +113,8 @@ class AnalysisConfig:
     p1_nodes_n: Optional[int] = None
     events: Optional[dict] = None
     flavor_band: Optional[Tuple[float, float]] = None
+    flavor_weighting: str = "flux"
+    spectrum_correlation: float = 0.0                    # review item 5 (2026-11-11): neighbouring segments, a check
     flux_basis: str = "auto"
     templates: dict = field(default_factory=dict)        # name -> its "template" spec (templates.py)
     exact: Optional[dict] = None                         # exact_profile.ExactSettings overrides, or None
@@ -160,6 +164,7 @@ class AnalysisConfig:
         n *= 1 + sum(len(t.points) for t in templates)
         return FlavorModel(self.solver if solver is None else solver, self.free_names, cache_size=cache_size * n,
                            p_nodes=self.p_nodes(), sky=self.events is not None, flavor_band_eV=self.flavor_band,
+                           flavor_weighting=self.flavor_weighting,
                            pure_flavor_basis=self.flux_basis == "pure_flavors", sites=sites, p1_nodes=self.p1_nodes(),
                            templates=templates)
 
@@ -195,7 +200,7 @@ class AnalysisConfig:
         events = None
         if self.events is not None:
             terms = []
-            icecube = {k: v for k, v in self.events.items() if k in ("hese", "dr2")}
+            icecube = {k: v for k, v in self.events.items() if k in ("hese", "dr2", "mese")}
             if icecube:
                 from .events import EventLikelihood
                 terms.append(EventLikelihood(model, icecube))
@@ -215,7 +220,7 @@ class AnalysisConfig:
                     finally:
                         t.model = own
         return Objective(model, self.surface, self.priors, data_centre=data_centre, spectrum=self.spectrum,
-                         events=events)
+                         events=events, spectrum_correlation=self.spectrum_correlation)
 
     def _truth_model(self) -> FlavorModel:
         """The model the Asimov data come from: this one with dark_portal.relic_scattering and neutrino_decay off
@@ -246,6 +251,8 @@ class AnalysisConfig:
             solver["analysis_dark_portal"] = own
         d = dict(data=self.surface, centre=None if data_centre is None else [float(c) for c in data_centre],
                  spectrum=self.spectrum, p_nodes=self.p_nodes(), events=self.events, flavor_band=self.flavor_band,
+                 **({} if self.flavor_weighting == "flux" else dict(flavor_weighting=self.flavor_weighting)),
+                 **({} if self.spectrum_correlation == 0.0 else dict(spectrum_correlation=self.spectrum_correlation)),
                  **({} if self.flux_basis == "auto" else dict(flux_basis=self.flux_basis)),
                  **({} if self.p1_nodes() is None else dict(p1_nodes=self.p1_nodes())),
                  solver=solver, code=dp_core._source_digest(),
@@ -303,9 +310,9 @@ def from_dict(raw: Mapping, path: str = "") -> AnalysisConfig:
             raise ValueError("data.surface may be left out only with data.events (the events carry the flavor)")
     else:
         surfaces.surface(surface)                              # unknown names fail here
-    bad = set(d["data"]) - {"surface", "spectrum", "events", "flavor_band_eV"}
+    bad = set(d["data"]) - {"surface", "spectrum", "events", "flavor_band_eV", "flavor_weighting", "spectrum_correlation"}
     if bad:
-        raise ValueError(f"data: unknown keys {sorted(bad)}; known: surface, spectrum, events, flavor_band_eV")
+        raise ValueError(f"data: unknown keys {sorted(bad)}; known: surface, spectrum, events, flavor_band_eV, flavor_weighting, spectrum_correlation")
     spectrum = d["data"].get("spectrum")
     if spectrum is not None and spectrum not in spectra.SPECTRA:
         raise ValueError(f"data.spectrum must be one of {sorted(spectra.SPECTRA)}, got {spectrum!r}")
@@ -315,10 +322,10 @@ def from_dict(raw: Mapping, path: str = "") -> AnalysisConfig:
         if spectrum is not None:
             raise ValueError("data.events and data.spectrum exclude each other: IceCube's 2026 spectrum is fitted to "
                              "largely the same events (Mauricio, 2026-10-14: events replace it)")
-        if not events or set(events) - {"hese", "dr2", "future"}:
-            raise ValueError(f"data.events: use 'hese', 'dr2' and/or 'future', got {sorted(events)}")
+        if not events or set(events) - {"hese", "dr2", "mese", "future"}:
+            raise ValueError(f"data.events: use 'hese', 'dr2', 'mese' and/or 'future', got {sorted(events)}")
         known = {"hese": {"mc", "detector", "atm"}, "dr2": {"configs", "E_reco_min_log10", "dec_min_deg"},
-                 "future": {"config"}}
+                 "mese": {"topologies"}, "future": {"config"}}
         for k, v in events.items():
             if isinstance(v, dict) and set(v) - known[k]:
                 raise ValueError(f"data.events.{k}: unknown keys {sorted(set(v) - known[k])}; known: {sorted(known[k])}")
@@ -329,6 +336,15 @@ def from_dict(raw: Mapping, path: str = "") -> AnalysisConfig:
         flavor_band = (float(flavor_band[0]), float(flavor_band[1]))
         if not 0.0 < flavor_band[0] < flavor_band[1]:
             raise ValueError(f"data.flavor_band_eV must be [lo, hi] with 0 < lo < hi, got {flavor_band}")
+    # audit decision A3 (2026-11-09): 'mese' weights the composition by MESE's expected events per flavor
+    flavor_weighting = str(d["data"].get("flavor_weighting", "flux"))
+    if flavor_weighting not in ("flux", "mese"):
+        raise ValueError(f"data.flavor_weighting must be 'flux' or 'mese', got {flavor_weighting!r}")
+    # review item 5 (2026-11-11): a correlation between neighbouring spectrum segments, to test their independence
+    spectrum_correlation = float(d["data"].get("spectrum_correlation", 0.0))
+    if spectrum_correlation != 0.0 and (spectrum is None or not abs(spectrum_correlation) < 0.5):
+        raise ValueError("data.spectrum_correlation needs data.spectrum and |value| < 0.5 (a positive-definite "
+                         f"tridiagonal correlation), got {spectrum_correlation}")
     params = []
     nodes_n = {}
     templates = {}
@@ -354,6 +370,8 @@ def from_dict(raw: Mapping, path: str = "") -> AnalysisConfig:
         fit=FitSettings.from_dict(d.get("fit")), asimov=dict(d.get("asimov", {})),
         raw=dict(raw), path=path, spectrum=spectrum, p_nodes_n=nodes_n.get("p_index"),
         p1_nodes_n=nodes_n.get("p_index_low"), events=events, flavor_band=flavor_band, templates=templates,
+        flavor_weighting=flavor_weighting,
+        spectrum_correlation=spectrum_correlation,
         flux_basis=str(d.get("flux_basis", "auto")))
     if d.get("exact_profile") is not None:
         from .exact_profile import ETA, ExactSettings

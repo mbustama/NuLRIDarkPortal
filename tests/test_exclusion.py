@@ -7,6 +7,14 @@ import pytest
 from analysis import exclusion as ex
 
 
+@pytest.fixture(autouse=True)
+def linear_reading(request, monkeypatch):
+    """The reading's logic is tested with straight lines between samples (its expected crossings are computed so);
+    the curved reading (review item 8, 2026-11-11) has its own test."""
+    if "pchip" not in request.node.name:
+        monkeypatch.setattr(ex, "INTERP", "linear")
+
+
 def write_plane(path, x, y, chi2):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(dict(names=["m_Zd_eV", "g_D"], grids=[list(x), list(y)],
@@ -195,3 +203,28 @@ def test_column_between_masses_reads_its_own_minimum(tmp_path):
     assert lowest_excluded(lx, G, F, 5.5) == pytest.approx(-2.7 + 0.1 * (3.84 + 8.0 - 10.0) / 20.0, abs=2 * ex.STEP)
     # the grid columns: their own dips, 5 below the plateau -- excluded from just above the dip (upper limits only)
     assert lowest_excluded(lx, G, F, 5.0) == pytest.approx(-4.0 + 0.2 * 3.84 / 5.0, abs=2 * ex.STEP)
+
+
+def test_pchip_reading_is_closer_on_a_convex_column():
+    """Review item 8 (2026-11-11): on Delta chi^2 = 10^(2 (log10 g - x0)), sampled every 0.5 decade, the monotone
+    cubic puts the 3.84 crossing closer to the true one than straight lines, which read it low; both are monotone."""
+    x0 = -5.0
+    g = np.arange(-8.0, -2.0 + 1e-9, 0.5)
+    y = 10.0 ** (2 * (g - x0))
+    G = np.arange(-8.0, -2.0 + 1e-9, 0.001)
+    true = x0 + 0.5 * np.log10(ex.THRESHOLD)
+    cross = {k: G[np.argmax(ex.curve(G, g, y, kind=k) >= ex.THRESHOLD)] for k in ("linear", "pchip")}
+    assert cross["linear"] < true
+    assert abs(cross["pchip"] - true) < abs(cross["linear"] - true)
+    assert np.all(np.diff(ex.curve(G, g, y)) >= 0)
+
+
+def test_longitudinal_corner_marked_for_vector_and_dark_portal():
+    """Check 24a (2026-11-11, his choice): from g / M = 1e-2 eV^-1 up, the vector secret interactions and the dark
+    portal are not modelled (hatched); the scalar and L_e - L_alpha are not affected by this band."""
+    vec = {"solver": {"secret_interactions": {"enabled": True, "mediator": "vector"}}}
+    sca = {"solver": {"secret_interactions": {"enabled": True, "mediator": "scalar"}}}
+    dp = {"solver": {"model": {"name": "dark_portal"}}}
+    le = {"solver": {"model": {"name": "L_e-L_mu"}}}
+    assert ex.longitudinal_corner(vec) == -2.0 and ex.longitudinal_corner(dp) == -2.0
+    assert ex.longitudinal_corner(sca) is None and ex.longitudinal_corner(le) is None

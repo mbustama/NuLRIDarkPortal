@@ -20,8 +20,10 @@ statistical analysis; the flavor fits with the Galactic component take IceCube's
                       SVG). The segments' correlations are not published: they are taken as independent.
 
 The model's counterpart of a segment [E_lo, E_hi] is the E^-2 normalization with the same number of neutrinos,
-C = int Phi dE / int E^-2 dE, of the extragalactic flux at the detector (the Galactic flux is IceCube's other
-component, constrained through norm_gal's prior); chi^2 = sum ((C - D) / sigma)^2 with sigma the upper error bar
+C = int Phi dE / int E^-2 dE, of the flux at the detector that the measurement's segments hold: for icecube_cf_2025,
+whose segmented fit has no Galactic component (arXiv:2507.22234 Sec. V.5), the extragalactic plus the Galactic flux
+(audit finding A5, decided 2026-11-09); for ic26_astrophysical, the extragalactic flux alone (the Galactic flux is
+that fit's other component, constrained through norm_gal's prior); chi^2 = sum ((C - D) / sigma)^2 with sigma the upper error bar
 where C > D and the lower one otherwise. Only segments inside the model's energy grid enter.
 """
 import json
@@ -32,11 +34,14 @@ import numpy as np
 from . import REPO_DIR
 
 SPECTRA = {
+    # includes_galactic: whether the measurement's fit had no separate Galactic component, so that its segments
+    # hold the Galactic neutrinos too (audit finding A5, decided 2026-11-09: Table 10's segmented fit has none,
+    # arXiv:2507.22234 Sec. V.5); the model's counterpart is then the extragalactic plus the Galactic flux
     "icecube_cf_2025": dict(file=os.path.join(REPO_DIR, "src", "data", "icecube_cf_2025_table10.json"),
-                            key="cf_per_flavour",
+                            key="cf_per_flavour", includes_galactic=True,
                             source="IceCube:2025ewu (arXiv:2507.22234), Table 10, CF column (segmented fit)"),
     "ic26_astrophysical": dict(file=os.path.join(REPO_DIR, "src", "data", "ic26_fig4_digitized.json"),
-                               key="astrophysical_all_sky_per_flavour",
+                               key="astrophysical_all_sky_per_flavour", includes_galactic=False,
                                source="IceCube 2026, arXiv:2607.25966 Fig. 4 (combined fit, astrophysical component)"),
 }
 _GL_X, _GL_W = np.polynomial.legendre.leggauss(8)
@@ -58,6 +63,7 @@ def load(name: str, E_min_GeV: float = 0.0, E_max_GeV: float = np.inf) -> dict:
     if np.any(out["lo"] > out["value"]) or np.any(out["hi"] < out["value"]):
         raise ValueError(f"{name}: an error bar does not bracket its value")
     out["source"] = spec["source"]
+    out["includes_galactic"] = bool(spec["includes_galactic"])
     return out
 
 
@@ -78,11 +84,19 @@ def segments(E_GeV, phi, E_lo, E_hi) -> np.ndarray:
     return num / den
 
 
-def chi2(C, data: dict) -> float:
+def chi2(C, data: dict, rho: float = 0.0) -> float:
     """sum ((C - D) / sigma)^2, sigma the upper error where C > D and the lower one otherwise. A segment measured
-    at 0 has a zero lower error: C = D = 0 adds nothing there (a flux is never negative)."""
+    at 0 has a zero lower error: C = D = 0 adds nothing there (a flux is never negative). rho (default 0): a
+    correlation between neighbouring segments, r^T R^-1 r with R tridiagonal (1 on the diagonal, rho beside it), over
+    the segments with an error; a check of the published segments' unknown correlations (review item 5, 2026-11-11)."""
     C = np.asarray(C, dtype=np.float64)
     D = data["value"]
     sig = np.where(C > D, data["hi"] - D, D - data["lo"])
     r = np.divide(C - D, sig, out=np.zeros_like(C), where=sig > 0.0)
-    return float(np.sum(r ** 2))
+    if rho == 0.0:
+        return float(np.sum(r ** 2))
+    k = np.flatnonzero(sig > 0.0)
+    n = len(k)
+    R = np.eye(n) + rho * (np.eye(n, k=1) + np.eye(n, k=-1))
+    rk = r[k]
+    return float(rk @ np.linalg.solve(R, rk))

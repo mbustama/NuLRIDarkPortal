@@ -15,3 +15,4 @@ output/analysis_pre_transit/**/*.jsonl
 
 # the paper figures notebook also writes PNG previews; the PDFs are tracked
 paper/figures/*.png
+scratch_audit/

@@ -52,11 +52,12 @@ class Objective:
     """
 
     def __init__(self, model: FlavorModel, surface: str, priors: Sequence = (), data_centre=None, spectrum=None,
-                 events=None):
+                 events=None, spectrum_correlation=0.0):
         self.model = model
         self.events = events
         self.surface = surface
         self.spectrum = None
+        self.spectrum_correlation = float(spectrum_correlation)
         if spectrum is not None:
             g = model.base["grid"]
             self.spectrum = spectra.load(spectrum, float(g["E_min_eV"]) / 1e9, float(g["E_max_eV"]) / 1e9)
@@ -86,12 +87,16 @@ class Objective:
         return self.model.fractions(values)
 
     def spectrum_segments(self, values: Mapping) -> np.ndarray:
-        """The model's E^-2 normalizations on the spectrum's segments (E^2 Phi per flavor, GeV cm^-2 s^-1 sr^-1)."""
-        E, F = self.model.extragalactic(values)
+        """The model's E^-2 normalizations on the spectrum's segments (E^2 Phi per flavor, GeV cm^-2 s^-1 sr^-1): of
+        the extragalactic plus the Galactic flux where the measurement's segments include the Galactic neutrinos
+        (spectra.SPECTRA includes_galactic; audit finding A5, 2026-11-09), of the extragalactic flux otherwise."""
+        E, F = (self.model.flux(values) if self.spectrum.get("includes_galactic", False)
+                else self.model.extragalactic(values))
         return spectra.segments(E / 1e9, F.sum(axis=-1) / 3.0, self.spectrum["E_lo"], self.spectrum["E_hi"])
 
     def spectrum_chi2(self, values: Mapping) -> float:
-        return 0.0 if self.spectrum is None else spectra.chi2(self.spectrum_segments(values), self.spectrum)
+        return 0.0 if self.spectrum is None else spectra.chi2(self.spectrum_segments(values), self.spectrum,
+                                                              self.spectrum_correlation)
 
     def chi2(self, values: Mapping) -> float:
         """chi^2 at named values (every free parameter of the analysis, and any held one)."""

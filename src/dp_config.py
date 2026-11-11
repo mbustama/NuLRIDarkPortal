@@ -104,6 +104,10 @@ def _build_default_config() -> Dict:
             "d_cp_deg": 132.0,
             "use_SM_potential": False,
             "n_e_earth_cm3": 1.5e24,
+            # the Standard Model's charged-current potential inside the Earth (use_SM_potential): "prem" (2026-11-08,
+            # the default) takes PREM's electron density step by step along each chord, as the new potential's
+            # contact density; "constant" the single density n_e_earth_cm3 on every chord (the code before)
+            "SM_potential_profile": "prem",
             "detector_depth_km": 1.5,
             "V_SM_struct": None
         },

@@ -269,7 +269,8 @@ def earth(E, uni, sun_out, costh=-0.6, n_steps=None):
         pick = [a for a in captured if abs(a[0] - cos_all[np.argmin(np.abs(cos_all - costh))]) < 1e-12]
         rec_l, rec_F = None, None
         for a in pick:
-            (c, L_km, N_steps, E_blk, _, M_rot, n_amb, Coef, S, V_SM, depth, scheme, yk, ext) = a
+            (c, L_km, N_steps, E_blk, _, M_rot, n_amb, Coef, S, V_SM, depth, scheme, yk, ext) = a[:14]
+            sm = a[14] if len(a) > 14 else None     # the SM potential's PREM profile (dp_spatial._earth_setup)
             idx = np.searchsorted(E, E_blk)
             rho = np.ascontiguousarray(sun_out["rho"][kk][idx])
             Uh = np.zeros((3, 3), dtype=np.complex128)
@@ -284,9 +285,10 @@ def earth(E, uni, sun_out, costh=-0.6, n_steps=None):
                 cross_ls = dp_spatial._earth_layer_crossings(L_km, c, depth)
                 nbar = dp_spatial.chord_density_seq(yk)(L_km, c, N_steps, depth, n_amb, cross_ls,
                                                        dp_spatial._GL10_X, dp_spatial._GL10_W, yk)
+                ne = dp_spatial._sm_electron_seq(sm, L_km, c, N_steps, depth, cross_ls)
             for step in range(N_steps):
                 if scheme == "avg":
-                    V = np.ascontiguousarray((Coef * nbar[step]) * S + V_SM)
+                    V = np.ascontiguousarray((Coef * nbar[step]) * S + V_SM + (sm[0] * ne[step] if sm is not None else 0.0))
                     dp_spatial._evolve_rho_all_bins(E_blk, rho, M_rot, V, dr, Hb, Uh, Tb)
                 else:
                     dp_spatial.step_earth_transit(step * dr_km, L_km, c, dr, E_blk, rho, M_rot, n_amb, Coef, S,

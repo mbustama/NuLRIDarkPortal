@@ -162,3 +162,31 @@ def test_index_nodes_per_configuration():
     raw["parameters"]["p_index"]["nodes"] = 1
     with pytest.raises(ValueError):
         config_mod.from_dict(raw, "")
+
+
+def test_cf_2025_counterpart_includes_the_galactic_flux():
+    """Audit finding A5 (2026-11-09): Table 10's segmented fit has no Galactic component (arXiv:2507.22234 Sec. V.5),
+    so its counterpart is the extragalactic plus the Galactic flux; ic26_astrophysical keeps the extragalactic one."""
+    assert spectra.load("icecube_cf_2025")["includes_galactic"] is True
+    assert spectra.load("ic26_astrophysical")["includes_galactic"] is False
+    raw = _gal_raw()
+    raw["data"]["spectrum"] = "icecube_cf_2025"
+    obj = config_mod.from_dict(raw, "").objective()
+    v = dict(m_phi_eV=5.6e6, g_phi=1e-9, p_index=2.5, norm_astro=1.3, norm_gal=0.9)
+    E, F_all = obj.model.flux(v)
+    C = spectra.segments(E / 1e9, F_all.sum(-1) / 3.0, obj.spectrum["E_lo"], obj.spectrum["E_hi"])
+    np.testing.assert_allclose(obj.spectrum_segments(v), C, rtol=1e-14)
+    assert np.all(obj.spectrum_segments(v) > obj.spectrum_segments(dict(v, norm_gal=0.0)))
+
+
+def test_segment_correlation():
+    """Review item 5 (2026-11-11): rho = 0 is the independent sum; rho != 0 is r^T R^-1 r over the segments with an
+    error, R tridiagonal; the configuration refuses it without a spectrum or with |rho| >= 0.5."""
+    from analysis import spectra as sp
+    data = dict(value=np.array([1.0, 2.0, 0.0, 3.0]), lo=np.array([0.5, 1.5, 0.0, 2.0]), hi=np.array([1.5, 3.0, 1.0, 4.0]))
+    C = np.array([1.2, 1.0, 0.0, 3.5])
+    r = np.array([0.2 / 0.5, -1.0 / 0.5, 0.5 / 1.0])                 # the third segment (C = D = 0) has no error
+    assert sp.chi2(C, data) == pytest.approx(float(r @ r), rel=1e-14)
+    R = np.array([[1.0, -0.3, 0.0], [-0.3, 1.0, -0.3], [0.0, -0.3, 1.0]])
+    assert sp.chi2(C, data, -0.3) == pytest.approx(float(r @ np.linalg.solve(R, r)), rel=1e-12)
+    assert sp.chi2(C, data, 0.0) == sp.chi2(C, data)

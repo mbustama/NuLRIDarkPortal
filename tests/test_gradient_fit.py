@@ -1,5 +1,5 @@
 """
-The exact gradient of the future detectors' chi^2 (2026-10-17; analysis/model.py site_band_flux_jacobian,
+The exact gradient of the future detectors' chi^2 (2026-10-17; on synthetic Plan A responses since C1, 2026-11-11; analysis/model.py site_band_flux_jacobian,
 analysis/future_events.py chi2_and_grad, analysis/objective.py, analysis/fitting.py): the flux derivatives against
 finite differences, the profiled chi^2's gradient against re-profiled finite differences (inside the bounds and with
 nuisances at them), the fitter's internal coordinates, the fits against finite-difference fits, the end-of-fit check,
@@ -46,8 +46,21 @@ def _raw(free=tuple(NAMES), broken=True):
             "asimov": {"g_D_eps_trace": 1e-62, "f_e_S": 1.0 / 3.0, "f_e_S_gal": 1.0 / 3.0}, "flux_basis": "pure_flavors"}
 
 
+@pytest.fixture(scope="module", autouse=True)
+def synthetic_blocks(tmp_path_factory):
+    """The forecast's responses: synthetic ones on the solver's 20 declination bands (test_future_detectors); the
+    real ones (C1, IceCubeRates/data/future_planA) are large and kept outside the repository."""
+    from analysis import future_events as FE
+    from test_future_detectors import write_synthetic_cards
+    path = tmp_path_factory.mktemp("future_blocks")
+    write_synthetic_cards(path, sin=np.linspace(-1.0, 1.0, 21))
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(FE, "DATA_DIR", str(path))
+        yield path
+
+
 @pytest.fixture(scope="module")
-def setup():
+def setup(synthetic_blocks):
     from analysis import config as config_mod
     c = config_mod.from_dict(_raw())
     obj = c.objective(c.model(), data_centre=(1.0 / 3.0, 2.0 / 3.0))
@@ -65,7 +78,7 @@ def test_site_jacobian_matches_finite_differences(setup):
     indices, fitted compositions)."""
     c, obj = setup
     m = obj.model
-    for lat in (-89.99, 36.27):
+    for lat in (-89.99,):           # the forecast's model has no sites of its own since C1 (2026-11-11): the sky's bands
         _, F_nu, F_nb, dF = m.site_band_flux_jacobian(INTERIOR, lat, NAMES)
         _, R_nu, R_nb = m.site_band_fluxes(INTERIOR, lat)
         assert np.array_equal(F_nu, R_nu) and np.array_equal(F_nb, R_nb)
@@ -85,11 +98,11 @@ def test_single_power_law_jacobian():
     c = config_mod.from_dict(_raw(free=("norm_astro", "p_index", "f_e_S"), broken=False))
     m = c.model()
     v = dict(m_Zd_eV=1e-13, g_D_eps_trace=1e-40, norm_astro=1.2, p_index=2.45, f_e_S=0.4)
-    _, F_nu, _, dF = m.site_band_flux_jacobian(v, 47.7, ["norm_astro", "p_index", "f_e_S"])
+    _, F_nu, _, dF = m.site_band_flux_jacobian(v, -89.99, ["norm_astro", "p_index", "f_e_S"])
     for n in ("norm_astro", "p_index", "f_e_S"):
         h = 1e-6 * max(1.0, abs(v[n]))
-        fd = (m.site_band_fluxes(dict(v, **{n: v[n] + h}), 47.7)[1]
-              - m.site_band_fluxes(dict(v, **{n: v[n] - h}), 47.7)[1]) / (2 * h)
+        fd = (m.site_band_fluxes(dict(v, **{n: v[n] + h}), -89.99)[1]
+              - m.site_band_fluxes(dict(v, **{n: v[n] - h}), -89.99)[1]) / (2 * h)
         assert np.max(np.abs(dF[n][0] - fd)) < 1e-6 * np.max(np.abs(fd)), n
 
 
