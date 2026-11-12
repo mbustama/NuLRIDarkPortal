@@ -1,0 +1,74 @@
+[
+ {
+  "plane": "campaign_final/check_v3a_flux/dp_e_ul",
+  "complete": true,
+  "blocks_finished": 1,
+  "blocks": 1,
+  "columns": 4,
+  "columns_with_exclusion": 4
+ },
+ {
+  "plane": "campaign_final/check_v3b_spl/dp_e_ul",
+  "complete": true,
+  "blocks_finished": 1,
+  "blocks": 1,
+  "columns": 4,
+  "columns_with_exclusion": 4
+ },
+ {
+  "plane": "campaign_final/check_v5_rho/dp_e_ul",
+  "complete": true,
+  "blocks_finished": 1,
+  "blocks": 1,
+  "columns": 4,
+  "columns_with_exclusion": 4
+ },
+ {
+  "plane": "campaign_final/now_icecube/dp_e_ul",
+  "complete": true,
+  "blocks_finished": 9,
+  "blocks": 9,
+  "columns": 15,
+  "columns_with_exclusion": 15
+ },
+ {
+  "plane": "campaign_final/now_icecube/dp_e_ul_fx",
+  "complete": true,
+  "blocks_finished": 9,
+  "blocks": 9,
+  "columns": 15,
+  "columns_with_exclusion": 15
+ },
+ {
+  "plane": "campaign_final/now_icecube/dp_mu_ul",
+  "complete": true,
+  "blocks_finished": 9,
+  "blocks": 9,
+  "columns": 14,
+  "columns_with_exclusion": 14
+ },
+ {
+  "plane": "campaign_final/now_icecube/dp_mu_ul_fx",
+  "complete": true,
+  "blocks_finished": 9,
+  "blocks": 9,
+  "columns": 14,
+  "columns_with_exclusion": 14
+ },
+ {
+  "plane": "campaign_final/now_icecube/dp_tau_ul",
+  "complete": true,
+  "blocks_finished": 9,
+  "blocks": 9,
+  "columns": 14,
+  "columns_with_exclusion": 14
+ },
+ {
+  "plane": "campaign_final/now_icecube/dp_tau_ul_fx",
+  "complete": true,
+  "blocks_finished": 9,
+  "blocks": 9,
+  "columns": 14,
+  "columns_with_exclusion": 14
+ }
+]

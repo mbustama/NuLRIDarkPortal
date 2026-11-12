@@ -1,0 +1,58 @@
+[
+ {
+  "plane": "campaign_final_sm/check_v3a_flux/le_ltau_ul",
+  "complete": true,
+  "blocks_finished": 1,
+  "blocks": 1,
+  "columns": 4,
+  "columns_with_exclusion": 4
+ },
+ {
+  "plane": "campaign_final_sm/check_v3b_spl/le_ltau_ul",
+  "complete": true,
+  "blocks_finished": 1,
+  "blocks": 1,
+  "columns": 4,
+  "columns_with_exclusion": 4
+ },
+ {
+  "plane": "campaign_final_sm/check_v5_rho/le_ltau_ul",
+  "complete": false,
+  "blocks_finished": 0,
+  "blocks": 1,
+  "columns": 4,
+  "columns_with_exclusion": 4
+ },
+ {
+  "plane": "campaign_final_sm/now_icecube/le_lmu_ul",
+  "complete": false,
+  "blocks_finished": 3,
+  "blocks": 9,
+  "columns": 35,
+  "columns_with_exclusion": 35
+ },
+ {
+  "plane": "campaign_final_sm/now_icecube/le_lmu_ul_fx",
+  "complete": false,
+  "blocks_finished": 3,
+  "blocks": 9,
+  "columns": 35,
+  "columns_with_exclusion": 35
+ },
+ {
+  "plane": "campaign_final_sm/now_icecube/le_ltau_ul",
+  "complete": false,
+  "blocks_finished": 3,
+  "blocks": 9,
+  "columns": 35,
+  "columns_with_exclusion": 35
+ },
+ {
+  "plane": "campaign_final_sm/now_icecube/le_ltau_ul_fx",
+  "complete": false,
+  "blocks_finished": 1,
+  "blocks": 9,
+  "columns": 35,
+  "columns_with_exclusion": 35
+ }
+]

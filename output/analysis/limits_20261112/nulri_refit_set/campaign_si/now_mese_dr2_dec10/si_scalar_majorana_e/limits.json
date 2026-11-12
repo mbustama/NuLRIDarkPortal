@@ -1,0 +1,50 @@
+{
+ "plane": "campaign_si/now_mese_dr2_dec10/si_scalar_majorana_e",
+ "x": "m_phi_eV",
+ "y": "g_phi",
+ "confidence": "95% C.L., per-mass Delta chi^2 >= 3.84",
+ "reading": "analysis.exclusion.field (PCHIP in log10 g, specks out, upper limits only)",
+ "chi2_no_effect": 637.9923288150273,
+ "chi2_fit_json_at_smallest_coupling": [
+  637.991545
+ ],
+ "complete": true,
+ "blocks": [
+  {
+   "dir": "output/analysis/tycho_results_20261112/nulri_refit_set/campaign_si/now_mese_dr2_dec10/si_scalar_majorana_e/b10/data",
+   "finished": true,
+   "points": 98
+  }
+ ],
+ "not_modelled": {
+  "relic_field_region": "analysis.exclusion.not_modelled_mask(cfg) (not a line)"
+ },
+ "columns": [
+  {
+   "log10_m": 5.5,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -1.755,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -1.755,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 5.625,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -2.135,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -2.135,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  }
+ ]
+}

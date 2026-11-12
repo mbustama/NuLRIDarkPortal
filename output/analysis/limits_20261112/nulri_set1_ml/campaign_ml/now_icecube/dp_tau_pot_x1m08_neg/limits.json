@@ -1,0 +1,482 @@
+{
+ "plane": "campaign_ml/now_icecube/dp_tau_pot_x1m08_neg",
+ "x": "m_Zd_eV",
+ "y": "g_D_eps_trace",
+ "confidence": "95% C.L., per-mass Delta chi^2 >= 3.84",
+ "reading": "analysis.exclusion.field (PCHIP in log10 g, specks out, upper limits only)",
+ "chi2_no_effect": 9.878753371067035,
+ "chi2_fit_json_at_smallest_coupling": [
+  9.953779
+ ],
+ "complete": true,
+ "blocks": [
+  {
+   "dir": "output/analysis/tycho_results_20261112/nulri_set1_ml/campaign_ml/now_icecube/dp_tau_pot_x1m08_neg/data",
+   "finished": true,
+   "points": 1855
+  }
+ ],
+ "not_modelled": {
+  "longitudinal_left_out": {
+   "slope": 1.0,
+   "intercept": -2.0
+  }
+ },
+ "columns": [
+  {
+   "log10_m": -30.0,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -47.94,
+     -8.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -47.94,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": -29.0,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -45.94,
+     -8.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -45.94,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": -28.0,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -43.94,
+     -8.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -43.94,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": -27.0,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -41.94,
+     -8.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -41.94,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": -26.0,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -39.94,
+     -8.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -39.94,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": -25.0,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -37.94,
+     -8.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -37.94,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": -24.0,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -35.94,
+     -8.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -35.94,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": -23.0,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -33.94,
+     -8.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -33.94,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": -22.0,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -31.94,
+     -8.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -31.94,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": -21.0,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -29.94,
+     -8.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -29.94,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": -20.0,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -27.94,
+     -8.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -27.94,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": -19.0,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -25.94,
+     -8.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -25.94,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": -18.0,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -23.94,
+     -8.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -23.94,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": -17.0,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -21.94,
+     -8.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -21.94,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": -16.0,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -19.94,
+     -8.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -19.94,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": -15.0,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -17.94,
+     -8.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -17.94,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": -14.0,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -15.955,
+     -8.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -15.955,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": -13.0,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -13.965,
+     -8.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -13.965,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": -12.0,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -11.965,
+     -8.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -11.965,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": -11.0,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -10.8,
+     -8.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -10.8,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": -10.0,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -10.775,
+     -8.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -10.775,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": -9.0,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -10.8,
+     -8.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -10.8,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": -8.0,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -10.8,
+     -8.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -10.8,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": -7.0,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -10.8,
+     -8.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -10.8,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": -6.0,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -10.8,
+     -8.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -10.8,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": -5.0,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -10.73,
+     -8.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -10.73,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": -4.0,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -10.73,
+     -8.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -10.73,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": -3.0,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -10.72,
+     -8.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -10.72,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": -2.0,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -10.715,
+     -8.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -10.715,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": -1.0,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -10.695,
+     -8.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -10.695,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 0.0,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -10.675,
+     -8.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -10.675,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 1.0,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -10.645,
+     -8.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -10.645,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 2.0,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -10.605,
+     -8.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -10.605,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 3.0,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -10.545,
+     -8.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -10.545,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 4.0,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -10.435,
+     -8.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -10.435,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  }
+ ]
+}
