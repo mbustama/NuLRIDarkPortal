@@ -82,3 +82,17 @@ def test_without_the_variable_nothing_is_written(tmp_path, monkeypatch):
     assert m.disk_cache is None
     m.fractions(dict(m_phi_eV=5.6e6, g_phi=0.1, p_index=2.5))
     assert m.n_disk_hits == 0
+
+
+def test_write_budget_stops_writing_but_not_reading(tmp_path, monkeypatch):
+    """2026-11-12 (the caches filled the group quota): past NULRI_FLUX_CACHE_MAX_GB a process writes nothing more,
+    and what is stored is still read."""
+    E, F = np.linspace(1, 2, 3), np.ones((3, 3))
+    monkeypatch.setattr(model_mod, "_disk_written", [0])
+    monkeypatch.setenv(model_mod.DISK_CACHE_BUDGET_ENV, "1e-9")            # 1 byte
+    p1, p2 = str(tmp_path / "ab" / "a.npz"), str(tmp_path / "cd" / "b.npz")
+    model_mod.FlavorModel._disk_write(p1, (E, F, None, None))        # the first write goes through
+    assert model_mod._disk_written[0] > 1
+    model_mod.FlavorModel._disk_write(p2, (E, F, None, None))        # over budget: not written
+    assert os.path.exists(p1) and not os.path.exists(p2)
+    assert np.array_equal(model_mod.FlavorModel._disk_read(p1)[1], F)

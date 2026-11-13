@@ -45,8 +45,9 @@ normalization (|U|^2 as above; 1 for g_D_eps):
 Solver runs can also be shared on disk by every process (NULRI_FLUX_CACHE=<directory>; 2026-10-14): the planes'
 repair passes re-evaluate every point on whichever worker is free, and with per-process caches most of them
 re-solved (7 runs per point with p_index free). Files are keyed by the full solver configuration, the flux mode and
-the solver's code digest, written atomically, and read back bit for bit; nothing is ever evicted (delete the
-directory after a campaign).
+the solver's code digest, written atomically, and read back bit for bit. Nothing is evicted: since 2026-11-12 each job
+keeps its own folder, deleted when it ends (slurm/common.sh), and each process writes at most NULRI_FLUX_CACHE_MAX_GB
+(default 2 GB).
 
 The broken power law (Mauricio, 2026-10-15: IceCube's 2026 combined fit bends below ~25 TeV): with
 source.E_break_GeV set, the extragalactic flux is two source populations split at the energy today E_b, each a power
@@ -144,6 +145,12 @@ ANALYSIS_DEFAULTS = {"norm_astro": 1.0}
 LINEAR_KEYS = SOURCE_KEYS + ("nubar_to_nu_ratio", "Phi_0") + GALACTIC_KEYS + tuple(ANALYSIS_DEFAULTS)
 ALIASES = {"s12sq": "th12_deg", "s13sq": "th13_deg", "s23sq": "th23_deg"}
 DISK_CACHE_ENV = "NULRI_FLUX_CACHE"
+#: the most one process writes to the disk cache, in GB (2026-11-12: the shared caches, never cleaned, reached ~25 TB
+#: and 36 million files and filled the group quota): past it, runs are still read from the cache but no longer written.
+#: Jobs also keep their cache in a folder of their own, deleted when the job ends (slurm/common.sh).
+DISK_CACHE_BUDGET_ENV = "NULRI_FLUX_CACHE_MAX_GB"
+DISK_CACHE_BUDGET_GB = 2.0
+_disk_written = [0]
 DISK_CACHE_VERSION = 1
 # E11 (audit 2026-11-08): the solver's data files guard the cache key. The solver reads only .npz files from src/data
 # and from galactic.data_dir, which is looked up first (dp_galactic._path, dp_transit.MW_SKY_DENSITY_FILES). The stored
@@ -639,11 +646,15 @@ class FlavorModel:
             arrays["F_b"] = F_b
         if gal is not None:
             arrays.update(G=gal["G"], K=np.float64(gal["K"]))
+        budget = float(os.environ.get(DISK_CACHE_BUDGET_ENV, DISK_CACHE_BUDGET_GB)) * 1e9
+        if _disk_written[0] >= budget:
+            return
         os.makedirs(os.path.dirname(path), exist_ok=True)
         tmp = f"{path}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp"
         try:
             with open(tmp, "wb") as f:
                 np.savez(f, **arrays)
+            _disk_written[0] += os.path.getsize(tmp)
             os.replace(tmp, path)                # atomic: readers see a whole file or none
         except OSError:
             try:
