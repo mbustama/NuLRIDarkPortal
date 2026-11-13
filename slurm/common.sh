@@ -56,5 +56,19 @@ _job_end() {
     [ -n "${PROGRESS_PID:-}" ] && kill "$PROGRESS_PID" 2>/dev/null
     case "$JOB_CACHE" in /lustre/astro/mbustama/flux_cache/job_*) rm -rf "$JOB_CACHE" ;; esac
 }
+# A job script starts its main command with `run` (e.g. run python -m analysis ...): the command runs in the
+# background and the script waits for it, so a TERM (scancel, the time limit) is acted on at once -- the command is
+# stopped (given 60 s) and the cache deleted. Without `run`, bash defers the TERM until the command ends; at the time
+# limit Slurm signals only the script, so the command runs on and Slurm kills everything 10 min later (KillWait),
+# leaving the folder to the next job's sweep (test 2026-11-13, job 194014).
+run() { "$@" & _CHILD=$!; wait "$_CHILD"; local s=$?; _CHILD=; return $s; }
+_on_term() {
+    if [ -n "${_CHILD:-}" ]; then
+        kill -TERM "$_CHILD" 2>/dev/null
+        for _ in $(seq 60); do kill -0 "$_CHILD" 2>/dev/null || break; sleep 1; done
+        kill -KILL "$_CHILD" 2>/dev/null
+    fi
+    exit 143
+}
 trap _job_end EXIT
-trap 'exit 143' TERM INT
+trap _on_term TERM INT

@@ -1,8 +1,9 @@
 # Limit curves, 2026-11-12
 
 95% C.L. excluded couplings of every plane run on Tycho up to 2026-11-12 22:00 (set1-ml: 22:47), finished or partial, exported by
-`tools/export_limits.py` from the plane results copied to `../tycho_results_20261112/` (summaries, records, fits,
-manifests; no solver caches).
+`tools/export_limits.py` from the plane results copied from the Tycho checkouts (summaries, records, fits,
+manifests; no solver caches; the local copy was deleted after the export, the records stay on Tycho until the limits
+are final, then `tools/collect_limits.sh` exports the final limits and deletes the checkout).
 
 Each plane folder holds `limits.json`: per mass column the excluded intervals of log10 g, the lowest excluded coupling,
 `limit_below_grid` (excluded down to the smallest coupling computed), whether the column is fully computed; the

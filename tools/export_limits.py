@@ -10,7 +10,8 @@ plane's smallest coupling over all masses (the heavy columns, where that couplin
 by analysis.exclusion.field, as the figures read them (per-mass Delta chi^2 >= 3.84, PCHIP in log10 g, specks out).
 
 Written per plane, under --out with the plane's relative path:
-  data/plane_<x>_<y>.json  the joined summary (the format analysis.exclusion reads; chi2_sm, merged_from)
+  data/plane_<x>_<y>.json  the joined summary (the format analysis.exclusion reads; chi2_sm, merged_from), with the
+                           later passes' records (refinements, rechecks; EXTRA_RECORDS) copied beside it
   limits.json              per mass column: log10 m, the excluded intervals of log10 g, the lowest excluded coupling,
                            whether every point of the column was computed, and the not-modelled boundary of the
                            plane's configuration where analysis.exclusion has one as a line (log10 g >= log10 m + c);
@@ -22,6 +23,7 @@ import glob
 import json
 import os
 import re
+import shutil
 import sys
 from collections import defaultdict
 
@@ -32,6 +34,10 @@ sys.path[:0] = [os.path.join(REPO, "src"), REPO]
 from analysis import exclusion as ex  # noqa: E402
 
 BLOCK = re.compile(r"^(b\d+|m[0-9eE.+-]+)$")
+# records written next to a plane by later passes, which analysis.exclusion.field merges into the plane when it reads
+# it (refinements, rechecks, reruns): copied beside the joined plane so its reading includes them
+EXTRA_RECORDS = ("recheck", "refine_recheck", "rerun_rs", "reeval_events", "rho_fix", "refine_ridges",
+                 "refine_ridges_between", "refine_edges", "refine_edges_between", "refine_grid", "refine_grid_between")
 
 
 def planes(root):
@@ -138,6 +144,14 @@ def export(key, dirs, out_root):
     json.dump(dict(kind="plane", names=names, grids=[xs, ys], log=[True, True],
                    chi2=np.where(np.isfinite(chi), chi, None).tolist(), chi2_sm=sm, merged_from=len(dirs),
                    title=key), open(path, "w"))
+    extra = []
+    for d in dirs:
+        tag = os.path.basename(os.path.dirname(d))
+        for f in sorted(glob.glob(f"{d}/*.jsonl")):
+            stem, _, rest = os.path.basename(f).partition(".")
+            if stem in EXTRA_RECORDS:
+                shutil.copy(f, os.path.join(odir, f"{stem}.{tag}_{rest}"))
+                extra.append(os.path.basename(f))
     lx, G, F, _, _ = ex.field(path)
     full = {round(float(np.log10(m)), 6): bool(np.isfinite(chi[i]).all()) for i, m in enumerate(xs)}
     cols = []
@@ -163,7 +177,7 @@ def export(key, dirs, out_root):
     res = {"plane": key, "x": names[0], "y": names[1], "confidence": "95% C.L., per-mass Delta chi^2 >= 3.84",
            "reading": "analysis.exclusion.field (PCHIP in log10 g, specks out, upper limits only)",
            "chi2_no_effect": sm, "chi2_fit_json_at_smallest_coupling": sms,
-           "complete": all(b["finished"] for b in blocks), "blocks": blocks,
+           "complete": all(b["finished"] for b in blocks), "blocks": blocks, "later_records": extra,
            "not_modelled": boundary(cfg), "columns": cols}
     json.dump(res, open(os.path.join(out_root, key, "limits.json"), "w"), indent=1)
     return res
