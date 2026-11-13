@@ -35,6 +35,10 @@ fi
 if [ -n "${NULRI_CACHE_SHARED:-}" ]; then
     export NULRI_FLUX_CACHE="$NULRI_CACHE_SHARED"
     JOB_CACHE=
+    # registered with the checkout that reads it: tools/disk_report.sh --clean deletes it once no job of that
+    # checkout is queued
+    grep -qxF "$NULRI_CACHE_SHARED ${SLURM_SUBMIT_DIR:-$PWD}" /lustre/astro/mbustama/flux_cache/SHARED.txt 2>/dev/null \
+        || echo "$NULRI_CACHE_SHARED ${SLURM_SUBMIT_DIR:-$PWD}" >> /lustre/astro/mbustama/flux_cache/SHARED.txt
 else
     JOB_CACHE=/lustre/astro/mbustama/flux_cache/job_${SLURM_JOB_ID:-$$}_${SLURM_ARRAY_TASK_ID:-0}
     export NULRI_FLUX_CACHE="$JOB_CACHE"
