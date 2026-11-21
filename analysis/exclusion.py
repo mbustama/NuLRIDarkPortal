@@ -511,3 +511,113 @@ def draw_not_allowed(ax, lx, G, boundary, color="0.45"):
     ax.fill_between(lx, np.clip(edge, G[0], None), top, facecolor="none", edgecolor=color, hatch="////", lw=0.0,
                     zorder=6)
     ax.plot(lx, edge, color=color, lw=0.8, zorder=6)
+
+
+# The final limits (2026-11-21): planes read from a limits export (tools/export_limits.py, one folder per Tycho checkout)
+
+
+def limits_plane(root: str, where: Tuple[str, str], dataset: str, name: str) -> str:
+    """The joined summary of plane `name` of `dataset` in a limits export under `root`, for the checkout and campaign
+    `where` = (checkout, campaign); '' if not there."""
+    return plane(os.path.join(root, where[0], where[1]), dataset, name)
+
+
+def not_modelled_lines(path: str) -> dict:
+    """The not-modelled boundaries that tools/export_limits.py wrote into the plane's limits.json, next to its data/
+    folder: {'not_perturbative' | 'longitudinal_left_out': {'slope', 'intercept'}} (lines log10 g = slope log10 m + c,
+    not modelled above), or a 'relic_field_region' note (not a line: not_modelled_boundary)."""
+    lim = os.path.join(os.path.dirname(os.path.dirname(path)), "limits.json")
+    return (json.load(open(lim)).get("not_modelled") or {}) if os.path.exists(lim) else {}
+
+
+def hatched_line(lines: dict):
+    """(slope, intercept) of the lowest not-modelled line of not_modelled_lines (both have slope 1): the band of the
+    longitudinal mode's scatterings, hatched as not modelled (his choice 2026-11-11; longitudinal_corner), where a plane
+    has it, else the line of perturbative unitarity; None without a line."""
+    cand = [lines[k] for k in ("longitudinal_left_out", "not_perturbative") if k in lines]
+    if not cand:
+        return None
+    b = min(cand, key=lambda d: d["intercept"])
+    return float(b["slope"]), float(b["intercept"])
+
+
+def joined(ul_path, mev_path, dg=None):
+    """One field for a model's ultralight and MeV planes (as merged), on a common coupling grid of step dg (the
+    ultralight plane's own step by default; finer keeps the MeV plane's dips): each column's signed distance linear in
+    log10 g between the grid's couplings. Below a plane's smallest coupling the column is allowed (no effect there);
+    above its largest one it keeps its top value -- the figures stop at the MeV plane's top, so this only keeps the
+    contours from bending at the plot's edge (merged sets it allowed there). Returns (log10 m, log10 g, field)."""
+    lu, Gu, Fu, _, Cu = field(ul_path)
+    Fu, _ = thin_bands(lu, Gu, Fu, Cu)
+    lm, Gm, Fm, _, _ = field(mev_path)
+    G = Gu if dg is None else np.arange(Gu[0], Gu[-1] + dg / 2, dg)
+
+    def regrid(Gs, F, k):
+        c = F[:, k].filled(np.nan)
+        return np.interp(G, Gs, c, left=-D, right=c[-1])
+    keep = lu < lm[0] - 1e-9
+    cols = [regrid(Gu, Fu, k) for k in range(len(lu)) if keep[k]] + [regrid(Gm, Fm, k) for k in range(len(lm))]
+    return np.r_[lu[keep], lm], G, np.ma.masked_invalid(np.array(cols).T)
+
+
+def along_ratio(lx, G, F, n=12):
+    """Columns added between masses one decade apart, interpolated along lines of constant g/M (slope 1 in log-log)
+    instead of constant g where that is how the exclusion moves from one mass to the next: per pair, the direction whose
+    shift leaves fewer grid couplings changing between excluded and allowed. Where the plane depends on g/M only (the
+    contact regime: checked 2026-11-21 on the L_e - L_mu planes, the same excluded/allowed pattern from 1e-13 to 1e-3 eV
+    after a one-decade shift in both) the added columns are exact, and thin regions along constant g/M do not break
+    into islands between the decade-spaced masses. Needs G in steps that divide one decade."""
+    Fn = F.filled(np.nan) if np.ma.isMaskedArray(F) else np.asarray(F, dtype=float)
+    s = int(round(1.0 / (G[1] - G[0])))
+    xs, cols = [], []
+    for k in range(len(lx)):
+        xs.append(lx[k])
+        cols.append(Fn[:, k])
+        if k + 1 == len(lx) or not np.isclose(lx[k + 1] - lx[k], 1.0):
+            continue
+        a, b = Fn[:-s, k], Fn[s:, k + 1]
+        ok = ~np.isnan(a) & ~np.isnan(b)
+        diag = np.sum(ok & ((a > 0) != (b > 0)))
+        a2, b2 = Fn[:, k], Fn[:, k + 1]
+        ok2 = ~np.isnan(a2) & ~np.isnan(b2)
+        flat = np.sum(ok2 & ((a2 > 0) != (b2 > 0)))
+        if diag >= flat:
+            continue
+        for t in np.arange(1, n) / n:
+            u = np.interp(G - t, G, Fn[:, k], left=np.nan, right=np.nan)
+            v = np.interp(G + 1 - t, G, Fn[:, k + 1], left=np.nan, right=np.nan)
+            xs.append(lx[k] + t)
+            cols.append(np.where(np.isnan(u), v, np.where(np.isnan(v), u, (1 - t) * u + t * v)))
+    o = np.argsort(xs)
+    return np.array(xs)[o], G, np.ma.masked_invalid(np.array(cols)[o].T)
+
+
+def not_modelled_boundary(cfg, lx, lo=-38.0, hi=0.0, tol=0.05, m_lightest=None):
+    """For a plane with not_modelled_measure (the scalar's field sourced by the relics): per log10 mass in lx, the
+    smallest log10 g from which the model is not modelled (measure >= 1; bisection to tol decades, taking the measure to
+    grow with g), lo if all of [lo, hi] is, None if none of it is. Other planes: None (their region is a line)."""
+    f = not_modelled_measure(cfg)
+    if f is None:
+        return None
+    out = []
+    for x in lx:
+        if f(10.0 ** x, 10.0 ** hi, m_lightest) < 1.0:
+            out.append(None)
+            continue
+        if f(10.0 ** x, 10.0 ** lo, m_lightest) >= 1.0:
+            out.append(lo)
+            continue
+        a, b = lo, hi
+        while b - a > tol:
+            mid = 0.5 * (a + b)
+            a, b = (a, mid) if f(10.0 ** x, 10.0 ** mid, m_lightest) >= 1.0 else (mid, b)
+        out.append(b)
+    return out
+
+
+def hatch_above(ax, xs, ys, color="0.45"):
+    """Hatch, as draw_not_allowed, the region above the polyline (xs, ys) (log10 axes)."""
+    xs, ys = np.asarray(xs, dtype=float), np.asarray(ys, dtype=float)
+    ax.fill_between(xs, ys, np.full_like(ys, ys.max() + 50.0), facecolor="none", edgecolor=color, hatch="////",
+                    lw=0.0, zorder=6)
+    ax.plot(xs, ys, color=color, lw=0.8, zorder=6)

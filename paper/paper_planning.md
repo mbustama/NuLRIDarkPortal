@@ -836,3 +836,29 @@ Fig. 1 on page 1; no technical caveats or estimates; the main message in bold; a
 - **Open:** forecast pilot cost -> his go for the forecast runs (1,312 SI blocks + the other models' proj_future); set 1 refit of the 765 MeV blocks (stored runs; ~14% of the original cost); re-evaluation of sm-rerun and the other campaigns with sets 1 and 2; resume of set 2's timed-out Dirac blocks (longer limit); C2 for ultralight L_e - L_alpha only (per-site Earth crossing); paper text fixes (D1, D3, D5, D6, D9, B4, B9, C3, C4, A4, A6, E10, the MESE-gate statement, B7's sentence); commit on his word.
 
 - 2026-11-11 (Mauricio): the band g/M >= 1e-2 eV^-1 of the ultralight vector secret-interaction and dark-portal planes is hatched as not modelled (the vector's longitudinal scatterings are left out and check 24a failed there); the paper must explain why. Added to the paper text fixes.
+- 2026-11-12: flavor grid: main limits keep IceCube's broken-power-law flavor grid; the paper states in one sentence how
+  the single-power-law grid moves them (checks 3/5: factor 1.9 at one L_e - L_tau ultralight edge, m = 1e-2 eV;
+  secret interactions -0.4% to +0.04%). (Mauricio)
+- 2026-11-12: spectrum segments (CF 2025 Table 10): independent in the main fit, as published; the paper states the
+  effect of a neighbour anti-correlation of -0.3 (-2.3% / -2.9% on the secret-interaction ultralight block). (Mauricio)
+- 2026-11-12: set 1 launched for SI ultralight (544 blocks), DP ultralight (54), DP 1e-2 eV column (6), L_e - L_alpha
+  ultralight with the SM potential and the mediator decay back (36, long partition; its b7 also replaces the 1e-2 eV
+  L_e - L_alpha column of campaign_final_b, which lacks the SM potential). Forecasts: tolerance check (review item 9)
+  and the cause of the best-fit chi^2 1.64 first; DP and L_e - L_alpha forecast configurations to set up. (Mauricio)
+- 2026-11-12: forecasts keep the campaign's solver grids (review item 9: doubling every grid weakens the forecast limits
+  by up to ~15% in g where Delta chi^2 rises slowly, ~0 elsewhere; 7.3x the cost); the paper states this numerical
+  uncertainty. Review item 2 (Earth crossing at off-pole sites): negligible at 1e-18 to 1e-15 eV; 1e-14 to 1e-11 eV
+  queued. (Mauricio)
+- 2026-11-20: review item 1 checked. Our MESE energy-only fit leans nu_tau-rich (best fit 0.19 : 0.27 : 0.54; TS 0.72 at
+  pion decay, where IceCube's own fit is ~0); scaling our cascades to IceCube's rate (x692.6/795) does not remove it
+  (TS at pion decay 1.29; output/figures/mese_gate_cascades_scaled.png). Cause: energy alone does not separate nu_e from
+  nu_tau showers. **Decision: the ultralight planes (flavor-driven) use set 1 only (IceCube's own flavor likelihood);
+  set 2 (MESE + DR2) is kept for the MeV planes.** The 544-block set-2 ultralight SI run is not launched; set-2
+  ultralight planes of the other families are not run either. Forecasts unaffected (they fit simulated data only). (Mauricio)
+
+### Handoff 2026-11-20 (morning): forecasts finishing; set 2 limited to MeV planes
+- Forecasts (Plan A, 2,496 cores): 1,280 of 1,418 blocks done at 08:46; secret-interaction blocks all on 8 cores and
+  finishing today; L_e - L_alpha tails resubmitted on 8 cores with 5 days (single points up to 36 h; the repair pass
+  matters: it lowered first-pass Delta chi^2 by up to ~1,500 at the grid top). Watchers: fc_tick.sh hourly, fc_release.sh.
+- Decided today: set 2 only for MeV planes (above). Open: set-2 MeV planes of the other families (dark portal) to
+  propose with costs and open items; check the forecast planes near the limit curve for isolated jumps when they end.

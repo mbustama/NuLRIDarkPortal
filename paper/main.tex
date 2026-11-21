@@ -686,9 +686,9 @@ Near the boundary, $g \geq 0$, the best fit can sit at zero; $\Delta\chi^2$ is t
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \begin{figure*}[t!]
  \centering
- \includegraphics[width=\textwidth]{figures/mockup_fig4.pdf}
- % mock-up (watermarked, preliminary results; analysis/mockups.py), was: \placeholder{Fig.~4: $L_e - L_\mu$ and $L_e - L_\tau$, $10^{-30}$ to $10^9$~eV (after the final run).}
- \caption{\textbf{\textit{Limits on the coupling of the $L_e - L_\mu$ and $L_e - L_\tau$ gauge bosons, versus their mass.}} \textit{Top:} $L_e - L_\mu$. \textit{Bottom:} $L_e - L_\tau$. Each shaded region is disfavored at 95\%~C.L.\ by one data set, with sources of pion-decay composition. The insets enlarge the MeV masses, where absorption on the relics shapes the limits. Existing bounds are in gray (Table~\ref{tab:bounds}), and the region beyond perturbative unitarity is marked (Sec.~\ref{sec:models}). See Sec.~\ref{sec:results} for details. \todo{Takeaway from the final results.}}
+ \includegraphics[width=\textwidth]{figures/limits_le_lmu_le_ltau_pion.pdf}
+ % notebooks/paper_figures.ipynb, Sec. 1, from output/analysis/limits_20261121 (2026-11-21); the projected ultralight regions are partial (12 blocks in their last re-check pass), to be redrawn when they finish
+ \caption{\textbf{\textit{Limits on the coupling of the $L_e - L_\mu$ and $L_e - L_\tau$ gauge bosons, versus their mass.}} \textit{Top:} $L_e - L_\mu$. \textit{Bottom:} $L_e - L_\tau$. Each shaded region is disfavored at 95\%~C.L.\ by one data set, with sources of pion-decay composition. The insets enlarge the MeV masses, where absorption on the relics shapes the limits. Existing bounds are in gray (Table~\ref{tab:bounds}); the dashed line is an earlier estimate that evaluated the potential only at the detector~\cite{Agarwalla:2023sng}. The region beyond perturbative unitarity is hatched (Sec.~\ref{sec:models}). See Sec.~\ref{sec:results} for details. \todo{Takeaway from the final results.}}
  \label{fig:lelalpha}
 \end{figure*}
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -696,21 +696,21 @@ Near the boundary, $g \geq 0$, the best fit can sit at zero; $\Delta\chi^2$ is t
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \begin{figure*}[t!]
  \centering
- \includegraphics[width=\textwidth]{figures/mockup_fig5.pdf}
- % mock-up (watermarked, preliminary results; analysis/mockups.py), was: \placeholder{Fig.~5: the dark portal, textures $e$, $\mu$, $\tau$ (after the final run).}
- \caption{\textbf{\textit{Limits on the coupling of the dark-portal mediator, versus its mass, for each flavor it couples to.}} \textit{Top to bottom:} the mediator coupled to $\nu_e$, $\nu_\mu$, and $\nu_\tau$. Each shaded region is disfavored at 95\%~C.L.\ by one data set, with sources of pion-decay composition. See Sec.~\ref{sec:results} for details. \todo{Existing bounds (Table~\ref{tab:bounds}); takeaway from the final results.}}
+ \includegraphics[width=\textwidth]{figures/limits_dark_portal_pion.pdf}
+ % notebooks/paper_figures.ipynb, Sec. 2, from output/analysis/limits_20261121 (2026-11-21)
+ \caption{\textbf{\textit{Limits on the coupling of the dark-portal mediator, versus its mass, for each flavor it couples to.}} \textit{Top to bottom:} the mediator coupled to $\nu_e$, $\nu_\mu$, and $\nu_\tau$. Each shaded region is disfavored at 95\%~C.L.\ by one data set, with sources of pion-decay composition. Below $10^{-4}$~eV, the regions reach the smallest coupling that we computed, $10^{-8}$, so the limits lie lower. The hatched band, above $g_D/M = 10^{-2}$~eV$^{-1}$, is where we leave out the scatterings of the mediator's longitudinal mode and make no claim (Sec.~\ref{sec:data}). See Sec.~\ref{sec:results} for details. \todo{Existing bounds (Table~\ref{tab:bounds}); takeaway from the final results.}}
  \label{fig:dp}
 \end{figure*}
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-\begin{figure}[t!]
+\begin{figure*}[t!]
  \centering
- \includegraphics[width=\columnwidth]{figures/mockup_fig6.pdf}
- % mock-up (watermarked, preliminary results; analysis/mockups.py), was: \placeholder{Fig.~6: secret interactions (after the secret-interaction campaign).}
- \caption{\textbf{\textit{Limits on secret neutrino interactions, versus the mass of the mediator.}} \todo{Panels: scalar and vector, Majorana and Dirac, couplings to $\nu_e$, $\nu_\mu$, $\nu_\tau$, and to every flavor (after the secret-interaction run).} Each shaded region is disfavored at 95\%~C.L.\ by one data set. Existing bounds are in gray (Table~\ref{tab:bounds}). For the scalar, the region where the field that the relics source changes the neutrino masses, which we do not model, is marked (Sec.~\ref{sec:data}). See Sec.~\ref{sec:results} for details. \todo{Takeaway from the final results.}}
+ \includegraphics[width=\textwidth]{figures/limits_secret_interactions_pion.pdf}
+ % notebooks/paper_figures.ipynb, Sec. 2b, from output/analysis/limits_20261121 (2026-11-21)
+ \caption{\textbf{\textit{Limits on secret neutrino interactions, versus the mass of the mediator.}} \textit{Columns:} a scalar or a vector mediator, with Majorana or Dirac neutrinos. \textit{Rows:} the mediator coupled to $\nu_e$, $\nu_\mu$, $\nu_\tau$, or to every flavor. Each shaded region is disfavored at 95\%~C.L.\ by one data set, with sources of pion-decay composition. For the scalar, the hatched region is where the field that the relics source changes the neutrino masses, which we do not model; for the vector, the hatched band, above $g/M = 10^{-2}$~eV$^{-1}$, is where we leave out the scatterings of its longitudinal mode (Sec.~\ref{sec:data}). See Sec.~\ref{sec:results} for details. \todo{Existing bounds (Table~\ref{tab:bounds}); takeaway from the final results.}}
  \label{fig:si}
-\end{figure}
+\end{figure*}
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

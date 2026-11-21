@@ -228,3 +228,49 @@ def test_longitudinal_corner_marked_for_vector_and_dark_portal():
     le = {"solver": {"model": {"name": "L_e-L_mu"}}}
     assert ex.longitudinal_corner(vec) == -2.0 and ex.longitudinal_corner(dp) == -2.0
     assert ex.longitudinal_corner(sca) is None and ex.longitudinal_corner(le) is None
+
+
+def test_along_ratio_exact_where_the_plane_depends_on_g_over_m():
+    """A field that depends on log g - log m only: the added columns equal it exactly; a field that depends on g only
+    is left as it is (no column added)."""
+    G = np.arange(-10.0, 0.01, 0.5)
+    lx = np.arange(-6.0, -1.0, 1.0)
+
+    def f(x, y):            # linear in log g - log m: interpolating between the grid's couplings is exact
+        return 0.5 * ((y - x) + 2.0)
+    F = np.ma.masked_invalid(np.array([f(x, G) for x in lx]).T)
+    x2, G2, F2 = ex.along_ratio(lx, G, F, n=4)
+    assert len(x2) == len(lx) + 3 * (len(lx) - 1)
+    inside = (G2 - G2[0] >= 1.0) & (G2[-1] - G2 >= 1.0)
+    for k, x in enumerate(x2):
+        assert np.allclose(F2[inside, k], f(x, G2[inside]))
+    Fh = np.ma.masked_invalid(np.array([np.where(G < -5, -1.0, 1.0) for _ in lx]).T)
+    x3, _, _ = ex.along_ratio(lx, G, Fh)
+    assert np.array_equal(x3, lx)
+
+
+def test_joined_keeps_the_mev_planes_top_and_dips(tmp_path):
+    """joined: the MeV columns keep their top value above their plane (merged sets them allowed there), and a common
+    finer grid keeps a dip that the ultralight grid's step would blur."""
+    gu = np.logspace(-8, 0, 17)
+    xu = np.logspace(-3, 3, 7)
+    chi_u = [[0.0 if g < 1e-3 else 50.0 for g in gu] for _ in xu]
+    gm = np.logspace(-6, -2, 33)
+    xm = np.logspace(4, 6, 5)
+    chi_m = [[0.0 if g < 10 ** -4.0 else 50.0 for g in gm] for _ in xm]
+    ul = write_plane(tmp_path / "ul" / "data" / "plane_m_Zd_eV_g_D.json", xu, gu, chi_u)
+    mev = write_plane(tmp_path / "mev" / "data" / "plane_m_Zd_eV_g_D.json", xm, gm, chi_m)
+    lx, G, F = ex.joined(ul, mev, dg=0.125)
+    k = int(np.argmin(np.abs(lx - 5.0)))
+    assert F[G > -2.0, k].min() > 0            # above the MeV plane's top: still excluded
+    edge = G[np.argmax(F[:, k] > 0)]
+    assert abs(edge - (-4.0)) <= 0.13          # the MeV edge at 1e-4, at the finer step
+    _, _, Fm = ex.merged(ul, mev)
+    assert Fm[-1, -1] < 0                      # merged: allowed above the MeV plane's top
+
+
+def test_hatched_line_takes_the_lowest():
+    lines = {"not_perturbative": {"slope": 1.0, "intercept": 2.5}, "longitudinal_left_out": {"slope": 1.0, "intercept": -2.0}}
+    assert ex.hatched_line(lines) == (1.0, -2.0)
+    assert ex.hatched_line({"not_perturbative": {"slope": 1.0, "intercept": 1.76}}) == (1.0, 1.76)
+    assert ex.hatched_line({"relic_field_region": "note"}) is None

@@ -19,7 +19,7 @@ from matplotlib.patches import Patch
 from . import REPO_DIR
 from . import exclusion as ex
 from . import existing_bounds as eb
-from .figure_style import DATASETS, PANEL, pct, ticks, tint, use
+from .figure_style import DATASETS_CAMPAIGN_ML as DATASETS, PANEL, pct, ticks, tint, use
 
 CAMPAIGN = os.path.join(REPO_DIR, "output", "analysis", "campaign_ml")
 SI_PILOT = os.path.join(REPO_DIR, "output", "analysis", "si_pilot1")

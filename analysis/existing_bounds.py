@@ -40,7 +40,10 @@ BOUNDS = {
                               models=["le_lmu", "le_ltau"],
                               file={"le_lmu": "agarwalla_2305.03675_emu.txt",
                                     "le_ltau": "agarwalla_2305.03675_etau.txt"}, kind="curve",
-                              verify="95% C.L., estimated IceCube 2020 flavor data, normal ordering"),
+                              verify="95% C.L., estimated IceCube 2020 flavor data, normal ordering",
+                              # his choice 2026-11-21: a dashed line, not part of the gray union -- it evaluates the
+                              # potential at the detector only, which overstates its effect (paper, Sec. results)
+                              line="dashed", line_label="Earlier estimate,\npotential at the detector only"),
     "torsion": dict(label="Torsion balance", texkey=None, models=["le_lmu", "le_ltau"],
                     file="adelberger_0712.0607_torsion_raw.txt", kind="torsion",
                     verify="no charge-per-mass (Z/A) factor applied, as in the source script; INSPIRE texkey to fetch"),
