@@ -243,6 +243,13 @@ There, absorption carves dips in the spectrum [Fig.~\ref{fig:processes}(b)], whi
 For lighter mediators, the high-energy neutrinos also scatter on the relics with small momentum transfer, which moves them between states [Fig.~\ref{fig:processes}(c, d)].
 If the mediator is lighter than the difference between two neutrino masses, the heavier neutrino can decay into the lighter one and the mediator [Fig.~\ref{fig:processes}(g)].
 For vector mediators, these rates grow as the mediator becomes lighter, through its longitudinal mode.
+The same decays act on the relic neutrinos in the early Universe.
+Neutrinos that decay before recombination leave a mark on the cosmic microwave background (CMB), which bounds their lifetime~\cite{Escudero:2019gfk}.
+With our decay rates, this bound excludes the vectors of $L_e - L_\alpha$ and of the dark portal whose coupling over mass exceeds about $10^{-9}$ and $10^{-8.5}$~eV$^{-1}$, respectively, wherever a decay is open, below a few hundredths of an eV (see also Ref.~\cite{Dror:2020fbh}).
+At those masses it is far stronger than our limits, but it assumes that the relic neutrinos are present at recombination, as in the standard cosmology.
+Our limits differ from it in two ways.
+First, they test the decays of today's high-energy neutrinos over gigaparsecs, not those of the relic neutrinos at recombination, so they do not depend on what happened to the neutrinos before then.
+Second, no decay is open above a few hundredths of an eV, so the CMB bound does not apply there; our limits come from the potential of $L_e - L_\alpha$ and from absorption on the relics.
 
 \subsubsection{Perturbative unitarity}
 When the neutrino masses break the symmetry behind the current to which a vector couples, the longitudinal mode of the vector couples to neutrinos like a scalar at energies far above $M$~\cite{Dror:2020fbh}.
@@ -551,7 +558,7 @@ We bin the showers and double cascades in reconstructed energy only.
 The models treat neutrinos and antineutrinos alike, except at the Glashow resonance, whose events follow the flux of $\bar\nu_e$.
 At every site, we use the flux computed for the South Pole.
 This is exact when crossing the Earth does not change the flavor, as for the dark portal and secret interactions.
-\todo{Ultralight $L_e - L_\alpha$: the crossing of the Earth at each site.}
+For $L_e - L_\alpha$, whose potential changes the flavor inside the Earth, we checked this by giving every site away from the South Pole the flux with its declination bands reversed, as at the North Pole: from $10^{-18}$ to $10^{-11}$~eV, $\Delta\chi^2$ changes by less than $10^{-3}$.
 The standard absorption in the Earth enters through these responses (Sec.~\ref{sec:trip}).
 With $n_k$ the observed events in bin $k$, each likelihood is Poisson, $-2\ln\mathcal{L} = 2 \sum_k [\mu_k - n_k + n_k \ln(n_k/\mu_k)]$.
 
@@ -671,6 +678,22 @@ Near the boundary, $g \geq 0$, the best fit can sit at zero; $\Delta\chi^2$ is t
 \subsubsection{\texorpdfstring{$L_e - L_\mu$ and $L_e - L_\tau$}{Le - Lmu and Le - Ltau}}
 \todo{Figure~\ref{fig:lelalpha} shows \ldots (a paragraph that describes it in full); existing bounds~\cite{Bauer:2018onh, Sabti:2019mhn, Dror:2020fbh, Coloma:2020gfv, Garg:2026gwx, Baryakhtar:2017ngi, Wise:2018rnb}.}
 
+Earlier work estimated these limits with the potential evaluated only at the detector~\cite{Agarwalla:2023sng}.
+Its curve, the dashed line in Fig.~\ref{fig:lelalpha}, lies below our limits from about $10^{-23}$ to $10^{-10}$~eV and below our projected ones above about $10^{-22}$~eV.
+The difference comes from where the potential acts.
+In this mass range, the potential near the Earth comes from the Sun and, above $10^{-18}$~eV, from the Earth itself.
+It switches on only over the last stretch of the trip, within the range $1/M$ of these bodies, about 130~AU at $M = 10^{-20}$~eV.
+The earlier method instead lets the neutrinos feel it from their sources on.
+Where this potential dominates the Hamiltonian, Eq.~(\ref{equ:hamiltonian}), its eigenstates are the flavor states, so the neutrinos keep the flavor composition that they had at the sources.
+From pion-decay sources they arrive as $(f_e, f_\mu, f_\tau) = (1/3, 2/3, 0)$, without $\nu_\tau$, a composition that IceCube's flavor measurement strongly disfavors.
+In our calculation, the neutrinos first cross the Universe.
+For $L_e - L_\mu$ at $M = 10^{-20}$~eV and $g' = 10^{-24}$, the heavier states decay into the lightest one, $\nu_1$, so the flux reaches the Milky Way as almost pure $\nu_1$.
+Near the Sun, the potential then turns $\nu_1$ into $\nu_\mu$ and $\bar\nu_1$ into $\bar\nu_e$.
+The flavor composition at the Earth is $(0.47, 0.47, 0.06)$, which IceCube allows.
+With the decays switched off, the potential instead turns each mass state into one flavor state, $\nu_2$ into $\nu_\tau$.
+The composition, $(0.31, 0.31, 0.39)$, is then also allowed.
+Hence, evaluating the potential only at the detector overstates its effect, and with it the limits, in this mass range.
+
 \subsubsection{The dark portal}
 \todo{Figure~\ref{fig:dp} shows \ldots (a paragraph that describes it in full); existing bounds~\cite{Blinov:2019gcj, Escudero:2019gfk, Bustamante:2016ciw}.}
 
@@ -688,7 +711,7 @@ Near the boundary, $g \geq 0$, the best fit can sit at zero; $\Delta\chi^2$ is t
  \centering
  \includegraphics[width=\textwidth]{figures/limits_le_lmu_le_ltau_pion.pdf}
  % notebooks/paper_figures.ipynb, Sec. 1, from output/analysis/limits_20261121 (2026-11-21); the projected ultralight regions are partial (12 blocks in their last re-check pass), to be redrawn when they finish
- \caption{\textbf{\textit{Limits on the coupling of the $L_e - L_\mu$ and $L_e - L_\tau$ gauge bosons, versus their mass.}} \textit{Top:} $L_e - L_\mu$. \textit{Bottom:} $L_e - L_\tau$. Each shaded region is disfavored at 95\%~C.L.\ by one data set, with sources of pion-decay composition. The insets enlarge the MeV masses, where absorption on the relics shapes the limits. Existing bounds are in gray (Table~\ref{tab:bounds}); the dashed line is an earlier estimate that evaluated the potential only at the detector~\cite{Agarwalla:2023sng}. The region beyond perturbative unitarity is hatched (Sec.~\ref{sec:models}). See Sec.~\ref{sec:results} for details. \todo{Takeaway from the final results.}}
+ \caption{\textbf{\textit{Limits on the coupling of the $L_e - L_\mu$ and $L_e - L_\tau$ gauge bosons, versus their mass.}} \textit{Top:} $L_e - L_\mu$. \textit{Bottom:} $L_e - L_\tau$. Each shaded region is disfavored at 95\%~C.L.\ by one data set, with sources of pion-decay composition. The insets enlarge the MeV masses, where absorption on the relics shapes the limits. Existing bounds are in gray (Table~\ref{tab:bounds}); the dashed line is an earlier estimate that evaluated the potential only at the detector~\cite{Agarwalla:2023sng}. The dotted line is the CMB bound on the neutrino lifetime, which excludes the couplings above it if the relic neutrinos are present at recombination (Sec.~\ref{sec:models}). The region beyond perturbative unitarity is hatched (Sec.~\ref{sec:models}). See Sec.~\ref{sec:results} for details. \todo{Takeaway from the final results.}}
  \label{fig:lelalpha}
 \end{figure*}
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -698,7 +721,7 @@ Near the boundary, $g \geq 0$, the best fit can sit at zero; $\Delta\chi^2$ is t
  \centering
  \includegraphics[width=\textwidth]{figures/limits_dark_portal_pion.pdf}
  % notebooks/paper_figures.ipynb, Sec. 2, from output/analysis/limits_20261121 (2026-11-21)
- \caption{\textbf{\textit{Limits on the coupling of the dark-portal mediator, versus its mass, for each flavor it couples to.}} \textit{Top to bottom:} the mediator coupled to $\nu_e$, $\nu_\mu$, and $\nu_\tau$. Each shaded region is disfavored at 95\%~C.L.\ by one data set, with sources of pion-decay composition. Below $10^{-4}$~eV, the regions reach the smallest coupling that we computed, $10^{-8}$, so the limits lie lower. The hatched band, above $g_D/M = 10^{-2}$~eV$^{-1}$, is where we leave out the scatterings of the mediator's longitudinal mode and make no claim (Sec.~\ref{sec:data}). See Sec.~\ref{sec:results} for details. \todo{Existing bounds (Table~\ref{tab:bounds}); takeaway from the final results.}}
+ \caption{\textbf{\textit{Limits on the coupling of the dark-portal mediator, versus its mass, for each flavor it couples to.}} \textit{Top to bottom:} the mediator coupled to $\nu_e$, $\nu_\mu$, and $\nu_\tau$. Each shaded region is disfavored at 95\%~C.L.\ by one data set, with sources of pion-decay composition. Below $10^{-4}$~eV, the regions reach the smallest coupling that we computed, $10^{-8}$, so the limits lie lower. The dotted line is the CMB bound on the neutrino lifetime, as in Fig.~\ref{fig:lelalpha}; at lighter masses it lies below the couplings shown. The hatched band, above $g_D/M = 10^{-2}$~eV$^{-1}$, is where we leave out the scatterings of the mediator's longitudinal mode and make no claim (Sec.~\ref{sec:data}). See Sec.~\ref{sec:results} for details. \todo{Existing bounds (Table~\ref{tab:bounds}); takeaway from the final results.}}
  \label{fig:dp}
 \end{figure*}
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
