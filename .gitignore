@@ -16,3 +16,7 @@ output/analysis_pre_transit/**/*.jsonl
 # the paper figures notebook also writes PNG previews; the PDFs are tracked
 paper/figures/*.png
 scratch_audit/
+
+# the public companion repository (github.com/mbustama/nu-new-interactions-cosmic), built by
+# tools/render_public_data.py and tools/render_public_notebook.py; its own git repository
+public_repo/
