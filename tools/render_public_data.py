@@ -27,7 +27,7 @@ sys.path.insert(0, SOURCE)
 from analysis import exclusion as ex  # noqa: E402
 
 #: The paper, in one place.
-PAPER = {"title": "New interactions of high-energy cosmic neutrinos, from the Hubble scale to the Earth",
+PAPER = {"title": "New interactions of high-energy cosmic neutrinos, from the Hubble scale to Earth",
          "authors": ["Mauricio Bustamante", "Sudipta Das", "Sanjib Kumar Agarwalla"],
          "arxiv": None,
          "repository": "https://github.com/mbustama/nu-new-interactions-cosmic"}

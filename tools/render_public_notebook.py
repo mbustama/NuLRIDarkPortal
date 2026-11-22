@@ -220,7 +220,7 @@ def main() -> int:
     nb.metadata["kernelspec"] = {"name": "python3", "display_name": "Python 3", "language": "python"}
     C = nb.cells
     C.append(md(r"""
-# New interactions of high-energy cosmic neutrinos, from the Hubble scale to the Earth
+# New interactions of high-energy cosmic neutrinos, from the Hubble scale to Earth
 
 M. Bustamante, S. Das, and S. K. Agarwalla.
 
