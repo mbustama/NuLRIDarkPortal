@@ -1,0 +1,46 @@
+# Dror, arXiv:2004.04750v2, Fig. 4, top-left: L_e - L_mu, Majorana panel; curve: blue; meson decays K -> l nu X (pi -> e nu X) via longitudinal mode
+# C.L.: not stated in the paper
+# coupling convention: coupling g_X of L_X = g_X X^mu Qhat_ii (l_i^dag sigmabar_mu l_i - l_i^c dag sigmabar_mu l_i^c + nu_i^dag sigmabar_mu nu_i), Qhat = diag(1,-1,0) [L_e-L_mu] or diag(1,0,-1) [L_e-L_tau] (Dror Eq. 2, p. 2) = our g'
+# excluded side: above the curve (larger coupling at fixed mass)
+# method: vector paths extracted with PyMuPDF; axes calibrated on the 30 x / 13 y major ticks (one per decade; labels 1e-34..1e-6 eV, 1e-32..1e-20); clipped to the plotted frame
+# columns: log10(M/eV)  log10(g_X)
+-30.61624	-32.00012
+-30.28953	-31.67338
+-30.13697	-31.52069
+-29.98441	-31.36831
+-29.59747	-30.98127
+-29.21054	-30.59448
+-29.05798	-30.44185
+-28.90549	-30.28942
+-28.13155	-29.51539
+-27.97898	-29.36295
+-27.82650	-29.21033
+-27.43956	-28.82353
+-27.05256	-28.43649
+-26.90037	-28.28412
+-26.74781	-28.13143
+-26.36087	-27.74439
+-25.97386	-27.35766
+-25.82138	-27.20497
+-25.66881	-27.05253
+-24.89495	-26.27851
+-24.58982	-25.97369
+-23.81595	-25.19967
+-23.66339	-25.04723
+-23.51090	-24.89455
+-23.12389	-24.50756
+-22.73696	-24.12077
+-22.58440	-23.96808
+-22.43191	-23.81571
+-21.65797	-23.04162
+-21.35292	-22.73681
+-20.57897	-21.96279
+-20.42649	-21.81035
+-20.27392	-21.65772
+-19.88699	-21.27093
+-19.50006	-20.88389
+-19.34749	-20.73126
+-19.19493	-20.57882
+-18.80800	-20.19184
+-18.42106	-19.80505
+-18.37094	-19.75488

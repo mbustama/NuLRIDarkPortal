@@ -19,5 +19,60 @@ if [ -n "${PACKS:-}${TREE:-}" ] && [ -f tools/job_progress.py ]; then
     ( python tools/job_progress.py 2>/dev/null
       while sleep "${PROGRESS_EVERY:-300}"; do python tools/job_progress.py 2>/dev/null; done ) &
     PROGRESS_PID=$!
-    trap 'kill "$PROGRESS_PID" 2>/dev/null' EXIT
 fi
+# The solver-run cache on disk (analysis/model.py, NULRI_FLUX_CACHE). 2026-11-12: shared folders per campaign, never
+# cleaned, reached ~25 TB and 36 million files and filled the astro group quota. Now each job keeps its own folder,
+# deleted when the job ends -- normally, on failure, on scancel or at the time limit (Slurm sends TERM first) -- and
+# each process writes at most NULRI_FLUX_CACHE_MAX_GB (analysis/model.py, default 2 GB). A job script must not set
+# NULRI_FLUX_CACHE itself; a shared folder needs NULRI_CACHE_SHARED=<folder> at submission, with his OK, and is
+# measured in every report (tools/disk_report.sh) and deleted when its last reader ends. A job script that exports
+# NULRI_FLUX_CACHE after sourcing this file would bypass all of it; such scripts are refused below.
+if [ -n "${SLURM_JOB_ID:-}" ] && [ -f "$0" ] && grep -qE '^[^#]*NULRI_FLUX_CACHE=' "$0"; then
+    echo "ERROR: this job script sets NULRI_FLUX_CACHE itself; remove it (a shared folder: NULRI_CACHE_SHARED at" \
+         "submission, slurm/common.sh)" >&2
+    exit 2
+fi
+if [ -n "${NULRI_CACHE_SHARED:-}" ]; then
+    export NULRI_FLUX_CACHE="$NULRI_CACHE_SHARED"
+    JOB_CACHE=
+    # registered with the checkout that reads it: tools/disk_report.sh --clean deletes it once no job of that
+    # checkout is queued
+    grep -qxF "$NULRI_CACHE_SHARED ${SLURM_SUBMIT_DIR:-$PWD}" /lustre/astro/mbustama/flux_cache/SHARED.txt 2>/dev/null \
+        || echo "$NULRI_CACHE_SHARED ${SLURM_SUBMIT_DIR:-$PWD}" >> /lustre/astro/mbustama/flux_cache/SHARED.txt
+else
+    JOB_CACHE=/lustre/astro/mbustama/flux_cache/job_${SLURM_JOB_ID:-$$}_${SLURM_ARRAY_TASK_ID:-0}
+    export NULRI_FLUX_CACHE="$JOB_CACHE"
+fi
+echo "solver cache: $NULRI_FLUX_CACHE ($([ -n "$JOB_CACHE" ] && echo 'this job only, deleted at its end' || echo SHARED))"
+# Folders left by jobs that died before their clean-up ran (killed hard, node failure) are removed, in the background,
+# by every Slurm job that starts: any job_<id>_* whose job is no longer in the queue. If squeue answers nothing (it
+# always lists this job), nothing is removed.
+if [ -n "${SLURM_JOB_ID:-}" ]; then
+    ( live=" $(squeue -u "$USER" -h -o '%A' 2>/dev/null | tr '\n' ' ') "
+      [ -z "${live// /}" ] && exit 0
+      for d in /lustre/astro/mbustama/flux_cache/job_*; do
+          [ -d "$d" ] || continue
+          id=${d##*/job_}; id=${id%%_*}
+          [[ "$live" == *" $id "* ]] || { rm -rf "$d"; echo "removed leftover solver cache $d"; }
+      done ) &
+fi
+_job_end() {
+    [ -n "${PROGRESS_PID:-}" ] && kill "$PROGRESS_PID" 2>/dev/null
+    case "$JOB_CACHE" in /lustre/astro/mbustama/flux_cache/job_*) rm -rf "$JOB_CACHE" ;; esac
+}
+# A job script starts its main command with `run` (e.g. run python -m analysis ...): the command runs in the
+# background and the script waits for it, so a TERM (scancel, the time limit) is acted on at once -- the command is
+# stopped (given 60 s) and the cache deleted. Without `run`, bash defers the TERM until the command ends; at the time
+# limit Slurm signals only the script, so the command runs on and Slurm kills everything 10 min later (KillWait),
+# leaving the folder to the next job's sweep (test 2026-11-13, job 194014).
+run() { "$@" & _CHILD=$!; wait "$_CHILD"; local s=$?; _CHILD=; return $s; }
+_on_term() {
+    if [ -n "${_CHILD:-}" ]; then
+        kill -TERM "$_CHILD" 2>/dev/null
+        for _ in $(seq 60); do kill -0 "$_CHILD" 2>/dev/null || break; sleep 1; done
+        kill -KILL "$_CHILD" 2>/dev/null
+    fi
+    exit 143
+}
+trap _job_end EXIT
+trap _on_term TERM INT

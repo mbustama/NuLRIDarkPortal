@@ -12,7 +12,9 @@ Sterile mixing beyond unitarity (u_e^2 + u_mu^2 + u_tau^2 > 1, which the boxes o
 cannot exclude) is evaluated on the unit sphere and charged UNITARITY_SLOPE per unit of
 excess, a continuous wall the fitters step back from. FrequentistAnalysis called the
 propagation directly and returned finite chi^2 there. Other points the solver rejects, and
-non-finite results, return WALL.
+non-finite results, return WALL. A linear-algebra failure (numpy's LinAlgError, a ValueError
+subclass) is never a wall: it stops the run as a RuntimeError, since a wall reads as excluded
+(2026-11-08).
 """
 import time
 from typing import Mapping, Sequence
@@ -24,6 +26,12 @@ from .model import ALIASES, FlavorModel, sum_of_masses, sum_of_masses_grad
 from .parameters import GaussianPrior, HalfGaussianPrior, ParameterSet
 
 WALL = 1e9
+
+
+def _linalg_stop(values: Mapping, err: Exception) -> RuntimeError:
+    """The error a linear-algebra failure inside the model becomes: a RuntimeError, which stops the run (never a
+    wall, chi^2 = WALL, which would read as an excluded point)."""
+    return RuntimeError(f"objective: linear-algebra failure at {dict(values)!r}: {err}")
 UNITARITY_SLOPE = 1e4
 U_KEYS = ("u_e", "u_mu", "u_tau")
 DERIVED = {"sum_masses_eV": sum_of_masses}
@@ -44,11 +52,12 @@ class Objective:
     """
 
     def __init__(self, model: FlavorModel, surface: str, priors: Sequence = (), data_centre=None, spectrum=None,
-                 events=None):
+                 events=None, spectrum_correlation=0.0):
         self.model = model
         self.events = events
         self.surface = surface
         self.spectrum = None
+        self.spectrum_correlation = float(spectrum_correlation)
         if spectrum is not None:
             g = model.base["grid"]
             self.spectrum = spectra.load(spectrum, float(g["E_min_eV"]) / 1e9, float(g["E_max_eV"]) / 1e9)
@@ -78,12 +87,16 @@ class Objective:
         return self.model.fractions(values)
 
     def spectrum_segments(self, values: Mapping) -> np.ndarray:
-        """The model's E^-2 normalizations on the spectrum's segments (E^2 Phi per flavor, GeV cm^-2 s^-1 sr^-1)."""
-        E, F = self.model.extragalactic(values)
+        """The model's E^-2 normalizations on the spectrum's segments (E^2 Phi per flavor, GeV cm^-2 s^-1 sr^-1): of
+        the extragalactic plus the Galactic flux where the measurement's segments include the Galactic neutrinos
+        (spectra.SPECTRA includes_galactic; audit finding A5, 2026-11-09), of the extragalactic flux otherwise."""
+        E, F = (self.model.flux(values) if self.spectrum.get("includes_galactic", False)
+                else self.model.extragalactic(values))
         return spectra.segments(E / 1e9, F.sum(axis=-1) / 3.0, self.spectrum["E_lo"], self.spectrum["E_hi"])
 
     def spectrum_chi2(self, values: Mapping) -> float:
-        return 0.0 if self.spectrum is None else spectra.chi2(self.spectrum_segments(values), self.spectrum)
+        return 0.0 if self.spectrum is None else spectra.chi2(self.spectrum_segments(values), self.spectrum,
+                                                              self.spectrum_correlation)
 
     def chi2(self, values: Mapping) -> float:
         """chi^2 at named values (every free parameter of the analysis, and any held one)."""
@@ -104,6 +117,8 @@ class Objective:
                 data += surfaces.chi2(f[0], f[1], self.data)
             if self.events is not None:
                 data += self.events.chi2(values)
+        except np.linalg.LinAlgError as err:
+            raise _linalg_stop(values, err) from err
         except ValueError:
             data = WALL
         if not np.isfinite(data):
@@ -151,6 +166,8 @@ class Objective:
             excess = UNITARITY_SLOPE * (u2 - 1.0)
         try:
             data, g = self.events.chi2_and_grad(values, names)
+        except np.linalg.LinAlgError as err:
+            raise _linalg_stop(values, err) from err
         except ValueError:
             data, g = WALL, np.zeros(len(names))
         if not np.isfinite(data) or not np.all(np.isfinite(g)):

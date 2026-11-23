@@ -1,0 +1,514 @@
+[
+ {
+  "plane": "campaign_si/proj_future_planA/si_scalar_dirac_e",
+  "complete": true,
+  "blocks_finished": 24,
+  "blocks": 24,
+  "columns": 49,
+  "columns_with_exclusion": 41
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_scalar_dirac_e_fx",
+  "complete": true,
+  "blocks_finished": 24,
+  "blocks": 24,
+  "columns": 49,
+  "columns_with_exclusion": 41
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_scalar_dirac_e_ul",
+  "complete": true,
+  "blocks_finished": 17,
+  "blocks": 17,
+  "columns": 34,
+  "columns_with_exclusion": 14
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_scalar_dirac_e_ul_fx",
+  "complete": true,
+  "blocks_finished": 17,
+  "blocks": 17,
+  "columns": 34,
+  "columns_with_exclusion": 14
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_scalar_dirac_mu",
+  "complete": true,
+  "blocks_finished": 24,
+  "blocks": 24,
+  "columns": 49,
+  "columns_with_exclusion": 43
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_scalar_dirac_mu_fx",
+  "complete": true,
+  "blocks_finished": 24,
+  "blocks": 24,
+  "columns": 49,
+  "columns_with_exclusion": 43
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_scalar_dirac_mu_ul",
+  "complete": true,
+  "blocks_finished": 17,
+  "blocks": 17,
+  "columns": 34,
+  "columns_with_exclusion": 14
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_scalar_dirac_mu_ul_fx",
+  "complete": true,
+  "blocks_finished": 17,
+  "blocks": 17,
+  "columns": 34,
+  "columns_with_exclusion": 14
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_scalar_dirac_tau",
+  "complete": true,
+  "blocks_finished": 24,
+  "blocks": 24,
+  "columns": 49,
+  "columns_with_exclusion": 43
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_scalar_dirac_tau_fx",
+  "complete": true,
+  "blocks_finished": 24,
+  "blocks": 24,
+  "columns": 49,
+  "columns_with_exclusion": 43
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_scalar_dirac_tau_ul",
+  "complete": true,
+  "blocks_finished": 17,
+  "blocks": 17,
+  "columns": 34,
+  "columns_with_exclusion": 14
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_scalar_dirac_tau_ul_fx",
+  "complete": true,
+  "blocks_finished": 17,
+  "blocks": 17,
+  "columns": 34,
+  "columns_with_exclusion": 14
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_scalar_dirac_universal",
+  "complete": true,
+  "blocks_finished": 24,
+  "blocks": 24,
+  "columns": 49,
+  "columns_with_exclusion": 45
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_scalar_dirac_universal_fx",
+  "complete": true,
+  "blocks_finished": 24,
+  "blocks": 24,
+  "columns": 49,
+  "columns_with_exclusion": 45
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_scalar_dirac_universal_ul",
+  "complete": true,
+  "blocks_finished": 17,
+  "blocks": 17,
+  "columns": 34,
+  "columns_with_exclusion": 7
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_scalar_dirac_universal_ul_fx",
+  "complete": true,
+  "blocks_finished": 17,
+  "blocks": 17,
+  "columns": 34,
+  "columns_with_exclusion": 7
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_scalar_majorana_e",
+  "complete": true,
+  "blocks_finished": 24,
+  "blocks": 24,
+  "columns": 49,
+  "columns_with_exclusion": 40
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_scalar_majorana_e_fx",
+  "complete": true,
+  "blocks_finished": 24,
+  "blocks": 24,
+  "columns": 49,
+  "columns_with_exclusion": 40
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_scalar_majorana_e_ul",
+  "complete": true,
+  "blocks_finished": 17,
+  "blocks": 17,
+  "columns": 34,
+  "columns_with_exclusion": 14
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_scalar_majorana_e_ul_fx",
+  "complete": true,
+  "blocks_finished": 17,
+  "blocks": 17,
+  "columns": 34,
+  "columns_with_exclusion": 14
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_scalar_majorana_mu",
+  "complete": true,
+  "blocks_finished": 24,
+  "blocks": 24,
+  "columns": 49,
+  "columns_with_exclusion": 42
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_scalar_majorana_mu_fx",
+  "complete": true,
+  "blocks_finished": 24,
+  "blocks": 24,
+  "columns": 49,
+  "columns_with_exclusion": 42
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_scalar_majorana_mu_ul",
+  "complete": true,
+  "blocks_finished": 17,
+  "blocks": 17,
+  "columns": 34,
+  "columns_with_exclusion": 14
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_scalar_majorana_mu_ul_fx",
+  "complete": true,
+  "blocks_finished": 17,
+  "blocks": 17,
+  "columns": 34,
+  "columns_with_exclusion": 14
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_scalar_majorana_tau",
+  "complete": true,
+  "blocks_finished": 24,
+  "blocks": 24,
+  "columns": 49,
+  "columns_with_exclusion": 42
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_scalar_majorana_tau_fx",
+  "complete": true,
+  "blocks_finished": 24,
+  "blocks": 24,
+  "columns": 49,
+  "columns_with_exclusion": 42
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_scalar_majorana_tau_ul",
+  "complete": true,
+  "blocks_finished": 17,
+  "blocks": 17,
+  "columns": 34,
+  "columns_with_exclusion": 14
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_scalar_majorana_tau_ul_fx",
+  "complete": true,
+  "blocks_finished": 17,
+  "blocks": 17,
+  "columns": 34,
+  "columns_with_exclusion": 14
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_scalar_majorana_universal",
+  "complete": true,
+  "blocks_finished": 24,
+  "blocks": 24,
+  "columns": 49,
+  "columns_with_exclusion": 44
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_scalar_majorana_universal_fx",
+  "complete": true,
+  "blocks_finished": 24,
+  "blocks": 24,
+  "columns": 49,
+  "columns_with_exclusion": 44
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_scalar_majorana_universal_ul",
+  "complete": true,
+  "blocks_finished": 17,
+  "blocks": 17,
+  "columns": 34,
+  "columns_with_exclusion": 13
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_scalar_majorana_universal_ul_fx",
+  "complete": true,
+  "blocks_finished": 17,
+  "blocks": 17,
+  "columns": 34,
+  "columns_with_exclusion": 13
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_vector_dirac_e",
+  "complete": true,
+  "blocks_finished": 24,
+  "blocks": 24,
+  "columns": 49,
+  "columns_with_exclusion": 42
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_vector_dirac_e_fx",
+  "complete": true,
+  "blocks_finished": 24,
+  "blocks": 24,
+  "columns": 49,
+  "columns_with_exclusion": 42
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_vector_dirac_e_ul",
+  "complete": true,
+  "blocks_finished": 17,
+  "blocks": 17,
+  "columns": 34,
+  "columns_with_exclusion": 34
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_vector_dirac_e_ul_fx",
+  "complete": true,
+  "blocks_finished": 17,
+  "blocks": 17,
+  "columns": 34,
+  "columns_with_exclusion": 34
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_vector_dirac_mu",
+  "complete": true,
+  "blocks_finished": 24,
+  "blocks": 24,
+  "columns": 49,
+  "columns_with_exclusion": 44
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_vector_dirac_mu_fx",
+  "complete": true,
+  "blocks_finished": 24,
+  "blocks": 24,
+  "columns": 49,
+  "columns_with_exclusion": 44
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_vector_dirac_mu_ul",
+  "complete": true,
+  "blocks_finished": 17,
+  "blocks": 17,
+  "columns": 34,
+  "columns_with_exclusion": 34
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_vector_dirac_mu_ul_fx",
+  "complete": true,
+  "blocks_finished": 17,
+  "blocks": 17,
+  "columns": 34,
+  "columns_with_exclusion": 34
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_vector_dirac_tau",
+  "complete": true,
+  "blocks_finished": 24,
+  "blocks": 24,
+  "columns": 49,
+  "columns_with_exclusion": 44
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_vector_dirac_tau_fx",
+  "complete": true,
+  "blocks_finished": 24,
+  "blocks": 24,
+  "columns": 49,
+  "columns_with_exclusion": 44
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_vector_dirac_tau_ul",
+  "complete": true,
+  "blocks_finished": 17,
+  "blocks": 17,
+  "columns": 34,
+  "columns_with_exclusion": 34
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_vector_dirac_tau_ul_fx",
+  "complete": true,
+  "blocks_finished": 17,
+  "blocks": 17,
+  "columns": 34,
+  "columns_with_exclusion": 34
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_vector_dirac_universal",
+  "complete": true,
+  "blocks_finished": 24,
+  "blocks": 24,
+  "columns": 49,
+  "columns_with_exclusion": 45
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_vector_dirac_universal_fx",
+  "complete": true,
+  "blocks_finished": 24,
+  "blocks": 24,
+  "columns": 49,
+  "columns_with_exclusion": 45
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_vector_dirac_universal_ul",
+  "complete": true,
+  "blocks_finished": 17,
+  "blocks": 17,
+  "columns": 34,
+  "columns_with_exclusion": 8
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_vector_dirac_universal_ul_fx",
+  "complete": true,
+  "blocks_finished": 17,
+  "blocks": 17,
+  "columns": 34,
+  "columns_with_exclusion": 8
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_vector_majorana_e",
+  "complete": true,
+  "blocks_finished": 24,
+  "blocks": 24,
+  "columns": 49,
+  "columns_with_exclusion": 43
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_vector_majorana_e_fx",
+  "complete": true,
+  "blocks_finished": 24,
+  "blocks": 24,
+  "columns": 49,
+  "columns_with_exclusion": 43
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_vector_majorana_e_ul",
+  "complete": true,
+  "blocks_finished": 17,
+  "blocks": 17,
+  "columns": 34,
+  "columns_with_exclusion": 34
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_vector_majorana_e_ul_fx",
+  "complete": true,
+  "blocks_finished": 17,
+  "blocks": 17,
+  "columns": 34,
+  "columns_with_exclusion": 34
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_vector_majorana_mu",
+  "complete": true,
+  "blocks_finished": 24,
+  "blocks": 24,
+  "columns": 49,
+  "columns_with_exclusion": 44
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_vector_majorana_mu_fx",
+  "complete": true,
+  "blocks_finished": 24,
+  "blocks": 24,
+  "columns": 49,
+  "columns_with_exclusion": 44
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_vector_majorana_mu_ul",
+  "complete": true,
+  "blocks_finished": 17,
+  "blocks": 17,
+  "columns": 34,
+  "columns_with_exclusion": 34
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_vector_majorana_mu_ul_fx",
+  "complete": true,
+  "blocks_finished": 17,
+  "blocks": 17,
+  "columns": 34,
+  "columns_with_exclusion": 34
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_vector_majorana_tau",
+  "complete": true,
+  "blocks_finished": 24,
+  "blocks": 24,
+  "columns": 49,
+  "columns_with_exclusion": 44
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_vector_majorana_tau_fx",
+  "complete": true,
+  "blocks_finished": 24,
+  "blocks": 24,
+  "columns": 49,
+  "columns_with_exclusion": 44
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_vector_majorana_tau_ul",
+  "complete": true,
+  "blocks_finished": 17,
+  "blocks": 17,
+  "columns": 34,
+  "columns_with_exclusion": 34
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_vector_majorana_tau_ul_fx",
+  "complete": true,
+  "blocks_finished": 17,
+  "blocks": 17,
+  "columns": 34,
+  "columns_with_exclusion": 34
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_vector_majorana_universal",
+  "complete": true,
+  "blocks_finished": 24,
+  "blocks": 24,
+  "columns": 49,
+  "columns_with_exclusion": 46
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_vector_majorana_universal_fx",
+  "complete": true,
+  "blocks_finished": 24,
+  "blocks": 24,
+  "columns": 49,
+  "columns_with_exclusion": 46
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_vector_majorana_universal_ul",
+  "complete": true,
+  "blocks_finished": 17,
+  "blocks": 17,
+  "columns": 34,
+  "columns_with_exclusion": 8
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_vector_majorana_universal_ul_fx",
+  "complete": true,
+  "blocks_finished": 17,
+  "blocks": 17,
+  "columns": 34,
+  "columns_with_exclusion": 8
+ }
+]

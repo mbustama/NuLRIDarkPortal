@@ -289,3 +289,49 @@ def test_analysis_boundaries_for_the_secret_interactions():
     cap = ExactProfiler.lightest_cap(me, {pl.x: 1e-6, pl.y: 1e-3})
     assert 1e-6 < cap < 0.1
     assert f(1e-6, 1e-3, cap / 1.3) < 1.0 < f(1e-6, 1e-3, cap * 1.3)
+
+
+def test_vector_tables_at_the_lightest_mediators():
+    """The vector's profile tables where mu = M^2 / s is tiny (2026-11-08; the pilot below 1 keV crashed at the two
+    lightest mediators, 1e-30 and 1e-29 eV, mu ~ 1e-78: x_- = (1 - beta)/2 rounded to zero and U^2 = (a + delta)^2
+    underflowed, a division by zero in the pair spectrum). Now exact forms (x_- = 2 mu / (1 + beta), the ratios
+    a / (a + delta)): the tables build down to mu = 1e-150 and vary smoothly in ln mu (the pair spectrum's bins by
+    ~1e-4 per decade of mu, monotonically), continuous with mu = 1e-60 where nothing underflowed."""
+    dlnE = np.log(3e16 / 1e12) / 514
+    N = 200
+    mus = np.array([1e-60, 1e-70, 1e-78, 1e-80, 1e-90, 1e-100, 1e-120, 1e-150])
+    B, off = dp_si.build_vector_table_tri(mus, np.full(len(mus), N - 1, dtype=np.int64), dlnE, 4096)
+    assert np.all(np.isfinite(B))
+    rows = B.reshape(len(mus), N, B.shape[1])
+    top = rows[:, :5, 9]
+    step = np.diff(top, axis=0) / top[:-1] / np.diff(np.log10(mus))[:, None]
+    assert np.all(np.abs(step) < 3e-4)
+    assert np.all(np.sign(step) == np.sign(step[0]))
+
+
+@pytest.mark.parametrize("kind", ("majorana", "dirac"))
+def test_vector_planes_at_the_lightest_mediator(kind):
+    """The vector planes' lightest mediators, 1e-30 and 1e-29 eV (the pilot's crash, Majorana and Dirac), at a coupling
+    small enough that the relics' Debye mass leaves the collision mass at the mediator's (g = 1e-36: mu ~ 1e-78): the
+    flux is finite and continuous with 1e-28 eV, where the code ran before -- within 1e-3 from 1e-28 to 1e-29 eV; the
+    change grows toward 1e-30 eV as the Goldstone-enhanced decays do (~ (g m / M)^2), staying below 2e-2."""
+    import json
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+    import dark_portal_solver as dps
+    from analysis.config import from_dict
+    p_cfg = os.path.join(os.path.dirname(__file__), "..", "analysis", "configs", "campaign_si", "now_ic26",
+                         f"si_vector_{kind}_mu_ul.json")
+    raw = json.load(open(p_cfg))
+    raw["solver"]["grid"].update(n_E_bins=40)
+    model = from_dict(raw, "").model()
+    out = {}
+    for M in (1e-30, 1e-29, 1e-28):
+        E, p = dps.build_solver_params(model._run_cfg(model._overrides({"m_phi_eV": M, "g_phi": 1e-36})))
+        p["show_progress"] = False
+        setup = dps._flux_setup(E, p)
+        F = dps._flux_from_setup(E, p, setup, (0.5, 0.5), None)
+        out[M] = (np.asarray(F[0]) + np.asarray(F[1])).sum(axis=1)
+        assert np.all(np.isfinite(out[M])) and np.all(out[M] > 0.0)
+    d29 = np.max(np.abs(out[1e-29] / out[1e-28] - 1.0))
+    d30 = np.max(np.abs(out[1e-30] / out[1e-29] - 1.0))
+    assert d29 < 1e-3 and d30 < 2e-2 and d30 > d29

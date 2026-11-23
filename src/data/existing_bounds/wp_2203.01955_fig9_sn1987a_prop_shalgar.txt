@@ -1,0 +1,25 @@
+# Berryman et al. (white paper), arXiv:2203.01955v1, Fig. 9 (scalar mediator, compilation); curve: blue fill "SN 1987A prop. Shalgar+ (for g_ee = g_mumu = g_tautau)"; original source: Shalgar, Tamborra & Bustamante, arXiv:1912.09115 (WP ref. [150]); coupling: universal (flavor)
+# C.L.: as in the original source (not stated in the white paper)
+# coupling convention: white-paper Eq. (2.1), PDF p. 4 (printed p. 2): "L > g_{alpha beta} phi nu_alpha nu_beta" (two-component, scalar; no 1/2 and no h.c. written); Fig. 9 is "modified from Ref. [158]" (Bustamante, Rosenstrom, Shalgar & Tamborra, arXiv:2001.04994) and each curve keeps the normalization of that compilation; its Lab g_ee and g_mumu lines coincide (<0.05 dex) with Blinov et al. 1905.02727 Fig. 1, whose convention is (1/2)(g nu nu phi + h.c.)
+# excluded side: above the curve
+# method: vector paths extracted with PyMuPDF from arXiv:2203.01955v1 page 20, Fig. 9; axes calibrated on the drawn major ticks (log10(M/MeV) = -5..4, log10 g = -13..0) with values from the PDF text layer; clipped to the plotted frame; mass converted to eV
+# columns: log10(M/eV)  log10(g_{alpha beta})
+1.00008	-1.68615
+2.00006	-1.68615
+2.25006	-1.69065
+2.50006	-1.70968
+2.75006	-1.67068
+3.00005	-1.62859
+3.25005	-1.51800
+3.26399	-1.50000
+3.41929	-1.25000
+3.50005	-1.16925
+3.66543	-1.00000
+3.75005	-0.88676
+3.88552	-0.75000
+4.00005	-0.63311
+4.13275	-0.50000
+4.25004	-0.38191
+4.38180	-0.25000
+4.50004	-0.13096
+4.63074	-0.00000

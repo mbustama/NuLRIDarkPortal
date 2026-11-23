@@ -1,0 +1,52 @@
+# Berryman et al. (white paper), arXiv:2203.01955v1, Fig. 9 (scalar mediator, compilation); curve: purple dashed "BBN (Delta N_eff = 1) (for g_ee = g_mumu = g_tautau)"; the vertical right edge at M = 2.2 MeV is part of the region; original source: Blinov, Kelly, Krnjaic & McDermott, arXiv:1905.02727 (WP ref. [38]); coupling: universal (flavor)
+# C.L.: as in the original source (not stated in the white paper)
+# coupling convention: white-paper Eq. (2.1), PDF p. 4 (printed p. 2): "L > g_{alpha beta} phi nu_alpha nu_beta" (two-component, scalar; no 1/2 and no h.c. written); Fig. 9 is "modified from Ref. [158]" (Bustamante, Rosenstrom, Shalgar & Tamborra, arXiv:2001.04994) and each curve keeps the normalization of that compilation; its Lab g_ee and g_mumu lines coincide (<0.05 dex) with Blinov et al. 1905.02727 Fig. 1, whose convention is (1/2)(g nu nu phi + h.c.)
+# excluded side: above the curve and left of the vertical edge
+# method: vector paths extracted with PyMuPDF from arXiv:2203.01955v1 page 20, Fig. 9; axes calibrated on the drawn major ticks (log10(M/MeV) = -5..4, log10 g = -13..0) with values from the PDF text layer; clipped to the plotted frame; mass converted to eV
+# columns: log10(M/eV)  log10(g_{alpha beta})
+1.02062	-5.29577
+1.13706	-5.29577
+1.21240	-5.29577
+1.32884	-5.30986
+1.46582	-5.33099
+1.60281	-5.35915
+1.73979	-5.40845
+1.87677	-5.47887
+2.04116	-5.59859
+2.17129	-5.72535
+2.30828	-5.86620
+2.46581	-6.02817
+2.64390	-6.20423
+2.82197	-6.39437
+3.00005	-6.57042
+3.19868	-6.77465
+3.34937	-6.92254
+3.56854	-7.14789
+3.76032	-7.33803
+3.93841	-7.51408
+4.10963	-7.69014
+4.28086	-7.85915
+4.43155	-8.01408
+4.59593	-8.17606
+4.77401	-8.35915
+4.94525	-8.53521
+5.10963	-8.70423
+5.31510	-8.90845
+5.52058	-9.11268
+5.69181	-9.28169
+5.84250	-9.42958
+6.02058	-9.58451
+6.15414	-9.66901
+6.22606	-9.71831
+6.30140	-9.74648
+6.33564	-9.74648
+6.36303	-9.73944
+6.37674	-9.72535
+6.39044	-9.70423
+6.39728	-9.69014
+6.39728	-9.66197
+6.39044	-9.59155
+6.37332	-9.46479
+6.35619	-9.37324
+6.34935	-9.16901
+6.35275	-0.00000

@@ -27,11 +27,21 @@ bins as dp_si's: a decay beyond dp_si.DECAY_STEP_CAP per step and DECAY_STEP_RAT
 there (it drains the state within the step either way; its channels' shares kept); conversions beyond
 dp_si.BIN_ROUNDING_MAX per step scaled down as dp_si._bin_matrix (their ratios, hence the bin's equilibrium, kept).
 The relic mass-change loss stays in two halves around the step.
+
+The mediators the decays make (2026-11-07, decision B; dp_mediator; step_full_med): a population per LF helicity on
+the same grid, redshifting with the beam (observed energies). Each bin's mediators are part of its linear system
+(rows 6..8: those the bin's own decays put in the bin, those from the bins above as a constant source, their decay at
+Gamma_Z m_Zd / E, their neutrinos landing in the bin itself on its eigenstates), solved exactly over the step with the
+six populations (2026-11-08: deferred to the step's end, the mediators' own-bin neutrinos had left an unrelaxed
+population ~ dt where the bin's conversions and decays cycle fast); the mediators and the neutrinos going to the bins
+below are constant sources there, by dp_mediator's per-offset tables and the ladder's channel rates. step_full is
+step_full_med without them, bit for bit.
 """
 import numpy as np
 from numba import njit
 
 import dp_medium
+import dp_mediator
 from dp_si import (_phi_eig, _keep_rate_blocks, STIFF_BIN, DECAY_STEP_CAP, DECAY_STEP_RATIO, BIN_ROUNDING_MAX,
                    CONVERSION_CAP, CONVERSION_RATIO, CONVERSION_MIN, CONVERSION_GUARD)
 
@@ -193,11 +203,98 @@ def _phi_diagonal(Mx, Em, P1, P2):
 
 
 @njit(cache=True)
+def _med_project(lad, x0, b, pendM, S, scale):
+    """The mediators' neutrinos arriving in grid bin b (pendM[b, kind, mass state], numbers per unit time; cleared)
+    onto the bin's eigenstates, S[3 kind + a] += scale x pendM |<a|mass state>|^2 (the ladder's projectors P9 at the
+    bin's rungs, blended as its rates; the mass states themselves in vacuum)."""
+    P9 = lad[2]
+    r0, w = dp_medium.rung_of_bin(x0, b)
+    for t in range(2):
+        for k in range(3):
+            v = pendM[b, t, k]
+            if v == 0.0:
+                continue
+            pendM[b, t, k] = 0.0
+            for a in range(3):
+                p = (1.0 - w) * P9[r0, t, a, k]
+                if w > 0.0:
+                    p += w * P9[r0 + 1, t, a, k]
+                S[3 * t + a] += scale * v * p
+
+
+@njit(cache=True)
+def _med_rows(lad, x0, b, Mx, Mx9, S, S9, Lam, fcap, pdt, use_dec, mprod, mdec, mrate, Eb, decay_dt, pendZ, dEb):
+    """Grid bin b's linear system with its mediators (step_full_med): Mx9 (9, 9) the six populations' Mx and, in rows
+    and columns 6..8, the mediators by LF helicity -- made by the bin's decays into the bin itself (each ladder
+    channel's exponent over the step, its own-bin share mprod[ch, lam, 0]), decaying (dp_mediator.decay_exponent), their
+    neutrinos in the bin itself (mdec[lam, kind, state, 0], projected on the bin's eigenstates as _med_project); S9 the
+    sources, the mediators' from the bins above (pendZ[b], numbers per unit time; cleared). pdt: the plans' unit
+    1 / (16 pi M^2 E_b) times the step's decay time. Returns the mediators' decay exponent."""
+    for r in range(9):
+        S9[r] = S[r] if r < 6 else 0.0
+        for c in range(9):
+            Mx9[r, c] = Mx[r, c] if (r < 6 and c < 6) else 0.0
+    r0, w = dp_medium.rung_of_bin(x0, b)
+    if use_dec:
+        plan_tot = lad[4]
+        for t in range(2):
+            for c in range(3):
+                if Lam[t, c] == 0.0:
+                    continue
+                for x in range(6):
+                    ch = (t * 3 + c) * 6 + x
+                    rate = (1.0 - w) * plan_tot[r0, ch]
+                    if w > 0.0:
+                        rate += w * plan_tot[r0 + 1, ch]
+                    if rate == 0.0:
+                        continue
+                    ex = rate * pdt * fcap[3 * t + c]
+                    for lam in range(3):
+                        Mx9[6 + lam, 3 * t + c] += ex * mprod[ch, lam, 0]
+    tz, _ = dp_mediator.decay_exponent(mrate, Eb, decay_dt)
+    P9 = lad[2]
+    for lam in range(3):
+        Mx9[6 + lam, 6 + lam] = -tz
+        S9[6 + lam] = pendZ[b, lam] / dEb
+        pendZ[b, lam] = 0.0
+        for kd in range(2):
+            for st in range(3):
+                v = mdec[lam, kd, st, 0]
+                if v == 0.0:
+                    continue
+                for a in range(3):
+                    p = (1.0 - w) * P9[r0, kd, a, st]
+                    if w > 0.0:
+                        p += w * P9[r0 + 1, kd, a, st]
+                    Mx9[3 * kd + a, 6 + lam] += tz * v * p
+    return tz
+
+
+@njit(cache=True)
 def step_full(inj_rate, dt, zp1_mid, jump_dt, decay_dt, E_bins, F_nu, F_nb, w_nu, w_nb, rho_src, Pi_nu, Pi_nb,
               G_nu, G_nb, brp_nu, brp_nb, p_index, Phi_0, W3, pref3, self_same, W1, W2, c1, c2, self_cross,
               R_nu, R_nb, inj_w, use_jumps, Gamma_unit,
               J_n, Gd_n, GG_n, lam_n, ls_n, ids_n, cz_n, J_b, Gd_b, GG_b, lam_b, ls_b, ids_b, cz_b,
               lad, x0, use_dec, clip, diag, pend, acc, add, sub, act, src, use_src, cache, have, use_cache):
+    """step_full_med without the mediator's decay back (its arguments but the last ten; the code before 2026-11-07,
+    bit for bit)."""
+    step_full_med(inj_rate, dt, zp1_mid, jump_dt, decay_dt, E_bins, F_nu, F_nb, w_nu, w_nb, rho_src, Pi_nu, Pi_nb,
+                  G_nu, G_nb, brp_nu, brp_nb, p_index, Phi_0, W3, pref3, self_same, W1, W2, c1, c2, self_cross,
+                  R_nu, R_nb, inj_w, use_jumps, Gamma_unit,
+                  J_n, Gd_n, GG_n, lam_n, ls_n, ids_n, cz_n, J_b, Gd_b, GG_b, lam_b, ls_b, ids_b, cz_b,
+                  lad, x0, use_dec, clip, diag, pend, acc, add, sub, act, src, use_src, cache, have, use_cache,
+                  False, np.zeros((1, 3)), np.zeros((1, 3, 1)), np.zeros(1, dtype=np.int64), np.zeros((1, 3, 2)),
+                  np.zeros((3, 2, 3, 1)), np.zeros(3, dtype=np.int64), np.zeros((3, 2, 3, 2)), 0.0, np.zeros((1, 3)),
+                  np.zeros((1, 2, 3)), np.zeros(12))
+
+
+@njit(cache=True)
+def step_full_med(inj_rate, dt, zp1_mid, jump_dt, decay_dt, E_bins, F_nu, F_nb, w_nu, w_nb, rho_src, Pi_nu, Pi_nb,
+                  G_nu, G_nb, brp_nu, brp_nb, p_index, Phi_0, W3, pref3, self_same, W1, W2, c1, c2, self_cross,
+                  R_nu, R_nb, inj_w, use_jumps, Gamma_unit,
+                  J_n, Gd_n, GG_n, lam_n, ls_n, ids_n, cz_n, J_b, Gd_b, GG_b, lam_b, ls_b, ids_b, cz_b,
+                  lad, x0, use_dec, clip, diag, pend, acc, add, sub, act, src, use_src, cache, have, use_cache,
+                  use_med, Zm, mprod, mnprod, mpsum, mdec, mndec, mdsum, mrate, pendZ, pendM, mdiag):
     """One step (module docstring), F_nu, F_nb (N, 3) in place. inj_rate: the sources' emission per unit time over the
     step, R(z) (1+z)^(1-p) averaged (the injection Phi_0 (E (1+z))^-p R(z) (1+z) of step_cosmological_rates without
     E^-p); dt and the absorption and cascade arguments as step_cosmological_rates' (G, brp this step's rates; zeros for
@@ -213,7 +310,16 @@ def step_full(inj_rate, dt, zp1_mid, jump_dt, decay_dt, E_bins, F_nu, F_nb, w_nu
     cache (N, 4, 6, 6), have (N,), use_cache: the runs of one parameter point that differ only in their sources (the
     flavors and kinds of the analysis' basis) share every bin's matrix; with use_cache a bin whose matrix equals the
     stored one exactly reuses its exponentials (e^M, phi1, phi2: functions of the matrix alone, so the result is the
-    same to the last bit), and stores them otherwise (2026-10-25: the exponentials were 90% of a decay point's cost)."""
+    same to the last bit), and stores them otherwise (2026-10-25: the exponentials were 90% of a decay point's cost).
+    use_med (2026-11-07, decision B; dp_mediator; lad a valid ladder: its projectors): the mediators the decays make
+    (with use_dec; without, the mediators present still decay and their neutrinos arrive), Zm (N, 3) per unit
+    energy by LF helicity (0, +1, -1), and their decay back into neutrino pairs (dp_mediator.Mediator.arrays: mprod,
+    mnprod, mpsum per ladder channel; mdec, mndec, mdsum; mrate = Gamma_Z m_Zd). Per bin the 9 x 9 system of _med_rows
+    (the mediators decaying at mrate / E_obs per unit decay_dt; the cache then (N, 4, 9, 9)); after it, the bin's
+    decays' mediators into the bins below (pendZ (N, 3), numbers per unit time) and its decayed mediators' neutrinos
+    into the bins below (pendM (N, 2, 3) by kind and mass state, projected on the eigenstates of the bin they reach),
+    constant sources there. mdiag (dp_mediator.NDIAG): the produced, decayed and placed numbers and
+    energies (accumulated). pendZ, pendM left zero."""
     N = E_bins.shape[0]
     h = np.sqrt(E_bins[1] / E_bins[0])
     jsc = jump_dt / dt                            # the scatterings' and the decays' rates per unit dt
@@ -254,6 +360,16 @@ def step_full(inj_rate, dt, zp1_mid, jump_dt, decay_dt, E_bins, F_nu, F_nb, w_nu
     Wk1 = np.zeros((6, 6))
     Wk2 = np.zeros((6, 6))
     Wk3 = np.zeros((6, 6))
+    Mx9 = np.zeros((9, 9))
+    S9 = np.zeros(9)
+    x09 = np.zeros(9)
+    Em9 = np.zeros((9, 9))
+    P19 = np.zeros((9, 9))
+    P29 = np.zeros((9, 9))
+    Wk19 = np.zeros((9, 9))
+    Wk29 = np.zeros((9, 9))
+    Wk39 = np.zeros((9, 9))
+    Dmed = np.zeros(3)
     for b in range(N - 1, -1, -1):
         Eb = E_bins[b]
         dEb = Eb * h - Eb / h
@@ -271,6 +387,9 @@ def step_full(inj_rate, dt, zp1_mid, jump_dt, decay_dt, E_bins, F_nu, F_nb, w_nu
             if use_src:
                 S[a] += src[b, 0, a]
                 S[3 + a] += src[b, 1, a]
+        if use_med:
+            # the mediators' neutrinos from the bins above (mass states, projected on the bin's eigenstates)
+            _med_project(lad, x0, b, pendM, S, 1.0 / dEb)
         if use_dec:
             dp_medium.gains(lad, x0, b, Eb, h, acc, add, sub, pend, gin, act)
             for t in range(2):
@@ -360,55 +479,117 @@ def step_full(inj_rate, dt, zp1_mid, jump_dt, decay_dt, E_bins, F_nu, F_nb, w_nu
                             v = own[t, c, td, r]
                             if v != 0.0:
                                 Mx[3 * td + r, 3 * t + c] += v * dt * fcap[3 * t + c]
-        diagonal = True
-        for r in range(6):
-            for c in range(6):
-                if r != c and Mx[r, c] != 0.0:
-                    diagonal = False
-        same = False
-        if use_cache and have[b]:
-            same = True
-            for r in range(6):
-                for c in range(6):
-                    if Mx[r, c] != cache[b, 0, r, c]:
-                        same = False
-        if same:
-            for r in range(6):
-                for c in range(6):
-                    Em[r, c] = cache[b, 1, r, c]
-                    P1[r, c] = cache[b, 2, r, c]
-                    P2[r, c] = cache[b, 3, r, c]
-        else:
-            if diagonal:
-                _phi_diagonal(Mx, Em, P1, P2)
+        if use_med:
+            # the bin's mediators in its linear system (2026-11-08; the review's convergence check): rows and columns
+            # 6..8 their LF helicities -- made by the bin's own decays into the bin itself, decaying, their neutrinos
+            # landing in the bin itself -- solved with the six populations exactly over the step (deferred to the
+            # step's end, the latter left an unrelaxed population ~ dt where the bin's cycles are fast: dp_si's flux
+            # went as 1 / z_substeps at g = 1e-4, m_Zd = 1e-2 eV)
+            tz = _med_rows(lad, x0, b, Mx, Mx9, S, S9, Lam, fcap, dsc / (16.0 * np.pi * Ms * Eb) * dt, use_dec,
+                           mprod, mdec, mrate, Eb, decay_dt, pendZ, dEb)
+            diagonal = True
+            for r in range(9):
+                for c in range(9):
+                    if r != c and Mx9[r, c] != 0.0:
+                        diagonal = False
+            same = False
+            if use_cache and have[b]:
+                same = True
+                for r in range(9):
+                    for c in range(9):
+                        if Mx9[r, c] != cache[b, 0, r, c]:
+                            same = False
+            if same:
+                for r in range(9):
+                    for c in range(9):
+                        Em9[r, c] = cache[b, 1, r, c]
+                        P19[r, c] = cache[b, 2, r, c]
+                        P29[r, c] = cache[b, 3, r, c]
             else:
-                _phi_rate(Mx, Em, P1, P2, Wk1, Wk2, Wk3)
-            if use_cache:
+                if diagonal:
+                    _phi_diagonal(Mx9, Em9, P19, P29)
+                else:
+                    _phi_rate(Mx9, Em9, P19, P29, Wk19, Wk29, Wk39)
+                if use_cache:
+                    for r in range(9):
+                        for c in range(9):
+                            cache[b, 0, r, c] = Mx9[r, c]
+                            cache[b, 1, r, c] = Em9[r, c]
+                            cache[b, 2, r, c] = P19[r, c]
+                            cache[b, 3, r, c] = P29[r, c]
+                    have[b] = True
+            for a in range(3):
+                x09[a] = F_nu[b, a]
+                x09[3 + a] = F_nb[b, a]
+                x09[6 + a] = Zm[b, a]
+            for r in range(9):
+                fn = 0.0
+                av = 0.0
+                for c in range(9):
+                    fn += Em9[r, c] * x09[c] + P19[r, c] * S9[c] * dt
+                    av += P19[r, c] * x09[c] + P29[r, c] * S9[c] * dt
+                if clip:
+                    av = av if av > 0.0 else 0.0
+                    fn = fn if fn > 0.0 else 0.0
+                if r < 3:
+                    F_nu[b, r] = fn
+                    xbar[r] = av
+                elif r < 6:
+                    F_nb[b, r - 3] = fn
+                    xbar[r] = av
+                else:
+                    Zm[b, r - 6] = fn
+                    Dmed[r - 6] = tz * av * dEb           # the mediators decayed over the step
+        else:
+            diagonal = True
+            for r in range(6):
+                for c in range(6):
+                    if r != c and Mx[r, c] != 0.0:
+                        diagonal = False
+            same = False
+            if use_cache and have[b]:
+                same = True
                 for r in range(6):
                     for c in range(6):
-                        cache[b, 0, r, c] = Mx[r, c]
-                        cache[b, 1, r, c] = Em[r, c]
-                        cache[b, 2, r, c] = P1[r, c]
-                        cache[b, 3, r, c] = P2[r, c]
-                have[b] = True
-        for a in range(3):
-            x0v[a] = F_nu[b, a]
-            x0v[3 + a] = F_nb[b, a]
-        for r in range(6):
-            fn = 0.0
-            av = 0.0
-            for c in range(6):
-                fn += Em[r, c] * x0v[c] + P1[r, c] * S[c] * dt
-                av += P1[r, c] * x0v[c] + P2[r, c] * S[c] * dt
-            if clip:
-                xbar[r] = av if av > 0.0 else 0.0
-                fn = fn if fn > 0.0 else 0.0
+                        if Mx[r, c] != cache[b, 0, r, c]:
+                            same = False
+            if same:
+                for r in range(6):
+                    for c in range(6):
+                        Em[r, c] = cache[b, 1, r, c]
+                        P1[r, c] = cache[b, 2, r, c]
+                        P2[r, c] = cache[b, 3, r, c]
             else:
-                xbar[r] = av
-            if r < 3:
-                F_nu[b, r] = fn
-            else:
-                F_nb[b, r - 3] = fn
+                if diagonal:
+                    _phi_diagonal(Mx, Em, P1, P2)
+                else:
+                    _phi_rate(Mx, Em, P1, P2, Wk1, Wk2, Wk3)
+                if use_cache:
+                    for r in range(6):
+                        for c in range(6):
+                            cache[b, 0, r, c] = Mx[r, c]
+                            cache[b, 1, r, c] = Em[r, c]
+                            cache[b, 2, r, c] = P1[r, c]
+                            cache[b, 3, r, c] = P2[r, c]
+                    have[b] = True
+            for a in range(3):
+                x0v[a] = F_nu[b, a]
+                x0v[3 + a] = F_nb[b, a]
+            for r in range(6):
+                fn = 0.0
+                av = 0.0
+                for c in range(6):
+                    fn += Em[r, c] * x0v[c] + P1[r, c] * S[c] * dt
+                    av += P1[r, c] * x0v[c] + P2[r, c] * S[c] * dt
+                if clip:
+                    xbar[r] = av if av > 0.0 else 0.0
+                    fn = fn if fn > 0.0 else 0.0
+                else:
+                    xbar[r] = av
+                if r < 3:
+                    F_nu[b, r] = fn
+                else:
+                    F_nb[b, r - 3] = fn
         # the numbers absorbed per unit energy and time (the cascade's running sums, as step_cosmological_rates)
         Rn = 0.0
         Rb = 0.0
@@ -433,6 +614,24 @@ def step_full(inj_rate, dt, zp1_mid, jump_dt, decay_dt, E_bins, F_nu, F_nb, w_nu
                         continue
                     dp_medium.deposit(lad, x0, b, t, c, xb * dEb * pref * fcap[3 * t + c], Eb, h, pend, add, sub,
                                       act)
+        # the mediators (decision B): this bin's decays' into the bins below it, the bin's decayed ones' neutrinos into
+        # the bins below it (constant sources over the step; those in the bin itself were in its linear system)
+        if use_med:
+            if use_dec:
+                pref = dsc / (16.0 * np.pi * Ms * Eb)
+                r0, wr = dp_medium.rung_of_bin(x0, b)
+                sig = lad[0]
+                sgm = sig[r0]
+                if wr > 0.0 and sig[r0 + 1] > sgm:
+                    sgm = sig[r0 + 1]
+                for t in range(2):
+                    for c in range(3):
+                        xb = xbar[3 * t + c]
+                        if xb == 0.0 or Lam[t, c] == 0.0:
+                            continue
+                        dp_mediator.produce(mprod, mnprod, mpsum, lad[4], r0, wr, (t * 3 + c) * 6,
+                                            xb * dEb * pref * fcap[3 * t + c], b, Eb, h, dt, pendZ, mdiag, sgm)
+            dp_mediator.daughters_below(Dmed, b, Eb, h, dt, mdec, mndec, mdsum, pendM, mdiag)
 
 
 @njit(cache=True)

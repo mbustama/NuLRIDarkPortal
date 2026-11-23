@@ -7,6 +7,14 @@ import pytest
 from analysis import exclusion as ex
 
 
+@pytest.fixture(autouse=True)
+def linear_reading(request, monkeypatch):
+    """The reading's logic is tested with straight lines between samples (its expected crossings are computed so);
+    the curved reading (review item 8, 2026-11-11) has its own test."""
+    if "pchip" not in request.node.name:
+        monkeypatch.setattr(ex, "INTERP", "linear")
+
+
 def write_plane(path, x, y, chi2):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(dict(names=["m_Zd_eV", "g_D"], grids=[list(x), list(y)],
@@ -156,6 +164,25 @@ def test_relic_scattering_reruns_replace(tmp_path):
     assert ("grid", (7.0, -2.5)) not in corr
 
 
+def test_rho_fix_replaces_last(tmp_path):
+    """The rho fix's values (2026-11-08) replace every earlier correction at their points, higher or lower (the new
+    code's chi^2, not a better minimum); a failed one does not."""
+    x = 10.0 ** np.arange(4.0, 8.01, 1.0)
+    y = 10.0 ** np.arange(-6.0, -1.9, 0.5)
+    chi = np.where(np.log10(y)[None, :] >= -3.0, 30.0, 0.0) * np.ones((len(x), 1))
+    write_plane(tmp_path / "p" / "plane_m_Zd_eV_g_D.json", x, y, chi)
+    held = lambda m, g: {"m_Zd_eV": 10.0 ** m, "g_D": 10.0 ** g}
+    with open(tmp_path / "p" / "rerun_rs.0.jsonl", "w") as f:
+        f.write(json.dumps(dict(source="grid", held=held(6.0, -3.5), chi2=1.0)) + "\n")
+    with open(tmp_path / "p" / "rho_fix.0.jsonl", "w") as f:
+        f.write(json.dumps(dict(source="grid", held=held(6.0, -3.5), chi2=4.0)) + "\n")    # higher: taken
+        f.write(json.dumps(dict(source="grid", held=held(5.0, -3.0), chi2=3.5)) + "\n")    # lower: taken
+        f.write(json.dumps(dict(source="grid", held=held(7.0, -2.5), chi2=None)) + "\n")   # failed: not
+    corr = ex.corrected(str(tmp_path / "p"), "m_Zd_eV", "g_D")
+    assert corr[("grid", (6.0, -3.5))] == 4.0 and corr[("grid", (5.0, -3.0))] == 3.5
+    assert ("grid", (7.0, -2.5)) not in corr
+
+
 def test_column_between_masses_reads_its_own_minimum(tmp_path):
     """A mass between the grid's sampled from 1e-5 up (refine_grid's new masses; 2026-10-22): Delta chi^2 from its own
     minimum (and the no-effect chi^2), not from its neighbours' -- where the data prefer an effect at a depth that
@@ -176,3 +203,74 @@ def test_column_between_masses_reads_its_own_minimum(tmp_path):
     assert lowest_excluded(lx, G, F, 5.5) == pytest.approx(-2.7 + 0.1 * (3.84 + 8.0 - 10.0) / 20.0, abs=2 * ex.STEP)
     # the grid columns: their own dips, 5 below the plateau -- excluded from just above the dip (upper limits only)
     assert lowest_excluded(lx, G, F, 5.0) == pytest.approx(-4.0 + 0.2 * 3.84 / 5.0, abs=2 * ex.STEP)
+
+
+def test_pchip_reading_is_closer_on_a_convex_column():
+    """Review item 8 (2026-11-11): on Delta chi^2 = 10^(2 (log10 g - x0)), sampled every 0.5 decade, the monotone
+    cubic puts the 3.84 crossing closer to the true one than straight lines, which read it low; both are monotone."""
+    x0 = -5.0
+    g = np.arange(-8.0, -2.0 + 1e-9, 0.5)
+    y = 10.0 ** (2 * (g - x0))
+    G = np.arange(-8.0, -2.0 + 1e-9, 0.001)
+    true = x0 + 0.5 * np.log10(ex.THRESHOLD)
+    cross = {k: G[np.argmax(ex.curve(G, g, y, kind=k) >= ex.THRESHOLD)] for k in ("linear", "pchip")}
+    assert cross["linear"] < true
+    assert abs(cross["pchip"] - true) < abs(cross["linear"] - true)
+    assert np.all(np.diff(ex.curve(G, g, y)) >= 0)
+
+
+def test_longitudinal_corner_marked_for_vector_and_dark_portal():
+    """Check 24a (2026-11-11, his choice): from g / M = 1e-2 eV^-1 up, the vector secret interactions and the dark
+    portal are not modelled (hatched); the scalar and L_e - L_alpha are not affected by this band."""
+    vec = {"solver": {"secret_interactions": {"enabled": True, "mediator": "vector"}}}
+    sca = {"solver": {"secret_interactions": {"enabled": True, "mediator": "scalar"}}}
+    dp = {"solver": {"model": {"name": "dark_portal"}}}
+    le = {"solver": {"model": {"name": "L_e-L_mu"}}}
+    assert ex.longitudinal_corner(vec) == -2.0 and ex.longitudinal_corner(dp) == -2.0
+    assert ex.longitudinal_corner(sca) is None and ex.longitudinal_corner(le) is None
+
+
+def test_along_ratio_exact_where_the_plane_depends_on_g_over_m():
+    """A field that depends on log g - log m only: the added columns equal it exactly; a field that depends on g only
+    is left as it is (no column added)."""
+    G = np.arange(-10.0, 0.01, 0.5)
+    lx = np.arange(-6.0, -1.0, 1.0)
+
+    def f(x, y):            # linear in log g - log m: interpolating between the grid's couplings is exact
+        return 0.5 * ((y - x) + 2.0)
+    F = np.ma.masked_invalid(np.array([f(x, G) for x in lx]).T)
+    x2, G2, F2 = ex.along_ratio(lx, G, F, n=4)
+    assert len(x2) == len(lx) + 3 * (len(lx) - 1)
+    inside = (G2 - G2[0] >= 1.0) & (G2[-1] - G2 >= 1.0)
+    for k, x in enumerate(x2):
+        assert np.allclose(F2[inside, k], f(x, G2[inside]))
+    Fh = np.ma.masked_invalid(np.array([np.where(G < -5, -1.0, 1.0) for _ in lx]).T)
+    x3, _, _ = ex.along_ratio(lx, G, Fh)
+    assert np.array_equal(x3, lx)
+
+
+def test_joined_keeps_the_mev_planes_top_and_dips(tmp_path):
+    """joined: the MeV columns keep their top value above their plane (merged sets them allowed there), and a common
+    finer grid keeps a dip that the ultralight grid's step would blur."""
+    gu = np.logspace(-8, 0, 17)
+    xu = np.logspace(-3, 3, 7)
+    chi_u = [[0.0 if g < 1e-3 else 50.0 for g in gu] for _ in xu]
+    gm = np.logspace(-6, -2, 33)
+    xm = np.logspace(4, 6, 5)
+    chi_m = [[0.0 if g < 10 ** -4.0 else 50.0 for g in gm] for _ in xm]
+    ul = write_plane(tmp_path / "ul" / "data" / "plane_m_Zd_eV_g_D.json", xu, gu, chi_u)
+    mev = write_plane(tmp_path / "mev" / "data" / "plane_m_Zd_eV_g_D.json", xm, gm, chi_m)
+    lx, G, F = ex.joined(ul, mev, dg=0.125)
+    k = int(np.argmin(np.abs(lx - 5.0)))
+    assert F[G > -2.0, k].min() > 0            # above the MeV plane's top: still excluded
+    edge = G[np.argmax(F[:, k] > 0)]
+    assert abs(edge - (-4.0)) <= 0.13          # the MeV edge at 1e-4, at the finer step
+    _, _, Fm = ex.merged(ul, mev)
+    assert Fm[-1, -1] < 0                      # merged: allowed above the MeV plane's top
+
+
+def test_hatched_line_takes_the_lowest():
+    lines = {"not_perturbative": {"slope": 1.0, "intercept": 2.5}, "longitudinal_left_out": {"slope": 1.0, "intercept": -2.0}}
+    assert ex.hatched_line(lines) == (1.0, -2.0)
+    assert ex.hatched_line({"not_perturbative": {"slope": 1.0, "intercept": 1.76}}) == (1.0, 1.76)
+    assert ex.hatched_line({"relic_field_region": "note"}) is None

@@ -374,6 +374,33 @@ def test_repair_pass_resumes_where_it_stopped(synthetic, tmp_path):
     assert len(marks2) == len(grid) and len({tuple(m) for m in marks2}) == len(grid)
 
 
+def test_repair_markers_name_the_points_that_finished(synthetic, tmp_path, monkeypatch):
+    """With several workers the repair outcomes arrive in the order they finish (imap_unordered); each checkpoint
+    marker must name the point whose check finished (2026-11-23: markers were paired with the task list, so a scan
+    stopped inside a pass skipped, on restart, points whose checks never finished)."""
+    cfg, obj = synthetic
+    grid = np.linspace(-1.0, 2.5, 15)
+    ck = str(tmp_path / "profile_a.jsonl")
+    quiet = dict(workers=1, checkpoint=ck, max_passes=1, log=lambda *a: None)
+    ran = []
+    real = scans._run_repair
+    monkeypatch.setattr(scans, "_run_repair", lambda task: (ran.append(tuple(task[0])), real(task))[1])
+    # completions in reverse order of submission, as a pool can return them
+    monkeypatch.setattr(scans._Pool, "imap", lambda self, f, tasks: reversed([f(t) for t in tasks]))
+    scans.profile(cfg, "a", grid, {"a": 1.0, "b": 1.0}, **quiet)
+    marks = [tuple(json.loads(line)["index"]) for line in open(ck) if '"repair_checked"' in line]
+    assert marks == ran[::-1]                          # each marker names the check that finished
+    full = scans.profile(cfg, "a", grid, {"a": 1.0, "b": 1.0}, **quiet)
+    lines = open(ck).read().splitlines()
+    pos = [i for i, line in enumerate(lines) if '"repair_checked"' in line]
+    with open(ck, "w") as f:                           # stopped after five checks had finished
+        f.write("\n".join(lines[:pos[4] + 1]) + "\n")
+    ran.clear()
+    again = scans.profile(cfg, "a", grid, {"a": 1.0, "b": 1.0}, **quiet)
+    assert set(ran) == {tuple(json.loads(lines[p])["index"]) for p in pos[5:]}
+    np.testing.assert_array_equal(again.chi2_array(), full.chi2_array())
+
+
 def test_certificate_box_tells_the_lightest_mass_basins_apart():
     """A neighbour's lightest mass two decades away is outside a point's certificate box although the box, a prior
     width across in eV, spans both (2026-10-21: ultralight points stuck at 1e-6 eV were never tried at 1e-4 eV)."""
@@ -667,3 +694,33 @@ def test_merged_blocks_take_the_standard_model_reference(tmp_path):
     own.write_text(json.dumps(m))
     lx, G, F, yn, C = exclusion.field(str(own))
     assert not np.isfinite(np.ma.filled(F[:, 0].astype(float), np.nan)).any()
+
+
+def test_cache_key_guards_solver_data(tmp_path, monkeypatch):
+    """E11 (audit 2026-11-08): with the stored runs' data files the flux cache's key has no data entry, so it is the
+    key those runs were stored under; a changed data file (here found first in galactic.data_dir) changes the key, and
+    the key comes back with the file."""
+    import shutil
+    from analysis import model as model_mod
+    assert model_mod.solver_data_files() == model_mod.SOLVER_DATA_BASELINE
+    m = config_mod.from_dict(_tiny_raw(profiles={}, planes=[])).model()
+    m.disk_cache = str(tmp_path / "cache")
+
+    def path(data_dir=None):
+        cfg = copy.deepcopy(m.base)
+        cfg["galactic"]["data_dir"] = data_dir
+        return m._disk_path(cfg)
+
+    base = path()
+    with monkeypatch.context() as mp:              # a baseline that does not match: the data enter the key
+        mp.setattr(model_mod, "SOLVER_DATA_BASELINE", {})
+        assert path() != base
+    copy_dir = tmp_path / "data"
+    copy_dir.mkdir()
+    shutil.copy(os.path.join(model_mod.SOLVER_DATA_DIR, "galactic_cringe.npz"), copy_dir)
+    same = path(str(copy_dir))
+    with open(copy_dir / "galactic_cringe.npz", "ab") as f:
+        f.write(b"\0")
+    assert path(str(copy_dir)) != same
+    shutil.copy(os.path.join(model_mod.SOLVER_DATA_DIR, "galactic_cringe.npz"), copy_dir)
+    assert path(str(copy_dir)) == same

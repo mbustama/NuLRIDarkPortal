@@ -149,9 +149,9 @@ def relic_state_rates_analytic(E0: float, z: float, sum_G: float, m_Zd: float,
                                mode: int = 0, fine_m: bool = False, pol: int = 0) -> np.ndarray:
     """fine_m (2026-10-18; dp_si thermal="full"): momentum panels at 2m, 20m, 200m, 2000m, where p / E_p turns over
     (without them, ~m/T errors where the resonance sits at sigma ~ m: 1e-2 at m/T ~ 0.03); False keeps the earlier
-    quadrature. With pol +-1 it also takes the angular integral by quadrature where the resonance is far (B < |u| / 10:
-    the closed form's cancellation loses 1e-3 to 1e-2 at s ~ 1e-4 M^2; 2026-10-21; pol 0 keeps the closed form while
-    the dark-portal campaign that uses it runs).
+    quadrature. With moller it also takes the angular integral by quadrature where the resonance is far (B < |u| / 10:
+    the closed form's cancellation loses 1e-3 to 1e-2 at s ~ 1e-4 M^2; pol +-1 since 2026-10-21, pol 0 since
+    2026-11-08).
 
     pol (2026-10-21, with moller; Dirac relics, dp_si thermal="full"): +1 (-1) weighs every relic by the share of its
     left- (right-) chiral component seen by the beam, (1 +- pi)/2, pi = (E_p sigma - m^2) / (p sigma) its spin along
@@ -378,12 +378,11 @@ def relic_state_rates_analytic(E0: float, z: float, sum_G: float, m_Zd: float,
                     v = -1.0
                     f_FD *= m2 / (2.0 * E_bg * (E_bg + p))
                 u0 = A_ - M2
-                if fine_m and pol != 0 and B_ < 0.1 * np.sqrt(u0 * u0 + MG2):
+                if fine_m and moller and B_ < 0.1 * np.sqrt(u0 * u0 + MG2):
                     # far from the resonance the closed form cancels to ~eps (u0 / B)^2 (1e-3 at s ~ 1e-4 M^2,
                     # 2026-10-21): there the kernel is analytic across the whole angular range, and 8-point
-                    # Gauss-Legendre in cos(theta) is exact to rounding. The chiral shares only: pol 0 (rho) keeps the
-                    # closed form its campaign planes were computed with (2026-10-22: the projections' chi^2 moved by
-                    # ~0.1 with it, against 2e-4 of agreement with the reference either way)
+                    # Gauss-Legendre in cos(theta) is exact to rounding. The chiral shares since 2026-10-21, rho
+                    # (pol 0: Majorana relics, the dark portal's thermal products) since 2026-11-08
                     I_ang = 0.0
                     for g in range(8):
                         c_ = _GL8C_X[g]

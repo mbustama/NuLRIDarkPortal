@@ -1,0 +1,60 @@
+# Berryman et al. (white paper), arXiv:2203.01955v1, Fig. 9 (scalar mediator, compilation); curve: navy line with blue fill "TXS 0506+056 (for g_ee = g_mumu = g_tautau)"; original source: Kelly & Machado, arXiv:1808.02889 (WP ref. [156]); coupling: universal (flavor)
+# C.L.: as in the original source (not stated in the white paper)
+# coupling convention: white-paper Eq. (2.1), PDF p. 4 (printed p. 2): "L > g_{alpha beta} phi nu_alpha nu_beta" (two-component, scalar; no 1/2 and no h.c. written); Fig. 9 is "modified from Ref. [158]" (Bustamante, Rosenstrom, Shalgar & Tamborra, arXiv:2001.04994) and each curve keeps the normalization of that compilation; its Lab g_ee and g_mumu lines coincide (<0.05 dex) with Blinov et al. 1905.02727 Fig. 1, whose convention is (1/2)(g nu nu phi + h.c.)
+# excluded side: above the curve
+# method: vector paths extracted with PyMuPDF from arXiv:2203.01955v1 page 20, Fig. 9; axes calibrated on the drawn major ticks (log10(M/MeV) = -5..4, log10 g = -13..0) with values from the PDF text layer; clipped to the plotted frame; mass converted to eV
+# columns: log10(M/eV)  log10(g_{alpha beta})
+5.99863	-1.44101
+6.03686	-1.40413
+6.06965	-1.41888
+6.08879	-1.44101
+6.11065	-1.44838
+6.12704	-1.43363
+6.16257	-1.45575
+6.20081	-1.43363
+6.21994	-1.44101
+6.23905	-1.42626
+6.25545	-1.42626
+6.27184	-1.43363
+6.36198	-1.38201
+6.40021	-1.34513
+6.41933	-1.34513
+6.43845	-1.33039
+6.49582	-1.30826
+6.51221	-1.30089
+6.56682	-1.24189
+6.58321	-1.24189
+6.60235	-1.26401
+6.65150	-1.21239
+6.71157	-1.14602
+6.73342	-1.13127
+6.75254	-1.10915
+6.77165	-1.09440
+6.80442	-1.06490
+6.82355	-1.07227
+6.83449	-1.08702
+6.86999	-1.05752
+6.92734	-0.99853
+6.94920	-0.99853
+6.96558	-0.98378
+6.98472	-1.00590
+7.03660	-0.94690
+7.07487	-0.98378
+7.11856	-0.93216
+7.16225	-0.88791
+7.20321	-0.84366
+7.25236	-0.79204
+7.32336	-0.71829
+7.37524	-0.66667
+7.42439	-0.61505
+7.50358	-0.53392
+7.55000	-0.48230
+7.61554	-0.42330
+7.68108	-0.35693
+7.74934	-0.28319
+7.80396	-0.23156
+7.86950	-0.16519
+7.92957	-0.10620
+7.98965	-0.04720
+8.02788	-0.01033
+8.03791	-0.00000

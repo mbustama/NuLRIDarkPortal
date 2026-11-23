@@ -1,0 +1,79 @@
+{
+ "plane": "campaign_final_sm/check_v3b_spl/le_ltau_ul",
+ "x": "m_Zd_eV",
+ "y": "g_D",
+ "confidence": "95% C.L., per-mass Delta chi^2 >= 3.84",
+ "reading": "analysis.exclusion.field (PCHIP in log10 g, specks out, upper limits only)",
+ "chi2_no_effect": 9.927190820185775,
+ "chi2_fit_json_at_smallest_coupling": [
+  9.927191
+ ],
+ "complete": true,
+ "blocks": [
+  {
+   "dir": "output/analysis/tycho_results_20261112/nulri_set1_sm/campaign_final_sm/check_v3b_spl/le_ltau_ul/b7/data",
+   "finished": true,
+   "points": 244
+  }
+ ],
+ "not_modelled": {
+  "not_perturbative": {
+   "slope": 1.0,
+   "intercept": 1.745306341019279
+  }
+ },
+ "columns": [
+  {
+   "log10_m": -2.0,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -5.625,
+     -2.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -5.625,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": -1.0,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -2.425,
+     -2.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -2.425,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 0.0,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -2.41,
+     -2.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -2.41,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 1.0,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -2.415,
+     -2.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -2.415,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  }
+ ]
+}

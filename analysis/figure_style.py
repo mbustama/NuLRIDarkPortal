@@ -45,11 +45,17 @@ def tex(text: str) -> str:
 # The campaign's data sets, as every figure labels and colours them (Mauricio, 2026-10-21: colours from his coolors
 # palette coolors.co/001219-005f73-0a9396-94d2bd-e9d8a6-ee9b00-ca6702-bb3e03-ae2012-9b2226 -- auburn, gamboge, dark
 # cyan, which pass the dataviz skill's colour-blind checks; regions in opaque tints of them, edges in the colours).
-# now_ic26: IceCube's MESE flavor composition (2025; 11.4 yr) and its 2026 spectrum; now_events: HESE 7.5 yr and
-# IceTracks-DR2's IC79 + IC86 (312.8 + 3920.6 days, 11.6 yr); proj_future: the 8 future detectors, 10 yr each.
-DATASETS = [("now_ic26", "Today: IC MESE 11.4 yr flavor + spectrum", "#9b2226"),
-            ("now_events", "Today: IC HESE 7.5 yr + DR2 11.6 yr", "#ee9b00"),
-            ("proj_future", "Projected: combined detectors", "#0a9396")]
+# The final data sets (2026-11-21; audit decisions 2026-11-09): now_icecube, set 1: IceCube's released MESE flavor
+# likelihood (2025) with the spectrum of its Table 10 (combined fit); now_mese_dr2, set 2: our fit of MESE's cascades and
+# double cascades in energy plus IceTracks-DR2's tracks (MeV planes only, his decision 2026-11-20); proj_future_planA:
+# the eight future telescopes of Plan A, 10 yr each (simulated data).
+#: The October campaign's data sets (output/analysis/campaign_ml), for the mock-ups and the diagnostic plots that read it.
+DATASETS_CAMPAIGN_ML = [("now_ic26", "Today: IC MESE 11.4 yr flavor + spectrum", "#9b2226"),
+                        ("now_events", "Today: IC HESE 7.5 yr + DR2 11.6 yr", "#ee9b00"),
+                        ("proj_future", "Projected: combined detectors", "#0a9396")]
+DATASETS = [("now_icecube", "Today: IceCube MESE flavor + spectrum", "#9b2226"),
+            ("now_mese_dr2", "Today: IceCube MESE events + DR2 tracks", "#ee9b00"),
+            ("proj_future_planA", "Projected: eight telescopes, 10 yr each", "#0a9396")]
 
 
 def tint(color, amount=0.55):

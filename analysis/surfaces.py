@@ -15,6 +15,14 @@ with the same arithmetic, so the two agree bit for bit:
 switched sharply or blended by w = [1 + tanh((f_e - mu_x)/sig_x_avg)]/2 ('Smooth').
 'Polar Ray-Casting (Fourier Smoothed)' reads the radii of the 68% and 95% contours along
 each direction from Fourier series and interpolates Q = 2.30 (r/r68)^p between them.
+
+'grid' (2026-11-09, audit decision A2): a released likelihood on a grid in (f_e, f_tau), TS =
+-2 Delta ln L, as IceCube's MESE release gives it (data/icecube_mese_2025/, README there). Handled as
+NuFlavorRatiosSteriles does (src/model.py, GridDetector): isolated spike cells (failed fit points of
+the broken-power-law grid) replaced by the median of their neighbours, the cells outside the triangle
+filled with the nearest valid value, bilinear interpolation (exact at the nodes, no overshoot), points
+clipped to the grid's range. chi^2 is TS itself, -2 Delta ln L relative to IceCube's best fit (0.038 at
+the nearest node), so that the quoted levels are reproduced: TS 5.02 at f_tau = 0 is 91.9% for 2 dof.
 """
 import json
 import os
@@ -25,6 +33,76 @@ import numpy as np
 from . import ANALYSIS_DIR
 
 _DATA = os.path.join(ANALYSIS_DIR, "data", "flavor_surfaces.json")
+_GRID_DIR = os.path.join(ANALYSIS_DIR, "data", "icecube_mese_2025")
+
+# The released likelihood grids (audit decision A2, 2026-11-09): IceCube's MESE flavor measurement,
+# arXiv:2510.24957, doi:10.7910/DVN/CBNMEB v2.0; the broken power law is IceCube's baseline, the single
+# power law its alternative (audit decision A4: the size of the spectral assumption).
+GRID_SURFACES = {
+    "icecube_mese_2025_grid": dict(fit_model="grid", file="mese_contour.json",
+                                   source="IceCube MESE 2025 release, mese_contour.json (broken power law)"),
+    "icecube_mese_2025_grid_spl": dict(fit_model="grid", file="mese_contour_spl.json",
+                                       source="IceCube MESE 2025 release, mese_contour_spl.json (single power law)"),
+}
+
+
+def clean_spikes(TS: np.ndarray, factor: float = 3.0, min_excess: float = 10.0, max_passes: int = 20):
+    """Isolated spike cells of a TS grid replaced by the median of their valid 3 x 3 neighbours, as
+    NuFlavorRatiosSteriles' clean_spikes: a cell is a spike if TS > factor x median and TS - median >
+    min_excess, repeated until none is left (adjacent spikes need several passes). The MESE broken-power-law
+    grid has such cells (TS ~ 100-650 among TS ~ 6-15); the single-power-law grid has none.
+    Returns (cleaned TS, number of replaced cells)."""
+    TS = TS.copy()
+    n0, n1 = TS.shape
+    n_replaced = 0
+    for _ in range(max_passes):
+        flagged = []
+        for i in range(n0):
+            for j in range(n1):
+                if not np.isfinite(TS[i, j]):
+                    continue
+                nb = TS[max(i - 1, 0):i + 2, max(j - 1, 0):j + 2].ravel()
+                nb = nb[np.isfinite(nb)]
+                nb = np.delete(nb, np.where(nb == TS[i, j])[0][:1])      # the cell itself
+                if len(nb) < 3:
+                    continue
+                med = np.median(nb)
+                if TS[i, j] > factor * med and TS[i, j] - med > min_excess:
+                    flagged.append((i, j, med))
+        if not flagged:
+            break
+        for i, j, med in flagged:
+            TS[i, j] = med
+        n_replaced += len(flagged)
+    return TS, n_replaced
+
+
+@lru_cache(maxsize=None)
+def _grid(file: str):
+    """(bilinear interpolant of TS in (f_e, f_tau), f_e range, f_tau range, best node (f_e, f_mu), TS there,
+    cells replaced) of a released grid in data/icecube_mese_2025/."""
+    from scipy.interpolate import RectBivariateSpline
+    from scipy.ndimage import distance_transform_edt
+    with open(os.path.join(_GRID_DIR, file)) as f:
+        d = json.load(f)
+    fe = np.array(d["fe"], dtype=float)
+    ftau = np.array(d["ftau"], dtype=float)
+    TS = np.array([[np.nan if v is None else v for v in row] for row in d["TS"]], dtype=float)
+    if TS.shape != (len(fe), len(ftau)):
+        raise ValueError(f"{file}: TS is {TS.shape}, expected (n_fe, n_ftau) = ({len(fe)}, {len(ftau)})")
+    TS, n_rep = clean_spikes(TS)
+    idx = distance_transform_edt(np.isnan(TS), return_distances=False, return_indices=True)
+    spline = RectBivariateSpline(fe, ftau, TS[tuple(idx)], kx=1, ky=1, s=0)
+    i, j = np.unravel_index(np.nanargmin(TS), TS.shape)
+    return spline, (fe[0], fe[-1]), (ftau[0], ftau[-1]), (fe[i], 1.0 - fe[i] - ftau[j]), float(TS[i, j]), n_rep
+
+
+def _grid_params(name: str) -> dict:
+    p = dict(GRID_SURFACES[name])
+    _, _, _, (mx, my), ts0, _ = _grid(p["file"])
+    p.update(mu_x=float(mx), mu_y=float(my), true_mu_x=float(mx), true_mu_y=float(my), ts_min=ts0,
+             shift_x=0.0, shift_y=0.0)
+    return p
 
 
 @lru_cache(maxsize=None)
@@ -34,6 +112,8 @@ def _all_surfaces() -> dict:
     for d in raw.values():
         if d.get("nu") == "inf":
             d["nu"] = np.inf
+    for name in GRID_SURFACES:
+        raw[name] = _grid_params(name)
     return raw
 
 
@@ -64,6 +144,12 @@ def log_likelihood(f_e, f_mu, params: dict) -> np.ndarray:
     model = params.get("fit_model", "").lower()
     Lmax = params.get("Lmax", 1.0)
     log_Lmax = np.log(Lmax) if Lmax > 0 else 0.0
+    if model == "grid":
+        # TS(f_e, f_tau) of the released grid, moved rigidly by (shift_x, shift_y) in (f_e, f_mu) (recentred)
+        spline, (e0, e1), (t0, t1), _, _, _ = _grid(params["file"])
+        xe = x - params.get("shift_x", 0.0)
+        xt = (1.0 - x - y) - (-params.get("shift_x", 0.0) - params.get("shift_y", 0.0))
+        return log_Lmax - 0.5 * spline.ev(np.clip(xe, e0, e1), np.clip(xt, t0, t1)).reshape(x.shape)
     mu_x, mu_y = params["mu_x"], params["mu_y"]
 
     def q_of(x_in, y_in, sx, sy, r):
@@ -147,5 +233,11 @@ def recentred(name: str, f_e: float, f_mu: float) -> dict:
     of an Asimov data set (the model's own prediction at chosen parameters) or of a
     pseudo-experiment whose measurement fluctuated by a shift of the centre."""
     params = dict(surface(name))
+    if params.get("fit_model") == "grid":
+        # the grid moved so that its best node sits at (f_e, f_mu); its TS there is the node's (ts_min), so that
+        # the moved grid's minimum stays what IceCube's best fit gave between the nodes
+        params.update(shift_x=float(f_e) - params["true_mu_x"], shift_y=float(f_mu) - params["true_mu_y"],
+                      mu_x=float(f_e), mu_y=float(f_mu))
+        return params
     params.update(mu_x=float(f_e), mu_y=float(f_mu), true_mu_x=float(f_e), true_mu_y=float(f_mu))
     return params

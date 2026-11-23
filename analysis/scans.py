@@ -254,6 +254,11 @@ def _run_repair(task) -> Optional[dict]:
     return None
 
 
+def _run_repair_tagged(task):
+    """(the task's index, _run_repair(task)): the repair passes take their outcomes in the order they finish."""
+    return task[0], _run_repair(task)
+
+
 def _init_runner(raw: dict, path: str):
     """A worker that computes solver runs for another process's model (FlavorModel.prefetch): the model alone, without
     the likelihood or its Asimov data."""
@@ -599,7 +604,12 @@ def _scan(cfg: AnalysisConfig, names: List[str], grids: List[np.ndarray], best: 
             seen = checked.get(k, set())
             todo_k = [t for t in tasks if t[0] not in seen]
             changed = set(improved_in.get(k, set()))
-            for t, r in zip(todo_k, pool.imap(_run_repair, todo_k)):
+            # each outcome is paired with its own task: the pool returns them in the order they finish (2026-11-23: zip
+            # with the task list wrote each marker on the point next in the list, so a restart skipped points still
+            # in flight when the job stopped and rechecked others)
+            by_index = {t[0]: t for t in todo_k}
+            for ix_done, r in pool.imap(_run_repair_tagged, todo_k):
+                t = by_index[ix_done]
                 recs = []
                 if r is not None:
                     r["pass"] = k

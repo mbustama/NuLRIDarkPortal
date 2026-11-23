@@ -54,6 +54,41 @@ def _gal_raw(name="pion_2050_case_5_si_e_gal", n_E=60):
     return raw
 
 
+#: IceCube:2025ewu, Table 10, CF column, the 10 bands inside the fits' grid (4.6 TeV - 10 PeV): N (1e-18 GeV^-1
+#: cm^-2 s^-1 sr^-1 at 100 TeV, E^-2), its lower and upper errors.
+TABLE_10_CF = [(3.1, 1.5, 2.1), (3.36, 0.63, 1.10), (4.42, 0.48, 0.74), (2.03, 0.39, 0.40), (1.81, 0.37, 0.38),
+               (0.089, 0.089, 0.350), (0.85, 0.42, 0.43), (0.41, 0.25, 0.36), (0.0, 0.0, 0.20), (0.017, 0.017, 0.073)]
+
+
+def test_icecube_cf_2025_is_table_10_inside_the_grid():
+    d = spectra.load("icecube_cf_2025", 10 ** (13.0 - 39 * 3.477121254719662 / 399) / 1e9, 3e7)   # GRID_IC26
+    N, m, p = (np.array(c) * 1e-8 for c in zip(*TABLE_10_CF))
+    assert len(d["value"]) == 10
+    np.testing.assert_allclose(d["E_lo"], 1e3 * 10 ** (np.arange(2, 12) / 3.0), rtol=1e-12)
+    np.testing.assert_allclose(d["E_hi"], 1e3 * 10 ** (np.arange(3, 13) / 3.0), rtol=1e-12)
+    np.testing.assert_allclose(d["value"], N, rtol=1e-12, atol=1e-24)
+    np.testing.assert_allclose(d["value"] - d["lo"], m, rtol=1e-12, atol=1e-24)
+    np.testing.assert_allclose(d["hi"] - d["value"], p, rtol=1e-12, atol=1e-24)
+    # the zero lower errors: the measured values give 0, each band one sigma up gives 1, one sigma down gives 1
+    # except the band measured at 0 (down = 0 = the value)
+    assert spectra.chi2(d["value"], d) == 0.0
+    assert spectra.chi2(d["hi"], d) == pytest.approx(10.0)
+    assert spectra.chi2(d["lo"], d) == pytest.approx(9.0)
+    assert len(spectra.load("icecube_cf_2025")["value"]) == 13
+
+
+def test_table_10_is_what_the_milky_way_paper_plots_per_flavour():
+    """The conventions (per flavor, nu + nubar; E^2 Phi of an E^-2 normalization at 100 TeV): the 7 segments that
+    arXiv:2607.25966 Fig. 4 plots on its per-flavour axis, 4.6 TeV - 1 PeV, equal Table 10's CF column within a third
+    of its error bars."""
+    t = spectra.load("icecube_cf_2025", 4e3, 1.01e6)
+    o = spectra.load("ic26_astrophysical")
+    np.testing.assert_allclose(o["E_lo"], t["E_lo"], rtol=1e-4)
+    np.testing.assert_allclose(o["E_hi"], t["E_hi"], rtol=1e-4)
+    half_width = 0.5 * (t["hi"] - t["lo"])
+    assert np.all(np.abs(o["value"] - t["value"]) < 0.33 * half_width)
+
+
 def test_configs_wire_the_spectrum_and_the_index_nodes():
     cfg = config_mod.from_dict(_gal_raw(), "")
     assert cfg.spectrum == "ic26_astrophysical"
@@ -127,3 +162,31 @@ def test_index_nodes_per_configuration():
     raw["parameters"]["p_index"]["nodes"] = 1
     with pytest.raises(ValueError):
         config_mod.from_dict(raw, "")
+
+
+def test_cf_2025_counterpart_includes_the_galactic_flux():
+    """Audit finding A5 (2026-11-09): Table 10's segmented fit has no Galactic component (arXiv:2507.22234 Sec. V.5),
+    so its counterpart is the extragalactic plus the Galactic flux; ic26_astrophysical keeps the extragalactic one."""
+    assert spectra.load("icecube_cf_2025")["includes_galactic"] is True
+    assert spectra.load("ic26_astrophysical")["includes_galactic"] is False
+    raw = _gal_raw()
+    raw["data"]["spectrum"] = "icecube_cf_2025"
+    obj = config_mod.from_dict(raw, "").objective()
+    v = dict(m_phi_eV=5.6e6, g_phi=1e-9, p_index=2.5, norm_astro=1.3, norm_gal=0.9)
+    E, F_all = obj.model.flux(v)
+    C = spectra.segments(E / 1e9, F_all.sum(-1) / 3.0, obj.spectrum["E_lo"], obj.spectrum["E_hi"])
+    np.testing.assert_allclose(obj.spectrum_segments(v), C, rtol=1e-14)
+    assert np.all(obj.spectrum_segments(v) > obj.spectrum_segments(dict(v, norm_gal=0.0)))
+
+
+def test_segment_correlation():
+    """Review item 5 (2026-11-11): rho = 0 is the independent sum; rho != 0 is r^T R^-1 r over the segments with an
+    error, R tridiagonal; the configuration refuses it without a spectrum or with |rho| >= 0.5."""
+    from analysis import spectra as sp
+    data = dict(value=np.array([1.0, 2.0, 0.0, 3.0]), lo=np.array([0.5, 1.5, 0.0, 2.0]), hi=np.array([1.5, 3.0, 1.0, 4.0]))
+    C = np.array([1.2, 1.0, 0.0, 3.5])
+    r = np.array([0.2 / 0.5, -1.0 / 0.5, 0.5 / 1.0])                 # the third segment (C = D = 0) has no error
+    assert sp.chi2(C, data) == pytest.approx(float(r @ r), rel=1e-14)
+    R = np.array([[1.0, -0.3, 0.0], [-0.3, 1.0, -0.3], [0.0, -0.3, 1.0]])
+    assert sp.chi2(C, data, -0.3) == pytest.approx(float(r @ np.linalg.solve(R, r)), rel=1e-12)
+    assert sp.chi2(C, data, 0.0) == sp.chi2(C, data)

@@ -1,0 +1,44 @@
+# Brdar, Lindner, Vogl & Xu, arXiv:2003.05339v2, Fig. 4, panel top-left, y_ee only; curve: blue "Z -> inv."; this work, Z invisible width (bremsstrahlung + loop interference), 3 sigma (Eq. 16)
+# C.L.: 3 sigma
+# coupling convention: L > sum_{alpha beta} (1/2) y_{alpha beta} nubar^c_alpha P_L nu_beta phi + h.c., nu_alpha Dirac spinors holding the left-handed neutrino, y symmetric (Brdar Eq. 1, PDF p. 2); i.e. (1/2) y nu nu phi + h.c. in two-component notation; scalar phi
+# excluded side: above the curve
+# method: vector paths extracted with PyMuPDF; axes calibrated on the drawn major ticks (m_phi decades in MeV, y 1e-2..1) with values from the PDF text layer; clipped to the plotted frame; mass converted to eV
+# columns: log10(M/eV)  log10(y)
+6.99953	-0.54012
+7.07755	-0.53564
+7.17551	-0.52988
+7.27347	-0.52395
+7.37143	-0.51786
+7.46939	-0.51159
+7.56734	-0.50514
+7.66530	-0.49849
+7.76326	-0.49163
+7.86122	-0.48455
+7.95918	-0.47722
+8.05714	-0.46965
+8.15510	-0.46179
+8.25306	-0.45364
+8.35102	-0.44518
+8.44898	-0.43637
+8.54694	-0.42719
+8.64490	-0.41760
+8.74286	-0.40757
+8.84082	-0.39706
+8.93878	-0.38601
+9.03674	-0.37437
+9.13470	-0.36207
+9.23265	-0.34903
+9.33061	-0.33516
+9.42857	-0.32035
+9.52653	-0.30447
+9.62449	-0.28734
+9.72245	-0.26878
+9.82041	-0.24854
+9.91837	-0.22631
+10.01633	-0.20173
+10.11429	-0.17435
+10.21225	-0.14368
+10.31021	-0.10922
+10.40817	-0.07065
+10.50613	-0.02827
+10.56911	0.00030

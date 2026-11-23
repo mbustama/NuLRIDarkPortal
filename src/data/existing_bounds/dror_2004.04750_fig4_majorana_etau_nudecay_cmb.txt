@@ -1,0 +1,50 @@
+# Dror, arXiv:2004.04750v2, Fig. 4, center-left: L_e - L_tau, Majorana panel; curve: red dashed; invisible nu_a -> nu_b X decay, CMB lifetime bound (Eq. 18), "early uni.", assumes neutrinos present at recombination
+# C.L.: not stated in the paper
+# coupling convention: coupling g_X of L_X = g_X X^mu Qhat_ii (l_i^dag sigmabar_mu l_i - l_i^c dag sigmabar_mu l_i^c + nu_i^dag sigmabar_mu nu_i), Qhat = diag(1,-1,0) [L_e-L_mu] or diag(1,0,-1) [L_e-L_tau] (Dror Eq. 2, p. 2) = our g'
+# excluded side: above the curve (larger coupling at fixed mass)
+# method: vector paths extracted with PyMuPDF; axes calibrated on the 30 x / 13 y major ticks (one per decade; labels 1e-34..1e-6 eV, 1e-32..1e-20); clipped to the plotted frame
+# columns: log10(M/eV)  log10(g_X)
+-23.27635	-32.00047
+-23.23007	-31.95420
+-22.73696	-31.46101
+-22.69057	-31.41454
+-22.64410	-31.36831
+-22.15107	-30.87512
+-21.65797	-30.38217
+-21.61158	-30.33563
+-21.56519	-30.28942
+-20.57897	-29.30302
+-20.53259	-29.25680
+-20.48619	-29.21033
+-19.99309	-28.71738
+-19.50006	-28.22412
+-19.45359	-28.17790
+-19.40750	-28.13143
+-18.91409	-27.63823
+-18.42106	-27.14529
+-18.37460	-27.09881
+-18.32851	-27.05253
+-17.83540	-26.55933
+-17.34207	-26.06639
+-17.29598	-26.01992
+-17.24952	-25.97369
+-16.26338	-24.98730
+-16.21699	-24.94108
+-16.17052	-24.89455
+-15.67749	-24.40160
+-15.18439	-23.90840
+-15.13800	-23.86193
+-15.09161	-23.81571
+-14.59850	-23.32251
+-14.10539	-22.82956
+-14.05900	-22.78309
+-14.01261	-22.73681
+-13.02648	-21.75041
+-12.98001	-21.70419
+-12.93362	-21.65772
+-12.44051	-21.16478
+-11.94748	-20.67158
+-11.90102	-20.62530
+-11.85463	-20.57883
+-11.36160	-20.08563
+-11.03110	-19.75524

@@ -1,0 +1,18 @@
+[
+ {
+  "plane": "campaign_si/proj_future_planA/si_scalar_dirac_tau",
+  "complete": true,
+  "blocks_finished": 1,
+  "blocks": 1,
+  "columns": 2,
+  "columns_with_exclusion": 2
+ },
+ {
+  "plane": "campaign_si/proj_future_planA/si_scalar_majorana_mu",
+  "complete": true,
+  "blocks_finished": 1,
+  "blocks": 1,
+  "columns": 2,
+  "columns_with_exclusion": 2
+ }
+]

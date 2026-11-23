@@ -1,0 +1,26 @@
+# Brdar, Lindner, Vogl & Xu, arXiv:2003.05339v2, Fig. 4, panel bottom-left, y_tautau only; curve: orange "tau decay"; this work, tau -> l nu nu phi (e and mu channels combined), 3 sigma (Eq. 17)
+# C.L.: 3 sigma
+# coupling convention: L > sum_{alpha beta} (1/2) y_{alpha beta} nubar^c_alpha P_L nu_beta phi + h.c., nu_alpha Dirac spinors holding the left-handed neutrino, y symmetric (Brdar Eq. 1, PDF p. 2); i.e. (1/2) y nu nu phi + h.c. in two-component notation; scalar phi
+# excluded side: above the curve
+# method: vector paths extracted with PyMuPDF; axes calibrated on the drawn major ticks (m_phi decades in MeV, y 1e-2..1) with values from the PDF text layer; clipped to the plotted frame; mass converted to eV
+# columns: log10(M/eV)  log10(y)
+5.99953	-0.30360
+6.00000	-0.30356
+6.10000	-0.29384
+6.20000	-0.28401
+6.30000	-0.27295
+6.40000	-0.26308
+6.50000	-0.25144
+6.60000	-0.24019
+6.70000	-0.22696
+6.79934	-0.21399
+6.90000	-0.19958
+7.00000	-0.18382
+7.09968	-0.16720
+7.19975	-0.14976
+7.30000	-0.13055
+7.39998	-0.10853
+7.49996	-0.08603
+7.60000	-0.06010
+7.69993	-0.03044
+7.79483	0.00008

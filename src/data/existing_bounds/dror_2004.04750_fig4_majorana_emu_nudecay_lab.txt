@@ -1,0 +1,34 @@
+# Dror, arXiv:2004.04750v2, Fig. 4, top-left: L_e - L_mu, Majorana panel; curve: red solid; invisible nu2 -> nu1 X decay, solar-neutrino lifetime bound (Eq. 19), "terrestrial"
+# C.L.: not stated in the paper
+# coupling convention: coupling g_X of L_X = g_X X^mu Qhat_ii (l_i^dag sigmabar_mu l_i - l_i^c dag sigmabar_mu l_i^c + nu_i^dag sigmabar_mu nu_i), Qhat = diag(1,-1,0) [L_e-L_mu] or diag(1,0,-1) [L_e-L_tau] (Dror Eq. 2, p. 2) = our g'
+# excluded side: above the curve (larger coupling at fixed mass)
+# method: vector paths extracted with PyMuPDF; axes calibrated on the 30 x / 13 y major ticks (one per decade; labels 1e-34..1e-6 eV, 1e-32..1e-20); clipped to the plotted frame
+# columns: log10(M/eV)  log10(g_X)
+-31.21649	-32.00012
+-30.58452	-31.36831
+-30.28953	-31.07327
+-29.50553	-30.28942
+-29.21054	-29.99437
+-28.81854	-29.60245
+-28.42661	-29.21033
+-28.13155	-28.91529
+-27.34762	-28.13143
+-27.05256	-27.83639
+-26.66093	-27.44446
+-26.26893	-27.05253
+-25.97386	-26.75755
+-25.18993	-25.97369
+-24.89495	-25.67865
+-24.50294	-25.28647
+-24.11094	-24.89455
+-23.81595	-24.59956
+-23.03195	-23.81571
+-22.73696	-23.52067
+-21.95303	-22.73681
+-21.65797	-22.44177
+-21.26596	-22.04990
+-20.87403	-21.65772
+-20.57897	-21.36268
+-19.79504	-20.57882
+-19.50006	-20.28378
+-18.97101	-19.75488

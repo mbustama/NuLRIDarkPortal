@@ -2262,6 +2262,63 @@ width. The two codes' resonance agree to $0.1\%$ (median) at $3$~MeV; relics at 
 twofold. Both signs of the dark portal's potential will be scanned (decided): the sign of $\gd\epsp$ is fixed
 only by a model's Higgs sector.
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Status of the runs (2026-11-11)}
+\label{sec:run_status}
+
+Table~\ref{tab:run_status} lists every run of the final analysis on Tycho, by model family and data set, as read from
+the plane files on 2026-11-11 (a census of each block's finished points; scratch\_inventory/survey.py on Tycho). A
+\emph{plane} is one model's map of $\Delta\chi^2$ over mediator mass and coupling; each model has two planes, one with
+the sources' flavor composition held at pion decay, $(1:2:0)$, and one with it fitted. A \emph{block} is one 32-core job
+over a few mediator masses of a plane; a block counts as done when every point of it is finished.
+
+The five data sets are these. \emph{Old spectrum and flavor} and \emph{old events} are the likelihoods used before the
+audit of 2026-11-08 (IceCube's flavor surface as we fitted it in July with the spectrum; HESE and DR2 events); the audit
+replaced them, so their fits are superseded, but their solver runs are stored and reused. \emph{Set 1} is IceCube's
+published results: its released flavor likelihood and its 2025 combined-fit spectrum. \emph{Set 2} is our own
+comparison with IceCube's event counts: the medium-energy starting events (cascades and double cascades, energy only)
+and the DR2 muon tracks, with the antineutrino share at the sources free. The \emph{forecast} is the eight future
+telescopes of NuFlavorSingleSource's Plan A, 10 years each.
+
+What each new data set costs. Set 1 needs no new solver runs: it refits the stored ones (measured on one MeV
+secret-interaction block: 43 min on 32 cores). Set 2 needs one new solver run per point, with neutrinos alone at the
+sources (the antineutrino share is free); measured on the MeV secret interactions: 3.5 h per block for Majorana
+neutrinos, 4--11 h and more for Dirac neutrinos. The forecast needs new solver runs from 100 GeV (pilot running).
+
+\begin{table}[h!]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{>{\raggedright\arraybackslash}p{3.6cm}ccccccc}
+\toprule
+Model family & Planes & Blocks & Old spectrum & Old events & Set 1 & Set 2 & Forecast \\
+ & & & and flavor & & & & \\
+\midrule
+Secret interactions, MeV mediators & 64 & 768 & 768 & 1 & 1 & 163 (running) & 0 (pilot) \\
+Secret interactions, ultralight mediators & 64 & 544 & 544 & 544 & 0 & 0 & 0 \\
+$L_e - L_\mu$, $L_e - L_\tau$, ultralight (rerun with the Earth's Standard Model potential) & 4 & 36 & 8 & 8 & -- & -- & -- \\
+$L_e - L_\alpha$, MeV mediators & 4 & 4 & 4 & 4 & -- & -- & -- \\
+Dark portal, ultralight mediators & 6 & 54 & 54 & 54 & -- & -- & -- \\
+Dark portal, MeV mediators & 6 & 6 & 6 & 6 & -- & -- & -- \\
+Dark portal, potential planes & 36 & 36 & 36 & 36 & -- & -- & -- \\
+\bottomrule
+\end{tabular}
+\caption{\label{tab:run_status}Blocks done per data set (out of the column ``Blocks''). A dash: no configuration
+exists yet for that data set. The secret interactions count 32 models each (scalar or vector mediator, Majorana or
+Dirac neutrinos, coupling to $\nu_e$, $\nu_\mu$, $\nu_\tau$ or all three), two planes per model. The $L_e - L_\alpha$
+ultralight rerun is held since 2026-11-09: its 28 unfinished blocks each lack 3--29 points, in the strip just below
+the unitarity line; the earlier run without the Standard Model potential had 7 and 24 of 36 blocks done. The dark
+portal's $10^{-2}$~eV column (decay back in, 6 blocks) is done for both old data sets.}
+\end{table}
+
+What remains for the goal (limits on the three families from present data and forecasts):
+(i) set 1 for every family, from the stored runs;
+(ii) set 2: the MeV secret interactions (running), then every other family (new neutrino-only runs);
+(iii) the forecasts for every family, on Plan A;
+(iv) for ultralight $L_e - L_\alpha$, the missing strip points, and the forecast's crossing of the Earth at each
+telescope's site (audit item C2).
+
 \section{Planned work}
 \label{sec:plan}
 

@@ -22,6 +22,7 @@ convergence tool do.
 import dp_core  # noqa: F401  (environment guards run on this first import)
 
 import os
+import sys
 import copy
 import json
 import argparse
@@ -125,7 +126,8 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                        goldstone: bool = False,
                        potential_product=None, relic_scattering: bool = True,
                        inj_window=(0.0, np.inf), earth_transfer: str = "off", neutrino_decay: bool = True,
-                       phi_cache=None, arrival_only: bool = False):
+                       phi_cache=None, arrival_only: bool = False, source_z=None, track=None,
+                       mediator_decay_back=None):
     """
     Executes the complete spectrum integration, driving the underlying JIT kernels.
     Neutrinos and antineutrinos are evolved together through the cosmological phase (an
@@ -158,6 +160,20 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         E_source / (1+z), lies in [E_min, E_max) -- one piece of a broken power law (analysis/model.py); the
         default emits the whole power law.
       eta_bg: (3,) CnuB flavor asymmetries.
+      source_z: None, or (z_lo, z_hi) (2026-11-07, the paper's figure of the six species along the trip): the
+        sources emit only in the redshift steps whose midpoint lies in [z_lo, z_hi] -- a shell of sources.
+      mediator_decay_back (2026-11-07, decision B; dp_mediator): the mediators the beam's decays make (nu_i -> nu_j +
+        Z_D) decay back into neutrino pairs in flight where m_Zd > m_k + m_l, in the dark-portal phase (dp_sweep) and
+        in dp_si's transport where it takes the cosmology; False keeps them invisible (the code before, bit for bit).
+        It acts only where some pair is open and the mediator's decay exponent over the path at the grid's lowest
+        energy reaches 1e-8 (dp_mediator.setup); the mediators alive at z = 0 are invisible. None (the default):
+        the configuration's default, dp_config's dark_portal.mediator_decay_back (one default everywhere).
+      track: None, or a list that receives the beam in flight after every redshift step, as dicts: z; F_nu, F_nb
+        (N_E, 3), the flux of each flavor of each kind, the populations decohered in the eigenstates of that step's
+        cosmic potential; and, on the dark portal's own path, P_nu, P_nb (the eigenstate populations) and c_nu, c_nb
+        (the step's sigma per unit energy, sp['c_z']) -- before the longitudinal-mode factors (goldstone), which the
+        solver applies at z = 0. Through dp_si (si_cosmology), its steps, the mass-state flux split in the injection's
+        proportions as the arrival's.
       n_sun_paths, n_earth_chords: directions to the Sun in its transit, and zenith chords.
       transit_dtheta: resolution of the transit to the Earth (dp_transit.build_frame_table).
       show_progress, verbose: progress bars / logging (verbose=2 adds z updates).
@@ -239,6 +255,11 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
     direct callers that omit these kwargs; run_solver and the analysis pipeline
     always pass the config values.
     """
+    _MEDIATOR_LAST.clear()            # this run's mediators only (the review's finding 5), dp_si's record too
+    if 'dp_si' in sys.modules:
+        sys.modules['dp_si'].MEDIATOR_LAST.clear()
+    if mediator_decay_back is None:
+        mediator_decay_back = mediator_decay_back_default()
     if HAS_NUMBA:
         # The cosmological step below is parallelized internally via numba prange; cap its
         # thread pool to n_cores so a caller that already parallelizes across many processes
@@ -432,6 +453,14 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
             Hg = calc_H_Hubble_vec(zg, H0, Omega_m, Omega_L)
             Rg = np.array([calc_R_source(float(q), rho_evol) for q in zg])
             inj_I[kk] = 0.5 * (b_ - a_) * float(np.sum(wg * Rg * (1.0 + zg) ** (-p_index) / Hg))
+    # a shell of sources (source_z): the steps whose midpoint lies in [z_lo, z_hi] emit, the others do not
+    src_mask = np.ones(len(z_bins))
+    if source_z is not None:
+        z_lo, z_hi = float(source_z[0]), float(source_z[1])
+        z_c = np.concatenate(([z_bins[0]], 0.5 * (z_bins[1:] + z_bins[:-1])))
+        src_mask = ((z_c >= z_lo) & (z_c <= z_hi)).astype(np.float64)
+        if inj_I is not None:
+            inj_I = inj_I * src_mask
     # The new processes' rates over a step at its midpoint (2026-10-24): taken at the step's low-redshift end they were
     # first order, and where the soft scatterings and the decays compete (the Zeno-suppressed conversions fall as
     # ~(1+z)^-5) a few percent in the exponent became up to 17% of a drained flux at 200 steps. The rates' trapezoid
@@ -506,6 +535,20 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         ladder = dp_medium.Ladder(E_bins, G_full, U_pmns, m_nu_bg_arr, m_Zd,
                                   [(sp["M_rot"], sp["S_signed"]) for sp in species], float(np.max(cabs)))
         ladder.work = ladder.buffers()
+    # The mediators the decays make, and their decay back into neutrino pairs (decision B, 2026-11-07; dp_mediator):
+    # one population per beam (the run's and the 'combined' mode's reference), by LF helicity
+    med_tables = None
+    med = med_ref = None
+    if mediator_decay_back and decay_rates is not None:
+        med_tables = _mediator_tables(G_coupling, g_D, u_arr, eps_prime, U_pmns, m_nu_bg_arr, m_Zd, E_bins, H0,
+                                      Omega_m, Omega_L, float(z_bins[0]), ab[0].Gamma_vis)
+    if med_tables is not None and ladder is not None:
+        med = _mediator_state(med_tables, N_E)
+        med_ref = _mediator_state(med_tables, N_E) if si_combined else None
+    # dp_si's transports (the cosmology's 'si' and 'combined' modes, the Goldstone factors): the mediator's whole
+    # coupling, visible width and its own mass m_Zd (not the Debye-screened t-channel mass dp_si collides with)
+    decay_back = (None if med_tables is None else
+                  (_mediator_coupling(G_coupling, g_D, u_arr, eps_prime), float(ab[0].Gamma_vis), float(m_Zd)))
 
     inv_sum_G = 1.0 / sum_G if sum_G > 0.0 else 0.0
 
@@ -525,6 +568,8 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         ref = [dict(F=np.zeros((N_E, 3), dtype=np.float64), R=np.zeros(N_E, dtype=np.float64)) for _ in species]
 
     z_steps = range(1, len(z_bins)) if (arrival_flavor is None and not si_cosmology) else range(0)
+    tracked = track if (track is not None and lagrangian) else None
+    track_proj = np.empty((N_E, 3, 3), dtype=np.float64) if tracked is not None else None
     iterator = tqdm(z_steps, desc="Cosmo Phase", leave=False) if (dp_core.HAS_TQDM and show_progress) else z_steps
     z_print_mod = max(1, len(z_bins) // 10)
     if verbose == 2:
@@ -532,7 +577,7 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
     for k in iterator:
         z = z_bins[k]
         dt = dz / (calc_H_Hubble(z, H0, Omega_m, Omega_L) * (1.0 + z))
-        R_z = calc_R_source(z, rho_evol)
+        R_z = calc_R_source(z, rho_evol) * src_mask[k]
         if verbose == 2 and k % z_print_mod == 0:
             safe_print(f"Cosmological propagation: currently integrating at redshift z = {z:.4f}")
         if not lagrangian:
@@ -573,11 +618,11 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
             inj_rate = (inj_I[k] / dt if EXACT_STEP_INJECTION else R_z * (1.0 + z) ** (1.0 - p_index))
             _decay_sweep_step(species, None, k, inj_rate, dt, zm, jump_I, decay_I, ju_mid, ladder, E_bins, w_nu,
                               w_nb, rho_src, Pis, p_index, Phi_0, W3, pref3, self_same, W1, W2, c1, c2, self_cross,
-                              inj_w, phi_cache)
+                              inj_w, phi_cache, med=med)
             if ref is not None:
                 _decay_sweep_step(species, ref, k, inj_rate, dt, zm, jump_I, decay_I, ju_mid, ladder, E_bins, 0.5,
                                   0.5, rho_ref, Pis, p_index, Phi_0, W3, pref3, self_same, W1, W2, c1, c2,
-                                  self_cross, inj_w_ref, phi_cache)
+                                  self_cross, inj_w_ref, phi_cache, med=med_ref)
         else:
             if inj_I is not None and EXACT_STEP_INJECTION:
                 # the step's exact emission (as R_z (1+z)^(1-p) dt, step_cosmological_rates' injection)
@@ -601,8 +646,25 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                                     jump_I[k], ref[i_s]["F"], no_wd, False)
         if loss_C is not None and jump_unit is not None:
             _loss_half(species, ref, k, C_mid, decay_I, E_bins, N_E, kappa_loss)
+        if tracked is not None:
+            snap = []
+            for sp in species:
+                _cosmo_projections(E_bins, sp["P_table"], sp["log_s0"], sp["inv_dlogs"], sp["c_z"][k], track_proj)
+                snap.append(np.einsum('iak,ik->ia', track_proj, sp["F"]))
+            tracked.append(dict(z=float(z), F_nu=snap[0], F_nb=snap[1], P_nu=np.array(species[0]["F"]),
+                                P_nb=np.array(species[1]["F"]), c_nu=float(species[0]["c_z"][k]),
+                                c_nb=float(species[1]["c_z"][k])))
+            if med is not None:
+                tracked[-1]["Z"] = np.array(med["Z"])          # the mediators by LF helicity (0, +1, -1)
     if ladder is not None:
         _zeta_note("cosmological", ladder.diag[0])
+    if med is not None:
+        # the validity of the vacuum kinematics (dp_mediator (i)): the largest sigma |s| / smallest splitting where
+        # mediators were made (0: everywhere below the ladder's vacuum threshold, 1e-6)
+        import dp_medium
+        measure = float(med["diag"][11]) / ladder.sig_vac * dp_medium.SIGMA_VAC
+        _MEDIATOR_LAST.update(Z=np.array(med["Z"]), diag=np.array(med["diag"]), Gamma=med_tables.Gamma,
+                              br_nu=med_tables.br_nu, transport="dark_portal", medium_measure=measure)
     if verbose == 2:
         safe_print(f"Cosmological baseline finished at z = {z_bins[-1]:.4f}.")
 
@@ -611,6 +673,7 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         if not lagrangian:
             raise ValueError("si_cosmology needs absorption_model = 'lagrangian'")
         import dp_si
+        si_track = []
         st = dict(z_substeps=1, E_extension=10.0)
         st.update(si_settings or {})
         g_mass = dp_si.mass_basis_couplings_model(ab[0].G, U_pmns, "vector", True)
@@ -628,7 +691,10 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                                     inj_window=(0.0, np.inf) if si_combined else (inj_lo, inj_hi),
                                     thermal="full" if st.get("thermal_products") else True, decay=decay_rates,
                                     relic_loss=(None if loss_C is None else
-                                                (np.asarray(z_bins, dtype=np.float64), loss_C, loss_beam)))
+                                                (np.asarray(z_bins, dtype=np.float64), loss_C, loss_beam)),
+                                    decay_back=decay_back,
+                                    **({} if si_combined else dict(source_z=source_z,
+                                                                   track=si_track if track is not None else None)))
         if si_combined:
             # below 1 keV with both a potential and hard scatterings (2026-10-22; notes, 'Soft scatterings on the
             # relics'): the dark-portal phase's eigenstate populations (the potential, the soft scatterings) rescaled
@@ -646,6 +712,11 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
             order = np.argsort(np.real(np.diag(M_sq)))
             for sp, w_s in zip(species, (w_nu, w_nb)):
                 sp["F"] = np.ascontiguousarray(F_mass[:, order] * (w_s / w_tot if w_tot > 0 else 0.0))
+            if track is not None:
+                Pm = np.abs(U_pmns) ** 2
+                for z_t, Fm in si_track:
+                    Ff = Fm @ Pm.T
+                    track.append(dict(z=z_t, F_nu=Ff * (w_nu / w_tot), F_nb=Ff * (w_nb / w_tot)))
     if goldstone and arrival_flavor is None and lagrangian and G_coupling is not None \
             and float(m_Zd) < SI_COSMOLOGY_MIN_M_EV:
         # the vector's longitudinal-mode scatterings (2026-10-25, Mauricio: the lepton-number planes; notes 'Secret
@@ -655,15 +726,17 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
         # max_E theta(E) (1 - R_tot(E)), theta the potential's sigma / Delta m^2_21 averaged over redshift with the
         # absorption's weight (1+z)/H, recorded as meta['zeta']['goldstone']
         import dp_si_light
+        g_track = [] if track is not None else None
         gf = dp_si_light.goldstone_factors(E_bins, G_coupling, U_pmns, m_nu_bg_arr, m_Zd, T_nu0, eta_mass, H0,
-                                           Omega_m, Omega_L, float(z_bins[0]), p_index, rho_evol, decay_rates)
+                                           Omega_m, Omega_L, float(z_bins[0]), p_index, rho_evol, decay_rates,
+                                           track=g_track, decay_back=decay_back)
         if gf is not None:
             R_gs, Rt_gs = gf
             wz = (1.0 + z_bins) / calc_H_Hubble_vec(z_bins, H0, Omega_m, Omega_L)
             cz_w = float(np.sum(wz * np.abs(c_z_arr)) / np.sum(wz))
             dm21 = float(np.real(M_sq[1, 1]))
             _zeta_note("goldstone", float(np.max(E_bins * cz_w / dm21 * np.abs(1.0 - Rt_gs))))
-            for sp in species:
+            for i_s, sp in enumerate(species):
                 S_sig = -sp["S_eff"] if sp["anti"] else sp["S_eff"]
                 if q_sign * np.sign(pp) < 0.0:
                     S_sig = -S_sig
@@ -675,6 +748,29 @@ def propagate_spectrum(E_bins: np.ndarray, z_bins: np.ndarray, rho_src: np.ndarr
                     T = np.abs(V0.conj().T @ W) ** 2                # T[i, a]: eigenstate a's mass content
                     fac[j] = R_gs[j] @ T
                 sp["F"] = np.ascontiguousarray(sp["F"] * fac)
+                if tracked and g_track:
+                    # the beam in flight with the same factors along the way: the reference beam's ratio at each step
+                    # (linear in z between dp_si's steps), on each step's eigenstates; at z = 0 the arrival's
+                    zg = np.array([t[0] for t in g_track])
+                    Rg = np.stack([t[1] for t in g_track])
+                    o = np.argsort(zg)
+                    kind = ("nu", "nb")[i_s]
+                    for ent in tracked:
+                        if ("P_" + kind) not in ent:
+                            continue
+                        Rz = np.empty((N_E, 3))
+                        for i in range(3):
+                            Rz[:, i] = [np.interp(ent["z"], zg[o], Rg[o, j, i]) for j in range(N_E)]
+                        sig = np.abs(E_bins * ent["c_" + kind])
+                        Pk = ent["P_" + kind]
+                        Ff = np.empty((N_E, 3))
+                        for j in range(N_E):
+                            _, W = np.linalg.eigh(sp["M_rot"] + sig[j] * S_sig)
+                            T = np.abs(V0.conj().T @ W) ** 2
+                            Pf = Pk[j] * (Rz[j] @ T)
+                            Ff[j] = (np.abs(W) ** 2) @ Pf
+                        ent["F_" + kind] = Ff                         # P_ stays the populations before the factors
+                        ent["goldstone"] = True
     if arrival_flavor is not None:
         f_arr = np.asarray(arrival_flavor, dtype=np.float64)
         if f_arr.shape != (3,) or np.any(f_arr < 0.0):
@@ -856,16 +952,52 @@ def _zeta_record(params: Dict, E_bins: np.ndarray) -> Dict:
                 goldstone=float(_ZETA["goldstone"]))
 
 
+# the last run's mediators (decision B): their populations at z = 0 (invisible) and dp_mediator's bookkeeping; cleared
+# at the start of every propagate_spectrum
+_MEDIATOR_LAST = {}
+
+
+def mediator_decay_back_default() -> bool:
+    """The one default of the decay back: dp_config's dark_portal.mediator_decay_back."""
+    return bool(DEFAULT_CONFIG['dark_portal']['mediator_decay_back'])
+
+
+def _mediator_coupling(G_coupling, g_D, u_arr, eps_prime):
+    """The mediator's whole coupling (flavor basis): a given G_coupling, or the dark portal's with its Z mixing."""
+    return (np.asarray(G_coupling, dtype=np.complex128) if G_coupling is not None
+            else dp_absorption.dark_portal_coupling(g_D, u_arr, eps_prime))
+
+
+def _mediator_tables(G_coupling, g_D, u_arr, eps_prime, U_pmns, m_nu, m_Zd, E_bins, H0, Omega_m, Omega_L, z_max,
+                     Gamma_vis):
+    """dp_mediator.setup of the run (its tables kept per point by dp_mediator.cached); None where the decay back cannot
+    act."""
+    import dp_mediator
+    return dp_mediator.setup(_mediator_coupling(G_coupling, g_D, u_arr, eps_prime), U_pmns, m_nu, m_Zd,
+                             np.asarray(E_bins, dtype=np.float64), H0, Omega_m, Omega_L, z_max,
+                             Gamma_vis=float(Gamma_vis))
+
+
+def _mediator_state(tables, N_E):
+    """A beam's mediators and the sweep's work arrays (dp_sweep.step_full_med)."""
+    import dp_mediator
+    return dict(tabs=tables.arrays, Z=np.zeros((N_E, dp_mediator.NPOL)), pendZ=np.zeros((N_E, dp_mediator.NPOL)),
+                pendM=np.zeros((N_E, 2, 3)), diag=np.zeros(dp_mediator.NDIAG))
+
+
 _NO_PHI_CACHE = (np.zeros((1, 4, 6, 6)), np.zeros(1, dtype=np.bool_))     # step_full's cache, unused
 _NO_SOURCE = np.zeros((1, 2, 3))         # dp_sweep.step_full's external source, unused in the cosmology
 _NO_JUMP_TABLES = (np.zeros((2, 3, 3)), np.zeros((2, 3)), np.zeros((2, 3)), np.zeros((2, 3)))
 
 
 def _decay_sweep_step(species, ref, k, inj_rate, dt, zm, jump_I, decay_I, ju_mid, ladder, E_bins, w_nu, w_nb,
-                      rho_src, Pis, p_index, Phi_0, W3, pref3, self_same, W1, W2, c1, c2, self_cross, inj_w, phi_cache=None):
+                      rho_src, Pis, p_index, Phi_0, W3, pref3, self_same, W1, W2, c1, c2, self_cross, inj_w,
+                      phi_cache=None, med=None):
     """Step k of the dark-portal phase where the neutrinos decay (dp_sweep.step_full, the decays between the
     eigenstates of the potential by dp_medium's ladder) on the species' populations (ref: the 'combined' mode's
-    reference populations instead); the species carry this step's rates (G_step, brp_step)."""
+    reference populations instead); the species carry this step's rates (G_step, brp_step). med: None, or the beam's
+    mediators (decision B, 2026-11-07: dict(tabs=dp_mediator.Mediator.arrays, Z, pendZ, pendM, diag); with them
+    dp_sweep.step_full_med)."""
     import dp_sweep
     nu, nb = species
     use_jumps = ju_mid is not None and "J_table" in nu
@@ -881,21 +1013,33 @@ def _decay_sweep_step(species, ref, k, inj_rate, dt, zm, jump_I, decay_I, ju_mid
     x0 = ladder.coord(nu["c_mid"][k])
     n = int(DECAY_STEP_PIECES)
     N = len(E_bins)
+    dim = 6 if med is None else 9               # the bin's system: with the mediators, 9 x 9 (dp_sweep._med_rows)
     for piece in range(n):
         if phi_cache is None:
             cache, have, use_cache = _NO_PHI_CACHE[0], _NO_PHI_CACHE[1], False
         else:
-            key = (k, piece, n, N)
+            key = (k, piece, n, N) if med is None else (k, piece, n, N, dim)
             if key not in phi_cache:
-                phi_cache[key] = (np.zeros((N, 4, 6, 6)), np.zeros(N, dtype=np.bool_))
+                phi_cache[key] = (np.zeros((N, 4, dim, dim)), np.zeros(N, dtype=np.bool_))
             (cache, have), use_cache = phi_cache[key], True
-        dp_sweep.step_full(float(inj_rate), float(dt) / n, 1.0 + float(zm), float(jump_I[k]) / n,
-                           float(decay_I[k]) / n, E_bins, F_nu, F_nb, float(w_nu), float(w_nb), rho_src, Pis[0],
-                           Pis[1], nu["G_step"], nb["G_step"], nu["brp_step"], nb["brp_step"], float(p_index),
-                           float(Phi_0), W3, pref3, self_same, W1, W2, c1, c2, self_cross, R_nu, R_nb, inj_w,
-                           use_jumps, float(ju_mid[k]) if use_jumps else 0.0, *tabs[0], *tabs[1],
-                           ladder.arrays, x0, True, True, ladder.diag, *ladder.work, _NO_SOURCE, False, cache, have,
-                           use_cache)
+        if med is None:
+            dp_sweep.step_full(float(inj_rate), float(dt) / n, 1.0 + float(zm), float(jump_I[k]) / n,
+                               float(decay_I[k]) / n, E_bins, F_nu, F_nb, float(w_nu), float(w_nb), rho_src, Pis[0],
+                               Pis[1], nu["G_step"], nb["G_step"], nu["brp_step"], nb["brp_step"], float(p_index),
+                               float(Phi_0), W3, pref3, self_same, W1, W2, c1, c2, self_cross, R_nu, R_nb, inj_w,
+                               use_jumps, float(ju_mid[k]) if use_jumps else 0.0, *tabs[0], *tabs[1],
+                               ladder.arrays, x0, True, True, ladder.diag, *ladder.work, _NO_SOURCE, False, cache, have,
+                               use_cache)
+            continue
+        mp, mnp, mps, md, mnd, mds, mr = med["tabs"]
+        dp_sweep.step_full_med(float(inj_rate), float(dt) / n, 1.0 + float(zm), float(jump_I[k]) / n,
+                               float(decay_I[k]) / n, E_bins, F_nu, F_nb, float(w_nu), float(w_nb), rho_src, Pis[0],
+                               Pis[1], nu["G_step"], nb["G_step"], nu["brp_step"], nb["brp_step"], float(p_index),
+                               float(Phi_0), W3, pref3, self_same, W1, W2, c1, c2, self_cross, R_nu, R_nb, inj_w,
+                               use_jumps, float(ju_mid[k]) if use_jumps else 0.0, *tabs[0], *tabs[1],
+                               ladder.arrays, x0, True, True, ladder.diag, *ladder.work, _NO_SOURCE, False, cache, have,
+                               use_cache, True, med["Z"], mp, mnp, mps, md, mnd, mds, mr, med["pendZ"],
+                               med["pendM"], med["diag"])
 
 
 def _loss_half(species, ref, k, loss_C, step_I, E_bins, N_E, kappa=0.0):
@@ -1145,7 +1289,7 @@ def _flux_setup(E_bins: np.ndarray, params: Dict) -> Dict:
 
 def _flux_from_setup(E_bins: np.ndarray, params: Dict, setup: Dict, injection,
                      rho_src: np.ndarray = None, band_costh=None, arrival_flavor=None,
-                     arrival_basis: str = "flavor", arrival_only: bool = False):
+                     arrival_basis: str = "flavor", arrival_only: bool = False, source_z=None, track=None):
     """The neutrino and antineutrino fluxes at the detector, each (N_E, 3), from a _flux_setup.
 
     Arguments: E_bins, params, setup -- as for _flux_setup; injection -- (w_nu, w_nb), the
@@ -1180,6 +1324,11 @@ def _flux_from_setup(E_bins: np.ndarray, params: Dict, setup: Dict, injection,
         # mass floored at the heaviest neutrino (dp_si_light.subkev_inputs); 1 keV and above as before
         sub = _si_subkev(E_bins, params, setup)
         kw_sub = {} if sub is None else dict(decay=sub['decay'], relic_loss=sub['relic_loss'])
+        if sub is not None and sub.get('decay_back') is not None:
+            # the decays' mediators decaying back into neutrino pairs (2026-11-08, decision B extended to the secret
+            # interactions; dark_portal.mediator_decay_back, the one setting; dp_mediator.SIMediator)
+            kw_sub['decay_back'] = sub['decay_back']
+        si_track = [] if track is not None else None
         F_mass = dp_si.propagate_si(E_bins, params['z_max'], params['H0_eV'], params['Omega_m'], params['Omega_L'],
                                     U, params['m_nu_bg_arr'], params['T_nu0_eV'],
                                     setup['eta_mass'] if sub is None else sub['eta'], rho_src,
@@ -1190,8 +1339,14 @@ def _flux_from_setup(E_bins: np.ndarray, params: Dict, setup: Dict, injection,
                                     z_substeps=si_p['z_substeps'], E_extension=si_p['E_extension'],
                                     mediator=si_p['mediator'], dirac_sterile=si_p['dirac_sterile'],
                                     thermal=si_p.get('thermal', False),
-                                    inj_window=params.get('inj_window_eV', (0.0, np.inf)), **kw_sub)
+                                    inj_window=params.get('inj_window_eV', (0.0, np.inf)), **kw_sub,
+                                    **({} if source_z is None and track is None else
+                                       dict(source_z=source_z, track=si_track)))
         F_fl = np.ascontiguousarray(F_mass @ (np.abs(U) ** 2).T)
+        if track is not None:
+            for z_t, Fm in si_track:
+                Ff = Fm @ (np.abs(U) ** 2).T
+                track.append(dict(z=z_t, F_nu=Ff * (w_nu / w_tot), F_nb=Ff * (w_nb / w_tot)))
         if not np.isfinite(F_fl).all():
             raise ValueError(f"Non-finite flux from the secret-interaction transport at m_phi_eV="
                              f"{si_p['m_phi_eV']:.6g}, g_phi texture {si_p['g_flavor'].tolist()}.")
@@ -1232,13 +1387,15 @@ def _flux_from_setup(E_bins: np.ndarray, params: Dict, setup: Dict, injection,
         goldstone=_goldstone_on(params),
         relic_scattering=params.get('relic_scattering', True),
         neutrino_decay=params.get('neutrino_decay', True),
+        mediator_decay_back=params.get('mediator_decay_back', mediator_decay_back_default()),
         # the decay steps' per-bin exponentials, shared by the runs of this setup (one parameter point; they differ only
         # in their sources): dp_sweep.step_full reuses a bin's only where its matrix is the same to the last bit
         phi_cache=setup.setdefault('phi_cache', {}),
         si_settings=_dark_portal_si_settings(params),
         potential_product=params.get('potential_product', None),
         inj_window=params.get('inj_window_eV', (0.0, np.inf)),
-        earth_transfer=params.get('earth_transfer', 'off'), arrival_only=arrival_only
+        earth_transfer=params.get('earth_transfer', 'off'), arrival_only=arrival_only,
+        source_z=source_z, track=track
     )
 
 
@@ -1252,11 +1409,14 @@ def _goldstone_on(params: Dict) -> bool:
 
 def _si_subkev(E_bins: np.ndarray, params: Dict, setup: Dict):
     """The secret interactions' inputs below 1 keV (dp_si_light.subkev_inputs; 2026-10-25), kept in the setup per grid
-    bottom (the decays' threshold), or None at 1 keV and above."""
+    bottom (the decays' threshold) and decay-back setting, or None at 1 keV and above. The decays' mediators decay back
+    into neutrino pairs (2026-11-08) by dark_portal.mediator_decay_back, the one setting of the decay back for every
+    model (the secret interactions' neutrino_decay and relic_scattering live in the dark_portal section too)."""
     si_p = params['si']
     if float(si_p['m_phi_eV']) >= SI_COSMOLOGY_MIN_M_EV:
         return None
-    key = float(E_bins[0])
+    db = bool(params.get('mediator_decay_back', mediator_decay_back_default()))
+    key = (float(E_bins[0]), db)
     sub = setup.setdefault('si_subkev', {})
     if key not in sub:
         import dp_si_light
@@ -1265,7 +1425,8 @@ def _si_subkev(E_bins: np.ndarray, params: Dict, setup: Dict):
                                              params['T_nu0_eV'], setup['eta_mass'], params['H0_eV'],
                                              params['Omega_m'], params['Omega_L'], params['z_max'], float(E_bins[0]),
                                              decay_on=params.get('neutrino_decay', True),
-                                             relic_scattering=params.get('relic_scattering', True))
+                                             relic_scattering=params.get('relic_scattering', True),
+                                             decay_back=db)
     return sub[key]
 
 
@@ -1701,7 +1862,11 @@ def _flux_runs(E_run, params, setup, runs, band_costh=None):
     to the band's populations (linear in them: its responses to the three unit inputs, kept by the handover's
     transfer reuse), the whole sky the bands weighted by their widths in cos(zenith) (as the handover's own); the
     bands are the sky's (params['sky'] dec_band_edges) where the caller asks for none. Elsewhere, and with
-    EXTRAGALACTIC_CROSSING off, the runs as _flux_from_setup."""
+    EXTRAGALACTIC_CROSSING off, the runs as _flux_from_setup. The simplified trips (params['trip'], TRIPS) go to
+    _flux_runs_simplified."""
+    trip = params.get('trip', 'full')
+    if trip != 'full':
+        return _flux_runs_simplified(E_run, params, setup, runs, band_costh, trip)
     plain = [lambda w=w, r=r: _flux_from_setup(E_run, params, setup, w, r, band_costh=band_costh) for w, r in runs]
     if (not EXTRAGALACTIC_CROSSING or setup.get('si', False) or not runs
             or float(params['m_Zd_eV']) >= SI_COSMOLOGY_MIN_M_EV
@@ -1828,6 +1993,95 @@ def flux_stops(E_bins: np.ndarray, params: Dict) -> Dict:
         stops['earth'] += np.real(np.einsum('iaa->ia', rho_e))
     stops['detector'] = propagation_worker((E_bins, params))[1]
     return stops
+
+
+# The simplified trips of the paper's Fig. 1 (2026-11-07; paper/paper_planning.md, Step 5), params['trip']:
+#   'full'     -- the solver as it is (the default);
+#   'no_local' -- the beam as it arrives at the Milky Way, as if nothing local acted: the populations at z = 0 in
+#                 today's cosmic eigenstates (flux_stops' 'universe'), the same in every band;
+#   'detector' -- the earlier standard (Agarwalla, Bustamante, Das & Narang, JHEP 08 (2023) 113, Sec. 5): no
+#                 transport and no collisions; the source flavors decohere in the eigenstates of the total potential
+#                 at the detector -- the transit's ambient density (the cosmic mean, the Galaxy, the Sun, the Moon)
+#                 plus the Earth's own at the detector's depth -- the same in every band.
+# The dark portal's path only (the gauge models included); the Galactic emission (galactic_allsky) is unchanged.
+TRIPS = ("full", "no_local", "detector")
+
+
+def _local_frame(E_run, handover, with_detector):
+    """For one kind's handover (_flux_from_setup's arrival_only), as in flux_stops: the frame table, coef2 = 2 |Coef|,
+    today's cosmic density n_cos; and, with_detector, the total density at the detector (the transit's ambient
+    density, from dp_spatial.transit_to_earth, plus the Earth's own at the detector's depth), else None."""
+    import dp_transit
+    from dp_cosmo import yukawa_horizon_inv_m2
+    import dp_spatial
+    args, kw = handover
+    (M_rot, u_arr, m_Zd, g_D, eps_prime, T_nu0, use_debye, eta_bg, depth_km, use_SM, n_e_earth, anti,
+     n_sun_paths, n_chords) = args
+    st = dp_spatial._earth_setup(M_rot, u_arr, m_Zd, g_D, eps_prime, T_nu0, use_debye, eta_bg, depth_km, use_SM,
+                                 n_e_earth, anti, n_sun_paths, n_chords, kw['U_LRI_struct'], kw['V_SM_struct'],
+                                 kw['use_gpu'], kw['earth_step_scheme'], kw['earth_zenith_average'],
+                                 kw['earth_sky'], kw['earth_band_costh'], kw['earth_nodes_per_band'],
+                                 kw['matter_charge'], kw['debye_sq_z0'], kw['potential_product'])
+    Coef, m_eff, S = st['Coef'], st['m_eff'], st['U_LRI_struct']
+    S_signed = np.ascontiguousarray((np.sign(Coef) if Coef != 0.0 else 1.0) * np.asarray(S, dtype=np.complex128))
+    tab = dp_transit.frame_table(M_rot, S_signed, kw['transit_dtheta'])
+    m_bare = m_Zd if kw['debye_sq_z0'] is not None else m_eff
+    n_cos = (dp_matter.cosmic_density(kw['matter_charge'], kw['n_n0_eV3']) * m_eff * m_eff
+             * yukawa_horizon_inv_m2(m_bare * m_bare, kw['R_H_eV_inv'])) if m_eff > 0 else 0.0
+    n_det = None
+    if with_detector:
+        _, n_amb, _ = dp_spatial.transit_to_earth(
+            E_run, np.zeros((len(E_run), 3)), M_rot, S, Coef, m_eff, kw['n_n0_eV3'], kw['R_H_eV_inv'],
+            st['earth_yk'], n_sun_paths=n_sun_paths, transit_dtheta=kw['transit_dtheta'],
+            sun_path_cos=kw['sun_path_cos'], arrival=kw['arrival'], matter_charge=kw['matter_charge'],
+            m_bare=(m_Zd if kw['debye_sq_z0'] is not None else None))
+        R_km = float(st['earth_yk'][0][2])
+        n_det = float(n_amb) + (dp_spatial.yukawa_profile_density(R_km - float(depth_km), st['earth_yk'])
+                                * dp_core.cm_inv3_to_eV3 if m_eff > 0 else 0.0)
+    return tab, 2.0 * abs(float(Coef)), float(n_cos), n_det
+
+
+def _flux_runs_simplified(E_run, params, setup, runs, band_costh, trip):
+    """_flux_runs for the simplified trips (TRIPS): the whole-sky fluxes, and, with band_costh, every band the same.
+    'detector' takes the number of neutrinos from a run without collisions (G_coupling zero: no absorption, decay or
+    scattering; the potential conserves the number) and the composition from the sources."""
+    import dp_transit
+    if trip not in TRIPS:
+        raise ValueError(f"params['trip'] must be one of {TRIPS}, got {trip!r}")
+    if setup.get('si', False):
+        raise ValueError("the simplified trips follow the dark portal's path; secret interactions are not supported")
+    N = len(E_run)
+    p_run, s_run = params, setup
+    if trip == 'detector':
+        p_run = dict(params, G_coupling=np.zeros((3, 3), dtype=np.complex128))
+        s_run = _flux_setup(E_run, p_run)
+    out = []
+    for w, r in runs:
+        arr = _flux_from_setup(E_run, p_run, s_run, w, r, arrival_only=True)
+        F = []
+        for s in range(2):
+            P = np.ascontiguousarray(np.asarray(arr['P'][s], dtype=np.float64))
+            if not np.any(P):
+                F.append(np.zeros((N, 3)))
+                continue
+            tab, coef2, n_cos, n_det = _local_frame(E_run, arr['handover'][s], trip == 'detector')
+            pops, n = P, n_cos
+            if trip == 'detector':
+                src = np.asarray(setup['rho_src'] if r is None else r, dtype=np.float64)
+                flav = np.ascontiguousarray(P.sum(axis=1)[:, None] * (src / src.sum())[None, :])
+                pops, n = np.empty((N, 3)), n_det
+                dp_transit.flavor_populations(E_run, flav, coef2, n, tab["Q"], tab["Mp"], tab["s"], tab["floor"],
+                                              pops)
+            rho = np.empty((N, 3, 3), dtype=np.complex128)
+            dp_transit.galactic_map(E_run, np.ascontiguousarray(pops), coef2, float(n), tab["Q"], tab["Mp"],
+                                    tab["s"], tab["floor"], rho)
+            F.append(np.ascontiguousarray(np.real(np.einsum('iaa->ia', rho))))
+        if band_costh is None:
+            out.append((F[0], F[1]))
+        else:
+            n_b = len(band_costh) - 1
+            out.append((F[0], F[1], np.repeat(F[0][None], n_b, axis=0), np.repeat(F[1][None], n_b, axis=0)))
+    return out
 
 
 # dp_galactic_path.vacuum_populations where the Galaxy's potential is negligible (False: the per-pixel sweep always;
@@ -2331,7 +2585,12 @@ def build_solver_params(config: Dict) -> Tuple[np.ndarray, Dict]:
     params['th23'] = float(np.radians(config['standard_mixing']['th23_deg']))
     params['d_cp'] = float(np.radians(config['standard_mixing']['d_cp_deg']))
     params['use_SM_potential'] = config['standard_mixing']['use_SM_potential']
-    params['n_e_earth_eV3'] = float(config['standard_mixing']['n_e_earth_cm3'] * cm_inv3_to_eV3)
+    sm_profile = str(config['standard_mixing'].get('SM_potential_profile', 'prem')).strip().lower()
+    if sm_profile not in ('prem', 'constant'):
+        raise ValueError(f"standard_mixing.SM_potential_profile must be 'prem' or 'constant', got {sm_profile!r}")
+    # None: PREM's electron density along each chord (dp_spatial._earth_setup); a number: one density everywhere
+    params['n_e_earth_eV3'] = (None if sm_profile == 'prem'
+                               else float(config['standard_mixing']['n_e_earth_cm3'] * cm_inv3_to_eV3))
     # Optional flavor-structure overrides for the coherent forward-scattering potentials
     # (neutrino convention; antineutrino conjugation is applied centrally in
     # propagate_spectrum). See parse_structure_matrix_3x3 for the accepted JSON format.
@@ -2382,6 +2641,16 @@ def build_solver_params(config: Dict) -> Tuple[np.ndarray, Dict]:
     params['thermal_products'] = bool(config['dark_portal'].get('thermal_products', False))
     params['relic_scattering'] = bool(config['dark_portal'].get('relic_scattering', True))
     params['neutrino_decay'] = bool(config['dark_portal'].get('neutrino_decay', True))
+    params['mediator_decay_back'] = bool(config['dark_portal'].get('mediator_decay_back',
+                                                                   mediator_decay_back_default()))
+    if params['mediator_decay_back']:
+        # what the decay back does not cover fails here, before any fit (never inside the objective, which turns a
+        # ValueError into its wall): the dark-portal transport's neutrinos are Majorana (dp_medium's vertex)
+        import dp_mediator
+        dp_mediator.check_supported(majorana=True)
+    params['trip'] = str(config['dark_portal'].get('trip', 'full'))
+    if params['trip'] not in TRIPS:
+        raise ValueError(f"dark_portal.trip must be one of {TRIPS}, got {params['trip']!r}")
     if params['absorption_model'] not in ('lagrangian', 'theory_notes'):
         raise ValueError(f"dark_portal.absorption_model must be 'lagrangian' or 'theory_notes', got "
                          f"{config['dark_portal']['absorption_model']!r}")

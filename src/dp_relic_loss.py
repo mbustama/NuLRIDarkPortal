@@ -23,6 +23,12 @@ _trapz = getattr(np, "trapezoid", None) or getattr(np, "trapz")
 
 ZETA3 = 1.2020569031595942
 
+# Decision C's bracket (Mauricio, 2026-10-24; run 2026-11-07): <1/E> of the relic states grown by the relics' decays
+# (occupation above 1, the undecayed value per mass state with eta_bg = 1) times this factor in the loss coefficient
+# (the model's hotter Fermi-Dirac gas stands for the daughters). An audit setting, as dp_decay.BRACKET_DAUGHTERS: only
+# tools/bracket_relic_population.py sets it, in its own worker processes; everything else runs with 1.
+BRACKET_INV_E = 1.0
+
 
 def mean_inv_E(m, T, n=600):
     """<1/E> over a Fermi-Dirac momentum distribution at temperature T (eV), mass m (eV)."""
@@ -48,6 +54,8 @@ def loss_coefficient(G_flavor, U, masses, eta, T_nu0, z, M, mD2):
             continue
         Tr = T_nu0 * (1.0 + z) * eta[r] ** (1.0 / 3.0)
         inv = mean_inv_E(m[r], Tr)
+        if eta[r] > 1.0 + 1e-12:
+            inv *= BRACKET_INV_E
         for s in range(3):
             if s == r:
                 continue

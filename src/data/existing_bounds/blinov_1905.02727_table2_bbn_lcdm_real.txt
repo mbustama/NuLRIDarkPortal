@@ -1,0 +1,7 @@
+# Blinov, Kelly, Krnjaic & McDermott, arXiv:1905.02727v2, Table II: BBN lower bound on the mediator mass, real scalar, baryon density of the Lambda-CDM + N_eff + sum m_nu fit: m_phi > 2.3 MeV (the standard-cosmology entry; 1.3 MeV for the SInu fit's baryon density, 0.6 MeV for MInu). Entered by hand from the table (2026-11-22, Mauricio: "Use 2.3 MeV, standard cosmology")
+# C.L.: 95% (Table II caption)
+# coupling convention: as blinov_1905.02727_fig1_bbn_sinu_real.txt (Blinov Eq. 3)
+# excluded side: LEFT of the vertical line (M below it), for every coupling shown (1e-4 < g < 1), phi thermalized with neutrinos before neutrino decoupling
+# columns: log10(M/eV)  log10(g_phi)
+6.36173	-4.00000
+6.36173	0.00000

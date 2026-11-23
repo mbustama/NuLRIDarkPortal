@@ -1,0 +1,54 @@
+# Blinov, Kelly, Krnjaic & McDermott, arXiv:1905.02727v2, Fig. 1 (same line in all four panels); curve: dashed black "BBN (Dirac nu)": above it the right-handed components of Dirac neutrinos equilibrate before BBN (Eq. B5: g > 5e-3 (max(m_phi,T_dec)/MeV)^{3/2} (0.1 eV/m_nu)), excluded by Delta N_eff
+# C.L.: follows the BBN Delta N_eff bound (95%); m_nu = 0.1 eV
+# coupling convention: L > -(1/2) m_phi^2 phi^2 + (1/2)(g_phi^{alpha beta} nu_alpha nu_beta phi + h.c.), nu_alpha two-component left-handed (Blinov Eq. 3, p. 2); Majorana neutrinos; real scalar phi unless stated. CAVEAT: this line assumes the lepton-number-violating left-left coupling g nu nu phi with right-handed states produced only through a mass insertion, rate ~ (m_nu/m_phi)^2 Gamma(phi -> nu nu); it is not the Dirac (chirality-flipping) scalar of our Eq. (lag_si)
+# excluded side: above the curve (Dirac neutrinos only)
+# method: vector paths extracted with PyMuPDF; axes calibrated on the drawn major ticks (m_phi 1e-3..1e3 MeV, g 1e-4..1) with values from the PDF text layer; clipped to the plotted frame; mass converted to eV
+# columns: log10(M/eV)  log10(g_phi)
+3.00000	-2.29017
+3.10204	-2.29017
+3.20408	-2.29017
+3.30612	-2.29017
+3.40816	-2.29017
+3.51020	-2.29016
+3.61224	-2.29015
+3.71429	-2.29014
+3.81633	-2.29012
+3.91837	-2.29009
+4.02041	-2.29005
+4.12245	-2.28999
+4.22449	-2.28990
+4.32653	-2.28977
+4.42857	-2.28957
+4.53061	-2.28929
+4.63265	-2.28889
+4.73469	-2.28830
+4.83673	-2.28747
+4.93878	-2.28628
+5.04082	-2.28460
+5.14286	-2.28223
+5.24490	-2.27893
+5.34694	-2.27435
+5.44898	-2.26805
+5.55102	-2.25944
+5.65306	-2.24775
+5.75510	-2.23199
+5.85714	-2.21087
+5.95918	-2.18274
+6.06122	-2.14545
+6.16327	-2.09622
+6.26531	-2.03145
+6.36735	-1.94647
+6.46939	-1.83521
+6.57143	-1.69025
+6.67347	-1.53635
+6.77551	-1.38277
+6.87755	-1.22938
+6.97959	-1.07611
+7.08163	-0.92292
+7.18367	-0.76978
+7.28571	-0.61666
+7.38776	-0.46357
+7.48980	-0.31046
+7.59184	-0.15724
+7.69388	-0.00350
+7.69644	0.00039

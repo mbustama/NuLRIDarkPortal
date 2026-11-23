@@ -14,7 +14,8 @@ The reading, column by column (one mediator mass):
     they flip with the sampling);
   - columns whose smallest coupling is not at the no-effect chi^2 left out (none in the campaign); the summaries'
     'elevated' flag is not used: in planes whose data prefer an effect somewhere it fires at every other mass;
-  - the crossings interpolated linearly in log10 g between samples, and the field contoured is the signed distance to
+  - the crossings interpolated in log10 g between samples by a monotone cubic (PCHIP; review item 8, 2026-11-11;
+    straight lines before), and the field contoured is the signed distance to
     the nearest crossing (field): contouring it joins each crossing to the next mass's in a straight line, without the
     staircase that contouring Delta chi^2 itself draws when it jumps from ~0 to hundreds within one coupling step.
 With the source compositions fitted, the ultralight planes also exclude a thin band (~0.5 decade) along the edge of the
@@ -32,6 +33,24 @@ D = 1.5        # decades: the signed distance to the 95% edge is clipped here (s
 STEP = 0.005   # decades: the coupling resolution of the field
 THRESHOLD = 3.84
 OWN_COLUMN_FROM = -4.95  # log10 g: a column between grid masses sampled from here down reads its own minimum (field)
+# review item 8 (2026-11-11, his choice): Delta chi^2 between samples read with a monotone cubic (PCHIP) in log10 g;
+# the straight line it replaces put the edge up to 7-9% (median) low in the coupling on the 0.5-decade grids
+INTERP = "pchip"
+
+
+def curve(G, x, y, kind=None):
+    """Delta chi^2 at G (log10 g) from samples (x, y): PCHIP (INTERP) or straight lines ('linear'), the end values held
+    outside the samples; repeated x keep their first (smallest y) value."""
+    kind = INTERP if kind is None else kind
+    x, y = np.asarray(x, dtype=np.float64), np.asarray(y, dtype=np.float64)
+    o = np.lexsort((y, x))
+    x, y = x[o], y[o]
+    keep = np.r_[True, np.diff(x) > 0]
+    x, y = x[keep], y[keep]
+    if kind == "linear" or len(x) < 3:
+        return np.interp(G, x, y)
+    from scipy.interpolate import PchipInterpolator
+    return PchipInterpolator(x, y, extrapolate=False)(np.clip(G, x[0], x[-1]))
 
 
 def signed(G, excl):
@@ -71,7 +90,8 @@ def corrected(here, xn, yn):
     code (recheck.*.jsonl, the fixed grid's records; a solution whose stored chi2 was missing, a failed fit, only
     through a refit), a refit (refine_recheck.*.jsonl) taking over where it went lower. Source: 'grid' for the
     summary's points, else the record file's name. Then the relic-scattering reruns (rerun_rs.*.jsonl), which replace
-    the value at their points. Empty without either."""
+    the value at their points, and last the rho fix's values (rho_fix.*.jsonl, 2026-11-08), which replace it too.
+    Empty without any."""
     out = {}
     for r in _records(glob.glob(os.path.join(here, "recheck.*.jsonl"))):
         st = r.get("stored")
@@ -92,6 +112,12 @@ def corrected(here, xn, yn):
         if r.get("chi2") is not None and r.get("stored") is not None:
             k = (r["source"], _key(r["held"], xn, yn))
             out[k] = min(out.get(k, float(r["stored"])), float(r["stored"]), float(r["chi2"]))
+    # the rho fix (2026-11-08; dp_thermal / dp_si: rho's far-from-resonance angular quadrature and its weights split at
+    # sigma = m): the dark portal's MeV planes at their 95% boundary and column minima, re-evaluated with the new code,
+    # refitted where chi^2 moved by more than 0.05 (the lower of the two) -- new code at those points, so they take over
+    for r in _records(glob.glob(os.path.join(here, "rho_fix.*.jsonl"))):
+        if r.get("chi2") is not None:
+            out[(r["source"], _key(r["held"], xn, yn))] = float(r["chi2"])
     return out
 
 
@@ -168,7 +194,7 @@ def field(path):
                 dc[:int(np.argmax(ok))] = 0.0                   # below the lowest allowed coupling: not an exclusion
             low[i] = g[int(np.argmax(ok))]
         pts = sorted(list(zip(g, dc)) + [(np.log10(gs), v) for gs, v in specks])
-        S[i] = signed(G, np.interp(G, [p[0] for p in pts], [p[1] for p in pts]) >= THRESHOLD)
+        S[i] = signed(G, curve(G, [p[0] for p in pts], [p[1] for p in pts]) >= THRESHOLD)
         cov[np.log10(x[i])] = np.ones(len(G), bool)
     xs = {np.log10(x[i]): S.get(i) for i in range(len(x))}     # None: left out
     null = float(np.nanmedian(chi0[:, 0])) if sm is None else float(sm)   # the no-effect chi^2
@@ -198,7 +224,7 @@ def field(path):
         cov[lm] = np.zeros(len(G), bool)
         for run in np.split(np.arange(len(g)), np.flatnonzero(np.diff(g) > 0.25) + 1):
             win = (G >= g[run[0]]) & (G <= g[run[-1]])
-            excl[win] = np.interp(G[win], g[run], dc[run]) >= THRESHOLD
+            excl[win] = curve(G[win], g[run], dc[run]) >= THRESHOLD
             cov[lm] |= win
         if own:
             # upper limits only, from the column's own samples: below its lowest allowed coupling nothing is excluded
@@ -324,7 +350,12 @@ def not_allowed_boundary(cfg, m_lightest=None):
     import json
     import dark_portal_solver as dps
     import dp_absorption
-    import dp_unitarity
+    try:
+        import dp_unitarity
+    except ImportError:
+        # solver code older than the unitarity module (refits of stored runs in their own code's copies, 2026-11-11):
+        # no boundary, as that code had none
+        return None
     from dp_core import construct_PMNS
     from analysis import config as config_mod
     if isinstance(cfg, (str, os.PathLike)):
@@ -379,7 +410,11 @@ def not_modelled_measure(cfg):
     for every other plane (their region is not_allowed_boundary's line). cfg as not_allowed_boundary's."""
     import copy
     import dark_portal_solver as dps
-    import dp_si_light
+    try:
+        import dp_si_light
+    except ImportError:
+        # solver code older than the light secret interactions (refits in their own code's copies, 2026-11-11)
+        return None
     from dp_core import construct_PMNS
     from analysis import config as config_mod
     if isinstance(cfg, (str, os.PathLike)):
@@ -414,18 +449,46 @@ def not_modelled_measure(cfg):
     return f
 
 
+LONGITUDINAL_CORNER = -2.0      # log10 (g / M [eV^-1])
+
+
+def longitudinal_corner(cfg):
+    """log10 (g / M [eV^-1]) from which a plane is not modelled because the vector's longitudinal-mode scatterings
+    (Yukawa ~ g m / M) are left out (docs/SIMPLIFICATIONS_AND_ASSUMPTIONS.md item 24(a)): the vector secret interactions
+    and the dark portal; None for the scalar (no such mode) and for L_e - L_alpha (included there). Its condition --
+    every point from g / M = 1e-2 eV^-1 up to the unitarity line excluded -- failed (review check 24a, 2026-11-11:
+    23% and 15% of those points allowed); his choice: that band hatched as not modelled, no claim made there."""
+    if isinstance(cfg, (str, os.PathLike)):
+        raw = json.load(open(cfg))
+    elif hasattr(cfg, "raw"):
+        raw = cfg.raw
+    else:
+        raw = cfg
+    solver = raw.get("solver", {}) or {}
+    si = solver.get("secret_interactions", {}) or {}
+    if si.get("enabled", False):
+        return LONGITUDINAL_CORNER if str(si.get("mediator", "scalar")).strip().lower() == "vector" else None
+    name = str((solver.get("model", {}) or {}).get("name", "")).strip().lower()
+    return LONGITUDINAL_CORNER if name == "dark_portal" else None
+
+
 def not_modelled_mask(cfg, lx, ly, m_lightest=None):
     """(N_y, N_x) booleans: where the plane's model is not modelled at the lightest mass given (default the
-    configuration's): not_allowed_boundary's line, or not_modelled_measure's region. lx, ly: log10 of the axes."""
+    configuration's): not_allowed_boundary's line, or not_modelled_measure's region, and the band where the vector's
+    longitudinal scatterings are left out (longitudinal_corner). lx, ly: log10 of the axes."""
     lx = np.asarray(lx, dtype=np.float64)
     ly = np.asarray(ly, dtype=np.float64)
     f = not_modelled_measure(cfg)
     if f is None:
         b = not_allowed_boundary(cfg, m_lightest)
-        if b is None:
-            return np.zeros((len(ly), len(lx)), dtype=bool)
-        return ly[:, None] >= b[0] * lx[None, :] + b[1]
-    return np.array([[f(10.0 ** x, 10.0 ** y, m_lightest) >= 1.0 for x in lx] for y in ly])
+        mask = (np.zeros((len(ly), len(lx)), dtype=bool) if b is None
+                else ly[:, None] >= b[0] * lx[None, :] + b[1])
+    else:
+        mask = np.array([[f(10.0 ** x, 10.0 ** y, m_lightest) >= 1.0 for x in lx] for y in ly])
+    c = longitudinal_corner(cfg)
+    if c is not None:
+        mask = mask | (ly[:, None] >= lx[None, :] + c)
+    return mask
 
 
 def draw_not_modelled(ax, lx, ly, mask, color="0.45"):
@@ -433,11 +496,11 @@ def draw_not_modelled(ax, lx, ly, mask, color="0.45"):
     mask = np.asarray(mask, dtype=float)
     if not np.any(mask):
         return
-    ax.contourf(lx, ly, mask, levels=[0.5, 1.5], colors="none", hatches=["////"], zorder=6)
+    ax.contourf(lx, ly, mask, levels=[0.5, 1.5], colors="none", hatches=["\\\\\\\\"], zorder=6)
     ax.contour(lx, ly, mask, levels=[0.5], colors=color, linewidths=0.8, zorder=6)
 
 
-def draw_not_allowed(ax, lx, G, boundary, color="0.45"):
+def draw_not_allowed(ax, lx, G, boundary, color="0.45", hatch="\\\\\\\\"):
     """Hatch the region where the plane's model is not perturbative (not_allowed_boundary), over the plane's ranges."""
     if boundary is None:
         return
@@ -445,6 +508,116 @@ def draw_not_allowed(ax, lx, G, boundary, color="0.45"):
     lx = np.asarray(lx, dtype=np.float64)
     edge = slope * lx + c
     top = np.full_like(lx, max(G[-1], edge.max()) + 1.0)
-    ax.fill_between(lx, np.clip(edge, G[0], None), top, facecolor="none", edgecolor=color, hatch="////", lw=0.0,
+    ax.fill_between(lx, np.clip(edge, G[0], None), top, facecolor="none", edgecolor=color, hatch=hatch, lw=0.0,
                     zorder=6)
     ax.plot(lx, edge, color=color, lw=0.8, zorder=6)
+
+
+# The final limits (2026-11-21): planes read from a limits export (tools/export_limits.py, one folder per Tycho checkout)
+
+
+def limits_plane(root: str, where: Tuple[str, str], dataset: str, name: str) -> str:
+    """The joined summary of plane `name` of `dataset` in a limits export under `root`, for the checkout and campaign
+    `where` = (checkout, campaign); '' if not there."""
+    return plane(os.path.join(root, where[0], where[1]), dataset, name)
+
+
+def not_modelled_lines(path: str) -> dict:
+    """The not-modelled boundaries that tools/export_limits.py wrote into the plane's limits.json, next to its data/
+    folder: {'not_perturbative' | 'longitudinal_left_out': {'slope', 'intercept'}} (lines log10 g = slope log10 m + c,
+    not modelled above), or a 'relic_field_region' note (not a line: not_modelled_boundary)."""
+    lim = os.path.join(os.path.dirname(os.path.dirname(path)), "limits.json")
+    return (json.load(open(lim)).get("not_modelled") or {}) if os.path.exists(lim) else {}
+
+
+def hatched_line(lines: dict):
+    """(slope, intercept) of the lowest not-modelled line of not_modelled_lines (both have slope 1): the band of the
+    longitudinal mode's scatterings, hatched as not modelled (his choice 2026-11-11; longitudinal_corner), where a plane
+    has it, else the line of perturbative unitarity; None without a line."""
+    cand = [lines[k] for k in ("longitudinal_left_out", "not_perturbative") if k in lines]
+    if not cand:
+        return None
+    b = min(cand, key=lambda d: d["intercept"])
+    return float(b["slope"]), float(b["intercept"])
+
+
+def joined(ul_path, mev_path, dg=None):
+    """One field for a model's ultralight and MeV planes (as merged), on a common coupling grid of step dg (the
+    ultralight plane's own step by default; finer keeps the MeV plane's dips): each column's signed distance linear in
+    log10 g between the grid's couplings. Below a plane's smallest coupling the column is allowed (no effect there);
+    above its largest one it keeps its top value -- the figures stop at the MeV plane's top, so this only keeps the
+    contours from bending at the plot's edge (merged sets it allowed there). Returns (log10 m, log10 g, field)."""
+    lu, Gu, Fu, _, Cu = field(ul_path)
+    Fu, _ = thin_bands(lu, Gu, Fu, Cu)
+    lm, Gm, Fm, _, _ = field(mev_path)
+    G = Gu if dg is None else np.arange(Gu[0], Gu[-1] + dg / 2, dg)
+
+    def regrid(Gs, F, k):
+        c = F[:, k].filled(np.nan)
+        return np.interp(G, Gs, c, left=-D, right=c[-1])
+    keep = lu < lm[0] - 1e-9
+    cols = [regrid(Gu, Fu, k) for k in range(len(lu)) if keep[k]] + [regrid(Gm, Fm, k) for k in range(len(lm))]
+    return np.r_[lu[keep], lm], G, np.ma.masked_invalid(np.array(cols).T)
+
+
+def along_ratio(lx, G, F, n=12):
+    """Columns added between masses one decade apart, interpolated along lines of constant g/M (slope 1 in log-log)
+    instead of constant g where that is how the exclusion moves from one mass to the next: per pair, the direction whose
+    shift leaves fewer grid couplings changing between excluded and allowed. Where the plane depends on g/M only (the
+    contact regime: checked 2026-11-21 on the L_e - L_mu planes, the same excluded/allowed pattern from 1e-13 to 1e-3 eV
+    after a one-decade shift in both) the added columns are exact, and thin regions along constant g/M do not break
+    into islands between the decade-spaced masses. Needs G in steps that divide one decade."""
+    Fn = F.filled(np.nan) if np.ma.isMaskedArray(F) else np.asarray(F, dtype=float)
+    s = int(round(1.0 / (G[1] - G[0])))
+    xs, cols = [], []
+    for k in range(len(lx)):
+        xs.append(lx[k])
+        cols.append(Fn[:, k])
+        if k + 1 == len(lx) or not np.isclose(lx[k + 1] - lx[k], 1.0):
+            continue
+        a, b = Fn[:-s, k], Fn[s:, k + 1]
+        ok = ~np.isnan(a) & ~np.isnan(b)
+        diag = np.sum(ok & ((a > 0) != (b > 0)))
+        a2, b2 = Fn[:, k], Fn[:, k + 1]
+        ok2 = ~np.isnan(a2) & ~np.isnan(b2)
+        flat = np.sum(ok2 & ((a2 > 0) != (b2 > 0)))
+        if diag >= flat:
+            continue
+        for t in np.arange(1, n) / n:
+            u = np.interp(G - t, G, Fn[:, k], left=np.nan, right=np.nan)
+            v = np.interp(G + 1 - t, G, Fn[:, k + 1], left=np.nan, right=np.nan)
+            xs.append(lx[k] + t)
+            cols.append(np.where(np.isnan(u), v, np.where(np.isnan(v), u, (1 - t) * u + t * v)))
+    o = np.argsort(xs)
+    return np.array(xs)[o], G, np.ma.masked_invalid(np.array(cols)[o].T)
+
+
+def not_modelled_boundary(cfg, lx, lo=-38.0, hi=0.0, tol=0.05, m_lightest=None):
+    """For a plane with not_modelled_measure (the scalar's field sourced by the relics): per log10 mass in lx, the
+    smallest log10 g from which the model is not modelled (measure >= 1; bisection to tol decades, taking the measure to
+    grow with g), lo if all of [lo, hi] is, None if none of it is. Other planes: None (their region is a line)."""
+    f = not_modelled_measure(cfg)
+    if f is None:
+        return None
+    out = []
+    for x in lx:
+        if f(10.0 ** x, 10.0 ** hi, m_lightest) < 1.0:
+            out.append(None)
+            continue
+        if f(10.0 ** x, 10.0 ** lo, m_lightest) >= 1.0:
+            out.append(lo)
+            continue
+        a, b = lo, hi
+        while b - a > tol:
+            mid = 0.5 * (a + b)
+            a, b = (a, mid) if f(10.0 ** x, 10.0 ** mid, m_lightest) >= 1.0 else (mid, b)
+        out.append(b)
+    return out
+
+
+def hatch_above(ax, xs, ys, color="0.45"):
+    """Hatch, as draw_not_allowed, the region above the polyline (xs, ys) (log10 axes)."""
+    xs, ys = np.asarray(xs, dtype=float), np.asarray(ys, dtype=float)
+    ax.fill_between(xs, ys, np.full_like(ys, ys.max() + 50.0), facecolor="none", edgecolor=color, hatch="\\\\\\\\",
+                    lw=0.0, zorder=6)
+    ax.plot(xs, ys, color=color, lw=0.8, zorder=6)

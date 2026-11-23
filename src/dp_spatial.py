@@ -1606,6 +1606,17 @@ def apply_earth_exterior(E_bins: np.ndarray, rho: np.ndarray, M_rot: np.ndarray,
         _evolve_rho_all_bins(E_bins, rho, M_rot, V, L_eV_inv[j], H_buf, U_step_buffer, T)
 
 
+def _sm_electron_seq(sm, baseline_km, costh, N_steps, detector_depth_km, cross_ls):
+    """PREM's electron density (eV^3), the exact mean over each 'avg' step of a chord, for the SM potential's 'prem'
+    profile (sm = (sqrt(2) G_F S_SM, the electron contact table) from _earth_setup); None when sm is None. No
+    ambient part: the SM potential has zero range."""
+    if sm is None:
+        return None
+    yk_e = sm[1]
+    return chord_density_seq(yk_e)(baseline_km, costh, N_steps, detector_depth_km, 0.0, cross_ls, _GL10_X, _GL10_W,
+                                   yk_e)
+
+
 def _earth_chord_worker(args) -> np.ndarray:
     """Propagates a single Earth chord (one zenith angle) end-to-end to the detector.
 
@@ -1624,7 +1635,8 @@ def _earth_chord_worker(args) -> np.ndarray:
                 kernel; only the V value per step differs.
     """
     (costh, baseline_km, N_steps_earth, E_bins, rho_surf_avg, M_rot, n_n_amb_eV3, Coef,
-     U_LRI_struct, V_SM, detector_depth_km, earth_scheme, earth_yk, ext) = args
+     U_LRI_struct, V_SM, detector_depth_km, earth_scheme, earth_yk, ext) = args[:14]
+    sm = args[14] if len(args) > 14 else None      # the SM potential's PREM profile (_earth_setup), or None
 
     dr_earth_km = baseline_km / N_steps_earth
     dr_earth_eV_inv = dr_earth_km * 1e3 * m_to_eV_inv
@@ -1638,11 +1650,15 @@ def _earth_chord_worker(args) -> np.ndarray:
         cross_ls = _earth_layer_crossings(baseline_km, costh, detector_depth_km)
         nbar = chord_density_seq(earth_yk)(baseline_km, costh, N_steps_earth, detector_depth_km,
                                            n_n_amb_eV3, cross_ls, _GL10_X, _GL10_W, earth_yk)
+        ne = _sm_electron_seq(sm, baseline_km, costh, N_steps_earth, detector_depth_km, cross_ls)
         for step in range(N_steps_earth):
-            V_LRI = np.ascontiguousarray((Coef * nbar[step]) * U_LRI_struct + V_SM)
+            V_LRI = np.ascontiguousarray((Coef * nbar[step]) * U_LRI_struct + V_SM
+                                         + (sm[0] * ne[step] if sm is not None else 0.0))
             _evolve_rho_all_bins(E_bins, rho_earth, M_rot, V_LRI, dr_earth_eV_inv,
                                  H_buf, U_step_buffer, T_buf)
     else:
+        if sm is not None:
+            raise ValueError("The SM potential with PREM's electron density needs earth_step_scheme = 'avg'")
         for step in range(N_steps_earth):
             l_km = step * dr_earth_km
             step_earth_transit(l_km, baseline_km, costh, dr_earth_eV_inv, E_bins, rho_earth, M_rot,
@@ -1654,7 +1670,8 @@ def _earth_chord_unitary_worker(args) -> np.ndarray:
     """_earth_chord_worker's crossing as its evolution operator (N_E, 3, 3): the exterior's phase and steps, then the
     chord's steps, accumulated (_evolve_U_all_bins) instead of applied to one density matrix (2026-10-18)."""
     (costh, baseline_km, N_steps_earth, E_bins, M_rot, n_n_amb_eV3, Coef, U_LRI_struct, V_SM, detector_depth_km,
-     earth_scheme, earth_yk, ext) = args
+     earth_scheme, earth_yk, ext) = args[:13]
+    sm = args[13] if len(args) > 13 else None      # the SM potential's PREM profile (_earth_setup), or None
     N_E = len(E_bins)
     U = np.zeros((N_E, 3, 3), dtype=np.complex128)
     for a in range(3):
@@ -1676,10 +1693,14 @@ def _earth_chord_unitary_worker(args) -> np.ndarray:
         cross_ls = _earth_layer_crossings(baseline_km, costh, detector_depth_km)
         nbar = chord_density_seq(earth_yk)(baseline_km, costh, N_steps_earth, detector_depth_km,
                                            n_n_amb_eV3, cross_ls, _GL10_X, _GL10_W, earth_yk)
+        ne = _sm_electron_seq(sm, baseline_km, costh, N_steps_earth, detector_depth_km, cross_ls)
         for step in range(N_steps_earth):
-            V_LRI = np.ascontiguousarray((Coef * nbar[step]) * U_LRI_struct + V_SM)
+            V_LRI = np.ascontiguousarray((Coef * nbar[step]) * U_LRI_struct + V_SM
+                                         + (sm[0] * ne[step] if sm is not None else 0.0))
             _evolve_U_all_bins(E_bins, U, M_rot, V_LRI, dr_earth_eV_inv, H_buf, S_buf, T_buf)
     else:
+        if sm is not None:
+            raise ValueError("The SM potential with PREM's electron density needs earth_step_scheme = 'avg'")
         for step in range(N_steps_earth):
             n_tot = earth_total_density(step * dr_earth_km, baseline_km, costh, detector_depth_km, n_n_amb_eV3,
                                         earth_yk)
@@ -1959,23 +1980,31 @@ def _earth_setup(M_rot, u_arr, m_Zd, g_D, eps_prime, T_nu0, use_debye_screening,
         U_LRI_struct = np.outer(u_arr, np.conjugate(u_arr))
     U_LRI_struct = np.ascontiguousarray(U_LRI_struct, dtype=np.complex128)
 
-    # The SM matter potential is constant along every chord (it depends only on the
-    # configured electron density, the flavor structure, and the antineutrino sign
-    # convention -- never on position), so it is built exactly once here and handed to
-    # step_earth_transit prebuilt. V_SM_struct defaults to the standard charged-current
-    # texture diag(1, 0, 0); a user override arrives here already conjugated for
-    # antineutrinos (propagate_spectrum's convention).
+    # The SM matter potential. V_SM_struct defaults to the standard charged-current texture diag(1, 0, 0); a user
+    # override arrives here already conjugated for antineutrinos (propagate_spectrum's convention).
+    #   n_e_earth_eV3 a number ('constant' profile, the code before 2026-11-08): one electron density on every chord,
+    #     so V_SM is built once here and added at every step;
+    #   n_e_earth_eV3 None ('prem' profile, 2026-11-08): PREM's electron density, the exact mean over each 'avg' step
+    #     (a contact table of the electron charge, as the new potential's at MeV masses), so V_SM is zero and
+    #     sm = (sqrt(2) G_F S_SM, the electron table) goes to the chord workers, which add sm[0] * n_e(step).
     V_SM = np.zeros((3, 3), dtype=np.complex128)
+    sm = None
     if use_SM_potential:
         if V_SM_struct is None:
             S_SM = np.zeros((3, 3), dtype=np.complex128)
             S_SM[0, 0] = 1.0
         else:
             S_SM = np.asarray(V_SM_struct, dtype=np.complex128)
-        V_SM_scale = np.sqrt(2.0) * G_F * n_e_earth_eV3
-        if is_antineutrino:
-            V_SM_scale = -V_SM_scale
-        V_SM = V_SM_scale * S_SM
+        sign = -1.0 if is_antineutrino else 1.0
+        if n_e_earth_eV3 is None:
+            if earth_step_scheme != "avg":
+                raise ValueError("The SM potential with PREM's electron density needs earth_step_scheme = 'avg'")
+            if use_gpu:
+                raise ValueError("The GPU path supports the SM potential's 'constant' profile only")
+            yk_e = earth_yukawa_table(None, cpg=earth_charge_per_gram(q_n=0.0, q_pe=1.0))
+            sm = (np.ascontiguousarray(sign * np.sqrt(2.0) * G_F * S_SM), yk_e)
+        else:
+            V_SM = sign * np.sqrt(2.0) * G_F * n_e_earth_eV3 * S_SM
     V_SM = np.ascontiguousarray(V_SM)
 
     # Each chord's exterior below r_split (None when the exterior is out of range)
@@ -1983,7 +2012,7 @@ def _earth_setup(M_rot, u_arr, m_Zd, g_D, eps_prime, T_nu0, use_debye_screening,
     ext_data = [chord_exterior(c, detector_depth_km, earth_yk, Coef, U_LRI_struct) if exterior else None
                 for c in earth_costh]
     return dict(earth_band_costh=earth_band_costh, earth_costh=earth_costh, Coef=Coef, m_eff=m_eff, cpg=cpg,
-                earth_yk=earth_yk, U_LRI_struct=U_LRI_struct, V_SM=V_SM, ext_data=ext_data)
+                earth_yk=earth_yk, U_LRI_struct=U_LRI_struct, V_SM=V_SM, sm=sm, ext_data=ext_data)
 
 
 def _propagate_earth_spatial_direct(E_bins: np.ndarray, F_mass_arrival: np.ndarray,
@@ -2094,9 +2123,9 @@ def _propagate_earth_spatial_direct(E_bins: np.ndarray, F_mass_arrival: np.ndarr
                       use_SM_potential, n_e_earth_eV3, is_antineutrino, n_sun_paths, n_earth_chords,
                       U_LRI_struct, V_SM_struct, use_gpu, earth_step_scheme, earth_zenith_average, earth_sky,
                       earth_band_costh, earth_nodes_per_band, matter_charge, debye_sq_z0, potential_product)
-    earth_band_costh, earth_costh, Coef, m_eff, cpg, earth_yk, U_LRI_struct, V_SM, ext_data = (
+    earth_band_costh, earth_costh, Coef, m_eff, cpg, earth_yk, U_LRI_struct, V_SM, ext_data, sm = (
         st[k] for k in ("earth_band_costh", "earth_costh", "Coef", "m_eff", "cpg", "earth_yk", "U_LRI_struct", "V_SM",
-                        "ext_data"))
+                        "ext_data", "sm"))
 
     # PHASE 1: Galaxy, Sun and the Earth's exterior beyond r_split (dp_transit)
     if verbose == 2:
@@ -2224,7 +2253,7 @@ def _propagate_earth_spatial_direct(E_bins: np.ndarray, F_mass_arrival: np.ndarr
     earth_blocks = _split_E_blocks(N_E, len(earth_costh), n_workers)
     earth_tasks = [(costh, get_baseline_earth(detector_depth_km, costh), N_steps_earth, E_bins[b0:b1],
                     rho_surf_avg[b0:b1], M_rot, n_n_amb_eV3, Coef, U_LRI_struct, V_SM,
-                    detector_depth_km, earth_step_scheme, earth_yk, ext_data[c])
+                    detector_depth_km, earth_step_scheme, earth_yk, ext_data[c], sm)
                    for c, costh in enumerate(earth_costh) for (b0, b1) in earth_blocks]
     earth_block_results = _run_spatial_tasks(_earth_chord_worker, earth_tasks, f"Earth chords ({lbl})", n_workers, show_progress, external_pool=external_pool)
     earth_results = []
@@ -2299,7 +2328,8 @@ def _earth_transfer_columns(a: dict) -> list:
     n_workers = max(1, min(int(a["n_cores"]), available_cores()))
     blocks = _split_E_blocks(N_E, len(earth_costh), n_workers)
     tasks = [(costh, get_baseline_earth(a["detector_depth_km"], costh), a["N_steps_earth"], E_bins[b0:b1], a["M_rot"],
-              n_amb, Coef, S, st["V_SM"], a["detector_depth_km"], a["earth_step_scheme"], earth_yk, st["ext_data"][c])
+              n_amb, Coef, S, st["V_SM"], a["detector_depth_km"], a["earth_step_scheme"], earth_yk, st["ext_data"][c],
+              st["sm"])
              for c, costh in enumerate(earth_costh) for (b0, b1) in blocks]
     res = _run_spatial_tasks(_earth_chord_unitary_worker, tasks, "Earth chords (operators)", n_workers, False,
                              external_pool=a["external_pool"])

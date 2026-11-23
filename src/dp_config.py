@@ -104,6 +104,10 @@ def _build_default_config() -> Dict:
             "d_cp_deg": 132.0,
             "use_SM_potential": False,
             "n_e_earth_cm3": 1.5e24,
+            # the Standard Model's charged-current potential inside the Earth (use_SM_potential): "prem" (2026-11-08,
+            # the default) takes PREM's electron density step by step along each chord, as the new potential's
+            # contact density; "constant" the single density n_e_earth_cm3 on every chord (the code before)
+            "SM_potential_profile": "prem",
             "detector_depth_km": 1.5,
             "V_SM_struct": None
         },
@@ -152,6 +156,16 @@ def _build_default_config() -> Dict:
             # the analysis generates its Asimov data -- the Standard Model -- that way (analysis/config.objective).
             "relic_scattering": True,
             "neutrino_decay": True,
+            # The mediators the neutrinos' decays make below 1 keV, nu_i -> nu_j + Z_D (2026-11-07, decision B;
+            # dp_mediator): True -- they decay back into neutrino pairs in flight where m_Zd > m_k + m_l (their energy
+            # returns to the beam as neutrinos and antineutrinos); False -- invisible (the code before, bit for bit).
+            # Since 2026-11-08 also the secret interactions' mediator below 1 keV (dp_mediator.SIMediator; the
+            # secret interactions read neutrino_decay and relic_scattering here too): one setting for every model.
+            "mediator_decay_back": True,
+            # The trip (2026-11-07, the paper's Fig. 1; dark_portal_solver.TRIPS): 'full'; 'no_local' -- the beam as
+            # it arrives at the Milky Way, nothing local acting; 'detector' -- the earlier standard, the source
+            # flavors decohered at the total potential at the detector, no transport and no collisions.
+            "trip": "full",
             "U_LRI_struct": None
         },
         "secret_interactions": {

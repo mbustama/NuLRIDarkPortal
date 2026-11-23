@@ -222,7 +222,7 @@ def test_poisson_continuation():
         assert abs(_poisson(edge + eps, n) - _poisson(edge, n)) < 1e-4
 
 
-def _event_model(tmp_path):
+def _event_model(tmp_path, sets="hese"):
     from analysis.model import FlavorModel
     from analysis.events import EventLikelihood
     _fake_mc(tmp_path / "mc.npz")
@@ -234,13 +234,16 @@ def _event_model(tmp_path):
                     flavor_band_eV=[1e13, 3e16])
     spec = {"hese": {"mc": str(tmp_path / "mc.npz"), "detector": str(tmp_path / "mc.npz") + ".det.npz"},
             "dr2": {"configs": ["IC79"]}}
+    if sets == "mese":                       # set 2 (audit decisions 2026-11-09): MESE cascades + double cascades, DR2
+        spec = {"mese": {}, "dr2": {"configs": ["IC79"]}}
     return m, EventLikelihood(m, spec)
 
 
-def test_event_term_profile_and_asimov(tmp_path):
+@pytest.mark.parametrize("sets", ["hese", "mese"])
+def test_event_term_profile_and_asimov(tmp_path, sets):
     """The profile's gradient against finite differences; Asimov data at a point give chi^2 = 0 there and more
     elsewhere; the warm-started profile follows the astrophysical flux (no stall after a first fit)."""
-    m, ev = _event_model(tmp_path)
+    m, ev = _event_model(tmp_path, sets)
     A = ev.astro({"norm_astro": 1.0, "p_index": 2.5})
     rng = np.random.default_rng(5)
     x = ev.centre + 0.2 * ev.sigma * rng.standard_normal(len(ev.names))
@@ -264,11 +267,12 @@ def test_event_term_profile_and_asimov(tmp_path):
     assert np.max(np.abs(ev._z0 - z_before)) > 1e-4 and ev.last["profile_converged"]
 
 
-def test_event_term_exact_gradient(tmp_path):
+@pytest.mark.parametrize("sets", ["hese", "mese"])
+def test_event_term_exact_gradient(tmp_path, sets):
     """EventLikelihood.chi2_and_grad (2026-10-18): the value is chi2's, the gradient the central difference of chi2
     with the nuisances re-profiled -- the exact evaluation's derivative in the expectations plus the nuisances'
     response through the per-bin profile -- away from the Asimov truth (residuals and detector pulls nonzero)."""
-    m, ev = _event_model(tmp_path)
+    m, ev = _event_model(tmp_path, sets)
     ev.set_asimov({"norm_astro": 1.4, "p_index": 2.6})
     names = ["norm_astro", "p_index"]
     for v in ({"norm_astro": 1.1, "p_index": 2.45}, {"norm_astro": 1.9, "p_index": 2.7}):
@@ -303,11 +307,12 @@ def test_events_configuration(tmp_path):
         from_dict(dict(base, data=dict(base["data"], events={"dr2": {"configs": ["IC79"], "foo": 1}})))
 
 
-def test_gauss_newton_profile_equals_lbfgsb(tmp_path):
+@pytest.mark.parametrize("sets", ["hese", "mese"])
+def test_gauss_newton_profile_equals_lbfgsb(tmp_path, sets):
     """The HESE + DR2 nuisances' profile by projected Gauss-Newton steps (2026-10-15) reaches the L-BFGS-B profile's
     minimum (or below it) at points near and far from the data's best fit; its value and gradient are
     _expected_bins'."""
-    m, ev = _event_model(tmp_path)
+    m, ev = _event_model(tmp_path, sets)
     rng = np.random.default_rng(11)
     x = ev.centre + 0.3 * ev.sigma * rng.standard_normal(len(ev.names))
     for i, (lo, hi) in enumerate(ev.bounds):
@@ -344,5 +349,104 @@ def test_empty_settings_mean_the_defaults(tmp_path, monkeypatch):
     assert ev.chi2({"norm_astro": 1.0, "p_index": 2.5}) > 1.0                    # the data are there
     assert EventLikelihood(m, {"hese": {}, "dr2": False}).dr2 is None
     assert EventLikelihood(m, {"hese": True}).hese is not None
-    with pytest.raises(ValueError, match="neither HESE nor DR2"):
+    with pytest.raises(ValueError, match="no data set is on"):
         EventLikelihood(m, {"hese": False, "dr2": None})
+
+
+def test_mese_term(tmp_path):
+    """MESE's data set (set 2): its nuisances are the two free normalizations (no prior term), its expectation at the
+    centre is the fold plus the release's Conv and Muon columns, and 'mese' passes the configuration's checks."""
+    from analysis.config import from_dict
+    m, ev = _event_model(tmp_path, "mese")
+    assert ev.hese is None and ev.mese is not None
+    assert ev.mese.topologies == ("cascades", "double_cascades") and len(ev.mese.data) == 22 + 13
+    i = [ev.names.index(k) for k in ("mese_conv_norm", "mese_muon_norm")]
+    assert np.all(ev.prior[i] == 0.0) and np.all(np.delete(ev.prior, i) == 1.0)
+    A = ev.astro({"norm_astro": 1.0, "p_index": 2.5})
+    ex = ev.exact(ev.centre, A)
+    assert np.allclose(ex["mese_mu"], A["mese"] + ev.mese.conv + ev.mese.muon)
+    x = ev.centre.copy()
+    x[i[0]] = 3.0
+    assert ev.exact(x, A)["priors"] == pytest.approx(ex["priors"], abs=1e-12)
+    base = {"name": "t", "data": {"events": {"mese": {"topologies": ["cascades"]}, "dr2": True}},
+            "solver": {"grid": {"n_E_bins": 40, "E_min_eV": 1e12, "E_max_eV": 3e16},
+                       "sky": {"nside": 4, "extragalactic_norm": 1.7e-16, "extragalactic_norm_E_GeV": 1.5e4}},
+            "parameters": {"norm_astro": {"start": 1.0, "bounds": [0.01, 100.0], "space": "log10"}},
+            "output_dir": str(tmp_path)}
+    from_dict(base)
+    with pytest.raises(ValueError, match="unknown keys"):
+        from_dict(dict(base, data={"events": {"mese": {"foo": 1}}}))
+
+
+E1_SKY8 = {"nside": 8, "extragalactic_norm": 1.7e-16, "extragalactic_norm_E_GeV": 1.5e4}   # the Galactic part needs it
+E1_PHYSICS = {
+    "none": {"dark_portal": {"g_D": 1e-60, "epsilon_prime": 0.0}},
+    # review item 4 (2026-11-11): linearity in the emission with new physics in each family, the Galactic part on
+    "dark_portal": {"dark_portal": dict(DP), "galactic": {"enabled": True, "emission": "3d", "f_e_S_gal": 0.3},
+                    "sky": E1_SKY8},
+    "si_scalar_dirac": {"secret_interactions": dict(SI, neutrino_type="dirac"),
+                        "galactic": {"enabled": True, "emission": "3d", "f_e_S_gal": 0.3}, "sky": E1_SKY8},
+    "si_vector_majorana": {"secret_interactions": dict(SI, mediator="vector", m_phi_eV=2e6, g_phi=0.03)},
+}
+
+
+def _e1_models(ratio0=1.0, physics="none"):
+    """A sky model with the antineutrino share free (audit decision E1) and fixed-share models to compare with."""
+    from analysis.model import FlavorModel
+    solver = {"grid": {"n_E_bins": 60, "E_min_eV": 1e12, "E_max_eV": 3e16, "n_z_bins": 60, "n_sun_paths": 2,
+                       "N_steps_earth": 8},
+              "sky": {"nside": 4, "extragalactic_norm": 1.7e-16, "extragalactic_norm_E_GeV": 1.5e4},
+              "source": {"nubar_to_nu_ratio": ratio0}}
+    solver.update({k: dict(v) for k, v in E1_PHYSICS[physics].items()})
+
+    def model(free, ratio=None):
+        s = {k: dict(v) for k, v in solver.items()}
+        if ratio is not None:
+            s["source"]["nubar_to_nu_ratio"] = ratio
+        return FlavorModel(s, free_names=free, p_nodes=[2.2, 2.5, 2.8], sky=True, flavor_band_eV=[1e13, 3e16])
+    return model
+
+
+@pytest.mark.parametrize("physics", list(E1_PHYSICS))
+def test_e1_free_share_reproduces_fixed_runs(physics):
+    """E1: at the configured ratio the free-share model gives the stored runs' fluxes exactly; at another ratio it
+    gives what a run configured with that ratio gives (transport is linear in the emission), to single precision;
+    without new physics and with it in each family (review item 4, 2026-11-11), the Galactic part on in two."""
+    model = _e1_models(physics=physics)
+    free = model(("norm_astro", "p_index", "nubar_to_nu_ratio"))
+    assert "nubar_to_nu_ratio" in free.gradient_names()
+    v = {"norm_astro": 1.3, "p_index": 2.45}
+    E, a_nu, a_nb = free.band_fluxes(dict(v, nubar_to_nu_ratio=1.0))
+    _, b_nu, b_nb = model(("norm_astro", "p_index")).band_fluxes(v)
+    if physics == "none":
+        assert np.array_equal(a_nu, b_nu) and np.array_equal(a_nb, b_nb)
+    else:
+        # with new physics the neutrino-only run has antineutrino secondaries, and the bands are kept in single
+        # precision: w0 v + (s - w0 v) returns s to rounding only
+        scale = max(np.max(np.abs(b_nu)), np.max(np.abs(b_nb)))
+        assert np.max(np.abs(a_nu - b_nu)) < 1e-6 * scale and np.max(np.abs(a_nb - b_nb)) < 1e-6 * scale
+    for R in (0.5, 0.75):
+        _, c_nu, c_nb = free.band_fluxes(dict(v, nubar_to_nu_ratio=R))
+        _, d_nu, d_nb = model(("norm_astro", "p_index"), ratio=R).band_fluxes(v)
+        scale = max(np.max(np.abs(d_nu)), np.max(np.abs(d_nb)))
+        assert np.max(np.abs(c_nu - d_nu)) < 1e-6 * scale and np.max(np.abs(c_nb - d_nb)) < 1e-6 * scale
+        if physics == "none":
+            assert np.sum(c_nb) / np.sum(c_nu + c_nb) == pytest.approx(R / (1 + R), rel=0.05)   # no new physics
+
+
+def test_e1_gradient():
+    """E1: the derivative in nubar_to_nu_ratio (and the others) against central differences of band_fluxes."""
+    model = _e1_models()
+    m = model(("norm_astro", "p_index", "nubar_to_nu_ratio"))
+    v = {"norm_astro": 1.1, "p_index": 2.6, "nubar_to_nu_ratio": 0.7}
+    names = ["norm_astro", "p_index", "nubar_to_nu_ratio"]
+    E, F_nu, F_nb, dF = m.band_flux_jacobian(v, names)
+    _, G_nu, G_nb = m.band_fluxes(v)
+    assert np.allclose(F_nu, G_nu, rtol=1e-12, atol=0) and np.allclose(F_nb, G_nb, rtol=1e-12, atol=0)
+    for n in names:
+        h = 1e-5 * max(1.0, abs(v[n]))
+        _, u_nu, u_nb = m.band_fluxes(dict(v, **{n: v[n] + h}))
+        _, l_nu, l_nb = m.band_fluxes(dict(v, **{n: v[n] - h}))
+        for d, u, l in ((dF[n][0], u_nu, l_nu), (dF[n][1], u_nb, l_nb)):
+            fd = (u - l) / (2 * h)
+            assert np.max(np.abs(d - fd)) < 1e-5 * max(1e-300, np.max(np.abs(fd))), n
