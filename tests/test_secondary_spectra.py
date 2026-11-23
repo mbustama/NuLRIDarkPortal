@@ -33,7 +33,11 @@ def test_one_daughter_per_decay(key, model, M, g):
     x = np.geomspace(1e-12, 1.0, 400001)
     keep, flip = ss.decay_spectra(model, M, g, x=x)
     assert trapz(keep + flip, x) == pytest.approx(1.0, rel=1e-4)
-    assert np.all(keep >= -1e-9) and np.all(flip >= -1e-9)
+    # the flipped daughter's spectrum vanishes at z+; dp_decay fits a + b z + c/z with z down to ~4e-10, so the fit
+    # recovers a and b to ~1e-7 only, and the value at z+ is +-1e-7 depending on the linear-algebra library
+    # (2026-11-23: 6.8e-8 with NumPy 1.26, 1.2e-7 with 2.5 here, below -1e-9 on CI); the bound is relative to the peak
+    tol = 1e-6 * max(keep.max(), flip.max())
+    assert keep.min() >= -tol and flip.min() >= -tol, (keep.min(), flip.min())
 
 
 def test_figure_draws():
