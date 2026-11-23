@@ -374,6 +374,33 @@ def test_repair_pass_resumes_where_it_stopped(synthetic, tmp_path):
     assert len(marks2) == len(grid) and len({tuple(m) for m in marks2}) == len(grid)
 
 
+def test_repair_markers_name_the_points_that_finished(synthetic, tmp_path, monkeypatch):
+    """With several workers the repair outcomes arrive in the order they finish (imap_unordered); each checkpoint
+    marker must name the point whose check finished (2026-11-23: markers were paired with the task list, so a scan
+    stopped inside a pass skipped, on restart, points whose checks never finished)."""
+    cfg, obj = synthetic
+    grid = np.linspace(-1.0, 2.5, 15)
+    ck = str(tmp_path / "profile_a.jsonl")
+    quiet = dict(workers=1, checkpoint=ck, max_passes=1, log=lambda *a: None)
+    ran = []
+    real = scans._run_repair
+    monkeypatch.setattr(scans, "_run_repair", lambda task: (ran.append(tuple(task[0])), real(task))[1])
+    # completions in reverse order of submission, as a pool can return them
+    monkeypatch.setattr(scans._Pool, "imap", lambda self, f, tasks: reversed([f(t) for t in tasks]))
+    scans.profile(cfg, "a", grid, {"a": 1.0, "b": 1.0}, **quiet)
+    marks = [tuple(json.loads(line)["index"]) for line in open(ck) if '"repair_checked"' in line]
+    assert marks == ran[::-1]                          # each marker names the check that finished
+    full = scans.profile(cfg, "a", grid, {"a": 1.0, "b": 1.0}, **quiet)
+    lines = open(ck).read().splitlines()
+    pos = [i for i, line in enumerate(lines) if '"repair_checked"' in line]
+    with open(ck, "w") as f:                           # stopped after five checks had finished
+        f.write("\n".join(lines[:pos[4] + 1]) + "\n")
+    ran.clear()
+    again = scans.profile(cfg, "a", grid, {"a": 1.0, "b": 1.0}, **quiet)
+    assert set(ran) == {tuple(json.loads(lines[p])["index"]) for p in pos[5:]}
+    np.testing.assert_array_equal(again.chi2_array(), full.chi2_array())
+
+
 def test_certificate_box_tells_the_lightest_mass_basins_apart():
     """A neighbour's lightest mass two decades away is outside a point's certificate box although the box, a prior
     width across in eV, spans both (2026-10-21: ultralight points stuck at 1e-6 eV were never tried at 1e-4 eV)."""
