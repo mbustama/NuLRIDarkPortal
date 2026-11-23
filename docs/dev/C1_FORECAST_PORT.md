@@ -67,3 +67,26 @@ measured energy only, as set 2's present data.
   alone has a degenerate muon nuisance; (iv) E1 raises at a share of 0.
 - Confirmed by the review: units and normalization, the Glashow piece, band and flavor order, the deviance's edge cases,
   the profile and the exact gradient, E1's mixing and derivative, MESE histograms.
+
+## Pilot (jobs 79802, 79902, 93811)
+
+- Majorana block (si_scalar_majorana_mu b17): 6h43 on 32 cores; best-fit chi2 1.64 (the mass prior, below); 95% limits 0.0041 at
+  17.8 MeV and 0.058 at 23.7 MeV (set 1: 0.44, 0.58).
+- Dirac block (si_scalar_dirac_tau b19): hit the 12 h limit at 86.7% (last points ~35 min per 1%); resumed 2026-11-12 as
+  93811 on astro3_long, its stale RUNNING.lock removed.
+- Both pilots read the blocks before the code-review fix (blocks_v1); the resume is pinned to blocks_v1
+  (NULRI_FORECAST_BLOCKS) so the block stays consistent. **Before the production forecasts, move both pilot outputs
+  (campaign_si/proj_future_planA/si_scalar_{majorana_mu/b17,dirac_tau/b19}) aside**, or production resumes from them.
+- **Best-fit chi^2 1.64, explained (2026-11-12):** the cosmological mass prior, a half-Gaussian in the sum of masses
+  from 0 with 95% at 0.09 eV (sigma = 0.0459 eV). At the smallest lightest mass (1e-6 eV, normal ordering) the sum is
+  0.0588 eV, so (0.0588/0.0459)^2 = 1.639, against 1.6393 in fit.json. Every fit carries it (present data too); it
+  cancels in Delta chi^2. The remainder (below 0.001) bounds any mismatch between the Asimov events and the model.
+- Dirac block resumed (93811): finished in 6h33 more, 18.5 h in total on 32 cores.
+- **Forecast configurations for the other families (2026-11-12, tools/make_set_configs.py proj_future_planA from each
+  campaign's proj_future):** nulri_set1_final campaign_final (90; the dark portal's 54 are final, its L_e - L_alpha
+  ones are superseded by campaign_final_sm), nulri_set1_b campaign_final_b (10; dark portal 6 final), nulri_set1_sm
+  campaign_final_sm (36), nulri_set1_ml campaign_ml (56). These copies hold no Plan A blocks: launch with
+  NULRI_FORECAST_BLOCKS=/lustre/astro/mbustama/external/nulri_forecast_planA/blocks (MD5s in
+  IceCubeRates/data/future_planA_MD5SUMS.txt). Open before the L_e - L_alpha ultralight forecasts: review item 2 (C2).
+- Numerics check (review item 9): tools/check_forecast_numerics.py, job 109270 (standard vs doubled grids, edges of
+  the Majorana pilot's 17.78 and 23.71 MeV columns, current blocks).

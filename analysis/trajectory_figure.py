@@ -6,12 +6,15 @@ compute() runs src/dp_trajectory.py's stages for the benchmarks (sources in one 
 and caches them in output/analysis/trajectory_figure.npz; figure() draws from the cache. Called from
 notebooks/paper_figures.ipynb (Sec. 8), in the repository's style (analysis.figure_style.use() first).
 
-Benchmarks, one row each, ordered by where along the trip they act:
-  si     -- secret interactions, a Majorana scalar on nu_tau, 10 MeV, g = 1e-3: resonant absorption in the Universe;
-  dp     -- the dark portal mixed with nu_tau (u_tau = 1/sqrt 2, as the campaign), 1e-2 eV, g_D = 4e-6: decays and
-            scatterings on the relics drain the flux across the Universe;
-  le_26  -- L_e - L_mu, 1e-26 eV, g' = 1e-27: the Milky Way's potential opens decays;
-  le_20  -- L_e - L_mu, 1e-20 eV, g' = 1e-24: the Sun's potential turns the states into flavors.
+Benchmarks (2026-11-22, his choice: the examples of the ingredients figure, Fig. 7, in every illustrative figure; the
+1e-26 eV row dropped), one row each, ordered by where along the trip they act:
+  si     -- secret interactions, a Majorana scalar on nu_tau, 10 MeV, g = 0.18: absorption in the Universe;
+  dp     -- the dark portal on nu_tau (u_tau = 1/sqrt 2, g_D = 1.124e-6: g_D |U_tau4|^2 = 5.62e-7), 1e-3 eV: decays
+            and scatterings on the relics in the Universe;
+  le_20  -- L_e - L_mu, 1e-20 eV, g' = 1e-21: decays in the Universe; the Milky Way's potential turns the states into
+            flavors and opens decays into antineutrinos.
+The cache of 2026-11-22 (trajectory_figure_fig7.npz) comes from Tycho runs of compute() with these parameters, one
+row per campaign checkout (nulri_refit_set for si, nulri_set1_sm for dp and le_20; ~/stage_scan/species_fig7.py).
 """
 import json
 import os
@@ -22,7 +25,7 @@ import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-CACHE = os.path.join(REPO, "output", "analysis", "trajectory_figure.npz")
+CACHE = os.path.join(REPO, "output", "analysis", "trajectory_figure_fig7.npz")
 #: The sources' redshift shell and the observed energy (eV) of every row.
 SHELL = (1.8, 2.2)
 E_OBS = 5e14
@@ -32,10 +35,9 @@ N_CORES = 4
 #: The grid: 10 TeV to 30 PeV, as the method figures (method_figures.GRID), finer in energy than the redshift grid.
 GRID = {"E_min_eV": 1e13, "E_max_eV": 3e16, "n_E_bins": 120, "n_z_bins": 80}
 
-ROWS = [("si", r"Secret interactions: scalar on $\nu_\tau$, $M = 10$ MeV, $g = 10^{-3}$"),
-        ("dp", r"Dark portal: mixed with $\nu_\tau$, $M = 10^{-2}$ eV, $g_D = 4 \times 10^{-6}$"),
-        ("le_26", r"$L_e - L_\mu$: $M = 10^{-26}$ eV, $g' = 10^{-27}$"),
-        ("le_20", r"$L_e - L_\mu$: $M = 10^{-20}$ eV, $g' = 10^{-24}$")]
+ROWS = [("si", r"Secret interactions: scalar on $\nu_\tau$, $M = 10$ MeV, $g = 0.18$"),
+        ("dp", r"Dark portal: coupled to $\nu_\tau$, $M = 10^{-3}$ eV, $g_D |U_{\tau 4}|^2 = 5.6 \times 10^{-7}$"),
+        ("le_20", r"$L_e - L_\mu$: $M = 10^{-20}$ eV, $g' = 10^{-21}$")]
 FLAVOR_COLORS = ["#d95f02", "#7570b3", "#1b9e77"]
 FLAVORS = [r"$\nu_e$", r"$\nu_\mu$", r"$\nu_\tau$"]
 ANTI_DASH = (0, (3.2, 1.6))
@@ -63,13 +65,13 @@ def _params(key, grid):
             "grid": grid, "execution": {"n_cores": N_CORES, "verbose": 0}}
     if key == "si":
         cfg = dict(base, secret_interactions={"enabled": True, "mediator": "scalar", "neutrino_type": "majorana",
-                                              "m_phi_eV": 1e7, "g_phi": 1e-3, "texture": "tau"})
+                                              "m_phi_eV": 1e7, "g_phi": 0.18, "texture": "tau"})
     elif key == "dp":
         cfg = dict(base, model={"name": "dark_portal"},
-                   dark_portal={"m_Zd_eV": 1e-2, "g_D": 4e-6, "u_e": 0.0, "u_mu": 0.0, "u_tau": 2 ** -0.5,
+                   dark_portal={"m_Zd_eV": 1e-3, "g_D": 2 * 5.62e-7, "u_e": 0.0, "u_mu": 0.0, "u_tau": 2 ** -0.5,
                                 "epsilon_prime": 0.0, "use_debye_screening": True, "thermal_products": True})
     else:
-        m, g = {"le_26": (1e-26, 1e-27), "le_20": (1e-20, 1e-24)}[key]
+        m, g = {"le_20": (1e-20, 1e-21)}[key]
         cfg = dict(base, model={"name": "L_e-L_mu"},
                    dark_portal={"m_Zd_eV": m, "g_D": g, "u_e": 0.0, "u_mu": 0.0, "u_tau": 0.0, "epsilon_prime": 0.0})
     return dps.build_solver_params(cfg)
@@ -123,7 +125,7 @@ def figure(data=None):
     left, right = 0.62, 0.16
     scale = (W - left - right) / (FIG3[-1][1] - FIG3[0][0])
     cols = [(left + (a - FIG3[0][0]) * scale, (b - a) * scale) for a, b in FIG3]
-    top, bottom, rgap = 0.98, 0.62, 0.3
+    top, bottom, rgap = 0.55, 0.66, 0.32      # his layout of 2026-11-22: rows further apart; legend in the first panel
     rh = (H - top - bottom - rgap * (len(ROWS) - 1)) / len(ROWS)
     L_chord = float(d["le_20/earth_x"][-1])
     fig = plt.figure(figsize=(W, H))
@@ -153,6 +155,7 @@ def figure(data=None):
         for c, ax in enumerate(axs):
             ax.set_ylim(0.0, 1.12 * ymax)
             ax.tick_params(labelsize=8, which="major", length=3.0, width=0.6, pad=2)
+            ax.tick_params(axis="x", which="major", pad=4)          # the x labels further from the axis
             ax.tick_params(which="minor", length=1.5, width=0.5)
             if c > 0:
                 ax.set_yticklabels([])
@@ -161,6 +164,8 @@ def figure(data=None):
             if r == 0:
                 fig.text((cols[c][0] + 0.5 * cols[c][1]) / W, (y0 + rh + 0.3) / H, TITLES[c], fontsize=10,
                          ha="center", va="bottom")
+        if r == 0:
+            ax_legend = axs[0]
         axs[0].set_xlim(SHELL[1], 0.0)
         axs[0].axvspan(SHELL[0], SHELL[1], color="0.9", lw=0, zorder=0)
         axs[1].set_xscale("log")
@@ -172,7 +177,9 @@ def figure(data=None):
         axs[3].set_xlim(0.0, L_chord)
         axs[3].set_xticks([0, 2000, 4000, 6000, 8000])
         axs[3].xaxis.set_minor_locator(plt.MultipleLocator(1000))
-        axs[0].set_ylabel("Flux / total\nat emission", fontsize=9)
+        if r < len(ROWS) - 1:              # tick labels on the bottom row only (set_xticks above re-enables them)
+            for ax in axs:
+                ax.tick_params(labelbottom=False)
         fig.text(cols[0][0] / W, (y0 + rh + 0.05) / H, label, fontsize=8.5, va="bottom", ha="left")
         if r == 0:
             axs[0].text(np.mean(SHELL), 0.5 * ymax, "Sources", rotation=90, ha="center", va="center", fontsize=7.5,
@@ -182,9 +189,19 @@ def figure(data=None):
             axs[1].set_xlabel("Distance to\nthe Sun [kpc]", fontsize=9)
             axs[2].set_xlabel("Distance to\nthe Earth [AU]", fontsize=9)
             axs[3].set_xlabel("Distance inside\nthe Earth [km]", fontsize=9)
+    # one y label for all rows, on one line
+    y_lo = bottom / H
+    y_hi = (H - top) / H
+    fig.text(0.012, 0.5 * (y_lo + y_hi), "Flux of each species / total at emission", rotation=90, ha="left",
+             va="center", fontsize=9)
     handles = [Line2D([], [], color=FLAVOR_COLORS[f], lw=1.5, label=FLAVORS[f]) for f in range(3)]
     handles += [Line2D([], [], color="k", lw=1.5, ls="-", label="Neutrinos"),
                 Line2D([], [], color="k", lw=1.2, ls=ANTI_DASH, label="Antineutrinos")]
-    fig.legend(handles=handles, loc="upper center", ncol=5, fontsize=8.5, frameon=True, edgecolor="k",
-               fancybox=False, bbox_to_anchor=(0.5, 1.0))
+    # two legends in the first panel (his request): the flavors, then neutrinos and antineutrinos below them
+    kw = dict(fontsize=8, frameon=True, edgecolor="k", fancybox=False, handlelength=2.0, borderaxespad=0.4)
+    leg1 = ax_legend.legend(handles=handles[:3], loc="upper right", **kw)
+    leg1.get_frame().set_linewidth(0.6)
+    ax_legend.add_artist(leg1)
+    leg2 = ax_legend.legend(handles=handles[3:], loc="upper right", bbox_to_anchor=(1.0, 0.62), **kw)
+    leg2.get_frame().set_linewidth(0.6)
     return fig

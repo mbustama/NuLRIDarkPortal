@@ -74,11 +74,23 @@ class _Stub:
         base = n * (E / 1e5) ** (-g)
         tilt = np.array([1.0, 1.2, 0.9, 1.1])[:, None, None] * np.array([1.0, 0.8, 1.3])[None, None, :]
         F = base[None, :, None] * tilt                               # (nb, N_E, 3), declination order
+        F = F[::-1] if self.flip else F
         return F / (1 + r), F * r / (1 + r), base, E
+
+    galactic = False
+    flip = False                                                     # the bands mirrored (dec -> -dec)
 
     def site_band_fluxes(self, v, lat):
         Fn, Fb, _, _ = self._f(v)
         return self.E_eV, Fn[::-1], Fb[::-1]
+
+    def band_fluxes(self, v):
+        Fn, Fb, _, _ = self._f(v)
+        return self.E_eV, Fn, Fb
+
+    def extragalactic_band_jacobian(self, v, names):
+        E, Fn, Fb, d = self.site_band_flux_jacobian(v, -90.0, names)
+        return E, Fn[::-1], Fb[::-1], {k: (a[::-1], b[::-1]) for k, (a, b) in d.items()}
 
     def site_band_flux_jacobian(self, v, lat, names):
         Fn, Fb, base, E = self._f(v)
@@ -154,6 +166,39 @@ def test_asimov_profile_and_newton(blocks_dir):
 
 def test_gradient_matches_finite_differences(blocks_dir):
     L = FE.FutureEventLikelihood(_Stub(), {"config": "Current"})
+    L.set_asimov(dict(n=1.5e-18, g=2.5, r=0.5))
+    v = dict(n=1.8e-18, g=2.45, r=0.6)
+    c, g = L.chi2_and_grad(v, ["n", "g", "r"])
+    assert abs(c - L.chi2(v)) < 1e-8 * max(1.0, c)
+    for i, (nm, h) in enumerate([("n", 1e-21), ("g", 1e-5), ("r", 1e-5)]):
+        fd = (L.chi2(dict(v, **{nm: v[nm] + h})) - L.chi2(dict(v, **{nm: v[nm] - h}))) / (2 * h)
+        assert abs(fd - g[i]) <= 1e-4 * max(abs(fd), 1e-3 * abs(c) / abs(v[nm])), (nm, fd, g[i])
+
+
+def test_offpole_mirrored(blocks_dir):
+    """Review item 2: with offpole_earth 'mirrored' the South Pole's cards see the model's bands, the other cards the
+    bands reversed (the stub has no Galactic part: all of its flux is mirrored); the default is the South Pole's."""
+    v = dict(n=1.5e-18, g=2.5, r=0.5)
+    flipped = _Stub()
+    flipped.flip = True
+    S_pole = FE.FutureEventLikelihood(_Stub(), {"config": "All8"}).signals(v)
+    S_flip = FE.FutureEventLikelihood(flipped, {"config": "All8"}).signals(v)
+    L = FE.FutureEventLikelihood(_Stub(), {"config": "All8", "offpole_earth": "mirrored"})
+    S = L.signals(v)
+    n_off = 0
+    for blk, s, sp, sf in zip(L.blocks, S, S_pole, S_flip):
+        ref = sp if blk["key"][0] in FE.POLE_CARDS else sf
+        n_off += blk["key"][0] not in FE.POLE_CARDS
+        for name in s:
+            np.testing.assert_allclose(s[name], ref[name], rtol=1e-12, atol=0)
+    assert n_off and n_off < len(L.blocks)
+    assert not np.allclose(S_pole[-1][""], S_flip[-1][""]) or not np.allclose(S_pole[0][""], S_flip[0][""])
+    with pytest.raises(ValueError):
+        FE.FutureEventLikelihood(_Stub(), {"config": "All8", "offpole_earth": "equator"})
+
+
+def test_offpole_mirrored_gradient(blocks_dir):
+    L = FE.FutureEventLikelihood(_Stub(), {"config": "Current", "offpole_earth": "mirrored"})
     L.set_asimov(dict(n=1.5e-18, g=2.5, r=0.5))
     v = dict(n=1.8e-18, g=2.45, r=0.6)
     c, g = L.chi2_and_grad(v, ["n", "g", "r"])

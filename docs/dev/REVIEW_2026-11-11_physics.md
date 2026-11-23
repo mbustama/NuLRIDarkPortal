@@ -90,3 +90,50 @@ Not in the list, unverified: relic annihilation into the mediator for M < m_nu a
   Goldstone channels) joins not_modelled_mask; tests/test_exclusion.py (11 pass). **Paper text item (his request,
   2026-11-11): explain in the paper why the band is hatched** (the longitudinal scatterings left out; check 24a; no
   claim there).
+- **Items 3 and 5, dark portal and L_e - L_tau blocks (2026-11-12; edges by analysis.exclusion.field of each
+  copy, linear reading):** dp_e_ul b6 has no 95% crossing in set 1 or any variant (no information). le_ltau_ul b7
+  (four mass columns; three cross at log10 g = -2.48, the same in every variant): at m = 1e-2 eV the edge moves from
+  log10 g = -5.36 (set 1) to -5.63 with IceCube's single-power-law flavor grid (limit a factor 1.9 stronger); the
+  flux-weighted composition changes nothing. Item 3 confirmed above threshold where the flavor sets the limit
+  (ultralight L_e - L_alpha). The correlated-segments variant (82350_3) hit its 12 h limit unfinished.
+- **Item 2, his choice (2026-11-12): measure first.** analysis/future_events.py: data.events.future.offpole_earth
+  'mirrored' gives the six off-pole cards the extragalactic flux with its bands reversed (dec -> -dec: the North
+  Pole's crossing of the Earth; the Galactic part as at the South Pole; tests/test_future_detectors.py
+  test_offpole_mirrored and its gradient test). Note: the solver's crossing carries the flavor change only; the
+  absorption is in the cards' responses (IceCubeRates/flux_adapters.py), so nothing is counted twice. Check (job
+  112142, copy nulri_checks_lri = nulri_set1_sm + the new future_events.py and tools/check_forecast_numerics.py;
+  cache sm_20261108): le_ltau_ul b3 forecast at the old forecast plane's edges, m = 1e-18, 1e-17, 1e-16, 1e-15 eV
+  (log10 g = -26.84, -25.25, -25.29, -24.87), each with the reference g = 1e-32, standard against mirrored.
+- **Item 2, first result (job 119272, le_ltau_ul b3, m = 1e-18 to 1e-15 eV):** Delta chi^2 standard against
+  mirrored differs by at most 6e-4 (e.g. 1e-16 eV: 2.5052 / 2.5046). Verified that the mirror acts (devel job
+  121513: signals change ~1e-4); the Earth's crossing is ~0.5% of the new force's effect at these masses. Negligible.
+  Masses 1e-14 to 1e-11 eV (block 4, job 122628): queued.
+- **Item 9, result (job 109270, nulri_forecast, si_scalar_majorana_mu b17 forecast, 2026-11-12):** Delta chi^2
+  (point minus reference, reference chi^2 1.6393 in both) with the campaign's grids / all grids doubled:
+  m = 17.8 MeV edge 3.862 / 3.759, +0.3 dex 4.389 / 4.255; m = 23.7 MeV edge 3.762 / 3.670, +0.3 dex 16.880 /
+  16.814. Differences 0.07-0.13, at the 0.1 tolerance; finer grids lower Delta chi^2 (limits slightly weaker).
+  Effect on the limit: on the 17.8 MeV column Delta chi^2 rises only 0.53 over 0.3 dex, so a 0.1 shift moves the
+  edge ~0.06 dex (~15% in g); on the 23.7 MeV column (13 per 0.3 dex) ~0.002 dex. Cost: doubled 3 h 14 min against
+  26 min (7.3x). (The 17.8 MeV edge fit with standard grids ended at m_lightest = 1.25e-3 eV, the doubled one at
+  1e-6 eV; part of that pair's 0.10 may be the fit, not the grids.)
+- **Item 9, his choice (2026-11-12): keep the campaign's grids for the forecasts;** the paper states up to ~15% numerical
+  uncertainty in g on the forecast limits where Delta chi^2 rises slowly.
+- **Item 2, second result (job 122628, le_ltau_ul b4, m = 1e-14 to 1e-11 eV):** Delta chi^2 standard and mirrored
+  identical to 1e-4 (1e-14 eV: 2.5171; 1e-13 to 1e-11 eV at the old edges g/m = 1.15e-6 eV^-1: 1.5685 each). Check
+  (devel job 150927, verify_mirror_b4.py): the new force changes the extragalactic flux by 15% (1e-14 eV) and 40%
+  (1e-12 eV), but the flux's north-south asymmetry is 4e-8 and 3e-13: at these masses the effect is the same in every
+  direction (the potential near the Earth's surface, felt by every arriving neutrino), so the mirror has nothing to
+  change (off-pole signal change 0). **Item 2 settled: negligible at every mass tested (1e-18 to 1e-11 eV).**
+  Not covered by the mirror (noted, not measured): the matter around each site within the force's range (water, ice,
+  rock; PREM in the solver); it matters only where the potential is not yet far above the oscillation term.
+
+## Item 1 checked (2026-11-20, his go)
+
+- TS at the standard composition (read from output/analysis/mese_gate.json, map interpolated): pion decay at Earth,
+  approximately (0.30, 0.36, 0.34): TS 0.72 (IceCube's own fit: ~0, its best fit is there).
+- The gate fit rerun with our cascade response scaled 692.6/795 (Tycho job 569459, 1 core, 2 min 52 s; unchanged
+  tools/mese_gate.py, kernels scaled after loading; output/analysis/mese_gate_cascades_scaled.json, figure
+  output/figures/mese_gate_cascades_scaled.png): best fit (0.24, 0.25, 0.51), TS along f_e = 0 2.25 (IceCube 8.65),
+  along f_tau = 0 5.44 (5.02), TS at pion decay 1.29. **The cascades' 15% excess is not the cause:** the tau-rich lean
+  stays (it grows at pion decay). It comes from the energy-only fit (no zenith, no double-cascade length), which does not
+  tell nu_e from nu_tau showers apart. No set-2 ultralight run launched; his decision pending.

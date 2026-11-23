@@ -29,7 +29,13 @@ small, not yet measured), **open** (decided to remove or change, not yet done).
 3. **Standard matter effects off in the Earth** (`use_SM_potential: false`). *Wrong for L_e - L_alpha; fixed in the
    code 2026-11-08* (Mauricio: "It is incorrect"). The justification written here on 2026-10-17 (mine, never put to
    him) held only without a new potential in the Earth: on an arriving mixture of mass states the SM potential changes
-   the flavor by <= 1.4e-3 at 100 GeV and ~1e-5 above 1 TeV (core-crossing, scratchpad sm_earth_check.py). With the
+   the flavor by <= 1.4e-3 at 100 GeV and ~1e-5 above 1 TeV (core-crossing, scratchpad sm_earth_check.py). **Those
+   numbers were wrong** (docs/dev/AUDIT_2026-11-08_resolution.md, E10, measured with the solver on each arriving mass
+   state): at most 3.3e-3 of a mass state's flavor share at 1 TeV, falling as 1/E (~3e-2 at 100 GeV); Delta chi^2 of
+   the stored SI and DP ultralight event planes shifts by <= 3.5e-6. A rough independent check (2026-11-22, two-Y_e
+   PREM, single chords, NuFIT 6.1): 3.7e-3 at 1 TeV, 3.6e-4 at 10 TeV for one mass state; 3.2e-4 at 1 TeV for the
+   pion-source mixture. **Accepted** for the dark portal and secret interactions (Mauricio, 2026-11-22: "yes, but
+   briefly say so in text"; the paper's Sec. III says it). With the
    L_e - L_alpha potential the arriving states are not mass states and both potentials act together in the Earth.
    Both are flavor-diagonal, so within a chord only the vacuum term changes flavor, by at most ~Delta m^2_31 L / E
    (0.016 at 10 TeV, 0.16 at 1 TeV, order 1 at 100 GeV through the core). The code put one constant density on every

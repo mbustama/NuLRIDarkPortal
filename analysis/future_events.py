@@ -9,7 +9,10 @@ of the solver's sky (20 bands, equal in sin dec), events per live year per unit 
 true-energy bins, per flavor (nu + nubar, the cards' average), the Glashow piece apart, and Plan A's nuisance templates
 and priors. The card carries its site, the Earth's absorption by local zenith and the rotation through the day; the
 input is the flux per declination band before the Earth (FlavorModel's sky bands; at the South Pole the solver's
-crossing of the Earth, which changes nothing for the dark portal and the secret interactions, C2).
+crossing of the Earth, which changes nothing for the dark portal and the secret interactions, C2). For review item 2
+(2026-11-12) the off-pole cards can instead take the extragalactic flux mirrored north to south ('offpole_earth':
+'mirrored', the North Pole's crossing of the Earth; the Galactic part as at the South Pole): with the South Pole's,
+it brackets the error of the South Pole's crossing at the other sites.
 
 Blocks (his choice, 2026-11-11): tracks per declination band and measured energy; showers and double cascades in
 measured energy only (their bands summed). Per block k
@@ -45,6 +48,8 @@ DROP_KINDS = ("pointing", "dnn")
 GRADIENT_TOL = 1e-20
 N_SUB = 8                    # sub-points per true-energy bin for the flux integrals (log-midpoint rule)
 ALIASES = {"All8_base": "All8"}
+POLE_CARDS = ("icecube", "gen2")         # at the South Pole: the solver's crossing of the Earth is theirs
+OFFPOLE_EARTH = ("south_pole", "mirrored")
 
 
 def config_entries(config: str):
@@ -92,10 +97,13 @@ class FutureEventLikelihood:
 
     def __init__(self, model, spec: Mapping):
         spec = dict(spec)
-        bad = set(spec) - {"config"}
+        bad = set(spec) - {"config", "offpole_earth"}
         if bad:
-            raise ValueError(f"data.events.future: unknown keys {sorted(bad)}; known: config")
+            raise ValueError(f"data.events.future: unknown keys {sorted(bad)}; known: config, offpole_earth")
         self.config = ALIASES.get(str(spec.get("config", "All8")), str(spec.get("config", "All8")))
+        self.offpole_earth = str(spec.get("offpole_earth", "south_pole"))
+        if self.offpole_earth not in OFFPOLE_EARTH:
+            raise ValueError(f"data.events.future.offpole_earth: {self.offpole_earth!r}; known: {OFFPOLE_EARTH}")
         self.model = model
         E_eV, band_edges = model.grid()
         self._lgE_model = np.log10(np.asarray(E_eV, dtype=np.float64) / 1e9)
@@ -194,6 +202,23 @@ class FutureEventLikelihood:
         _, F_nu, F_nb, dF = self.model.site_band_flux_jacobian(values, -90.0, names)
         return F_nu[::-1], F_nb[::-1], {n: (dF[n][0][::-1], dF[n][1][::-1]) for n in names}
 
+    def _offpole(self, values, F_nu, F_nb, dF=None, names=None):
+        """The off-pole cards' fluxes (and derivatives) with offpole_earth 'mirrored': the extragalactic part's bands
+        reversed (dec -> -dec, the bands equal in sin dec), the Galactic part kept; None with 'south_pole'."""
+        if self.offpole_earth == "south_pole":
+            return None
+        if names is None:
+            vals = dict(values, norm_gal=0.0) if self.model.galactic else values
+            _, e_nu, e_nb = self.model.band_fluxes(vals)
+            de = None
+        else:
+            _, e_nu, e_nb, de = self.model.extragalactic_band_jacobian(values, names)
+        o_nu, o_nb = F_nu - e_nu + e_nu[::-1], F_nb - e_nb + e_nb[::-1]
+        if names is None:
+            return o_nu, o_nb, None
+        dO = {n: (dF[n][0] - de[n][0] + de[n][0][::-1], dF[n][1] - de[n][1] + de[n][1][::-1]) for n in names}
+        return o_nu, o_nb, dO
+
     def _phi(self, key, F):
         """F (nb, N_E, 3) -> (nb, n_points, 3) at a block's flux points, log-log, zero outside the model's grid."""
         _, inside, j, t = self._pts[key][:4]
@@ -201,11 +226,13 @@ class FutureEventLikelihood:
         a = L[:, j, :]
         return np.exp(a + t[None, :, None] * (L[:, j + 1, :] - a)) * inside[None, :, None]
 
-    def _point_fluxes(self, F_nu, F_nb):
-        """{key: (Phi (nb, n_pts, 3) nu + nubar, Phi_gr (nb, n_pts) = 2 nubar_e)}."""
+    def _point_fluxes(self, F_nu, F_nb, off=None):
+        """{key: (Phi (nb, n_pts, 3) nu + nubar, Phi_gr (nb, n_pts) = 2 nubar_e)}; the off-pole cards take `off`'s
+        fluxes when given (_offpole)."""
         out = {}
         for key in self._pts:
-            pn, pb = self._phi(key, F_nu), self._phi(key, F_nb)
+            fn, fb = (off[0], off[1]) if off is not None and key[0] not in POLE_CARDS else (F_nu, F_nb)
+            pn, pb = self._phi(key, fn), self._phi(key, fb)
             out[key] = (pn + pb, 2.0 * pb[:, :, 0])
         return out
 
@@ -225,7 +252,7 @@ class FutureEventLikelihood:
 
     def signals(self, values):
         F_nu, F_nb, _ = self._fluxes(values)
-        return self._signals(self._point_fluxes(F_nu, F_nb))
+        return self._signals(self._point_fluxes(F_nu, F_nb, self._offpole(values, F_nu, F_nb)))
 
     # ---------------------------------------------------------------- expectation and profile
     def _design(self, S):
@@ -341,7 +368,8 @@ class FutureEventLikelihood:
         self.n_calls += 1
         names = list(names)
         F_nu, F_nb, dF = self._fluxes(values, names)
-        P = self._point_fluxes(F_nu, F_nb)
+        off = self._offpole(values, F_nu, F_nb, dF, names)
+        P = self._point_fluxes(F_nu, F_nb, off)
         S = self._signals(P)
         x, r = self.profile(S, self.data, tol=GRADIENT_TOL)
         self.last = dict(nuisances=dict(zip(self.names, x.tolist())), value=float(r.fun), converged=bool(r.success),
@@ -365,7 +393,8 @@ class FutureEventLikelihood:
                         q[b, :, FLAVORS.index(f)] += v
         grad = np.zeros(len(names))
         for key, (q, qg) in Q.items():
-            pn, pb = self._phi(key, F_nu), self._phi(key, F_nb)
+            fn, fb, dFk = off if off is not None and key[0] not in POLE_CARDS else (F_nu, F_nb, dF)
+            pn, pb = self._phi(key, fn), self._phi(key, fb)
             _, inside, j, t = self._pts[key][:4]
 
             def dphi(F, dFn, phi):
@@ -374,7 +403,7 @@ class FutureEventLikelihood:
                 a = rel[:, j, :]
                 return phi * (a + t[None, :, None] * (rel[:, j + 1, :] - a))
             for i, nme in enumerate(names):
-                dn, db = dphi(F_nu, dF[nme][0], pn), dphi(F_nb, dF[nme][1], pb)
+                dn, db = dphi(fn, dFk[nme][0], pn), dphi(fb, dFk[nme][1], pb)
                 grad[i] += float(np.sum(q * (dn + db))) + float(np.sum(qg * 2.0 * db[:, :, 0]))
         return float(r.fun), grad
 

@@ -225,8 +225,10 @@ for fl, ff in _SI.items():
          verify="3 sigma")
     _reg(f"brdar_taudecay_{fl}", r"$\tau$ decays", "Brdar:2020nbj", mod, f"brdar_2003.05339_fig4_{ff}_taudecay.txt",
          verify="3 sigma; Brdar's meson curves dropped (swapped ee/mumu vs Blinov and the white paper)")
-    _reg(f"blinov_bbn_{fl}", "BBN", "Blinov:2019gcj", mod, "blinov_1905.02727_fig1_bbn_sinu_real.txt",
-         kind="vertical", region="left", verify="m_phi > 1.3 MeV (real scalar; the weakest of Blinov's BBN lines)")
+    _reg(f"blinov_bbn_{fl}", "BBN", "Blinov:2019gcj", mod, "blinov_1905.02727_table2_bbn_lcdm_real.txt",
+         kind="vertical", region="left",
+         verify="m_phi > 2.3 MeV (real scalar, Lambda-CDM + N_eff + sum m_nu baryon density; Table II); 1.3 MeV for "
+                "the SInu fit's baryon density (fig1_bbn_sinu_real); his choice 2026-11-22: 2.3 MeV, standard cosmology")
 _reg("wp_phibb_ee", r"$0\nu\beta\beta\phi$", "Berryman:2022hds", ["si_scalar_majorana_e"],
      "wp_2203.01955_fig9_phibb_ee.txt", verify="original: arXiv:1808.08158")
 _reg("wp_hese7p5_tautau", "IceCube HESE 7.5 yr", "Esteban:2021tub", ["si_scalar_majorana_tau"],

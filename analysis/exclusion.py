@@ -496,11 +496,11 @@ def draw_not_modelled(ax, lx, ly, mask, color="0.45"):
     mask = np.asarray(mask, dtype=float)
     if not np.any(mask):
         return
-    ax.contourf(lx, ly, mask, levels=[0.5, 1.5], colors="none", hatches=["////"], zorder=6)
+    ax.contourf(lx, ly, mask, levels=[0.5, 1.5], colors="none", hatches=["\\\\\\\\"], zorder=6)
     ax.contour(lx, ly, mask, levels=[0.5], colors=color, linewidths=0.8, zorder=6)
 
 
-def draw_not_allowed(ax, lx, G, boundary, color="0.45"):
+def draw_not_allowed(ax, lx, G, boundary, color="0.45", hatch="\\\\\\\\"):
     """Hatch the region where the plane's model is not perturbative (not_allowed_boundary), over the plane's ranges."""
     if boundary is None:
         return
@@ -508,7 +508,7 @@ def draw_not_allowed(ax, lx, G, boundary, color="0.45"):
     lx = np.asarray(lx, dtype=np.float64)
     edge = slope * lx + c
     top = np.full_like(lx, max(G[-1], edge.max()) + 1.0)
-    ax.fill_between(lx, np.clip(edge, G[0], None), top, facecolor="none", edgecolor=color, hatch="////", lw=0.0,
+    ax.fill_between(lx, np.clip(edge, G[0], None), top, facecolor="none", edgecolor=color, hatch=hatch, lw=0.0,
                     zorder=6)
     ax.plot(lx, edge, color=color, lw=0.8, zorder=6)
 
@@ -618,6 +618,6 @@ def not_modelled_boundary(cfg, lx, lo=-38.0, hi=0.0, tol=0.05, m_lightest=None):
 def hatch_above(ax, xs, ys, color="0.45"):
     """Hatch, as draw_not_allowed, the region above the polyline (xs, ys) (log10 axes)."""
     xs, ys = np.asarray(xs, dtype=float), np.asarray(ys, dtype=float)
-    ax.fill_between(xs, ys, np.full_like(ys, ys.max() + 50.0), facecolor="none", edgecolor=color, hatch="////",
+    ax.fill_between(xs, ys, np.full_like(ys, ys.max() + 50.0), facecolor="none", edgecolor=color, hatch="\\\\\\\\",
                     lw=0.0, zorder=6)
     ax.plot(xs, ys, color=color, lw=0.8, zorder=6)
