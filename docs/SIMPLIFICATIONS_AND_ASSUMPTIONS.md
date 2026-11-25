@@ -601,4 +601,13 @@ small, not yet measured), **open** (decided to remove or change, not yet done).
     Earth is the South Pole's at every site (exact without a matter effect; the open part of C2 for ultralight
     L_e - L_alpha); IceCube's and Gen2's starting events 5-7% below Plan A's own diffuse counts (flavor-blind);
     (f) the 95% edge is read with a monotone cubic in log10 g between samples (review item 8); where it and straight
-    lines differ by more than 2%, couplings are to be added near the edge (tools/edge_refine_list.py).
+    lines differ by more than 2%, couplings were to be added near the edge (tools/edge_refine_list.py). Not done
+    (Mauricio, 2026-11-24: internal, not in the paper): in the 129 fitted-composition planes of the limit figures,
+    2,834 columns differ by more than 2%, median 0.02 decades in g, at most 0.23 decades (today's MeV dark portal).
+    (g) the ranges of the astrophysical parameters (Table II; 2026-11-24, stored fits of the final planes): at the lowest
+    excluded coupling of each mass column, the fit sits at a range bound in most columns for today's IceCube data
+    (L_e - L_alpha ultralight 54/64, dark portal ultralight 21/26, MeV 615/865, secret interactions 827/921; set 2
+    341/737) and in 9 of 1,237 forecast columns; mostly the lower index at its floor 0.5, also the upper index at 3.0
+    and the normalization at 1000. The floor was measured (2026-11-09, jobs 36613/36614): releasing it moves the edge
+    Delta chi^2 by median 0.00, at most 0.25. The ceiling and the cap: not measured. Not in the paper (Mauricio,
+    2026-11-24: internal; Table II states the ranges).
