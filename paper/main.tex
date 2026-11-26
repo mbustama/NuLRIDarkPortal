@@ -606,7 +606,7 @@ At each point of a scan, we minimize over all of these parameters, each with its
 
 \subsubsection{Computing limits}
 At each mediator mass $M$ and coupling $g$, we minimize $\chi^2 = -2\ln\mathcal{L}$ over every other parameter of Table~\ref{tab:params}.
-The flux depends on the lightest neutrino mass through the relics, so in the planes of MeV mediators and of the ultralight dark portal we first scan it, at $10^{-6}$~eV and at three values per decade from $10^{-4}$ to 0.1~eV, and then fit it locally, solving the transport at the mass we report.
+The flux depends on the lightest neutrino mass through the relics, so in the planes of MeV mediators and of the ultralight dark portal we first scan it from $10^{-6}$ to 0.1~eV and then fit it locally, solving the transport at the mass we report.
 We then compare every coupling with the best one at the same mass by computing
 \begin{equation}
  \label{equ:dchi2}
@@ -625,7 +625,16 @@ With the source composition fitted, the planes of ultralight mediators also excl
 For the future telescopes, the data are the events expected at IceCube's fit, so the limits are the median sensitivity.
 The threshold of 3.84 follows from Wilks's theorem; read as an upper limit, it corresponds to 97.5\%~C.L.
 The theorem may fail here, since the coupling has a boundary and no effect below some value; near the boundary, the threshold is conservative~\cite{Cowan:2010js}.
-\todo{Coverage tests: pseudo-experiments at chosen true values; the coverage found; whether a Feldman--Cousins construction is needed; what is conservative.}
+
+We test the coverage of our limits with pseudo-experiments, each of which simulates IceCube's flavor composition and spectrum (the first data set, with the source composition fitted).
+We take two models with a mediator of 1.3~MeV, where absorption on the relics sets the limits: the $L_e - L_\tau$ gauge boson, and the scalar mediator of secret interactions coupled to $\nu_\tau$, with Majorana neutrinos.
+For each, the pseudo-data come from a true coupling equal to our limit, with every other parameter at its best fit for that coupling.
+As in Ref.~\cite{Bustamante:2026fxa}, we move the composition that the true model yields at Earth by an offset drawn from IceCube's likelihood, and translate the likelihood, unchanged in shape, onto the moved composition.
+In each spectrum segment, we draw the normalization from a Gaussian around its true value, with the measured uncertainties, truncated at zero.
+We fit the pseudo-data exactly as the real data, scan of the lightest mass included, and read the limit in the same way.
+The true coupling remains allowed in \todo{X}\% of the pseudo-experiments for $L_e - L_\tau$ and in \todo{Y}\% for secret interactions.
+Were Wilks's theorem exact here, both fractions would be 97.5\%.
+\todo{What follows from X and Y: whether our limits are conservative, and whether a Feldman--Cousins construction is needed.}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -795,7 +804,7 @@ Our limits fix the mixing parameters at their best fit, place the relic neutrino
 Varying the mixing parameters barely moves the limits (Sec.~\ref{sec:data}).
 Relics clustered in the Milky Way would add collisions only along the last tens of kiloparsecs of a trip of gigaparsecs.
 With a source composition that changes with energy, part of the flavor changes that our limits rest on could come from the sources instead.
-In pseudo-experiments at two MeV masses, our limits leave the true coupling allowed in \todo{X}\% and \todo{Y}\% of cases, for 95\% expected.
+In pseudo-experiments for two models with a 1.3~MeV mediator, our limits leave the true coupling allowed in \todo{X}\% and \todo{Y}\% of cases, against 97.5\% if Wilks's theorem held (Sec.~\ref{sec:data}).
 Eight neutrino telescopes, each taking data for ten years, could lower the excluded couplings by factors of a few to tens.
 The calculation is not tied to these three families: any new physics that changes how neutrinos propagate, through a potential, decays, or collisions, can be tested along the whole trip in the same way.
 
