@@ -21,6 +21,12 @@ def test_window_spans_one_decade_below_to_0p4_above():
     assert Y[0] not in cl.window(Y, -9.9)                    # the smallest coupling is added apart, not here
 
 
+def test_window_reaches_a_lower_lowest_coupling():
+    w = np.log10(cl.window(Y, -2.42, hi=0.5, lowest=-4.63))  # the refit's L_e-L_tau limit at 1.3 MeV
+    assert np.allclose(w, np.arange(-4.6, -1.95, 0.2))
+    assert np.allclose(np.log10(cl.window(Y, -3.7, lowest=-4.0)), np.log10(cl.window(Y, -3.7)))  # never narrower
+
+
 def test_widen_adds_the_next_coupling_beyond_an_edge_minimum():
     w = cl.window(Y, -3.7)
     chi = {Y[0]: 10.0, **{g: 12.0 for g in w}}
@@ -74,3 +80,83 @@ def test_reread_reads_a_finished_run(tmp_path):
     o = cl.reread(str(p))
     assert [r["covered"] for r in o["results"]] == [True, False]
     assert o["coverage"] == 0.5 and o["real_read"]["covered"]
+
+
+def test_main_keeps_the_true_coupling_apart_and_the_window_wide(tmp_path, monkeypatch):
+    """main's bookkeeping with the fits stubbed (2026-11-26): the window from --lowest-log10g, the true coupling fitted
+    for every pseudo-experiment but kept out of the column, the partial results dropped at the end."""
+    class Par:
+        name, start = "nu", 1.0
+
+    class Plane:
+        x, y = NAMES
+        x_grid, y_grid = [M], Y
+
+    class Cfg:
+        planes, parameters = [Plane], [Par]
+
+    class Obj:
+        surface = "stub"
+
+    def chi_of(k, g):                                        # no effect: 10; lowest at 10^-4.2
+        lg = np.log10(g)
+        return 10.0 + (0.5 if lg < -9 else (lg + 4.2) ** 2) + 0.1 * (k or 0)
+
+    def init(path):
+        cl._W.update(cfg=Cfg, obj=Obj, real=(None, None, {}), toy=None)
+
+    def task(t):
+        k, _, _, held, _ = t
+        return dict(toy=k, held=held, chi2=chi_of(k, held[NAMES[1]]), values={}, message="", seconds=0.0)
+
+    def truth(t):
+        held, _ = t
+        return dict(chi2=chi_of(None, held[NAMES[1]]), values=dict(held, nu=1.0), f_true=[0.3, 0.3], C_true=[1.0, 2.0])
+
+    class Result:
+        def __init__(self, r):
+            self.r = r
+
+        def get(self):
+            return self.r
+
+    class Pool:
+        def __init__(self, *a, **k):
+            init(None)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def apply_async(self, f, args):
+            return Result(f(*args))
+
+        def map(self, f, it, chunksize=1):
+            return [f(x) for x in it]
+
+        def imap_unordered(self, f, it, chunksize=1):
+            return (f(x) for x in it)
+
+    class Ctx:
+        pass
+
+    Ctx.Pool = Pool
+    monkeypatch.setattr(cl.mp, "get_context", lambda method: Ctx)
+    for name, f in (("_init", init), ("_task", task), ("_truth", truth),
+                    ("flavor_draws", lambda s, n, rng: np.zeros((n, 2))),
+                    ("segment_draws", lambda C, spec, n, rng: np.tile(C, (n, 1)))):
+        monkeypatch.setattr(cl, name, f)
+    monkeypatch.setenv("NULRI_FLUX_CACHE", str(tmp_path))
+    out = str(tmp_path / "cov.json")
+    cl.main(["cfg.json", "--mass", str(M), "--true-log10g", "-2.42", "--toys", "3", "--workers", "1",
+             "--lowest-log10g", "-4.63", "--window-hi", "0.5", "--out", out])
+    o = json.load(open(out))
+    assert "partial" not in o and len(o["results"]) == 3 and o["window_unresolved"] == []
+    for k, r in enumerate(o["results"]):
+        lg = np.log10(sorted(float(g) for g in r["chi2"]))
+        assert np.allclose(lg, [-10.0] + list(np.arange(-4.6, -1.95, 0.2)))      # the grid only: no -2.42
+        assert np.isclose(r["chi2_true"], chi_of(k, 10.0 ** -2.42))
+        assert np.isclose(r["dchi2_true"], (-2.42 + 4.2) ** 2, atol=1e-6)        # from the column's lowest (at -4.2)
+        assert r["covered"]                                                       # 3.17 < 3.84

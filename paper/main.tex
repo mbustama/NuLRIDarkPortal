@@ -85,7 +85,7 @@
 Light mediators of new neutrino interactions could act on high-energy astrophysical neutrinos all along their trip to Earth.
 We compute their effects with the full transport of the neutrinos, from the sources through the Universe, the Milky Way, the Sun, and the Earth, with the potential of ordinary matter, neutrino decays, and collisions with the relic neutrinos acting together.
 We apply it to three families of mediators: the gauge bosons of $L_e - L_\mu$ and $L_e - L_\tau$, a dark gauge boson that reaches neutrinos through a dark neutrino, and the scalar or vector of secret neutrino interactions.
-We fit the result to IceCube's flavor composition, spectrum, and events.
+We fit the result to IceCube's flavor composition and spectrum.
 The full transport moves the limits by many orders of magnitude.
 For $L_e - L_\alpha$, an earlier estimate that takes the potential at the detector alone would exclude couplings up to eleven orders of magnitude smaller than we find above $10^{-24}$~eV, mostly because it lets the potential act from the sources on; below that mass, it misses the decays and scatterings that strengthen our limits.
 At 95\%~C.L., today's data give limits on $L_e - L_\mu$ below $10^{-24}$~eV and on $L_e - L_\tau$ below $10^{-19}$~eV that only the cosmological bound on the neutrino lifetime surpasses.
@@ -131,7 +131,7 @@ References~\cite{Ng:2014pca, Ioka:2014kca, Bustamante:2020mep, Esteban:2021tub} 
 Reference~\cite{Kolb:1987qy} averaged over the motion of massless relics, for supernova neutrinos; Refs.~\cite{Doring:2023vmk, Wang:2025qap}, for neutrinos from point sources and from supernovae, let the lightest relic move.
 
 In this work, we follow high-energy neutrinos along their whole trip, through the Universe, the Milky Way, the Sun, and the Earth, computing the potential and the collisions together.
-We apply this calculation to the three families of mediators above and fit it to several IceCube data sets: the flavor composition and the spectrum, and the starting and through-going events.
+We apply this calculation to the three families of mediators above and fit it to IceCube's measurements of the flavor composition and the spectrum.
 \textbf{Because a mediator's effect on the flux at Earth depends on where along the trip and through which process it acts, we compute limits with the full transport.}
 
 Figure~\ref{fig:schematic} shows the trip, as an artist's rendition in four panels that zoom in from one to the next.
@@ -296,7 +296,7 @@ Only collisions and decays move neutrinos between states, until the Sun, where w
 The extragalactic sources lie at redshifts up to $z = 4$, with a comoving number density that tracks the star-formation rate~\cite{Yuksel:2008cu}: it grows as $(1+z)^{3.4}$ up to $z = 1$ and falls as $(1+z)^{-0.3}$ beyond.
 They sit in the cosmic mean density of matter, so the potential where they emit is the cosmological one.
 They emit neutrinos and antineutrinos with the flavor composition of pion decay, $(f_{e,S}, f_{\mu,S}, f_{\tau,S}) = (1/3, 2/3, 0)$, at every energy (Sec.~\ref{sec:data} also fits it), split incoherently over the eigenstates of Eq.~(\ref{equ:hamiltonian}) at the source.
-The ratio of antineutrinos to neutrinos, $\xi$, is 1, as for proton-proton collisions; in the fits to event samples and in the forecasts, it is free between 1/2, as for proton-photon collisions, and 1; since the production mechanism is unknown, we give neutrinos and antineutrinos the same flavor composition.
+The ratio of antineutrinos to neutrinos, $\xi$, is 1, as for proton-proton collisions; in the forecasts, it is free between 1/2, as for proton-photon collisions, and 1; since the production mechanism is unknown, we give neutrinos and antineutrinos the same flavor composition.
 
 IceCube's measured spectrum is softer above a break at 24.5~TeV than below it~\cite{IceCube:2025ewu}.
 Without a new interaction, the flux per flavor of neutrinos plus antineutrinos at Earth is then
@@ -472,10 +472,10 @@ Appendix~\ref{app:stops} shows how this depends on energy.
 \label{sec:data}
 
 \subsubsection{Data}
-Table~\ref{tab:data} lists the data sets, each fitted on its own.
+Table~\ref{tab:data} lists the two data sets, each fitted on its own.
 The first is IceCube's measurement of the flavor composition and of the energy spectrum of the diffuse flux.
 For the composition, IceCube released its likelihood in $(f_e, f_\mu)$, measured with its medium-energy starting events (MESE)~\cite{IceCube:2025ole} for the broken power law of its own spectral fit.
-Since this is the composition of the detected neutrinos, we compare it with that of our flux over 5~TeV--10~PeV, each flavor weighted by the starting events it would produce, from the effective areas of the release.
+Since this is the composition of the detected neutrinos, we compare it with that of our flux over 5~TeV--10~PeV, each flavor weighted by the number of starting events it would produce, from the effective areas of the release.
 
 For the spectrum, IceCube gives the normalization of an $E^{-2}$ flux in each of 13 energy segments~\cite{IceCube:2025ewu}, of which we use the ten between 4.6~TeV and 10~PeV.
 In each segment, we take the $E^{-2}$ flux that holds as many neutrinos as our flux, extragalactic plus Galactic and averaged over the sky, since IceCube's flux includes the Galactic plane.
@@ -483,13 +483,11 @@ IceCube's own normalizations come instead from fits to its events, which need it
 Fitting IceCube's broken power law to segments computed our way gives a normalization $0.9\sigma$ lower and an upper index $1.2\sigma$ higher than IceCube's fit.
 We take the segments as independent, since their correlations are not published, although the two measurements share 51\% of the cascades and 37\% of the tracks of the starting events.
 
-The second data set is our own fit to IceCube's events: the MESE cascades and double cascades in reconstructed energy, and the through-going muon tracks of IceTracks-DR2 in reconstructed energy and declination~\cite{IceCube:IceTracksDR2}.
-We fit it only for mediators with MeV masses and show the resulting limits in Appendix~\ref{app:events}.
-The last data set is a forecast: the events that eight neutrino telescopes would detect in ten years each, for the flux that IceCube measures, if there is no new interaction.
+The second data set is a forecast: the events that eight neutrino telescopes would detect in ten years each, for the flux that IceCube measures, if there is no new interaction.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \begin{table*}[t!]
- \caption{\label{tab:data}\textbf{\textit{The data sets of the fits.}} We fit each of the three groups on its own. The exposure is the live time of each detector; the future telescopes are taken at their full size. See Sec.~\ref{sec:data} for how each data set enters the likelihood.}
+ \caption{\label{tab:data}\textbf{\textit{The data sets of the fits.}} We fit each of the two groups on its own. The exposure is the live time of each detector; the future telescopes are taken at their full size. See Sec.~\ref{sec:data} for how each data set enters the likelihood.}
  \begin{ruledtabular}
  \begin{tabular}{>{\raggedright\arraybackslash}p{0.35\textwidth}>{\raggedright\arraybackslash}p{0.22\textwidth}>{\raggedright\arraybackslash}p{0.37\textwidth}}
  Measurement & Exposure & What enters the fit \\
@@ -497,9 +495,6 @@ The last data set is a forecast: the events that eight neutrino telescopes would
  \multicolumn{3}{l}{\textit{Spectrum and flavor composition}} \\
  Flavor composition, from IceCube's medium-energy starting events~\cite{IceCube:2025ole} & 11.4~yr & Likelihood in $(f_e, f_\mu)$, measured over 5~TeV--10~PeV for IceCube's broken power law, against the composition of our flux over the same energies, weighted by the starting events of each flavor \\
  Energy spectrum, from IceCube's contained cascades and through-going tracks, fitted jointly~\cite{IceCube:2025ewu} & Cascades, 10.5~yr; Northern-sky tracks, without IC59 & Normalizations of an $E^{-2}$ flux in the ten energy segments between 4.6~TeV and 10~PeV, against those of our extragalactic plus Galactic flux \\
- \multicolumn{3}{l}{\textit{Event samples}} \\
- IceCube's medium-energy starting events, cascades and double cascades~\cite{IceCube:2025ole} & 11.4~yr & Events in bins of reconstructed energy, from 1~TeV (cascades) or 30~TeV (double cascades) to 10~PeV \\
- IceCube's through-going muon tracks, IceTracks-DR2, configurations IC79 and IC86~\cite{IceCube:IceTracksDR2} & 11.6~yr (IC79, 0.9~yr; IC86, 10.7~yr) & Events above 3.2~TeV of reconstructed energy, at declinations above $-5^\circ$ \\
  \multicolumn{3}{l}{\textit{Forecast}} \\
  IceCube, IceCube-Gen2~\cite{IceCube-Gen2:2020qha}, KM3NeT/ARCA~\cite{KM3Net:2016zxf}, Baikal-GVD~\cite{Baikal-GVD:2020irv}, P-ONE~\cite{P-ONE:2020ljt}, TRIDENT~\cite{TRIDENT:2022hql}, NEON~\cite{Zhang:2024slv}, and HUNT~\cite{Huang:2023mzt}, with the detector models of Ref.~\cite{Bustamante:2026inprep} & 10~yr each & Events expected without a new interaction: tracks in bins of declination and reconstructed energy; showers and double cascades in bins of reconstructed energy \\
  \end{tabular}
@@ -516,20 +511,21 @@ In bin $k$ of an event sample, we expect
 where $T$ is the exposure time, $\Phi_\alpha$ is the flux of flavor $\alpha$ at the detector, from direction $\Omega$, $A^{(k)}_\alpha$ is the effective area that leads into bin $k$, and $\mu^{\rm bkg}_k$ counts the background of atmospheric neutrinos and muons.
 The flux depends on direction, through the crossing of the Earth and the Milky Way, so we compute it in 20 bands of declination of equal solid angle.
 
-For the MESE events, we fold the flux of each flavor with the effective areas of the release, per interaction channel and zenith angle, and with the energy that each interaction deposits, smeared with IceCube's resolution~\cite{Bustamante:2026inprep}.
-We bin them in reconstructed energy only, the one projection that the release provides for the double cascades and that we use for the cascades too.
-For the through-going tracks, we fold the flux of $\nu_\mu$ and $\bar\nu_\mu$ with the release's effective areas and smearing in energy and direction~\cite{IceCube:IceTracksDR2}, in its declination bins and in bins of 0.1 in $\log_{10}$ of the reconstructed energy.
-
 For the future telescopes, we use the detector models of Ref.~\cite{Bustamante:2026inprep}, built from IceCube's public detector responses and from the published performance of each telescope, at its own site and size.
 Each model gives the events from a source at a given declination, accounting for the absorption in the Earth and for the rotation of the Earth over a day; we sum them over our declination bands, weighted by their solid angle.
 We bin the tracks in declination and reconstructed energy, and the showers and double cascades in reconstructed energy only.
 At every site, we use the flux computed for the South Pole, which is exact where crossing the Earth does not change the flavor.
 For $L_e - L_\tau$, reversing the declination bands of every other site, as at the North Pole, changes $\Delta\chi^2$ by less than $10^{-3}$ from $10^{-18}$ to $10^{-11}$~eV.
-With $n_k$ the observed events in bin $k$, each likelihood is Poisson,
+With $n_k$ the events expected in bin $k$ without a new interaction, the likelihood is Poisson,
 \begin{equation}
  \label{equ:likelihood}
  -2\ln\mathcal{L} = 2 \sum_k \left[ \mu_k - n_k + n_k \ln\frac{n_k}{\mu_k} \right] \;.
 \end{equation}
+
+We also compute Eq.~(\ref{equ:events}) for two samples of events that IceCube has detected, to illustrate how a new interaction would appear in them (Sec.~\ref{sec:results}); we set no limits with them.
+For the MESE events, we fold the flux of each flavor with the effective areas of the release, per interaction channel and zenith angle, and with the energy that each interaction deposits, smeared with IceCube's resolution~\cite{Bustamante:2026inprep}.
+We bin them in reconstructed energy only, the one projection that the release provides for the double cascades and that we use for the cascades too.
+For the through-going muon tracks, we use IceCube's release IceTracks-DR2~\cite{IceCube:IceTracksDR2}, with 11.6~yr of data: we fold the flux of $\nu_\mu$ and $\bar\nu_\mu$ with its effective areas and smearing in energy and direction, in its declination bins and in bins of 0.1 in $\log_{10}$ of the reconstructed energy.
 
 \subsubsection{The flux in the fits}
 Table~\ref{tab:params} lists the parameters of the fits: the mass and the coupling of the mediator, which we scan, and every other parameter, over which we minimize, with its range or prior.
@@ -545,7 +541,7 @@ For the future telescopes, the effect would be smaller still: by the time they t
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \begin{table*}[t!]
- \caption{\label{tab:params}\textbf{\textit{The parameters of the fits.}} We scan the mass and the coupling of the mediator and minimize over every other free parameter, each within its range and, where given, with a Gaussian prior (central value $\pm$ width; for the hadronic yields, the widths of Ref.~\cite{Barr:2006it}, per region). Event samples: the starting events and the through-going tracks; forecasts: the future telescopes. See Sec.~\ref{sec:data} for details.}
+ \caption{\label{tab:params}\textbf{\textit{The parameters of the fits.}} We scan the mass and the coupling of the mediator and minimize over every other free parameter, each within its range and, where given, with a Gaussian prior (central value $\pm$ width; for the hadronic yields, the widths of Ref.~\cite{Barr:2006it}, per region). See Sec.~\ref{sec:data} for details.}
  \begin{ruledtabular}
  \begin{tabular}{>{\raggedright\arraybackslash}p{0.40\textwidth}>{\raggedright\arraybackslash}p{0.32\textwidth}>{\raggedright\arraybackslash}p{0.22\textwidth}}
  Parameter & Range or prior & Data sets \\
@@ -565,18 +561,6 @@ For the future telescopes, the effect would be smaller still: by the time they t
  Lightest neutrino mass & $10^{-6}$--0.1~eV; sum of the masses below 0.12~eV (forecasts: 0.09~eV) at 95\%~C.L. & All \\
  Mixing angles, CP phase, and mass splittings & Fixed at the best fit of NuFIT~6.1 & All \\
  Mass ordering & Normal & All \\
- \multicolumn{3}{l}{\textit{Atmospheric background}} \\
- Yields of $\pi^\pm$ and $K^\pm$ in six regions (12 parameters) & Widths 0.12--0.40, relative & Event samples \\
- Shift of the spectral index of the cosmic rays & $0 \pm 0.05$ & Event samples \\
- Normalization of the prompt neutrinos & $1 \pm 0.5$ & Event samples \\
- \multicolumn{3}{l}{\textit{Starting events}} \\
- Normalization of the conventional neutrinos & $1 \pm 0.4$ & Starting events \\
- Normalization of the atmospheric muons & $1 \pm 0.5$ & Starting events \\
- Efficiency of the optical modules & $0.99 \pm 0.1$ & Starting events \\
- Acceptance of the modules in the refrozen ice & $0 \pm 0.5$ & Starting events \\
- Anisotropy of the ice & $1 \pm 0.2$ & Starting events \\
- \multicolumn{3}{l}{\textit{Through-going tracks}} \\
- Normalization per configuration, IC79 and IC86 & $1 \pm 0.1$ & Tracks \\
  \multicolumn{3}{l}{\textit{Future telescopes}} \\
  Yields of $\pi^\pm$ and $K^\pm$ (four parameters) & Widths 0.12--0.40 & Forecasts \\
  Spectral index of the cosmic rays; their model, H4a to GST4 & $0 \pm 0.055$; $0 \pm 1$ & Forecasts \\
@@ -593,9 +577,6 @@ For the future telescopes, the effect would be smaller still: by the time they t
 
 \subsubsection{Backgrounds and detector systematics}
 The spectrum and flavor measurements already account for their backgrounds, so we model backgrounds only for the event samples.
-For the through-going tracks, the background is atmospheric neutrinos, conventional and prompt, which we compute with MCEq~\cite{Fedynitch:2015zma}, using the hadronic interaction model SIBYLL-2.3d~\cite{Riehn:2019jet} and the cosmic-ray flux H3a~\cite{Gaisser:2011klf}.
-Their uncertainties enter through the yields of charged pions and kaons in six regions of their production phase space~\cite{Barr:2006it}, a shift of the spectral index of the cosmic rays, and the normalization of the prompt neutrinos, with the priors of Ref.~\cite{Bustamante:2026inprep}, and through a normalization for each configuration of the detector.
-For the MESE events, we take the atmospheric neutrinos and muons of the release, at IceCube's fit, each with a normalization within its prior.
 We do not let the new interactions act on atmospheric neutrinos.
 
 For the future telescopes, the backgrounds and their uncertainties are those of the detector models~\cite{Bustamante:2026inprep}.
@@ -603,6 +584,10 @@ For the atmospheric neutrinos, they follow IceCube's joint analysis of tracks an
 Each telescope adds its detection efficiency, its energy scale, and the normalization of its atmospheric muons; all of them share the rate at which one topology is taken for another and the energy that neutral-current and $\nu_\tau$ interactions deposit.
 The priors are those that each collaboration publishes, or those of KM3NeT/ARCA for the telescopes that publish none.
 At each point of a scan, we minimize over all of these parameters, each with its prior.
+
+For IceCube's through-going tracks, the background is atmospheric neutrinos, conventional and prompt, which we compute with MCEq~\cite{Fedynitch:2015zma}, using the hadronic interaction model SIBYLL-2.3d~\cite{Riehn:2019jet} and the cosmic-ray flux H3a~\cite{Gaisser:2011klf}.
+Their uncertainties enter through the yields of charged pions and kaons in six regions of their production phase space~\cite{Barr:2006it}, a shift of the spectral index of the cosmic rays, and the normalization of the prompt neutrinos, with the priors of Ref.~\cite{Bustamante:2026inprep}, and through a normalization for each configuration of the detector.
+For the MESE events, we take the atmospheric neutrinos and muons of the release, at IceCube's fit, each with a normalization within its prior.
 
 \subsubsection{Computing limits}
 At each mediator mass $M$ and coupling $g$, we minimize $\chi^2 = -2\ln\mathcal{L}$ over every other parameter of Table~\ref{tab:params}.
@@ -626,7 +611,7 @@ For the future telescopes, the data are the events expected at IceCube's fit, so
 The threshold of 3.84 follows from Wilks's theorem; read as an upper limit, it corresponds to 97.5\%~C.L.
 The theorem may fail here, since the coupling has a boundary and no effect below some value; near the boundary, the threshold is conservative~\cite{Cowan:2010js}.
 
-We test the coverage of our limits with pseudo-experiments, each of which simulates IceCube's flavor composition and spectrum (the first data set, with the source composition fitted).
+We test the coverage of our limits with pseudo-experiments, each of which simulates IceCube's flavor composition and spectrum (with the source composition fitted).
 We take two models with a mediator of 1.3~MeV, where absorption on the relics sets the limits: the $L_e - L_\tau$ gauge boson, and the scalar mediator of secret interactions coupled to $\nu_\tau$, with Majorana neutrinos.
 For each, the pseudo-data come from a true coupling equal to our limit, with every other parameter at its best fit for that coupling.
 As in Ref.~\cite{Bustamante:2026fxa}, we move the composition that the true model yields at Earth by an offset drawn from IceCube's likelihood, and translate the likelihood, unchanged in shape, onto the moved composition.
@@ -674,14 +659,14 @@ The figure thus shows the size of each effect against the errors of the data; a 
 For $L_e - L_\mu$ and the dark portal, the flux arrives mostly as $\bar\nu_e$ and as $\nu_1$, which carry little $\nu_\mu$.
 They remove about 80\% of the astrophysical tracks, which $\nu_\mu$ produce, and about half of the astrophysical cascades.
 Secret interactions remove events above a few tens of TeV; the neutrinos that absorption returns add a few below.
-The tracks' directions add information, since the background and the effect change with declination: binning the tracks in declination, as our fit does, raises the change in their $\chi^2$ by about 30\% over binning in energy alone.
+The tracks' directions add information, since the background and the effect change with declination: binning the tracks in declination as well raises the change in their $\chi^2$ by about 30\% over binning in energy alone.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \begin{figure*}[t!]
  \centering
  \includegraphics[width=\textwidth]{figures/event_rates.pdf}
  % notebooks/paper_figures.ipynb, Sec. 13 (analysis/event_rates_figure.py; output/analysis/event_rates)
- \caption{\textbf{\textit{IceCube's event rates with and without a new interaction, for the examples of Fig.~\ref{fig:ingredients}.}} Sources and backgrounds are held at their values without a new interaction. The double cascades, which the fit also uses, are not shown. The insets enlarge the boxed regions. $L_e - L_\mu$ and the dark portal deplete mostly the tracks; secret interactions, the highest energies. See Sec.~\ref{sec:results} for details.}
+ \caption{\textbf{\textit{IceCube's event rates with and without a new interaction, for the examples of Fig.~\ref{fig:ingredients}.}} Sources and backgrounds are held at their values without a new interaction. The double cascades are not shown. The insets enlarge the boxed regions. $L_e - L_\mu$ and the dark portal deplete mostly the tracks; secret interactions, the highest energies. See Sec.~\ref{sec:results} for details.}
  \label{fig:events}
 \end{figure*}
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -713,12 +698,11 @@ For $\nu_\tau$, our limits reach lower couplings from about 1~keV to 4~MeV, alth
 
 \subsubsection{IceCube's MeV preference, or the discovery case}
 Figure~\ref{fig:discovery} shows how much today's data prefer a mediator of each mass to no new interaction, for one mediator of each family.
-Both data sets prefer MeV masses, where absorption on $\nu_2$ and $\nu_3$ removes neutrinos with energies from about a TeV to a few hundred TeV.
-The flavor composition and spectrum prefer 2.4--3.2~MeV, with $\Delta\chi^2$ from 2.0 to 6.6 across our 21 models with MeV masses; the starting events and through-going tracks prefer 0.4--0.6~MeV, with $\Delta\chi^2$ from 2.9 to 4.3.
+The data prefer MeV masses, where absorption on $\nu_2$ and $\nu_3$ removes neutrinos with energies from about a TeV to a few hundred TeV.
+Across our 21 models with MeV masses, the preferred mass is 2.4--3.2~MeV, with $\Delta\chi^2$ from 2.0 to 6.6.
 The families give similar preferences because their resonances fall at the same energies, $M^2/(2m_r)$.
-The two data sets disagree on the mass, and no preference reaches $3\sigma$ even at its best mass, so today's data show no evidence of a new interaction.
-The planned telescopes would test the first preference in every model: their projected limits lie 0.9 to 2.6 orders of magnitude below the preferred couplings.
-They would test the second only for a coupling to every flavor; for one flavor, the preferred couplings lie about two orders of magnitude below their reach.
+No preference reaches $3\sigma$ even at its best mass, so today's data show no evidence of a new interaction.
+The planned telescopes would test this preference in every model: their projected limits lie 0.9 to 2.6 orders of magnitude below the preferred couplings.
 
 \subsubsection{Future telescopes}
 Figures~\ref{fig:lelalpha}--\ref{fig:si} also show the median limits that eight planned neutrino telescopes would set after ten years each, if there is no new interaction.
@@ -781,7 +765,7 @@ We include the thermal motion of all three relics, and the helicity of Dirac rel
  \centering
  \includegraphics[width=\columnwidth]{figures/preference.pdf}
  % notebooks/paper_figures.ipynb, Sec. 14 (analysis/preference_figure.py; output/analysis/preference_20261122.json)
- \caption{\textbf{\textit{How much today's IceCube data prefer a new mediator to no new interaction, versus its mass.}} At each mass, the preference is the $\chi^2$ without a new interaction minus the lowest $\chi^2$ over the coupling, fitting the source flavor composition. The two data sets prefer different masses, and neither preference reaches $3\sigma$. See Sec.~\ref{sec:results} for details.}
+ \caption{\textbf{\textit{How much today's IceCube data prefer a new mediator to no new interaction, versus its mass.}} At each mass, the preference is the $\chi^2$ without a new interaction minus the lowest $\chi^2$ over the coupling, fitting the source flavor composition. The preference does not reach $3\sigma$ at any mass. See Sec.~\ref{sec:results} for details.}
  \label{fig:discovery}
 \end{figure}
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -941,7 +925,7 @@ The distributions $q_{\rm gas}$ and $q_{\rm src}$ of the emission from the gas a
 Where the Galactic potential allows decays that the cosmological potential forbids, the extragalactic flux crosses the Galaxy by the same equation without emission, along every line of sight, and is then averaged within each band of declination.
 
 \subsubsection{Numerical solution}
-We solve Eq.~(\ref{equ:transport}) on a grid of energies uniform in $\ln E$, from 4.6~TeV (1.0~TeV for the event samples and 99~GeV for the future telescopes) to 30~PeV, extended to 300~PeV so that the neutrinos injected above 30~PeV, and their daughters and secondaries, enter it.
+We solve Eq.~(\ref{equ:transport}) on a grid of energies uniform in $\ln E$, from 4.6~TeV (1.0~TeV for IceCube's events of Fig.~\ref{fig:events} and 99~GeV for the future telescopes) to 30~PeV, extended to 300~PeV so that the neutrinos injected above 30~PeV, and their daughters and secondaries, enter it.
 The numerical errors stay below 1\% in the flux, mostly as a shift common to all energies that the free normalization of the flux absorbs, and below $10^{-3}$ in the flavor fractions.
 Since the transport is linear in its sources, we solve it once for each population of sources and at a few values of each spectral index, and interpolate between them in the fits.
 We compute the flux in 768 directions, the pixels of HEALPix with $N_{\rm side} = 8$~\cite{Gorski:2004by}.
@@ -1122,29 +1106,6 @@ A neutrino that reaches the detector from zenith angle $\theta_z$ crosses a chor
 Along each chord, we evolve the density matrix by Eq.~(\ref{equ:coherent}), with the potential of Eq.~(\ref{equ:potential}) computed from the electron density of the Preliminary Reference Earth Model~\cite{Dziewonski:1981xy}.
 When the range of the mediator approaches the thickness of a layer, the potential relaxes across each boundary between layers over a length $1/M$.
 We average the chords over the sky within each band of declination; where the potential is large, we integrate exactly over $\cos\theta_z$ the terms of the density matrix that oscillate rapidly from one chord to the next.
-
-\section{Limits from our fit to IceCube's events}
-\label{app:events}
-Figure~\ref{fig:events_limits} shows the limits from our fit to IceCube's starting events and through-going tracks, the second data set of Sec.~\ref{sec:data}, next to those from IceCube's flavor composition and spectrum, for two models with MeV mediators.
-Between about $10^{5.5}$ and $10^{6.7}$~eV, where the limits dip because of resonant absorption, the lowest couplings that the two data sets disfavor differ by less than half an order of magnitude, but neither data set reaches lower at every mass.
-At lower masses, both disfavor only couplings close to the largest that we compute.
-
-In the main text, we show only the limits from the flavor composition and spectrum, which come from IceCube's own analyses.
-Our fit has two weak points.
-First, it fits only the energies of the starting cascades and double cascades.
-It disfavors a flux without $\nu_e$ at Earth by $\Delta\chi^2 = 1.4$, against 8.7 for IceCube's analysis of the starting events~\cite{IceCube:2025ole}.
-Second, fitted alone with a single power law, the through-going tracks prefer a spectral index of $2.62 \pm 0.09$, while IceCube's analysis of 9.5 years of such tracks found $2.37 \pm 0.09$~\cite{Abbasi:2021qfz}.
-The two differ by $2\sigma$.
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-\begin{figure*}[t!]
- \centering
- \includegraphics[width=0.8\textwidth]{figures/limits_set1_set2_mev.pdf}
- % notebooks/paper_figures.ipynb, Sec. 16, from output/analysis/limits_20261121 (2026-11-21)
- \caption{\textbf{\textit{Limits from today's two data sets, for MeV mediators.}} Two examples. The main-text figures, Figs.~\ref{fig:lelalpha}--\ref{fig:si}, show only the limits from IceCube's flavor composition and spectrum. See Appendix~\ref{app:events} for details. Neither data set disfavors lower couplings at every mass.}
- \label{fig:events_limits}
-\end{figure*}
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

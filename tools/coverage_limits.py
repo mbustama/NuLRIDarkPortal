@@ -50,10 +50,13 @@ _W = {}
 # ----------------------------------------------------------------------------------------------------------------
 # Pure parts (tests/test_coverage_limits.py)
 # ----------------------------------------------------------------------------------------------------------------
-def window(y_grid, lg_true, lo=WINDOW[0], hi=WINDOW[1]):
-    """The plane's couplings from lg_true + lo to lg_true + hi (decades), the smallest coupling apart."""
+def window(y_grid, lg_true, lo=WINDOW[0], hi=WINDOW[1], lowest=None):
+    """The plane's couplings from lg_true + lo to lg_true + hi (decades), the smallest coupling apart; with `lowest`
+    (log10 g), from there if it lies lower (2026-11-26: the columns are read from their minimum, which lay near
+    10^-4.3 in the first pseudo-experiments, 2.5 decades below the refit's limits)."""
     lg = np.log10(np.asarray(y_grid, float))
-    return [float(g) for g, l in zip(y_grid[1:], lg[1:]) if lg_true + lo - 1e-9 <= l <= lg_true + hi + 1e-9]
+    low = lg_true + lo if lowest is None else min(lg_true + lo, float(lowest))
+    return [float(g) for g, l in zip(y_grid[1:], lg[1:]) if low - 1e-9 <= l <= lg_true + hi + 1e-9]
 
 
 def widen(y_grid, chi):
@@ -167,6 +170,9 @@ def main(argv=None):
     ap.add_argument("--toys", type=int, default=100)
     ap.add_argument("--workers", type=int, default=1)
     ap.add_argument("--seed", type=int, default=20261125)
+    ap.add_argument("--lowest-log10g", type=float, default=None,
+                    help="the window's lowest coupling where it lies below 1 decade under the true one")
+    ap.add_argument("--window-hi", type=float, default=WINDOW[1], help="decades above the true coupling")
     ap.add_argument("--out", required=True)
     a = ap.parse_args(argv)
     if not os.environ.get("NULRI_FLUX_CACHE"):
@@ -179,8 +185,10 @@ def main(argv=None):
     M = float(pl.x_grid[int(np.argmin(np.abs(np.log10(pl.x_grid) - np.log10(a.mass))))])
     g_t = 10.0 ** a.true_log10g
     start0 = {p.name: p.start for p in cfg.parameters}
-    gs = [y[0]] + window(y, a.true_log10g)
-    out = dict(config=a.config, mass_eV=M, log10g_true=a.true_log10g, window=list(WINDOW), couplings=gs,
+    gs = [y[0]] + window(y, a.true_log10g, hi=a.window_hi, lowest=a.lowest_log10g)
+    on_grid = [g for g in gs if abs(np.log10(g) - a.true_log10g) < 1e-9]
+    out = dict(config=a.config, mass_eV=M, log10g_true=a.true_log10g, window=[WINDOW[0], a.window_hi],
+               lowest_log10g=a.lowest_log10g, couplings=gs,
                toys=a.toys, seed=a.seed, workers=a.workers, started=time.strftime("%Y-%m-%d %H:%M:%S"))
     with mp.get_context("spawn").Pool(a.workers, initializer=_init, initargs=(a.config,)) as pool:
         # 1. the real data's column and the truth (fills the flux cache)
@@ -200,24 +208,40 @@ def main(argv=None):
         segs = segment_draws(C_t, _W["real"][2], a.toys, rng)
         th = {n: v for n, v in truth["values"].items() if n not in names}
         # 3-4. the fits, widened where needed
+        # the true coupling is fitted too (2026-11-26): its chi^2 kept apart (chi2_true: the test statistic at the
+        # truth, for a corrected threshold), never in the column, which is read on the plane's grid as the limits are
         chi = {k: {} for k in range(a.toys)}
-        todo = {k: list(gs) for k in range(a.toys)}
+        chi_true = {}
+        todo = {k: list(gs) + ([] if on_grid else [g_t]) for k in range(a.toys)}
         t1 = time.perf_counter()
         for rnd in range(MAX_ROUNDS):
             tasks = [(k, f_obs[k].tolist(), segs[k].tolist(), {pl.x: M, pl.y: g}, th) for k in sorted(todo)
                      for g in todo[k]]
             if not tasks:
                 break
-            for r in pool.imap_unordered(_task, tasks, chunksize=1):
-                chi[r["toy"]][r["held"][pl.y]] = r["chi2"]
+            for n, r in enumerate(pool.imap_unordered(_task, tasks, chunksize=1), 1):
+                if r["held"][pl.y] == g_t and not on_grid:
+                    chi_true[r["toy"]] = r["chi2"]
+                else:
+                    chi[r["toy"]][r["held"][pl.y]] = r["chi2"]
+                if n % 10 == 0 or n == len(tasks):
+                    print(f"round {rnd + 1}: {n} of {len(tasks)} profiles, {time.perf_counter() - t1:.0f} s since the "
+                          f"pseudo-experiments began; the last took {r['seconds']:.0f} s", flush=True)
             todo = {k: [g for g in widen(y, chi[k]) if g not in chi[k]] for k in chi}
             todo = {k: v for k, v in todo.items() if v}
             out["rounds"] = rnd + 1
+            # kept after every round: a task stopped later loses no finished round
+            out["partial"] = dict(chi2={str(k): {repr(g): c for g, c in sorted(chi[k].items())} for k in chi},
+                                  chi2_true={str(k): c for k, c in chi_true.items()},
+                                  f_obs=f_obs.tolist(), segments=segs.tolist())
+            _write(a.out, out)
         out["toys_seconds"] = time.perf_counter() - t1
         out["window_unresolved"] = sorted(todo)            # still on an edge after MAX_ROUNDS (or none)
         # 5. the reading (redone on the laptop with the repository's analysis.exclusion: --reread)
+        out.pop("partial", None)
         out["results"] = [dict(toy=k, f_obs=f_obs[k].tolist(), segments=segs[k].tolist(),
-                               chi2={repr(g): c for g, c in sorted(chi[k].items())}) for k in range(a.toys)]
+                               chi2={repr(g): c for g, c in sorted(chi[k].items())},
+                               chi2_true=chi[k][on_grid[0]] if on_grid else chi_true[k]) for k in range(a.toys)]
         out["finished"] = time.strftime("%Y-%m-%d %H:%M:%S")
         _write(a.out, out)
         try:
@@ -234,6 +258,8 @@ def reread(path):
     M, g_t = out["mass_eV"], 10.0 ** out["log10g_true"]
     for r in out["results"]:
         r["covered"], r["lowest_excluded_log10g"] = read(names, M, {float(g): c for g, c in r["chi2"].items()}, g_t)
+        if r.get("chi2_true") is not None:     # the test statistic at the truth: from the column's lowest chi^2
+            r["dchi2_true"] = float(r["chi2_true"] - min(min(r["chi2"].values()), r["chi2_true"]))
     c = np.array([r["covered"] for r in out["results"]], float)
     out.update(coverage=float(c.mean()), coverage_err=float(np.sqrt(c.mean() * (1 - c.mean()) / len(c))),
                real_read=dict(zip(("covered", "lowest_excluded_log10g"),
