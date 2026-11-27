@@ -1368,3 +1368,34 @@ nothing; (iv) rebuild nothing unless (ii) says so.
   astro3_short (tycho1_short kept them on Priority for an hour).
 - 2026-11-27 23:35. Author list (Mauricio: "Add Mariia Petropavlova as second author. Fetch her affiliation from INSPIRE."): added after him, with ORCID 0000-0002-0416-0795 and two affiliations as on her latest papers on INSPIRE (author record 1969289, 'Petropavlova, Maria V.', name variant 'Mariia Petropavlova'; arXiv:2608.06163 and 2606.09986): Institute of Experimental and Applied Physics, Czech Technical University in Prague, Husova 240/5, 110 00 Prague; Faculty of Mathematics and Physics, Charles University, Ovocny trh 5, 116 36 Prague. No e-mail on INSPIRE: none put (the other authors have one). Paper compiles, 28 pages; page 1 checked.
 - 2026-11-27 23:45. Her e-mail added (his message): mariia.petropavlova@cvut.cz, as \email after her \author line.
+- 2026-11-28 00:25. The index-range blocks and two single-column tasks had waited 2 h on Priority (my account's
+  priority is low; the tycho1 nodes' memory was held by my 84 forecast tasks; Slurm's start estimate 03:25, when those
+  reach their 12-h limit). Put to Mauricio in plain words; his "Yes": the 21 forecast tasks at the lowest masses were
+  stopped (892526 indices 0, 4, ..., 60: the SI blocks b10, 10^5.5 and 10^5.625 eV; 892527 indices 0, 4, 8, 12, 16: the
+  blocks b6 of the L_e-L_alpha and dark-portal planes); their recorded points stay and the keeper resubmits them once
+  no final-check task waits. Within two minutes: fin-col 6 of 6 remaining tasks running, fin-idx 14 of 20 running.
+  Forecast re-check, second comparison (00:15, 1,794 points, 708 with an effect, the first column of each block:
+  10^5.5, 5.75, 6.0, 6.25 eV, all families): no point from excluded to allowed; largest drops of Delta chi^2 -0.007,
+  -0.37, -3.87 (a point near 15, by 25%), -0.09; medians 0.00 to -0.08. The second columns (10^5.625, 5.875, 6.125,
+  6.375 eV) have no point with an effect yet. Final run, item 4 (SI ultralight column): no change (23:00 entry).
+- 2026-11-28 00:55. BIBLIOGRAPHY RE-AUDIT (Mauricio: "Let's use the time to regularize references. One by one, check
+  that you are using INSPIRE bibtex entries ... journals, title, authors, arXiv ID, year ... tex in titles ... author
+  names ... capitalize only the first letter of the first word (except for any proper noun)"). Scratchpad bibaudit/
+  (fetch.py: INSPIRE record and BibTeX of each of the 86 entries by texkey; compare.py: field by field).
+  83 entries are on INSPIRE under their key (always INSPIRE's first key); 61 identical to INSPIRE apart from title
+  capitalization and the JHEP/JCAP number field; the others differ only by earlier, deliberate fixes, kept: accents
+  (Esteban, Gonzalez-Garcia, Martinez-Soler, Jaeckel, Carpio, Yuksel, Dziewonski, Kublbeck, Adrian-Martinez), Ioka's
+  first name (INSPIRE: "Kunihto"), initials' periods in Blinov:2019gcj, TeX math in six titles ($U(1)'$, $g-2$, $Z'$),
+  en dashes, the Snowmass paper's subtitle, HEALPix's punctuation, number = year in the 20 JHEP/JCAP entries,
+  journal = "" in three arXiv-only entries (none published since, per INSPIRE).
+  Changed (15): Garg:2026gwx is published (Phys. Rev. D 114, 095042 (2026), doi 10.1103/zx4x-89k6; INSPIRE's fields);
+  the word after a colon or dash lowered in 13 titles (Elbers:2023mdr, Spiering:2026hqf, Machado:2025ltu,
+  Esteban:2024eli, Coloma:2020gfv, Arguelles:2022tki, IceCube:2020wum, Ackermann:2022rqc, Gorski:2004by,
+  Berryman:2022hds, Wang:2025qap, IceCube-Gen2:2020qha, IceCube:IceTracksDR2), as in his NuFlavorGalacticPlane
+  bibliography; collaboration "KM3Net" -> "KM3NeT" in KM3Net:2016zxf.
+  Not on INSPIRE: IceCube:IceTracksDR2 (checked against DataCite 10.7910/DVN/MMIIZA: title, IceCube Collaboration,
+  Harvard Dataverse, version 3.1, 2026), NuFIT61 (as agreed), Bustamante:2026inprep (his title pending).
+  All 70 cited keys exist; 16 entries are not cited. Paper rebuilt with BibTeX: 28 pages, no undefined citations.
+  Left for him: capital kept in "Majorons"/"Majoron-neutrino" (the authors' spelling), after the period in "Planck
+  2018 results. VI. Cosmological parameters" and after the question mark in Barenboim:2026mvn; Abbasi:2021qfz (not
+  cited) has no collaboration field on INSPIRE.
