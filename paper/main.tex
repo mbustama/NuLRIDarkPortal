@@ -599,7 +599,7 @@ We then compare every coupling with the best one at the same mass by computing
 \end{equation}
 where the minimum is over the couplings at the same mass, or is the fit without a new interaction where that is lower, as for light mediators whose decays change the flux at every coupling that we compute.
 A coupling is disfavored at 95\%~C.L.\ when $\Delta\chi^2 \geq 3.84$, for one parameter at fixed $M$; we place the edge of the excluded region by interpolating $\Delta\chi^2$ in $\log_{10} g$ with a monotone cubic.
-We report upper limits only: where the data prefer an effect, as IceCube's spectrum does for some MeV mediators, the couplings below the lowest allowed one are not marked as excluded.
+We report upper limits only: where the data prefer an effect, as IceCube's spectrum does for some MeV mediators, the couplings below the best-fit one are not marked as excluded.
 We also leave out isolated excluded regions of at most three grid points, none with $\Delta\chi^2$ above 5, since they change with the sampling.
 
 We do not use the region beyond perturbative unitarity (Sec.~\ref{sec:models}).
@@ -701,6 +701,8 @@ Figure~\ref{fig:discovery} shows how much today's data prefer a mediator of each
 The data prefer MeV masses, where absorption on $\nu_2$ and $\nu_3$ removes neutrinos with energies from about a TeV to a few hundred TeV.
 Across our 21 models with MeV masses, the preferred mass is 2.4--3.2~MeV, with $\Delta\chi^2$ from 2.0 to 6.6.
 The families give similar preferences because their resonances fall at the same energies, $M^2/(2m_r)$.
+At the preferred masses, the resonance on the relic $\nu_2$ falls at about 300~TeV, where the spectrum measured by IceCube has a deficit~\cite{IceCube:2025ewu}.
+For the same reason, our limits are weakest at these masses and strongest at the neighboring ones, which the data do not prefer.
 No preference reaches $3\sigma$ even at its best mass, so today's data show no evidence of a new interaction.
 The planned telescopes would test this preference in every model: their projected limits lie 0.9 to 2.6 orders of magnitude below the preferred couplings.
 
@@ -764,7 +766,7 @@ We include the thermal motion of all three relics, and the helicity of Dirac rel
 \begin{figure}[t!]
  \centering
  \includegraphics[width=\columnwidth]{figures/preference.pdf}
- % notebooks/paper_figures.ipynb, Sec. 14 (analysis/preference_figure.py; output/analysis/preference_20261122.json)
+ % notebooks/paper_figures.ipynb, Sec. 14 (analysis/preference_figure.py; output/analysis/preference_20261127.json)
  \caption{\textbf{\textit{How much today's IceCube data prefer a new mediator to no new interaction, versus its mass.}} At each mass, the preference is the $\chi^2$ without a new interaction minus the lowest $\chi^2$ over the coupling, fitting the source flavor composition. The preference does not reach $3\sigma$ at any mass. See Sec.~\ref{sec:results} for details.}
  \label{fig:discovery}
 \end{figure}

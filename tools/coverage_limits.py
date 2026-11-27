@@ -97,12 +97,18 @@ def read(names, M, chi, g_true):
 # ----------------------------------------------------------------------------------------------------------------
 # Workers (spawned: the solver is not fork-safe)
 # ----------------------------------------------------------------------------------------------------------------
-def _init(path):
+def _init(path, n_random=0):
+    import dataclasses
     from analysis.exact_profile import ExactProfiler, ExactSettings
     cfg = acfg.load(path)
     obj = cfg.objective()
-    _W.update(cfg=cfg, obj=obj, exact=ExactProfiler(cfg, objective=obj, settings=ExactSettings.from_dict(cfg.exact)),
-              real=(obj.data, obj.data_centre, dict(obj.spectrum)), toy=None)
+    exact = ExactProfiler(cfg, objective=obj, settings=ExactSettings.from_dict(cfg.exact))
+    if n_random:
+        # 2026-11-26: every fit of the cheap parameters also from n_random random starts (fitting.FitSettings). The
+        # single-start fit sticks in local minima on pseudo-data (chi^2 7 and 12 too high at two points refitted); on
+        # the real data the two agree to 0.2 at every coupling of both columns (Tycho jobs 867700, 868318, 868320)
+        exact.fit_settings = dataclasses.replace(exact.fit_settings, n_random=int(n_random))
+    _W.update(cfg=cfg, obj=obj, exact=exact, real=(obj.data, obj.data_centre, dict(obj.spectrum)), toy=None)
 
 
 def _set_data(k, f_obs, seg_values):
@@ -173,11 +179,19 @@ def main(argv=None):
     ap.add_argument("--lowest-log10g", type=float, default=None,
                     help="the window's lowest coupling where it lies below 1 decade under the true one")
     ap.add_argument("--window-hi", type=float, default=WINDOW[1], help="decades above the true coupling")
+    ap.add_argument("--n-random", type=int, default=0,
+                    help="random starts added to every fit of the cheap parameters (0: the plane runs' single start)")
+    ap.add_argument("--only", default=None, metavar="LO:HI",
+                    help="fit only the pseudo-experiments LO..HI-1 of the --toys drawn (the draws stay those of the seed)")
     ap.add_argument("--out", required=True)
     a = ap.parse_args(argv)
+    lo_k, hi_k = (0, a.toys) if a.only is None else (int(v) for v in a.only.split(":"))
+    if not 0 <= lo_k < hi_k <= a.toys:
+        raise SystemExit("--only LO:HI needs 0 <= LO < HI <= --toys")
+    ks = list(range(lo_k, hi_k))
     if not os.environ.get("NULRI_FLUX_CACHE"):
         raise SystemExit("NULRI_FLUX_CACHE must name the job's flux-cache folder: the workers share the solver runs")
-    _init(a.config)                       # here first: a failing configuration fails at once
+    _init(a.config, a.n_random)           # here first: a failing configuration fails at once
     cfg = _W["cfg"]
     pl = cfg.planes[0]
     names = (pl.x, pl.y)
@@ -189,8 +203,8 @@ def main(argv=None):
     on_grid = [g for g in gs if abs(np.log10(g) - a.true_log10g) < 1e-9]
     out = dict(config=a.config, mass_eV=M, log10g_true=a.true_log10g, window=[WINDOW[0], a.window_hi],
                lowest_log10g=a.lowest_log10g, couplings=gs,
-               toys=a.toys, seed=a.seed, workers=a.workers, started=time.strftime("%Y-%m-%d %H:%M:%S"))
-    with mp.get_context("spawn").Pool(a.workers, initializer=_init, initargs=(a.config,)) as pool:
+               toys=a.toys, only=[lo_k, hi_k], n_random=a.n_random, seed=a.seed, workers=a.workers, started=time.strftime("%Y-%m-%d %H:%M:%S"))
+    with mp.get_context("spawn").Pool(a.workers, initializer=_init, initargs=(a.config, a.n_random)) as pool:
         # 1. the real data's column and the truth (fills the flux cache)
         t0 = time.perf_counter()
         truth = pool.apply_async(_truth, (({pl.x: M, pl.y: g_t}, start0),))
@@ -210,9 +224,14 @@ def main(argv=None):
         # 3-4. the fits, widened where needed
         # the true coupling is fitted too (2026-11-26): its chi^2 kept apart (chi2_true: the test statistic at the
         # truth, for a corrected threshold), never in the column, which is read on the plane's grid as the limits are
-        chi = {k: {} for k in range(a.toys)}
-        chi_true = {}
-        todo = {k: list(gs) + ([] if on_grid else [g_t]) for k in range(a.toys)}
+        chi = {k: {} for k in ks}
+        chi_true, vals = {}, {k: {} for k in ks}
+
+        def partial():
+            return dict(chi2={str(k): {repr(g): c for g, c in sorted(chi[k].items())} for k in chi},
+                        chi2_true={str(k): c for k, c in chi_true.items()},
+                        f_obs=f_obs.tolist(), segments=segs.tolist())
+        todo = {k: list(gs) + ([] if on_grid else [g_t]) for k in ks}
         t1 = time.perf_counter()
         for rnd in range(MAX_ROUNDS):
             tasks = [(k, f_obs[k].tolist(), segs[k].tolist(), {pl.x: M, pl.y: g}, th) for k in sorted(todo)
@@ -224,6 +243,11 @@ def main(argv=None):
                     chi_true[r["toy"]] = r["chi2"]
                 else:
                     chi[r["toy"]][r["held"][pl.y]] = r["chi2"]
+                # each fit's solution (the parameters that are not held), for later checks of the fits
+                vals[r["toy"]][repr(r["held"][pl.y])] = {n: v for n, v in r["values"].items() if n not in names}
+                if n % 50 == 0:               # kept as the round goes: a task stopped inside it loses at most 50 fits
+                    out["partial"] = partial()
+                    _write(a.out, out)
                 if n % 10 == 0 or n == len(tasks):
                     print(f"round {rnd + 1}: {n} of {len(tasks)} profiles, {time.perf_counter() - t1:.0f} s since the "
                           f"pseudo-experiments began; the last took {r['seconds']:.0f} s", flush=True)
@@ -231,9 +255,7 @@ def main(argv=None):
             todo = {k: v for k, v in todo.items() if v}
             out["rounds"] = rnd + 1
             # kept after every round: a task stopped later loses no finished round
-            out["partial"] = dict(chi2={str(k): {repr(g): c for g, c in sorted(chi[k].items())} for k in chi},
-                                  chi2_true={str(k): c for k, c in chi_true.items()},
-                                  f_obs=f_obs.tolist(), segments=segs.tolist())
+            out["partial"] = partial()
             _write(a.out, out)
         out["toys_seconds"] = time.perf_counter() - t1
         out["window_unresolved"] = sorted(todo)            # still on an edge after MAX_ROUNDS (or none)
@@ -241,7 +263,7 @@ def main(argv=None):
         out.pop("partial", None)
         out["results"] = [dict(toy=k, f_obs=f_obs[k].tolist(), segments=segs[k].tolist(),
                                chi2={repr(g): c for g, c in sorted(chi[k].items())},
-                               chi2_true=chi[k][on_grid[0]] if on_grid else chi_true[k]) for k in range(a.toys)]
+                               chi2_true=chi[k][on_grid[0]] if on_grid else chi_true[k], values=vals[k]) for k in ks]
         out["finished"] = time.strftime("%Y-%m-%d %H:%M:%S")
         _write(a.out, out)
         try:

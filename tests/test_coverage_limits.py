@@ -5,6 +5,7 @@ import os
 import sys
 
 import numpy as np
+import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
 import coverage_limits as cl  # noqa: E402
@@ -102,12 +103,16 @@ def test_main_keeps_the_true_coupling_apart_and_the_window_wide(tmp_path, monkey
         lg = np.log10(g)
         return 10.0 + (0.5 if lg < -9 else (lg + 4.2) ** 2) + 0.1 * (k or 0)
 
-    def init(path):
+    seen = []
+
+    def init(path, n_random=0):
+        seen.append(n_random)
         cl._W.update(cfg=Cfg, obj=Obj, real=(None, None, {}), toy=None)
 
     def task(t):
         k, _, _, held, _ = t
-        return dict(toy=k, held=held, chi2=chi_of(k, held[NAMES[1]]), values={}, message="", seconds=0.0)
+        return dict(toy=k, held=held, chi2=chi_of(k, held[NAMES[1]]), values=dict(held, nu=2.0 + (k or 0)), message="",
+                    seconds=0.0)
 
     def truth(t):
         held, _ = t
@@ -122,7 +127,7 @@ def test_main_keeps_the_true_coupling_apart_and_the_window_wide(tmp_path, monkey
 
     class Pool:
         def __init__(self, *a, **k):
-            init(None)
+            init(*k["initargs"])
 
         def __enter__(self):
             return self
@@ -160,3 +165,14 @@ def test_main_keeps_the_true_coupling_apart_and_the_window_wide(tmp_path, monkey
         assert np.isclose(r["chi2_true"], chi_of(k, 10.0 ** -2.42))
         assert np.isclose(r["dchi2_true"], (-2.42 + 4.2) ** 2, atol=1e-6)        # from the column's lowest (at -4.2)
         assert r["covered"]                                                       # 3.17 < 3.84
+        assert r["values"][repr(10.0 ** -2.42)] == {"nu": 2.0 + k} and len(r["values"]) == len(r["chi2"]) + 1
+    assert o["n_random"] == 0 and o["only"] == [0, 3] and set(seen) == {0}
+    # 2026-11-26: the extra starts reach the workers, and --only fits a part of the same draws
+    del seen[:]
+    cl.main(["cfg.json", "--mass", str(M), "--true-log10g", "-2.42", "--toys", "3", "--workers", "1", "--only", "1:3",
+             "--n-random", "16", "--lowest-log10g", "-4.63", "--window-hi", "0.5", "--out", out])
+    p = json.load(open(out))
+    assert set(seen) == {16} and p["n_random"] == 16 and [r["toy"] for r in p["results"]] == [1, 2]
+    assert p["results"][0]["chi2"] == o["results"][1]["chi2"] and p["coverage"] == 1.0
+    with pytest.raises(SystemExit):
+        cl.main(["cfg.json", "--mass", str(M), "--true-log10g", "-2.42", "--toys", "3", "--only", "2:5", "--out", out])
