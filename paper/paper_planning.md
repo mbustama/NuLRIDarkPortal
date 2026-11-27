@@ -1147,3 +1147,76 @@ Fig. 1 on page 1; no technical caveats or estimates; the main message in bold; a
   IceCube's spectrum has a deficit; for the same reason the limits are weakest there and strongest at the neighboring
   masses. His verdict on my first, six-sentence draft: unclear, technical detail; only the physical point was kept.
   Not tested directly (e.g. a refit without the 215-464 TeV band): the text states the coincidence only.
+
+### Handoff 2026-11-27 (14:40)
+
+**Committed and pushed:** cee1778 on dev (CI 46003684781 green, pinned and latest NumPy): limits_20261127 (MeV planes
+of today's data merged with the 62-mass refit), the reading rule (nothing excluded below the best-fit coupling), the
+preference tool/figure, Figs. 9-12 redrawn, Sec. IV and Sec. V text, coverage tool, this log up to 14:30.
+
+**His decisions today:** "Yes, apply it" (reading rule); "Add them to the paper" (two sentences, Sec. V); "Commit and
+push"; "Launch the forecast refit tonight" and "Go ahead" (84 tasks of 14 cores = 1,176 cores, mediator masses
+10^5.5-10^6.375 eV, the 21 fitted-composition forecast planes; cap 1,500 for the account, the other session's dm-pix
+and txs9 jobs included).
+
+**Running on Tycho (14:35, 530 cores):** coverage rerun (cov-si: 881183 on astro3_short, 882298 on astro3_long,
+backup 881722; cov-le 879152 on astro3_short; 14 of 40 SI and 14 of 20 L_e-L_tau tasks finished at 14:21); last refit
+block si_scalar_dirac_universal_fx b9 (877911_37 ends by its limit at 14:51; automatic resume 889471 queued,
+`nulri_refit_set/resume_b9.sh`); forecast pilot 890411 (nulri_forecast, 3-h limit to 16:44); 6 old fc-lri tasks in
+nulri_set1_sm (ultralight L_e-L_alpha forecasts, repair passes; do not touch). Watchers: fc_tick (hourly), fc_release,
+and a waiter on the pilot's points.
+
+**Forecast refit, ready to submit (not submitted yet):** builder `/lustre/astro/mbustama/external/make_fc62_configs.py`
+(scratchpad copy), job script `fc62_array.sh` in nulri_forecast and nulri_set1_ml (astro3_long, 36 h, 14 cores, 64 GB,
+NUMBA_NUM_THREADS=1; the pilot's step used 39 GB). Configs made and checked: nulri_forecast
+`analysis/configs/campaign_si_fc62/proj_future_planA/` (64; packs_fc62_si.txt; outputs
+output/analysis/campaign_si_fc62/proj_future_planA/<plane>/b10..b13) and nulri_set1_ml
+`analysis/configs/campaign_ml_fc62/proj_future_planA/` (20; packs_fc62_ml.txt; blocks b6..b9 of le_lmu, le_ltau,
+dp_e/mu/tau _mev_fx). Line 26 of packs_fc62_si.txt (si_scalar_majorana_tau_fx b11) is the pilot's block: its config
+equals the pilot's apart from the output folder, so continue the pilot in its own folder (pilot_fc62/...) after 16:44
+and leave index 25 out of the array. Submit, from each checkout:
+`sbatch -J fc62-si --array=0-24,26-63%N --export=ALL,PACKS=packs_fc62_si.txt fc62_array.sh` and
+`sbatch -J fc62-ml --array=0-19%N --export=ALL,PACKS=packs_fc62_ml.txt fc62_array.sh`, with N set so the account stays
+under 1,500 cores, raised as the coverage tasks end. Before submitting: the pilot's first points with an effect must
+have ended without error (none had at 14:33; trivial points take 2,890-3,018 s). Wall time per block is about 7 times
+the time per point (98 points, 14 workers) plus the repair passes; not measured.
+Open items touching these planes: (i) fits of the cheap parameters use one start (multi-start checked on real data at
+1.3 MeV only; not on forecast data); (ii) the window: the forecast limits dip from 10^5.75 to 10^7.1 eV, wider than the
+refit's 10^5.5-10^6.375; the b13 blocks (10^6.25, 10^6.375) show whether higher masses change -- tell him before
+extending; (iii) after the refit: merge (tools/merge_ml62.py works on any stored/refit pair), rebuild the limits
+folder, redraw Figs. 9-11, recompute the forecast gains of Sec. V (0.4-1.75 decades, factor 2-4 above 1 keV, 3.4
+decades at the resonances, 0.9-2.6 below the preferred couplings), abstract/introduction/Summary "factors of about 2
+to 60".
+
+**Still to do tonight:** when the coverage tasks end: copy cov2_* files to the scratchpad, `cov_combine.py <dir> <fig>
+cov2` (run from the repo root), salvage the partial of 873881 (draws 0-2; draws 3-4 from backup cov2_si_t0_3.json),
+compare one to one with the first run (`cov_pair.py`), then propose the Sec. IV and Summary text (X, Y, the \todo
+sentence without Feldman-Cousins, "exactly as the real data" no longer true with the extra starts). When b9 ends:
+rebuild limits_20261127 (scratchpad `build_limits_20261127.sh`, then re-read limits.json columns with the new rule as
+at 14:00), redraw, commit on his word. Refit-dependent statements not yet re-verified against the merged limits: the
+comparison with existing bounds for nu_tau ("from about 1 keV to 4 MeV"), the Ioka/Esteban comparisons, captions.
+**Undecided, his:** DESI-variant and index-edge sensitivity runs; refit of the pion-composition planes (public data
+only); Bustamante:2026inprep title; Maria on the author list; his editing pass.
+- 2026-11-27 15:10. Refit-dependent statements re-verified against limits_20261127 (scripts inline, this session):
+  (i) scalar nu_tau against the existing bounds (analysis/existing_bounds.py curves): ours lower from 10^3.125 to
+  10^6.875 eV in both the stored and the merged limits, by more than 0.3 decade up to 10^6.625 eV (4.2 MeV) and by
+  0.04-0.05 at 5.6-7.5 MeV: "from about 1 keV to 4 MeV" stands. (ii) Ioka: weakest nu_tau limit below 2 MeV, Majorana
+  0.0275 (vector, 10^5.875 eV; scalar 0.0272 at 10^5.75 eV; before 0.0266), Dirac 0.0355 (unchanged): text 0.027 ->
+  0.028. (iii) Esteban (wp_hese7p5_tautau, 0.4-45 MeV): ours lower up to 7.5 MeV, higher by 0.05-0.21 decade at 10, 13,
+  18 and 32 MeV, lower by 0.05 at 24 MeV (unchanged by the refit): Sec. V's "below about 10 MeV, but not above" stands;
+  the INTRODUCTION's "at every mass that it covers, from 0.4 to 45 MeV" (line 149) contradicts it -- put to Mauricio.
+  (iv) preference: unchanged (14:00 entry). Not yet re-verified: forecast gains (wait for the forecast refit), captions.
+- 2026-11-27 15:15. Introduction, line 149 (Mauricio: "Yes, fix the Introduction"): "at every mass that it covers, from 0.4 to 45 MeV" -> "below about 10 MeV", as Sec. V.
+- 2026-11-27 15:10. FORECAST REFIT LAUNCHED (Mauricio: "Launch the forecast refit tonight", "Go ahead"): fc62-si
+  892010 (nulri_forecast, 63 blocks: packs_fc62_si.txt lines 1-25 and 27-64) and fc62-ml 892011 (nulri_set1_ml, 20
+  blocks), 14 cores and 64 GB each. astro3_long kept them waiting on Priority (1 task started there, 36-h limit), so
+  both arrays were moved to tycho1_short (idle nodes; 12-h limit): 66 tasks running at 15:07, 1,238 cores; the other 17
+  fc62-ml tasks wait on Resources. Core cap: scratchpad `fc62_throttle.sh` (every 10 min, external/fc62_throttle.py
+  892010 892011). The pilot block (890411, ends 16:44) continues as a production block in its own folder: dependent
+  job `pilot_fc62_continue.sh` (tycho1_short, 12 h, removes asimov/RUNNING.lock). The lock of a forecast run is in
+  <output>/asimov/, not data/.
+  Why the pilot showed no point with an effect after 76 min: in a chain the scans of the held-back points are probed
+  from the top down before any of them is recorded (analysis/scans.py, ml_inherit), 1,240 solver runs per scan; the
+  records of a chain arrive late and together. So: no measured time per point with an effect; expected about 1-1.5 h
+  per point on astro3 (1,240 runs at 2.3-4.3 s, the 11-mass forecast's seconds per run), 7-10 h per block plus the
+  repair passes, less on tycho1. Tasks that hit the 12-h limit resume from their checkpoints (as the refit's did).
