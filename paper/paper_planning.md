@@ -1341,3 +1341,30 @@ this log. **Waiting for him:** the coverage text for Sec. IV and the Summary (pr
 sentence in Sec. IV/V; (ii) index ranges: limits with wide against present ranges -> a sentence with the size, or, if
 the change is large, put it to him; (iii) dips and ultralight columns: differences in chi^2 -> a sentence each or
 nothing; (iv) rebuild nothing unless (ii) says so.
+- 2026-11-27 22:25. Index-range check, first launch failed and was redone: the opening fit of 905938 returned the
+  objective's wall value (chi^2 = 1e9): the solver rejects a spectral index of 0 ("p_index should be positive"), the
+  lowest node of gamma_low in 0-2.5. The 5 running tasks were cancelled after 10 min (905938, 905939), outputs and
+  caches removed. Now gamma_low in 0.1-2.5 (nodes 0.1, 0.9, 1.7, 2.5), gamma in 2-4 (13 nodes). Checked before the
+  relaunch (external/idx_debug.py in a 2-core interactive job): at the start values and (M, g) = (1 MeV, 10^-6) the
+  spectrum chi^2 is 10.628886234 with the wide ranges and 10.628886179 with the standard configuration, and the
+  flavor fractions agree to 1e-7. Relaunched: fin-idx 906695 (nulri_refit_set) and 906696 (nulri_set1_ml);
+  `fin_throttle.sh` on these ids. fin-col 906038, 906039, 906040: 5 of 8 running at 22:20.
+  Lesson (again): look at the first fit's chi^2 of a new configuration before leaving it; evaluate one point of a new
+  configuration interactively before submitting an array.
+- 2026-11-27 23:20. Housekeeping on the laptop (his request: "clean any local files that are unused in this project;
+  we need to make space"): disk 98% full. Deleted 1.06 GB of this session's scratch in /tmp (lim21: raw copies behind
+  the 11-21 limits, 560 MB; si62full: the trial merge, 422 MB; reexp, limits_20261127_before_b9, figs27_old, si62,
+  ml62_merged, ml62_merged2, ml62_refit_now). Kept: lim27 (build folder of limits_20261127), cov2 and cov100, all
+  scripts. The coverage results existed only in /tmp and on Tycho: copied to output/analysis/coverage_20261127/
+  (rerun/, first_run/, scripts/; 3 MB, not committed). Not touched: output/analysis/campaign_ml (126 MB, October;
+  analysis/mockups.py and tools/plot_campaign_ml.py read it); the three older session worktrees under
+  .claude/worktrees (98 MB each; the app manages them); other projects' session scratch in /tmp/claude-1000
+  (NuFlavorGalacticPlane 4.3 GB, GeoneutrinoDecay 3.0 GB, NuLRIEarth 0.8 GB, NuFlavorSingleSource 0.6 GB) and
+  /tmp/claude-1000/plan_a_digitize_inputs (289 MB, papers downloaded for the Plan A forecasts).
+  The animation: he asked for a nested session on Opus 5.5 Extra; I wrongly started a sub-agent (stopped, nothing
+  written), then offered a task chip, which he started as its own session (worktree compassionate-lumiere-1f52d6).
+  Final run at 23:00: ultralight SI column with the 62-mass scan (ul_si_m9.json, 1,387 s): chi^2 equal to the stored
+  column to 4 decimals at all four couplings, lightest mass at 1e-6 eV: no change. fin-idx arrays moved to
+  astro3_short (tycho1_short kept them on Priority for an hour).
+- 2026-11-27 23:35. Author list (Mauricio: "Add Mariia Petropavlova as second author. Fetch her affiliation from INSPIRE."): added after him, with ORCID 0000-0002-0416-0795 and two affiliations as on her latest papers on INSPIRE (author record 1969289, 'Petropavlova, Maria V.', name variant 'Mariia Petropavlova'; arXiv:2608.06163 and 2606.09986): Institute of Experimental and Applied Physics, Czech Technical University in Prague, Husova 240/5, 110 00 Prague; Faculty of Mathematics and Physics, Charles University, Ovocny trh 5, 116 36 Prague. No e-mail on INSPIRE: none put (the other authors have one). Paper compiles, 28 pages; page 1 checked.
+- 2026-11-27 23:45. Her e-mail added (his message): mariia.petropavlova@cvut.cz, as \email after her \author line.
