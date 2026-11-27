@@ -1220,3 +1220,28 @@ only); Bustamante:2026inprep title; Maria on the author list; his editing pass.
   records of a chain arrive late and together. So: no measured time per point with an effect; expected about 1-1.5 h
   per point on astro3 (1,240 runs at 2.3-4.3 s, the 11-mass forecast's seconds per run), 7-10 h per block plus the
   repair passes, less on tycho1. Tasks that hit the 12-h limit resume from their checkpoints (as the refit's did).
+- 2026-11-27 15:25. FORECAST REFIT RELAUNCHED with chains of 2 (Mauricio: "Stop and relaunch now"). The pilot 890411
+  was killed at 86 min for memory (51.6 GB against 48 GB; 38 GB at 37 min, 39 GB at 49 min): a chain keeps the scans of
+  all its points in memory, about 0.8 MB per solver run and 1,240 runs per point; with chains of 8 a task would need
+  about 150 GB. The 84 tasks launched at 15:05 (892010, 892011, 892182; 64 GB) were cancelled after 15 min, their
+  caches and output folders removed. New: builder with exact_profile.chain_length = 2, `fc62_array.sh` with 80 GB,
+  tycho1_short, 12 h; fc62-si 892526 (64 blocks, the pilot's block included; the pilot folder is no longer used) and
+  fc62-ml 892527 (20 blocks); 68 running at 15:22, 16 fc62-ml waiting on Resources. Expected memory with chains of 2:
+  about 70 GB (estimate from the pilot's growth, not measured); a waiter reports the tasks' MaxRSS every 25 min
+  (scratchpad task; `sstat -j <job>.batch -o MaxRSS`). Controller `fc62_throttle.sh` now on 892526 892527.
+  CI of 5b8105f: see the run 46013393138.
+- 2026-11-27 16:40. Forecast refit: tasks sent to node664 fail at start ("user env retrieval failed", requeued held,
+  twice); released with `scontrol update JobId=<task> ExcNodeList=node664` + `scontrol release`: 79 of 84 running,
+  5 waiting (Priority/Resources; nodes hold 9 tasks of 80 GB each). Memory (MaxRSS of the batch steps): median 30.4 GB,
+  largest 34.8 GB at 26 min; median 32.6 GB, largest 46.6 GB at 52 min; no point recorded yet (chains of 2 record after
+  their two scans). fc_tick.sh now also counts fc62-si and fc62-ml.
+- 2026-11-27 16:10. COVERAGE RERUN, PRELIMINARY (188 of 200; scratchpad cov2/: files copied, `cov_salvage.py` for the
+  stopped task 873881 -> cov2_si_t0_0_salvaged.json with draws 0-2; `cov_combine.py cov2 ... cov2`; `cov_pair.py`),
+  read with today's rule. L_e-L_tau (g_t = 10^-2.42): 87 of 90 allowed (96.7 +- 1.9%); first run 96 of 100. SI scalar
+  Majorana nu_tau (g_t = 10^-1.80): 83 of 98 (84.7 +- 3.6%); first run 83 of 100. One to one: SI 2 flips to allowed
+  (seed 3 draw 7: Delta chi^2 at the truth 5.77 -> 0.09; seed 8 draw 1: 15.85 -> 1.35), none the other way; L_e-L_tau no
+  flip, Delta chi^2 at the truth changes by at most 0.40. Threshold that leaves the truth allowed in 95% (97.5%) of the
+  SI pseudo-experiments: 6.76 (7.91); the real limit would move from 10^-1.80 to 10^-1.70 (10^-1.68). L_e-L_tau: 2.52
+  (4.23). Still running (limit 18:45): SI seed 8 draws 8-9 (881183_33), L_e-L_tau seed 4 draws 0-4 (879152_8, round 2)
+  and seed 7 draws 5-9 (879152_15). Figure cov2/coverage_rerun_prelim.png. No Feldman-Cousins (his). The wording of the
+  85% in Sec. IV and the Summary is his decision.
