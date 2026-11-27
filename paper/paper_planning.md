@@ -1245,3 +1245,99 @@ only); Bustamante:2026inprep title; Maria on the author list; his editing pass.
   (4.23). Still running (limit 18:45): SI seed 8 draws 8-9 (881183_33), L_e-L_tau seed 4 draws 0-4 (879152_8, round 2)
   and seed 7 draws 5-9 (879152_15). Figure cov2/coverage_rerun_prelim.png. No Feldman-Cousins (his). The wording of the
   85% in Sec. IV and the Summary is his decision.
+- 2026-11-27 18:10. Forecast refit, measured on tycho1 (258 points recorded, 14 workers per task; a 14-CPU task there
+  is 7 cores with two threads each): median 3,300-3,500 s per point without an effect (4,764 s at g = 10^-6 in the SI
+  planes) and 7,300-7,800 s per point at g = 10^-5..10^-3. With about 8,200 points this is about 13 h of fitting, so
+  the tasks will reach their 12-h limit (03:20) before their blocks end. Memory creeps: median 43 GB, largest 72.5 GB
+  (a dark-portal block) at 17:58, about 3 GB more per 26 min for the largest. KEEPER: Slurm job fc62-keep
+  (external/fc62_keeper.sh + fc62_keeper.py, 1 core, astro3_long, 48 h; log external/logs/fc62_keeper_<job>.out; state
+  external/fc62_keeper_state.json): every 10 min it resubmits each block whose task ended without a summary (as
+  fc62r-si with 120 GB / fc62r-ml with 160 GB, same index and config, node664 excluded, at most 5 times, within the
+  1,500-core cap) and releases tasks held after a failed start. Recorded points are reused by a resubmitted run.
+  All 84 tasks running since 17:54 (79 on tycho1_short, 5 on astro3_short).
+  Coverage: the three last tasks will be killed at 18:45 (fits running for more than 4 h); their partials hold SI seed
+  8 draw 8, L_e-L_tau seed 4 draws 0-4 and seed 7 draws 5-6.
+- 2026-11-27 19:00. COVERAGE RERUN, FINAL (scratchpad cov2/; figure output/figures/coverage_rerun_20261127.png): the
+  three last tasks hit their 12-h limit with fits running for more than 4 h; their complete pseudo-experiments were
+  salvaged from the partials (cov_salvage.py: SI seed 8 draw 8; L_e-L_tau seed 4 draws 0-4, of which draw 3 widened 7
+  rounds and is excluded, Delta chi^2 at the truth 6.53; seed 7 draws 5-6). L_e-L_tau: 93 of 97 allowed (95.9 +- 2.0%),
+  thresholds for 95% / 97.5%: 2.83 / 4.67. SI: 84 of 99 (84.8 +- 3.6%), thresholds 6.73 / 7.91, real limit 10^-1.80 ->
+  10^-1.70 / 10^-1.68. Excluded cases' Delta chi^2 at the truth: SI 4.0-12.5 (15), L_e-L_tau 4.6-6.5 (4). Against the
+  single-start run, one to one: SI 2 flips to allowed of 99, L_e-L_tau none of 97. Missing (fits unfinished): SI seed
+  8 draw 9; L_e-L_tau seed 7 draws 7-9. Proposed Sec. IV and Summary text put to Mauricio at 19:00 (in the session);
+  not in main.tex until he says so.
+- 2026-11-27 19:30. Forecast refit: 580 of 8,232 points at 19:15 (143 in the last 26 min). Memory keeps rising after
+  the chains end: median 45.5 -> 47.9 -> 52.2 GB at 18:23 / 18:49 / 19:15, largest 75.4 GB of 80: the workers keep
+  about 0.65 GB more per hour each, so most tasks will be killed for memory late tonight, before their time limit.
+  Fix for the tasks started from now on: analysis/scans.py, `_Pool`: NULRI_WORKER_MAXTASKS=n replaces a worker by a
+  fresh process after n tasks (multiprocessing's maxtasksperchild; unset: unchanged). Patched locally (32 tests of
+  tests/test_analysis.py pass; scratchpad pool_check.py: 9 tasks in 9 processes, initializer in each) and in
+  nulri_forecast and nulri_set1_ml (scratchpad/external patch_maxtasks.py; backups scans.py.bak_20261127);
+  fc62_array.sh exports NULRI_WORKER_MAXTASKS=1; the keeper resubmits with 80 GB (SI) and 110 GB (others). Test of the
+  whole path on Tycho: job 898982 (fc62-test: block b11 cut to 12 points and 2 lightest masses, 3 cores). Running
+  tasks are not affected (their pools exist; their environment does not set the variable).
+  Lesson: `pkill -f <pattern>` in a tool call matches the call's own shell (exit 144); a spawn pool cannot be tested
+  from standard input (its workers respawn forever).
+- 2026-11-27 20:05. REFIT OF TODAY'S LIMITS COMPLETE: the last block (si_scalar_dirac_universal_fx b9, resume 889471)
+  ended with exit 0 at 19:46. limits_20261127 rebuilt (build_limits_20261127.sh, then scratchpad reread_columns.py for
+  the current reading rule): no limit changes against the build of 14:00 (0 columns), the three limit figures are
+  pixel-identical and the preference file is unchanged. Figs. 9-12 as committed in cee1778 are final for today's
+  limits. The keeper now also deletes the solver caches of ended forecast tasks (account 1.34 TB at 19:50, flux caches
+  0.93 TB; a bad edit of fc62_keeper.py at 19:52 was fixed at 19:54, before the keeper's next call).
+- 2026-11-27 21:05. FORECAST REFIT, FIRST COMPARISON WITH THE 11-MASS FORECAST (external/fc62_compare.py, scratchpad
+  copy; 944 points recorded, 282 of them with an effect, in the columns 10^5.5, 10^5.75, 10^6.0, 10^6.25 eV, couplings
+  up to 10^-2.25, 10 of the 21 cases): Delta chi^2 changes by a median of 0.00; largest drops -0.37 at 10^5.75 eV
+  (si_vector_dirac_tau_fx, g = 10^-4.5: 3.19 -> 2.82, below the threshold both), -1.31 at 10^6.0 eV (15.98 -> 14.67),
+  -0.09 at 10^6.25 eV, -0.001 at 10^5.5 eV; no point goes from excluded to allowed; near the threshold (old Delta chi^2
+  2-20): 62 points in 8 cases at 10^5.75 eV, 44 in 10 cases at 10^6.0 eV, 11 in 7 cases at 10^6.25 eV. The fitted
+  lightest mass barely moves (e.g. 0.0155 -> 0.017 eV). So far the forecasts do NOT depend on the scan as today's
+  limits did. Not yet compared: the second column of each block (10^5.625, 5.875, 6.125, 6.375 eV), couplings above
+  10^-2.25, the dark-portal and L_e-L_mu cases.
+  Measured cost (20:52): median seconds per point with an effect 10,700-12,800 (SI), 9,000-11,000 (others); without,
+  3,500 (others) and 7,100 (SI at 10^-6). Projection to the end of the first pass about 23,500 worker-hours (about 18 h
+  more on 1,176 workers, without the losses of killed tasks), and the repair passes cost about as much again: the full
+  refit would end on Monday 11-30. Recycling test 898982: 9 of 12 points with fresh workers per chain, no error, when
+  its 1.5-h limit came; the repair pass with recycling is not exercised yet.
+
+### Handoff 2026-11-27 (22:00): THE FINAL RUN
+
+Mauricio, 21:10-21:30: "Let it run overnight. Listen, I don't have more time later for re-runs. If they are to happen,
+they should happen now." and, after I offered two optional re-runs as a question: "I'm getting tired of you giving me
+things in patches. Understand this: I need to do a final run". So: everything that could still need a run was listed,
+checked against the saved records where possible, and the rest launched together tonight. After these, no more runs.
+
+**Census (external/census_bounds.py; point records of every today's-data plane with the composition fitted):** at the
+last allowed coupling below each limit, gamma sits at its upper edge 3 in 19% (L_e-L_alpha ultralight, 64 columns),
+73% (dark portal ultralight, 26), 16% (SI below 1 keV, 314), 74% (L_e-L_alpha and dark portal MeV, 50), 64% (SI from 1
+keV up, 607) of the mass columns; gamma_low at its lower edge 0.5 in 3%, 0%, 0%, 18%, 32%; f_e,S at 0 in 67-82% of
+the ultralight columns (a physical edge). (The census's "norm_astro at its low edge" counts are a bug of mine: a
+linear tolerance on a range of five decades; ignore them.) Consequence: the index ranges cannot be widened
+consistently, since that would need the ultralight planes again (weeks); they stay as the stated assumption of
+Table II, and their effect is measured on two cases (below).
+**Needs no run (checked from saved records):** SI above 13 MeV: 876 refit points saved before those blocks were
+cancelled differ from the stored planes by at most 0.02 in chi^2. Ultralight dark portal: one column on 11-25, edge
+moved 0.01 decade. A tighter (DESI) mass bound would only strengthen the MeV limits. Pion-composition planes: not in
+the paper's figures (public data: his decision later).
+**Running tonight (all on tycho1_short, 12 h, keeper/throttle loops within the 1,500-core cap):**
+1. Forecast refit with 62 lightest masses, 84 blocks (fc62-si 892526, fc62-ml 892527; keeper job 895301). First
+   comparison at 21:05: no change (entry above). To be compared again in the morning on all recorded points.
+2. Index ranges (fin-idx 905938 in nulri_refit_set: si_scalar_majorana_tau_fx b7-b16; 905939 in nulri_set1_ml:
+   le_ltau_mev_fx b3-b12; configs analysis/configs/final_idx/, outputs output/analysis/final_idx/<plane>/b<k>): the
+   refit's blocks with gamma in 2-4 (13 nodes) and gamma_low in 0-2.5 (4 nodes), 10^4.75-10^7.125 eV. Compare the
+   limits with limits_20261127 (merge not needed: read the blocks' summaries alone).
+3. Extra starts at the dips (fin-col 906038 in nulri_refit_set, 906039 in nulri_set1_ml; final_cols.txt;
+   tools/coverage_limits.py --toys 0 --n-random 16, outputs output/final_cols/dip_*.json): 10^6.0, 10^6.25, 10^6.625
+   eV for the same two cases; compare each "real" column with the refit's records at the same couplings.
+4. One ultralight column with a 62-mass scan of the lightest mass, which those planes do not scan (the same fin-col
+   arrays, --n-random 0): si_scalar_majorana_tau_ul_fx at 10^-9 eV (ul_si_m9.json) and le_ltau_ul_fx at 10^-16 eV
+   (906040 in nulri_sep, a copy of nulri_set1_sm's code; its config does not load in nulri_set1_ml); compare with the
+   stored columns.
+The keeper holds forecast resubmissions while any final-check task waits. Scratchpad `fin_throttle.sh` raises the
+fin-idx arrays' limits within the cap. tools/coverage_limits.py: --toys 0 was rejected by the --only check; fixed
+(locally and in the three checkouts; 7 tests pass). analysis/scans.py: NULRI_WORKER_MAXTASKS (19:30 entry).
+**Not committed:** analysis/scans.py, tools/coverage_limits.py, the two limits files of si_scalar_dirac_universal_fx,
+this log. **Waiting for him:** the coverage text for Sec. IV and the Summary (proposed at 19:00).
+**In the morning:** (i) fc62_compare.py on all recorded forecast points -> stop the forecast refit if still null, one
+sentence in Sec. IV/V; (ii) index ranges: limits with wide against present ranges -> a sentence with the size, or, if
+the change is large, put it to him; (iii) dips and ultralight columns: differences in chi^2 -> a sentence each or
+nothing; (iv) rebuild nothing unless (ii) says so.

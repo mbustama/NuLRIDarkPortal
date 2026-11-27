@@ -186,7 +186,7 @@ def main(argv=None):
     ap.add_argument("--out", required=True)
     a = ap.parse_args(argv)
     lo_k, hi_k = (0, a.toys) if a.only is None else (int(v) for v in a.only.split(":"))
-    if not 0 <= lo_k < hi_k <= a.toys:
+    if a.toys > 0 and not 0 <= lo_k < hi_k <= a.toys:      # --toys 0: the real column and the truth only
         raise SystemExit("--only LO:HI needs 0 <= LO < HI <= --toys")
     ks = list(range(lo_k, hi_k))
     if not os.environ.get("NULRI_FLUX_CACHE"):

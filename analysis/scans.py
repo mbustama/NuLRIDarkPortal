@@ -318,7 +318,11 @@ class _Pool:
             _init_worker(*self.args)
         else:
             ctx = mp.get_context("spawn")
-            self.pool = ctx.Pool(self.workers, initializer=_init_worker, initargs=self.args)
+            # NULRI_WORKER_MAXTASKS=n (2026-11-27): a worker is replaced by a fresh process after n tasks (chains or
+            # repair points), which returns the memory that its fits keep; unset or 0: workers live to the end
+            recycle = int(os.environ.get("NULRI_WORKER_MAXTASKS", "0")) or None
+            self.pool = ctx.Pool(self.workers, initializer=_init_worker, initargs=self.args,
+                                 maxtasksperchild=recycle)
         return self
 
     def __exit__(self, *exc):
