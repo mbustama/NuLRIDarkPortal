@@ -1,0 +1,3 @@
+build/*
+!build/video.mp4
+__pycache__/
