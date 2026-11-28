@@ -58,7 +58,7 @@
  {
   "plane": "campaign_final_sm/proj_future_planA/le_lmu_ul",
   "complete": false,
-  "blocks_finished": 3,
+  "blocks_finished": 6,
   "blocks": 9,
   "columns": 35,
   "columns_with_exclusion": 35
@@ -66,7 +66,7 @@
  {
   "plane": "campaign_final_sm/proj_future_planA/le_lmu_ul_fx",
   "complete": false,
-  "blocks_finished": 4,
+  "blocks_finished": 8,
   "blocks": 9,
   "columns": 35,
   "columns_with_exclusion": 35
@@ -74,7 +74,7 @@
  {
   "plane": "campaign_final_sm/proj_future_planA/le_ltau_ul",
   "complete": false,
-  "blocks_finished": 5,
+  "blocks_finished": 8,
   "blocks": 9,
   "columns": 35,
   "columns_with_exclusion": 35
@@ -82,7 +82,7 @@
  {
   "plane": "campaign_final_sm/proj_future_planA/le_ltau_ul_fx",
   "complete": false,
-  "blocks_finished": 4,
+  "blocks_finished": 8,
   "blocks": 9,
   "columns": 35,
   "columns_with_exclusion": 35

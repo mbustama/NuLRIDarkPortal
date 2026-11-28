@@ -564,11 +564,11 @@
    "read": true,
    "excluded_log10_g": [
     [
-     -3.3,
+     -3.27,
      -0.0
     ]
    ],
-   "lowest_excluded_log10_g": -3.3,
+   "lowest_excluded_log10_g": -3.27,
    "limit_below_grid": false,
    "all_couplings_computed": true
   },

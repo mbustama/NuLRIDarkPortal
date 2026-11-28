@@ -1401,3 +1401,79 @@ nothing; (iv) rebuild nothing unless (ii) says so.
   cited) has no collaboration field on INSPIRE.
 - 2026-11-28 01:10. arXiv:2611.14642 (Cardenas:2026vop, 'Earth-sized tests of long-range neutrino interactions', Cardenas and Bustamante) was not cited (his message: 'If not, we should'): INSPIRE's BibTeX added to references.bib and the key cited in Sec. V with the existing bounds on L_e-L_alpha, after Garg:2026gwx (both are IceCube DeepCore limits on long-range interactions; neither is drawn in Fig. 9's gray region nor listed in Table tab:bounds). Offered to him: also cite it where the Earth's potential is computed (Sec. III, Appendix app:earth) and draw the DeepCore limits in Fig. 9. Bibliography commit d487a30 pushed before this; this edit is not committed.
 - 2026-11-28 01:20. His word on the previous bounds: "We will add previous bounds later, put it in to-do list": appended to his list (memory bookkeeping_list.md) as "add previous bounds (DeepCore limits) to Fig. 9"; Fig. 9 and Table tab:bounds unchanged for now.
+- 2026-11-28 01:45. Final run, item 3, first two dips with 16 extra starts (scratchpad final_cols/, dips_compare.py
+  on Tycho, dips_limits.py locally: the merged column with the lower chi^2, read by tools/coverage_limits.read):
+  si_scalar_majorana_tau_fx at 10^6.0 eV: chi^2 lower by at most 0.066, limit 10^-3.34 unchanged; le_ltau_mev_fx at
+  10^6.0 eV: the fit at g' = 10^-2.8 was 0.531 too high (7 of 8 couplings lower), limit 10^-2.94 -> 10^-2.65 (a
+  factor 1.95). Item 2: the index-range blocks' opening fits are right (chi^2 = 9.6133, as the standard
+  configuration); 16 of 20 running at 00:35. Item 4: the L_e-L_tau ultralight column failed in nulri_sep (missing
+  tools/coverage.py; copied, imports and config load checked, resubmitted as 909864).
+  Mauricio, on my relaying these one by one and floating a half-day multi-start rerun: "What?", then "I'm getting
+  tired of you constantly redoing the same thing". DECIDED BY ME, told to him: no new reruns; tonight's runs finish
+  and are the last; what they find (shifts of about a factor 2 at single masses) goes into the limitations with its
+  size; ONE message in the morning with the results and the sentences; no partial findings before that. If he then
+  prefers to fix the affected limits, that is a single decision of his.
+- 2026-11-28 00:55. SIX STALLED FORECAST TASKS STOPPED (Mauricio: "You have 48 cores running for days without
+  progress?", then "Do it"). fc-lri in nulri_set1_sm (ultralight L_e-L_alpha forecasts, blocks le_ltau_ul_fx b5,
+  le_lmu_ul b3/b5/b6, le_lmu_ul_fx b6, le_ltau_ul b6): each had all 244 points and was in its repair pass, with no
+  record saved since 20-24 November (checked with external/fclri_progress.py: records per block, repair checks per
+  pass 140-234 of 244, last record's time), restarted after each time limit; about 2,200 core-hours in their last
+  incarnations. My miss: I reported them as running for days without checking their saved records. Cancelled
+  (757402_32, 819338_6, 819337_15, 825022_5, 854745_3, 880689_24); no caches left; the automatic resubmission no
+  longer covers fc-lri (scratchpad fc_oom_remote.sh; backup .bak_20261128). Their points stay; 10-104 repair checks
+  per block were never made. Lesson: a job's log heartbeat is not progress; check the time of the last saved record.
+  Cores at 00:49 by job set: forecast re-check 882 (time limit 03:20), index ranges 224, dip columns 56. He asked
+  when they will be free; told: the forecast re-check restarts itself at 03:20 unless he says to stop it.
+- 2026-11-28 01:00. FORECAST RE-CHECK NOT RESUMED (Mauricio, after asking for "a real recommendation": "Ok, don't
+  resume them, but don't add a sentence to the paper. This is internal."). The keeper job 895301 is cancelled; the 63
+  running tasks (fc62-si 892526, fc62-ml 892527) end at their 12-h limit, 03:20, and nothing restarts them; the 21
+  stopped earlier are not resubmitted. A one-core job (fc62-clean 910385, external/fc62_cleaner.sh: fc62_keeper.py
+  --no-resubmit) removes the ended tasks' solver caches. Outcome kept here only: 1,794 points compared with the
+  11-mass forecast at 10^5.5, 5.75, 6.0, 6.25 eV in all families, no projected limit changed (entries of 21:05 and
+  00:25); 10^5.625, 5.875, 6.125, 6.375 eV not reached. NOT to be mentioned in the paper. The forecasts stay as they
+  are (11-mass scan); Sec. V's forecast numbers need no update from this.
+  Remaining runs: index ranges (fin-idx 906695, 906696) and the single columns (fin-col 906038, 906039, 909864), to
+  about 10:00.
+- 2026-11-28 04:15. FINAL RUN, RESULTS SO FAR (not yet told to him: one message in the morning).
+  State: forecast re-check ended at its limit 03:20 (last dozen tasks by about 05:40), cores 378 at 03:58; fin-idx SI
+  8 of 10 blocks finished (3.3-3.8 h each), L_e-L_tau 0 of 10 (615 of 820 points, repairs begun); all six dips done;
+  the L_e-L_tau ultralight column (909864, nulri_sep) running since about 03:25.
+  Item 3, dips with 16 extra starts (scratchpad dips_limits.py): si_scalar_majorana_tau_fx 10^6.0: -3.340 -> -3.340;
+  10^6.25: -3.300 -> -3.270 (largest chi^2 drop 0.280); 10^6.625: -3.490 -> -3.490. le_ltau_mev_fx 10^6.0: -2.940 ->
+  -2.650 (drop 0.531); 10^6.25: -2.885 -> -2.885; 10^6.625: -3.620 -> -3.615. One of six limits moves by a factor 2,
+  the others by 7% or less.
+  Item 2, index ranges, SI scalar Majorana nu_tau, all 20 columns computed (scratchpad idx/, idx_compare.py: the wide
+  blocks exported alone with tools/export_limits.py against limits_20261127; two blocks still in their repair pass):
+  no-effect chi^2 unchanged (9.6128). From 10^4.75 to 10^5.625 eV the limit weakens from 10^-1.57..-1.67 to
+  10^-0.74..-0.79, by 0.84-0.89 decade (a factor 7 to 8): the fit steepens the spectrum to gamma = 3.6-3.75 at the
+  last allowed coupling (gamma was capped at 3). At 10^5.75: +0.15; 10^6.25 (a dip): -3.300 -> -2.845, +0.455, with
+  gamma_low at its new lower edge 0.1 and gamma at 3.0; 10^6.125: +0.075, 10^6.375: +0.035; unchanged (below 0.02)
+  at 10^5.875, 10^6.0 and from 10^6.5 to 10^7.125 eV. So the limits between 56 keV and 0.4 MeV rest on gamma <= 3.
+  THE ONE DECISION FOR HIM: keep gamma in 2-3 as the stated assumption and report this sensitivity, or change the
+  range (which cannot be done consistently for the ultralight planes before the deadline). L_e-L_tau pending.
+- 2026-11-28 07:10. MORNING SUMMARY GIVEN (one message). Final run complete except the L_e-L_tau ultralight column
+  (909864, limit 08:25). Results: dips with extra starts as logged at 04:15; SI ultralight column unchanged.
+  INDEX RANGES, final (scratchpad idx/, idx_compare.py): SI scalar Majorana nu_tau as logged at 04:15 (factors 6.8-7.7
+  weaker from 10^4.75 to 10^5.625 eV, 2.9 at 10^6.25, 1.4 at 10^5.75, unchanged within 0.02 decade at 10^5.875, 10^6.0
+  and from 10^6.5 up). L_e-L_tau: with the standard ranges it has limits at eight masses in this window (10^4.75,
+  4.875, 5.0, 5.125, 6.0, 6.125, 6.25, 6.625 eV); with gamma in 2-4 and gamma_low in 0.1-2.5 only 10^6.0 (-2.935) and
+  10^6.625 (-3.615) keep one, unchanged; the others have no excluded coupling up to the grid's top, 10^-2 (fitted
+  gamma 3.2-3.4 there; gamma_low at 0.1 at 10^6.25). My first count "five of seven" was wrong: six of eight.
+  HIS DECISION (07:00): "Keep gamma in 2-3 and say so". Text proposed to him in the session (Sec. IV "The flux in the
+  fits": six sentences; Summary: the assumption added to the list sentence and one sentence on the size); not in
+  main.tex until he says so. Also awaiting his word: the coverage text (27 Nov 19:00) and whether the six dip fits
+  with extra starts are folded into the limits (his rule: keep the lowest chi^2; visible change only L_e-L_tau at 1
+  MeV in Fig. 9, 10^-2.94 -> 10^-2.65, and SI at 1.8 MeV, -3.30 -> -3.27).
+  Cores at 06:55: 24 (14 mine). His question "Do we have all results to finalize paper plots?": the ultralight
+  L_e-L_alpha forecast planes in the limits folder were a snapshot with 4 of 9 blocks finished; re-collected from
+  Tycho (8 of 9 finished; le_lmu_ul 6 of 9; the unfinished ones have all 244 points) and exported: no fitted-plane
+  limit differs (one pion column by 0.005), Fig. 9 pixel-identical; the four planes and the index in limits_20261127
+  updated (not committed). So: yes for Figs. 9-12; open by his choice: previous bounds (DeepCore) in Fig. 9, later.
+- 2026-11-28 07:25. Dip fits folded into the limits (Mauricio: "Yes"; his rule: keep the lowest chi^2). Scratchpad
+  fold_dips.py: in limits_20261127 the joined summaries of si_scalar_majorana_tau_fx (35 points lowered, largest drop
+  0.280) and le_ltau_mev_fx (25 points, 0.531) take the multi-start chi^2 where it is lower; the changes are listed
+  in each summary under "multistart_20261128"; limits.json re-read (reread_columns.py). Limits now: L_e-L_tau
+  10^6.0 eV -2.94 -> -2.65, 10^6.625 -3.62 -> -3.615; SI 10^6.25 -3.30 -> -3.27; the other three unchanged.
+  Preference file regenerated (three values change by less than 0.001; peaks unchanged). Figs. 9 and 11 redrawn and
+  installed (Fig. 10 pixel-identical), preference.pdf rewritten, paper compiles (28 pages); 18 tests pass. Text
+  numbers checked: none quotes these three limits. Not committed.

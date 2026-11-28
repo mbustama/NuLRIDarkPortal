@@ -307,11 +307,11 @@
    "read": true,
    "excluded_log10_g": [
     [
-     -2.94,
+     -2.65,
      -2.0
     ]
    ],
-   "lowest_excluded_log10_g": -2.94,
+   "lowest_excluded_log10_g": -2.65,
    "limit_below_grid": false,
    "all_couplings_computed": true
   },
@@ -362,11 +362,11 @@
    "read": true,
    "excluded_log10_g": [
     [
-     -3.62,
+     -3.615,
      -2.0
     ]
    ],
-   "lowest_excluded_log10_g": -3.62,
+   "lowest_excluded_log10_g": -3.615,
    "limit_below_grid": false,
    "all_couplings_computed": true
   },
