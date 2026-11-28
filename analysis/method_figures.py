@@ -3,7 +3,9 @@ method_figures.py -- the paper's figures of the method (2026-11-07; paper/paper_
 flux at the stops of the trip (dark_portal_solver.flux_stops), and Fig. 3, the flux as the collision terms are
 switched on one at a time. The cases and settings are those of notebooks/fluxes_at_earth.ipynb (its Secs. 3--5).
 compute() runs the solver once (222 s on 4 cores of the laptop, measured 2026-11-07) and caches the fluxes in
-output/analysis/method_figures.npz; trip_figure() and collisions_figure() draw from the cache. Called from
+output/analysis/method_figures.npz; since 2026-11-28 the trip's cases take the mixing block (the Standard Model
+potential in the Earth, PREM profile, included) and the thermal products of the final ultralight L_e - L_mu planes
+(campaign_final_sm), as the paper's limits do; trip_figure() and collisions_figure() draw from the cache. Called from
 notebooks/paper_figures.ipynb, in the repository's style (analysis.figure_style.use() first).
 """
 import json
@@ -61,14 +63,21 @@ def _solver():
     return dps
 
 
-def _mixing():
-    with open(os.path.join(REPO, "analysis", "configs", "campaign_ml", "now_ic26", "le_lmu_mev.json")) as f:
+#: The configurations whose mixing block the cases take: the collision cases that of the MeV planes (as on 2026-11-07),
+#: the trip's cases that of the final ultralight L_e - L_mu planes (2026-11-28), whose limits the paper shows.
+MIXING_MEV = os.path.join(REPO, "analysis", "configs", "campaign_ml", "now_ic26", "le_lmu_mev.json")
+MIXING_TRIP = os.path.join(REPO, "analysis", "configs", "campaign_final_sm", "now_ic26", "le_lmu_ul__b0.json")
+
+
+def _mixing(path=MIXING_MEV):
+    with open(path) as f:
         return json.load(f)["solver"]["standard_mixing"]
 
 
-def _gauge_params(model, m_eV, g, potential=True, collisions=True, decay=True, scattering=True, thermal=False):
+def _gauge_params(model, m_eV, g, potential=True, collisions=True, decay=True, scattering=True, thermal=False,
+                  mixing=MIXING_MEV):
     dps = _solver()
-    config = {"model": {"name": model}, "cosmology": {"m_lightest_eV": M_LIGHTEST}, "standard_mixing": _mixing(),
+    config = {"model": {"name": model}, "cosmology": {"m_lightest_eV": M_LIGHTEST}, "standard_mixing": _mixing(mixing),
               "dark_portal": {"m_Zd_eV": m_eV, "g_D": g, "u_e": 0.0, "u_mu": 0.0, "u_tau": 0.0,
                               "epsilon_prime": 0.0, "neutrino_decay": decay, "relic_scattering": scattering,
                               "thermal_products": thermal},
@@ -104,7 +113,7 @@ def compute(path=CACHE):
     dps = _solver()
     out = {}
     for key, model, m, g, _ in TRIP_CASES:
-        E, p = _gauge_params(model, m, g)
+        E, p = _gauge_params(model, m, g, thermal=True, mixing=MIXING_TRIP)
         st = dps.flux_stops(E, p)
         out[f"{key}/E"] = E
         for s, _ in STOPS:

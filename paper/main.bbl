@@ -6,7 +6,7 @@
 %Control: page (0) single
 %Control: year (1) truncated
 %Control: production of eprint (0) enabled
-\begin{thebibliography}{71}%
+\begin{thebibliography}{74}%
 \makeatletter
 \providecommand \@ifxundefined [1]{%
  \@ifx{#1\undefined}
@@ -196,7 +196,7 @@
   \BibitemOpen
   \bibfield  {author} {\bibinfo {author} {\bibfnamefont {C.~A.}\ \bibnamefont
   {Arg{\"u}elles}} \emph {et~al.},\ }\bibfield  {title} {\bibinfo {title}
-  {{Snowmass white paper: beyond the standard model effects on neutrino
+  {{Snowmass white paper: beyond the Standard Model effects on neutrino
   flavor}},\ }\href {https://doi.org/10.1140/epjc/s10052-022-11049-7}
   {\bibfield  {journal} {\bibinfo  {journal} {Eur. Phys. J. C}\ }\textbf
   {\bibinfo {volume} {83}},\ \bibinfo {pages} {15} (\bibinfo {year} {2023})},\
@@ -558,12 +558,14 @@
   {journal} {\bibinfo  {journal} {PoS}\ }\textbf {\bibinfo {volume}
   {ICRC2023}},\ \bibinfo {pages} {1080} (\bibinfo {year} {2023})}\BibitemShut
   {NoStop}%
-\bibitem [{\citenamefont {Bustamante}(2026)}]{Bustamante:2026inprep}%
+\bibitem [{\citenamefont
+  {Bustamante}(2026{\natexlab{a}})}]{Bustamante:2026inprep}%
   \BibitemOpen
   \bibfield  {author} {\bibinfo {author} {\bibfnamefont {M.}~\bibnamefont
   {Bustamante}},\ }\bibfield  {title} {\bibinfo {title} {{Measuring the flavor
   composition of high-energy astrophysical neutrino sources}}} (\bibinfo {year}
-  {2026}),\ \bibinfo {note} {in preparation}\BibitemShut {NoStop}%
+  {2026}{\natexlab{a}}),\ \bibinfo {note} {in preparation}\BibitemShut
+  {NoStop}%
 \bibitem [{\citenamefont {{IceCube
   Collaboration}}(2026)}]{IceCube:IceTracksDR2}%
   \BibitemOpen
@@ -581,6 +583,15 @@
   {title} {\bibinfo {title} {{High-energy neutrino emission from the Milky
   Way}},\ }\href@noop {} {\  (\bibinfo {year} {2026}{\natexlab{d}})},\ \Eprint
   {https://arxiv.org/abs/2607.25966} {arXiv:2607.25966 [astro-ph.HE]}
+  \BibitemShut {NoStop}%
+\bibitem [{\citenamefont
+  {Bustamante}(2026{\natexlab{b}})}]{Bustamante:2026knw}%
+  \BibitemOpen
+  \bibfield  {author} {\bibinfo {author} {\bibfnamefont {M.}~\bibnamefont
+  {Bustamante}},\ }\bibfield  {title} {\bibinfo {title} {{Measuring the flavor
+  composition of high-energy neutrinos from the Milky Way}},\ }\href@noop {} {\
+   (\bibinfo {year} {2026}{\natexlab{b}})},\ \Eprint
+  {https://arxiv.org/abs/2611.34797} {arXiv:2611.34797 [astro-ph.HE]}
   \BibitemShut {NoStop}%
 \bibitem [{\citenamefont {Esteban}\ \emph {et~al.}(2024)\citenamefont
   {Esteban}, \citenamefont {Gonz{\'a}lez-Garc{\'\i}a}, \citenamefont {Maltoni},
@@ -604,6 +615,33 @@
   \BibitemOpen
   \href@noop {} {\bibinfo {title} {{NuFIT 6.1}}},\ \bibinfo {howpublished}
   {\url{http://www.nu-fit.org}}\BibitemShut {NoStop}%
+\bibitem [{\citenamefont {Bustamante}\ \emph
+  {et~al.}(2026{\natexlab{a}})\citenamefont {Bustamante}, \citenamefont {Liu},\
+  and\ \citenamefont {Barenboim}}]{Bustamante:2026aur}%
+  \BibitemOpen
+  \bibfield  {author} {\bibinfo {author} {\bibfnamefont {M.}~\bibnamefont
+  {Bustamante}}, \bibinfo {author} {\bibfnamefont {Q.}~\bibnamefont {Liu}},\
+  and\ \bibinfo {author} {\bibfnamefont {G.}~\bibnamefont {Barenboim}},\
+  }\bibfield  {title} {\bibinfo {title} {{Measuring neutrino mixing above 1~TeV
+  with astrophysical neutrinos}},\ }\href {https://doi.org/10.1103/76bd-86sg}
+  {\bibfield  {journal} {\bibinfo  {journal} {Phys. Rev. D}\ }\textbf {\bibinfo
+  {volume} {114}},\ \bibinfo {pages} {083005} (\bibinfo {year}
+  {2026}{\natexlab{a}})},\ \Eprint {https://arxiv.org/abs/2602.14308}
+  {arXiv:2602.14308 [hep-ph]} \BibitemShut {NoStop}%
+\bibitem [{\citenamefont {Bustamante}\ \emph
+  {et~al.}(2026{\natexlab{b}})\citenamefont {Bustamante}, \citenamefont {Liu},\
+  and\ \citenamefont {Barenboim}}]{Bustamante:2026zst}%
+  \BibitemOpen
+  \bibfield  {author} {\bibinfo {author} {\bibfnamefont {M.}~\bibnamefont
+  {Bustamante}}, \bibinfo {author} {\bibfnamefont {Q.}~\bibnamefont {Liu}},\
+  and\ \bibinfo {author} {\bibfnamefont {G.}~\bibnamefont {Barenboim}},\
+  }\bibfield  {title} {\bibinfo {title} {{Astrophysical bounds on the
+  high-energy evolution of neutrino mixing}},\ }\href
+  {https://doi.org/10.1103/gvgb-x2pr} {\bibfield  {journal} {\bibinfo
+  {journal} {Phys. Rev. D}\ }\textbf {\bibinfo {volume} {114}},\ \bibinfo
+  {pages} {055057} (\bibinfo {year} {2026}{\natexlab{b}})},\ \Eprint
+  {https://arxiv.org/abs/2604.14409} {arXiv:2604.14409 [hep-ph]} \BibitemShut
+  {NoStop}%
 \bibitem [{\citenamefont {Song}\ \emph {et~al.}(2021)\citenamefont {Song},
   \citenamefont {Li}, \citenamefont {Arg{\"u}elles}, \citenamefont
   {Bustamante},\ and\ \citenamefont {Vincent}}]{Song:2020nfh}%

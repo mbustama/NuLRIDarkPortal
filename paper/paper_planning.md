@@ -1477,3 +1477,192 @@ nothing; (iv) rebuild nothing unless (ii) says so.
   Preference file regenerated (three values change by less than 0.001; peaks unchanged). Figs. 9 and 11 redrawn and
   installed (Fig. 10 pixel-identical), preference.pdf rewritten, paper compiles (28 pages); 18 tests pass. Text
   numbers checked: none quotes these three limits. Not committed.
+- 2026-11-28 08:30. LAST CHECK ENDED WITHOUT A RESULT: the L_e-L_tau ultralight column with a 62-mass scan (909864,
+  nulri_sep, M = 10^-16 eV, window around g' = 10^-20.08) hit its 5-h limit (I had lowered the limit from 12 h to get
+  it through the queue); the tool writes its column only at the end, so nothing was saved. Not rerun (no new reruns).
+  Untested therefore: whether a scan of the lightest mass changes the ultralight L_e-L_alpha limits (those planes fit
+  it from its start, without a scan); the corresponding checks for the ultralight dark portal (11-25) and secret
+  interactions (11-27) showed no change. ALL RUNS OF THIS PROJECT HAVE ENDED: no job of ours is queued or running
+  (the idle cleaner job 910385 cancelled; no solver caches left). CI of 8756606 green.
+  Waiting on him: the spectral-index text (Sec. IV and Summary) and the coverage text; his to-do: previous bounds in
+  Fig. 9. Uncommitted: this log entry only.
+- 2026-11-28 09:30. WORKING THROUGH WHAT IS LEFT (his "Let's work through what's left"; all text, no runs).
+  Item 1, coverage. His verdict on my first version: "This has no place in the Summary. Also, it is written in a
+  confounding way, e.g., 'a threshold of 6.7 instead of 3.84 would restore' comes out of the blue." Rewritten from
+  the paragraph's job (what should happen, what happens, by how much); his "Yes". Sec. IV now: fits as the real data
+  with sixteen additional starting points; 2.5% expected; L_e-L_tau excluded in 4 of 97; secret interactions in 15
+  of 99, six times more often than it should; the threshold that Delta chi^2 at the true coupling exceeds in 5% of
+  those pseudo-experiments is 6.7; read there, the limit at this mass would lie at a coupling 25% larger; 3.84 kept
+  for all limits; other masses and models not tested. The Summary's coverage sentence is deleted. No \todo is left.
+  Item 2, spectral index. His verdict on the Summary part: "Again, this has no room in Summary". In: Sec. IV, "The
+  flux in the fits": "We let gamma vary from 2 to 3 and gamma_low from 0.5 to 2.5; that is, we assume source spectra
+  no steeper than E^-3 above the break."; Sec. V, a new last paragraph of the secret-interactions subsection with the
+  measured sensitivity (factor of about 7 from 56 keV to 0.4 MeV and 3 at 1.8 MeV for the nu_tau scalar; unchanged
+  at the 1.0 and 4.2 MeV dips and from 3 MeV up; L_e-L_tau keeps a limit at two of eight masses; lighter mediators
+  not tested). Summary: no mention.
+  Rule learned: limitations and method checks do not go in the Summary; numbers about limits go after the limits are
+  shown (Sec. V), not in Sec. IV.
+  Last lines: removing the Summary sentence left the paper ending on "way."; the closing sentence now reads "...can
+  be tested along the whole trip, from source to detector, in the same way." (my wording, flagged to him). The Sec. IV
+  insertion had pushed its paragraph's end to "certainties [47]."; fixed by the shorter sentence above. Scan of the
+  whole PDF: one earlier short last line remains, page 6, "spectrum 1/E'." (not from today's edits).
+  Paper compiles, 28 pages, no undefined references or overfull boxes. Not committed.
+
+### Handoff 2026-11-28 (09:45): the final run is over; text items 1-2 are in; next is the forecast "gain" numbers
+
+**Read first.** `~/.claude/CLAUDE.md`, the memory index (above all `no_patches_one_final_run.md`, `be_brief.md`,
+`plain_language.md`, `keep_goal_human.md`), then this entry. The entries of 2026-11-27 and 11-28 above hold the
+details and numbers; this is the summary.
+
+**Where the paper stands.** `paper/main.tex` compiles (28 pages, no undefined references, no overfull boxes, no
+`\todo` left; pdflatex + bibtex, no latexmk on this machine). Coauthor comments are due 2026-12-02. Authors: Bustamante,
+Petropavlova (added 11-27, ORCID, e-mail, two Prague affiliations from INSPIRE), Das, Agarwalla.
+
+**No job of this project is queued or running on Tycho.** No solver caches are left. Laptop disk: 98% full; this
+project is small (see the 11-27 23:20 entry). The promotional animation is being made in a SEPARATE session that he
+started from my task chip (worktree `.claude/worktrees/compassionate-lumiere-1f52d6`, folder `resources/animation/`
+there); do not touch it from here.
+
+**Committed and pushed (dev; CI green on each):** cee1778 (limits_20261127 with the 62-lightest-mass refit merged;
+reading rule: nothing excluded below the best-fit coupling; Figs. 9-12 redrawn), 5b8105f (Introduction: Esteban
+comparison "below about 10 MeV"; Ioka number 0.028), 29338cd, e2cda73 (runner: NULRI_WORKER_MAXTASKS; coverage tool
+--toys 0), daf0089 (Petropavlova; coverage result files in output/analysis/coverage_20261127/), d487a30 (bibliography
+re-checked against INSPIRE, 15 corrections), 6034c6d (Cardenas:2026vop cited), 8756606 (six dip fits folded into the
+limits; final ultralight L_e-L_alpha forecast planes; Figs. 9 and 11 redrawn).
+**NOT committed (he has not asked):** paper/main.tex and paper/main.pdf (items 1 and 2 below, the closing sentence),
+this log, and the new folder output/analysis/final_checks_20261128/ (the final run's results and every script used:
+dips/, index_ranges/, scripts/; copied from the session's temporary folder, which a reboot clears).
+
+**His decisions of 11-27/28, in his words where short.**
+- Reading rule: "Yes, apply it" (no coupling below the best-fit one is excluded).
+- Why the MeV limits are uneven: two sentences in the preference subsection ("Add them to the paper").
+- Forecast re-check with 62 lightest masses: launched ("Launch the forecast refit tonight"), then "Ok, don't resume
+  them, but don't add a sentence to the paper. This is internal." Result, internal only: 1,794 points at four of
+  eight masses, no projected limit changed. The forecasts keep the 11-mass scan. Nothing about this in the paper.
+- "I need to do a final run" / no patches: see memory `no_patches_one_final_run.md`. No further re-runs are planned;
+  propose none unless a conclusion of the paper would change.
+- Six stalled ultralight forecast tasks: "Do it" (stopped; their points are saved).
+- Spectral-index range: "Keep gamma in 2-3 and say so". Summary: "Again, this has no room in Summary".
+- Coverage: "This has no place in the Summary"; the Sec. IV text approved after a rewrite ("Yes").
+- Dip fits with extra starts folded into the limits: "Yes".
+- Previous bounds (the DeepCore limits of Garg:2026gwx and Cardenas:2026vop) in Fig. 9: "We will add previous bounds
+  later, put it in to-do list".
+
+**Results of the final run (all in output/analysis/final_checks_20261128/, numbers in the entries above).**
+1. Dips refit from 16 extra starting points (le_ltau_mev_fx and si_scalar_majorana_tau_fx at 10^6.0, 6.25, 6.625
+   eV): one limit moved by a factor 2 (L_e-L_tau at 1 MeV, 10^-2.94 -> 10^-2.65), the others by 7% or less. Folded
+   into limits_20261127 (each summary lists the changed points under "multistart_20261128").
+2. Spectral-index ranges widened to gamma 2-4, gamma_low 0.1-2.5 (the solver rejects an index of 0), for the same two
+   cases, 10^4.75-10^7.125 eV: SI scalar Majorana nu_tau weaker by a factor 6.8-7.7 from 56 keV to 0.42 MeV, 2.9 at
+   1.8 MeV, 1.4 at 0.56 MeV, unchanged at 0.75, 1.0 MeV and from 3 MeV up; L_e-L_tau keeps a limit at two of its eight
+   masses (1.0 and 4.2 MeV). Census of all today's-data planes (scripts/census_bounds.py): gamma sits on 3 at 16-74%
+   of the limits in every family, ultralight included, so the range cannot be changed consistently; it stays 2-3.
+3. Ultralight columns with a 62-mass scan of the lightest mass (those planes fit it without a scan): secret
+   interactions at 10^-9 eV unchanged to four decimals; L_e-L_tau at 10^-16 eV ran out of time (5-h limit), no
+   result, not rerun.
+4. Coverage at 1.3 MeV, rerun with multi-start fits: L_e-L_tau 93 of 97 allowed, secret interactions 84 of 99
+   (output/analysis/coverage_20261127/). No Feldman-Cousins (his, 11-26).
+
+**What is in main.tex from this morning (uncommitted).**
+- Sec. IV, coverage paragraph (about line 624): fits "as the real data ... (starting each fit from sixteen additional
+  points ...)"; 2.5% expected; 4 of 97; 15 of 99, "six times more often than it should"; threshold 6.7 defined as the
+  value that Delta chi^2 at the true coupling exceeds in 5% of those pseudo-experiments; coupling 25% larger; 3.84
+  kept; other masses and models not tested.
+- Sec. IV, "The flux in the fits" (line 538): "We let gamma vary from 2 to 3 and gamma_low from 0.5 to 2.5; that is,
+  we assume source spectra no steeper than E^-3 above the break."
+- Sec. V, new last paragraph of the secret-interactions subsection (line 708): the measured sensitivity to the
+  index range (the numbers of result 2).
+- Summary: the coverage sentence deleted; NO index sentence. Closing sentence now "...can be tested along the whole
+  trip, from source to detector, in the same way." (my addition, to avoid a one-word last line; flagged to him, no
+  answer yet).
+- Known leftover: page 6 has a paragraph ending on the two-word line "spectrum 1/E'." (older; told to him).
+
+**What is left, in order (no runs).**
+3. FORECAST "GAIN" NUMBERS, to recompute against limits_20261127 and bring him only those that change. Sentences
+   (main.tex lines today): 98 (abstract: "factors of about 2 to 60"), 155 (Introduction: "factors of 2 to 60"), 722
+   ("projected limits lie 0.9 to 2.6 orders of magnitude below the preferred couplings"), 726 ("median gain ... 0.4
+   to 1.75 orders of magnitude, a factor of 2 to 60"), 727 ("Below 1 keV ... 0.4 to 1.75"), 728 ("Above 1 keV ... a
+   factor of 2 to 4"), 729 ("At the resonances, the gain reaches 3.4 orders of magnitude"), 808 (Summary: "factors of
+   a few to tens"). They were computed ad hoc on 11-22 (entry at about line 952: medians 0.38 (scalar SI) to 1.75
+   (vector SI) decades; L_e-L_mu 0.84, L_e-L_tau 1.38, dark portal 0.54-0.94), from the fitted-composition planes:
+   gain = today's lowest excluded log10 g minus the projected one, per mediator mass, per case; no script was kept,
+   so write one (put it in output/analysis/final_checks_20261128/scripts/) that reads
+   output/analysis/limits_20261127/<checkout>/<campaign>/{now_icecube,proj_future_planA}/<plane>/limits.json with the
+   notebook's WHERE table (notebooks/paper_figures.ipynb, cell 1), and first reproduce the 11-22 numbers with
+   limits_20261121 to make sure the definition is the same. Expect changes where today's limits moved: MeV masses of
+   the fitted planes (the dips near 0.56-1.3 MeV went, so "3.4 orders at the resonances" and "factor of 2 to 4 above
+   1 keV" are the ones at risk); the preferred couplings and the forecasts did not change.
+4. Previous bounds in Fig. 9 (DeepCore limits): on his to-do list, "later". analysis/existing_bounds.py and
+   Table tab:bounds would both change.
+5. His: the title of Bustamante:2026inprep; his editing pass; the closing sentence; the page-6 last line.
+Not for the paper but open: the pion-composition planes keep the 11-mass scan (they are in no paper figure; the public
+data release would carry both compositions); the companion repository; `tools/collect_limits.sh` and the deletion of
+the Tycho checkouts once he calls the limits final (limits_20261127 was built locally from copies:
+scripts/build_limits_20261127.sh, then reread_columns.py; the checkouts still hold all records).
+
+**How he wants this done (learned again this session).** One consolidated message per topic, plain words first, no
+intermediate findings, no new runs. Paper text: argument first, then a ```tex block naming what it replaces, with a
+short claims list; rewrite from the paragraph's job when he objects, never patch. Limitations and method checks do
+not go in the Summary; numbers about limits go where the limits are shown (Sec. V), not before. Commit and push only
+on his word. A job is alive only if its last SAVED record is recent, not if its log moves.
+
+- 2026-11-28 (11:30). Item 3, FORECAST GAINS: NONE OF THE EIGHT SENTENCES CHANGES. Script
+  output/analysis/final_checks_20261128/scripts/forecast_gains.py (the 11-22 definition, rebuilt from the surviving
+  scratchpad msg/limits_summary_fx.py + compare_fx.py: lowest excluded log10 g per mass of the figures' joined fields,
+  fitted composition; gain = today minus projected at masses where both have a limit; median per model; preference gap
+  from each plane's limits.json at the mass of largest preference). Results in final_checks_20261128/gains/.
+  Reproduces 11-22 exactly on limits_20261121 (L_e-L_mu 0.84, L_e-L_tau 1.38, DP 0.54-0.94, SI 0.38-1.75).
+  On limits_20261127: medians 0.38-1.75 (factor 2.4-56: "2 to 60", "a few to tens" stand); below 1 keV 0.38-1.75;
+  above 1 keV 0.32-0.62 (factor 2.1-4.2); largest above 1 keV 3.38 (vector SI, Majorana, universal, 10^5.875 eV);
+  projected limits 0.885-2.57 below the preferred couplings. Only moved: DP nu_tau median 0.94 -> 0.85, DP nu_e
+  0.85 -> 0.83 (not quoted in the paper).
+- 2026-11-28 (11:30). References, second pass (his message repeated the 00:55 one): every entry still matches
+  INSPIRE (this morning's records; Cardenas:2026vop, Jana:2026pwx, IceCube:2026plr, Barenboim:2026mvn re-fetched: no
+  change, none published). Changed: "standard model" -> "Standard Model" in Arguelles:2022tki (proper noun, as in
+  main.tex); journal = "" removed from the three arXiv-only entries (INSPIRE verbatim; prints identically). Kept (my
+  call): capitals starting a new sentence after "?" (Barenboim:2026mvn) and after "VI." (Planck:2018vyg);
+  "Majorons" (eponym). Bib backup: session scratchpad bib/references_backup_20261128.bib.
+- 2026-11-28 (11:30). His four papers to cite (INSPIRE BibTeX verbatim): Bustamante:2026knw (Galactic flavor
+  composition) cited in Sec. IV after "the Galactic sources" (the nu_e fraction it forecasts is the one we fit);
+  Bustamante:2026fxa already cited (Sec. IV coverage, pseudo-data method), no second place; Bustamante:2026aur and
+  Bustamante:2026zst need one new sentence at "We fix the mixing parameters ..." (proposed to him, NOT in main.tex;
+  measured in a scratch build: 28 pages, paragraph ends on a full line). Until it goes in, that paragraph ends on the
+  one-word line "certainties [48]." (caused by the knw citation). Not committed.
+- 2026-11-28 (11:45). Mixing sentence IN main.tex (his "Yes, add it"): Sec. IV, "We fix the mixing parameters ...,
+  from experiments below 1~TeV, and assume that they do not change up to the energies of our neutrinos. Today's flavor
+  measurements by IceCube cannot yet test this assumption~\cite{Bustamante:2026aur, Bustamante:2026zst}. Letting the
+  mixing parameters vary ...". Rebuilt: 28 pages, no undefined references or overfull boxes (Fig. 1, a full-width
+  float, at the top of page 2, as in the committed PDF; my 'page 1' at the time was wrong); the
+  paragraph ends on "have narrowed these uncertainties [50]." (the one-word last line is gone). Not committed;
+  Overleaf needs main.tex and references.bib.
+- 2026-11-28 (12:10). Figure currency check (his question): Figs. 9, 11, 12 drawn 07:09 today from the final limits
+  and preference_20261127.json; Fig. 10 drawn 11-27 13:57, no dark-portal plane changed since (8756606 touched only
+  L_e-L_alpha and si_scalar_majorana_tau_fx). The 11-22 figures (secondaries, mean free paths, species, three classes,
+  event rates, by-relic mean free paths, provenance) use the solver as it is now (no src change after cb9288e); the
+  three examples are inside the final excluded regions (both compositions); provenance reads limits_20261121 le_lmu_ul,
+  identical in limits_20261127. NOT from the final solver: flux_stops.pdf (method_figures.npz of 11-07, before the
+  Earth's SM potential, 61d823b, and the mediators' decay back, 1d86895) and dirac_relic_helicity.pdf
+  (dirac_polarization.npz of 10-21); whether they change is not checked. Put to him.
+- 2026-11-28 (12:30). The two old appendix figures recomputed with today's solver (his "Yes, recompute both"): Tycho
+  job 931055 (tycho1_short, 32 cores, 4.5 min; export of 8756606 in external/nulri_figs + the two edited scripts).
+  analysis/method_figures.py: the trip's cases now take the mixing block of the final ultralight L_e-L_mu planes
+  (campaign_final_sm: SM potential in the Earth, PREM) and their thermal products; tools/dirac_relic_polarization.py:
+  the final SI configs (campaign_si/now_ic26/si_{scalar,vector}_dirac_e.json: NuFIT 6.1, broken power law) with the
+  Galactic component off (the ratio stays extragalactic; data.spectrum dropped, it needs the Galaxy) instead of the
+  pion_2050 projections. Comparison: final_checks_20261128/scripts/compare_appendix_figures.py.
+  Trip stop by stop (Fig. trip): unchanged (1e-13 at 1e-20 eV, 1e-4 at 1e-26 eV; these sky-averaged fluxes do not
+  cross the Earth); flux_stops.pdf kept, new method_figures.npz installed. Text of App. stops re-checked: holds.
+  Dirac helicity (Fig. helicity): changed, redrawn (paper/figures/dirac_relic_helicity.pdf, notebook cell 12): the
+  4.22 MeV dips on nu_2, nu_3 reach 0.01-0.05 of the flux (were 0.04-0.26); the scalar at 31.6 keV with helicity keeps
+  0.77 at 10 TeV (was 0.86). App. thermal's claims hold: with m_1 = 1e-6 eV the helicity cuts the scalar's absorbed
+  area on nu_1 from 1.78 to 0.19 (31.6 keV) and 1.24 to 0.32 (4.22 MeV) and deepens the vector's (1.81 -> 1.96,
+  0.98 -> 1.08). No number from the figure is quoted in main.tex. Paper rebuilt: 28 pages, no warnings. Old data and
+  figures: session scratchpad figs_old/. Not committed; Overleaf needs figures/dirac_relic_helicity.pdf too.
+- 2026-11-28 (12:45). Fig. 1 label in the "Near the Sun" panel (his wording): "Potentials of Sun, Moon, Earth switch
+  on; flavor evolves coherently" (was "Potentials of the Sun, the Moon and the Earth switch on; ..."):
+  analysis/trip_illustration.py, redrawn through the notebook (cells 1, 21); five lines as before, inside the panel.
+  Paper rebuilt: 28 pages, no warnings, Fig. 1 at the top of page 2 as before. Not committed; Overleaf needs
+  figures/trip_illustration.pdf.
+- 2026-11-28 (12:55). Fig. 1, "Near the Sun" panel, his edits: label now "Potentials of Sun, Moon, Earth; flavor evolves
+  coherently" ("switch on" removed; four lines); callout "Earth and Moon" -> "Earth, Moon". Redrawn (notebook cells
+  1, 21); both inside the panel. Paper rebuilt: 28 pages, no warnings, Fig. 1 at the top of page 2. Not committed.

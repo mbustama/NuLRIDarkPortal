@@ -1,0 +1,25 @@
+le_lmu                         n=312 med 0.84  <1keV 0.84  >=1keV 0.34  max>=1keV 2.87 @ 5.875  pref M=10^6.375 dchi2 3.57 g_best -3.1999999999999993 proj -4.435000000005484 below 1.2350000000054848
+le_ltau                        n=323 med 1.38  <1keV 1.38  >=1keV 0.34  max>=1keV 2.24 @ 5.875  pref M=10^6.375 dchi2 3.52 g_best -3.3999999999999995 proj -4.460000000005479 below 1.0600000000054797
+dp_e                           n= 47 med 0.85  <1keV 1.05  >=1keV 0.59  max>=1keV 2.57 @ 5.875  pref M=10^6.5 dchi2 3.87 g_best -2.5999999999999996 proj -3.965000000000086 below 1.3650000000000864
+dp_mu                          n= 54 med 0.54  <1keV 0.64  >=1keV 0.32  max>=1keV 1.31 @ 6.125  pref M=10^6.375 dchi2 4.78 g_best -3.0 proj -4.275000000000079 below 1.2750000000000794
+dp_tau                         n= 44 med 0.94  <1keV 1.28  >=1keV 0.38  max>=1keV 1.12 @ 6.125  pref M=10^6.375 dchi2 4.44 g_best -3.0 proj -4.26000000000008 below 1.2600000000000797
+si_scalar_majorana_e           n= 47 med 0.50  <1keV 0.38  >=1keV 0.50  max>=1keV 2.75 @ 6.375  pref M=10^6.5 dchi2 3.95 g_best -2.5 proj -3.75 below 1.25
+si_scalar_majorana_mu          n= 49 med 0.38  <1keV 0.88  >=1keV 0.38  max>=1keV 2.75 @ 5.75  pref M=10^6.375 dchi2 4.75 g_best -2.875 proj -4.125 below 1.25
+si_scalar_majorana_tau         n= 49 med 0.38  <1keV 0.88  >=1keV 0.38  max>=1keV 2.62 @ 5.875  pref M=10^6.375 dchi2 4.46 g_best -3.0 proj -4.125 below 1.125
+si_scalar_majorana_universal   n= 49 med 0.38  <1keV 1.75  >=1keV 0.38  max>=1keV 3.00 @ 5.875  pref M=10^6.375 dchi2 4.49 g_best -2.0 proj -4.25 below 2.25
+si_scalar_dirac_e              n= 47 med 0.50  <1keV 0.44  >=1keV 0.62  max>=1keV 2.75 @ 6.375  pref M=10^6.375 dchi2 6.58 g_best -1.375 proj -3.875 below 2.5
+si_scalar_dirac_mu             n= 49 med 0.38  <1keV 0.88  >=1keV 0.38  max>=1keV 2.62 @ 6.375  pref M=10^6.375 dchi2 6.56 g_best -1.625 proj -4.0 below 2.375
+si_scalar_dirac_tau            n= 49 med 0.38  <1keV 1.00  >=1keV 0.38  max>=1keV 2.75 @ 6.75  pref M=10^6.375 dchi2 6.50 g_best -1.75 proj -4.0 below 2.25
+si_scalar_dirac_universal      n= 45 med 0.38  <1keV 0.38  >=1keV 0.38  max>=1keV 3.25 @ 5.875  pref M=10^6.375 dchi2 2.20 g_best -1.875 proj -4.125 below 2.25
+si_vector_majorana_e           n=389 med 1.00  <1keV 1.00  >=1keV 0.50  max>=1keV 2.75 @ 6.375  pref M=10^6.5 dchi2 3.86 g_best -2.5 proj -3.875 below 1.375
+si_vector_majorana_mu          n=380 med 1.62  <1keV 1.62  >=1keV 0.38  max>=1keV 3.00 @ 5.875  pref M=10^6.375 dchi2 4.78 g_best -3.0 proj -4.25 below 1.25
+si_vector_majorana_tau         n=391 med 1.75  <1keV 1.75  >=1keV 0.38  max>=1keV 3.00 @ 5.875  pref M=10^6.375 dchi2 4.49 g_best -3.125 proj -4.25 below 1.125
+si_vector_majorana_universal   n= 47 med 0.38  <1keV 0.38  >=1keV 0.62  max>=1keV 3.38 @ 5.875  pref M=10^6.375 dchi2 2.01 g_best -3.5 proj -4.375 below 0.875
+si_vector_dirac_e              n=389 med 0.88  <1keV 0.88  >=1keV 0.50  max>=1keV 3.00 @ 5.875  pref M=10^6.5 dchi2 3.85 g_best -2.625 proj -3.75 below 1.125
+si_vector_dirac_mu             n=391 med 0.50  <1keV 0.50  >=1keV 0.38  max>=1keV 2.88 @ 5.875  pref M=10^6.375 dchi2 4.37 g_best -2.875 proj -4.125 below 1.25
+si_vector_dirac_tau            n=391 med 1.62  <1keV 1.62  >=1keV 0.38  max>=1keV 3.00 @ 5.875  pref M=10^6.5 dchi2 3.88 g_best -2.875 proj -4.0 below 1.125
+si_vector_dirac_universal      n= 46 med 0.38  <1keV 0.38  >=1keV 0.56  max>=1keV 3.25 @ 5.875  pref M=10^6.375 dchi2 1.97 g_best -3.0 proj -4.25 below 1.25
+
+real	0m5.336s
+user	0m4.905s
+sys	0m0.359s
