@@ -6,6 +6,9 @@ validation points of tools/thermal_reference_checks.py and two lightest masses: 
 over the free-streaming one, with the relics at rest, in motion ignoring their helicity (each chiral share rho/2), and
 in motion with it (secret_interactions.thermal_products). Writes output/analysis/dirac_polarization.npz; --plot draws
 a quick look, output/figures/dirac_polarization.png (the paper's version: notebooks/paper_figures.ipynb).
+Since 2026-11-28 the configurations are those of the final secret-interaction planes (campaign_si, NuFIT 6.1 mixing,
+pion-decay sources), with the Galactic component off, so that the ratio is that of the extragalactic flux (until then
+the pion_2050_case_5 projections' configurations).
 
   python tools/dirac_relic_polarization.py [--workers N]
   python tools/dirac_relic_polarization.py --plot
@@ -20,8 +23,8 @@ from multiprocessing import get_context
 import numpy as np
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-CONFIGS = {"scalar": "analysis/configs/pion_2050_case_5_si_dirac_e.json",
-           "vector": "analysis/configs/pion_2050_case_5_si_vector_dirac_e.json"}
+CONFIGS = {"scalar": "analysis/configs/campaign_si/now_ic26/si_scalar_dirac_e.json",
+           "vector": "analysis/configs/campaign_si/now_ic26/si_vector_dirac_e.json"}
 MG = [(3.16e4, 2e-3), (4.22e6, 1.35e-3)]
 MLS = (1e-6, 0.03)
 MODES = ("free", "rest", "unpolarized", "polarized")
@@ -44,6 +47,8 @@ def flux(args):
     raw = copy.deepcopy(json.load(open(path)))
     raw["solver"].setdefault("cosmology", {})["m_lightest_eV"] = m_l
     raw["solver"]["secret_interactions"]["thermal_products"] = mode in ("unpolarized", "polarized")
+    raw["solver"].setdefault("galactic", {})["enabled"] = False
+    raw["data"].pop("spectrum", None)      # only the solver's inputs are built here; the spectrum needs the Galaxy
     raw["parameters"].pop("m_lightest_eV", None)
     raw.pop("exact_profile", None)
     cfg = config_mod.from_dict(raw, path)

@@ -1,0 +1,759 @@
+{
+ "plane": "campaign_si/proj_future_planA/si_vector_majorana_mu",
+ "x": "m_phi_eV",
+ "y": "g_phi",
+ "confidence": "95% C.L., per-mass Delta chi^2 >= 3.84",
+ "reading": "analysis.exclusion.field (PCHIP in log10 g, specks out, upper limits only)",
+ "chi2_no_effect": 1.639285364631108,
+ "chi2_fit_json_at_smallest_coupling": [
+  1.639285
+ ],
+ "complete": true,
+ "blocks": [
+  {
+   "dir": "/tmp/claude-1000/-home-mbustamante-Research-NuLRIDarkPortal/8d346624-2c2b-41cb-8e36-ecdc224d5708/scratchpad/lim21/nulri_forecast/campaign_si/proj_future_planA/si_vector_majorana_mu/b0/asimov",
+   "finished": true,
+   "points": 98
+  },
+  {
+   "dir": "/tmp/claude-1000/-home-mbustamante-Research-NuLRIDarkPortal/8d346624-2c2b-41cb-8e36-ecdc224d5708/scratchpad/lim21/nulri_forecast/campaign_si/proj_future_planA/si_vector_majorana_mu/b1/asimov",
+   "finished": true,
+   "points": 98
+  },
+  {
+   "dir": "/tmp/claude-1000/-home-mbustamante-Research-NuLRIDarkPortal/8d346624-2c2b-41cb-8e36-ecdc224d5708/scratchpad/lim21/nulri_forecast/campaign_si/proj_future_planA/si_vector_majorana_mu/b10/asimov",
+   "finished": true,
+   "points": 98
+  },
+  {
+   "dir": "/tmp/claude-1000/-home-mbustamante-Research-NuLRIDarkPortal/8d346624-2c2b-41cb-8e36-ecdc224d5708/scratchpad/lim21/nulri_forecast/campaign_si/proj_future_planA/si_vector_majorana_mu/b11/asimov",
+   "finished": true,
+   "points": 98
+  },
+  {
+   "dir": "/tmp/claude-1000/-home-mbustamante-Research-NuLRIDarkPortal/8d346624-2c2b-41cb-8e36-ecdc224d5708/scratchpad/lim21/nulri_forecast/campaign_si/proj_future_planA/si_vector_majorana_mu/b12/asimov",
+   "finished": true,
+   "points": 98
+  },
+  {
+   "dir": "/tmp/claude-1000/-home-mbustamante-Research-NuLRIDarkPortal/8d346624-2c2b-41cb-8e36-ecdc224d5708/scratchpad/lim21/nulri_forecast/campaign_si/proj_future_planA/si_vector_majorana_mu/b13/asimov",
+   "finished": true,
+   "points": 98
+  },
+  {
+   "dir": "/tmp/claude-1000/-home-mbustamante-Research-NuLRIDarkPortal/8d346624-2c2b-41cb-8e36-ecdc224d5708/scratchpad/lim21/nulri_forecast/campaign_si/proj_future_planA/si_vector_majorana_mu/b14/asimov",
+   "finished": true,
+   "points": 98
+  },
+  {
+   "dir": "/tmp/claude-1000/-home-mbustamante-Research-NuLRIDarkPortal/8d346624-2c2b-41cb-8e36-ecdc224d5708/scratchpad/lim21/nulri_forecast/campaign_si/proj_future_planA/si_vector_majorana_mu/b15/asimov",
+   "finished": true,
+   "points": 98
+  },
+  {
+   "dir": "/tmp/claude-1000/-home-mbustamante-Research-NuLRIDarkPortal/8d346624-2c2b-41cb-8e36-ecdc224d5708/scratchpad/lim21/nulri_forecast/campaign_si/proj_future_planA/si_vector_majorana_mu/b16/asimov",
+   "finished": true,
+   "points": 98
+  },
+  {
+   "dir": "/tmp/claude-1000/-home-mbustamante-Research-NuLRIDarkPortal/8d346624-2c2b-41cb-8e36-ecdc224d5708/scratchpad/lim21/nulri_forecast/campaign_si/proj_future_planA/si_vector_majorana_mu/b17/asimov",
+   "finished": true,
+   "points": 98
+  },
+  {
+   "dir": "/tmp/claude-1000/-home-mbustamante-Research-NuLRIDarkPortal/8d346624-2c2b-41cb-8e36-ecdc224d5708/scratchpad/lim21/nulri_forecast/campaign_si/proj_future_planA/si_vector_majorana_mu/b18/asimov",
+   "finished": true,
+   "points": 98
+  },
+  {
+   "dir": "/tmp/claude-1000/-home-mbustamante-Research-NuLRIDarkPortal/8d346624-2c2b-41cb-8e36-ecdc224d5708/scratchpad/lim21/nulri_forecast/campaign_si/proj_future_planA/si_vector_majorana_mu/b19/asimov",
+   "finished": true,
+   "points": 98
+  },
+  {
+   "dir": "/tmp/claude-1000/-home-mbustamante-Research-NuLRIDarkPortal/8d346624-2c2b-41cb-8e36-ecdc224d5708/scratchpad/lim21/nulri_forecast/campaign_si/proj_future_planA/si_vector_majorana_mu/b2/asimov",
+   "finished": true,
+   "points": 98
+  },
+  {
+   "dir": "/tmp/claude-1000/-home-mbustamante-Research-NuLRIDarkPortal/8d346624-2c2b-41cb-8e36-ecdc224d5708/scratchpad/lim21/nulri_forecast/campaign_si/proj_future_planA/si_vector_majorana_mu/b20/asimov",
+   "finished": true,
+   "points": 98
+  },
+  {
+   "dir": "/tmp/claude-1000/-home-mbustamante-Research-NuLRIDarkPortal/8d346624-2c2b-41cb-8e36-ecdc224d5708/scratchpad/lim21/nulri_forecast/campaign_si/proj_future_planA/si_vector_majorana_mu/b21/asimov",
+   "finished": true,
+   "points": 98
+  },
+  {
+   "dir": "/tmp/claude-1000/-home-mbustamante-Research-NuLRIDarkPortal/8d346624-2c2b-41cb-8e36-ecdc224d5708/scratchpad/lim21/nulri_forecast/campaign_si/proj_future_planA/si_vector_majorana_mu/b22/asimov",
+   "finished": true,
+   "points": 245
+  },
+  {
+   "dir": "/tmp/claude-1000/-home-mbustamante-Research-NuLRIDarkPortal/8d346624-2c2b-41cb-8e36-ecdc224d5708/scratchpad/lim21/nulri_forecast/campaign_si/proj_future_planA/si_vector_majorana_mu/b23/asimov",
+   "finished": true,
+   "points": 98
+  },
+  {
+   "dir": "/tmp/claude-1000/-home-mbustamante-Research-NuLRIDarkPortal/8d346624-2c2b-41cb-8e36-ecdc224d5708/scratchpad/lim21/nulri_forecast/campaign_si/proj_future_planA/si_vector_majorana_mu/b3/asimov",
+   "finished": true,
+   "points": 98
+  },
+  {
+   "dir": "/tmp/claude-1000/-home-mbustamante-Research-NuLRIDarkPortal/8d346624-2c2b-41cb-8e36-ecdc224d5708/scratchpad/lim21/nulri_forecast/campaign_si/proj_future_planA/si_vector_majorana_mu/b4/asimov",
+   "finished": true,
+   "points": 98
+  },
+  {
+   "dir": "/tmp/claude-1000/-home-mbustamante-Research-NuLRIDarkPortal/8d346624-2c2b-41cb-8e36-ecdc224d5708/scratchpad/lim21/nulri_forecast/campaign_si/proj_future_planA/si_vector_majorana_mu/b5/asimov",
+   "finished": true,
+   "points": 98
+  },
+  {
+   "dir": "/tmp/claude-1000/-home-mbustamante-Research-NuLRIDarkPortal/8d346624-2c2b-41cb-8e36-ecdc224d5708/scratchpad/lim21/nulri_forecast/campaign_si/proj_future_planA/si_vector_majorana_mu/b6/asimov",
+   "finished": true,
+   "points": 98
+  },
+  {
+   "dir": "/tmp/claude-1000/-home-mbustamante-Research-NuLRIDarkPortal/8d346624-2c2b-41cb-8e36-ecdc224d5708/scratchpad/lim21/nulri_forecast/campaign_si/proj_future_planA/si_vector_majorana_mu/b7/asimov",
+   "finished": true,
+   "points": 98
+  },
+  {
+   "dir": "/tmp/claude-1000/-home-mbustamante-Research-NuLRIDarkPortal/8d346624-2c2b-41cb-8e36-ecdc224d5708/scratchpad/lim21/nulri_forecast/campaign_si/proj_future_planA/si_vector_majorana_mu/b8/asimov",
+   "finished": true,
+   "points": 98
+  },
+  {
+   "dir": "/tmp/claude-1000/-home-mbustamante-Research-NuLRIDarkPortal/8d346624-2c2b-41cb-8e36-ecdc224d5708/scratchpad/lim21/nulri_forecast/campaign_si/proj_future_planA/si_vector_majorana_mu/b9/asimov",
+   "finished": true,
+   "points": 98
+  }
+ ],
+ "later_records": [],
+ "not_modelled": {
+  "not_perturbative": {
+   "slope": 1.0,
+   "intercept": 1.762493691470148
+  },
+  "longitudinal_left_out": {
+   "slope": 1.0,
+   "intercept": -2.0
+  }
+ },
+ "columns": [
+  {
+   "log10_m": 3.0,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -2.44,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -2.44,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 3.125,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -2.435,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -2.435,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 3.25,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -2.43,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -2.43,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 3.375,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -2.425,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -2.425,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 3.5,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -2.42,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -2.42,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 3.625,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -2.415,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -2.415,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 3.75,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -2.405,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -2.405,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 3.875,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -2.395,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -2.395,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 4.0,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -2.39,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -2.39,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 4.125,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -2.375,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -2.375,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 4.25,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -2.365,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -2.365,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 4.375,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -2.35,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -2.35,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 4.5,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -2.335,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -2.335,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 4.625,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -2.32,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -2.32,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 4.75,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -2.3,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -2.3,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 4.875,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -2.28,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -2.28,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 5.0,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -2.26,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -2.26,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 5.125,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -2.23,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -2.23,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 5.25,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -2.205,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -2.205,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 5.375,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -2.19,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -2.19,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 5.5,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -2.18,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -2.18,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 5.625,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -2.2,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -2.2,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 5.75,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -4.425,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -4.425,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 5.875,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -4.595,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -4.595,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 6.0,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -4.565,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -4.565,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 6.125,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -4.555,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -4.555,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 6.25,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -4.465,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -4.465,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 6.375,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -4.28,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -4.28,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 6.5,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -4.175,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -4.175,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 6.625,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -3.98,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -3.98,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 6.75,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -3.8,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -3.8,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 6.875,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -3.615,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -3.615,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 7.0,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -3.385,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -3.385,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 7.125,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -3.135,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -3.135,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 7.25,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -2.225,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -2.225,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 7.375,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -1.245,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -1.245,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 7.5,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -1.025,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -1.025,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 7.625,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -0.895,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -0.895,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 7.75,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -0.745,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -0.745,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 7.875,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -0.6,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -0.6,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 8.0,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -0.475,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -0.475,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 8.125,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -0.35,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -0.35,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 8.25,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -0.225,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -0.225,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 8.375,
+   "read": true,
+   "excluded_log10_g": [
+    [
+     -0.105,
+     -0.0
+    ]
+   ],
+   "lowest_excluded_log10_g": -0.105,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 8.5,
+   "read": true,
+   "excluded_log10_g": [],
+   "lowest_excluded_log10_g": null,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 8.625,
+   "read": true,
+   "excluded_log10_g": [],
+   "lowest_excluded_log10_g": null,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 8.75,
+   "read": true,
+   "excluded_log10_g": [],
+   "lowest_excluded_log10_g": null,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 8.875,
+   "read": true,
+   "excluded_log10_g": [],
+   "lowest_excluded_log10_g": null,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  },
+  {
+   "log10_m": 9.0,
+   "read": true,
+   "excluded_log10_g": [],
+   "lowest_excluded_log10_g": null,
+   "limit_below_grid": false,
+   "all_couplings_computed": true
+  }
+ ]
+}

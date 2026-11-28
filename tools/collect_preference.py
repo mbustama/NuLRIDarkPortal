@@ -9,6 +9,8 @@ chi^2 over the coupling, as in the limits (per-mass Delta chi^2). Also stored: t
 The planes are the copies made by the limits collection of 2026-11-21 (the checkouts' plane_*.json, one per block),
 passed as the root folder:
   python tools/collect_preference.py ROOT   -> output/analysis/preference_20261122.json
+  python tools/collect_preference.py ROOT OUT.json [data set ...]   another output file and data sets (2026-11-27: the
+      limits with the 62-lightest-mass refit merged, limits_20261127, and today's main data set only)
 """
 import glob
 import json
@@ -22,9 +24,9 @@ OUT = os.path.join(REPO, "output", "analysis", "preference_20261122.json")
 DATASETS = ("now_icecube", "now_mese_dr2")
 
 
-def collect(root):
+def collect(root, datasets=DATASETS):
     out = {}
-    for ds in DATASETS:
+    for ds in datasets:
         for f in sorted(glob.glob(os.path.join(root, "*", "*", ds, "*_fx", "**", "plane_*.json"), recursive=True)):
             plane = f.split(f"/{ds}/")[1].split("/")[0]
             if "_ul" in plane or not ("_mev" in plane or plane.startswith("si_")):
@@ -44,7 +46,10 @@ def collect(root):
 
 
 if __name__ == "__main__":
-    res = collect(sys.argv[1])
+    if len(sys.argv) > 2:
+        OUT = os.path.abspath(sys.argv[2])
+    DATASETS = tuple(sys.argv[3:]) or DATASETS
+    res = collect(sys.argv[1], DATASETS)
     res["_comment"] = ("per-mass preference = chi^2 at the smallest coupling minus the lowest chi^2 over the coupling "
                        "(tools/collect_preference.py, 2026-11-22)")
     with open(OUT, "w") as fh:

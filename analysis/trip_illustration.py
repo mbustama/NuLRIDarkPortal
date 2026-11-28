@@ -460,9 +460,9 @@ def figure():
     rr = np.hypot(earth[0] - sun[0], earth[1] - sun[1])
     ax.plot(sun[0] + rr * np.cos(th - 0.35), sun[1] + rr * np.sin(th - 0.35), color="0.5", lw=0.4, ls=(0, (2, 2)),
             zorder=5)
-    callout(ax, "Earth and Moon", (earth[0] - 0.03, earth[1] - 0.03), (4.84, 1.38), ha="center")
+    callout(ax, "Earth, Moon",(earth[0] - 0.03, earth[1] - 0.03), (4.84, 1.38), ha="center")
     callout(ax, "Sun", (sun[0] + 0.05, sun[1] + 0.05), (4.98, 1.0), ha="left")
-    ax.text((PANELS["sun"][0] + PANELS["sun"][1]) / 2, 0.36, "Potentials of the\nSun, the Moon and\nthe Earth switch on;\n"
+    ax.text((PANELS["sun"][0] + PANELS["sun"][1]) / 2, 0.36, "Potentials of\nSun, Moon, Earth;\n"
             "flavor evolves\ncoherently", ha="center", va="center", fontsize=FS, color=TEXT, zorder=30,
             linespacing=1.1, path_effects=HALO)
     zoom_box(ax, earth[0], earth[1], 0.06, "earth")

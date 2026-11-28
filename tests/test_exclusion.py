@@ -58,6 +58,26 @@ def test_field_crossings_upper_limits_and_specks(tmp_path):
     assert lowest_excluded(lx, G, F, -6) > -17.0                        # the speck: not excluded
 
 
+def test_nothing_excluded_below_the_best_fit_coupling(tmp_path):
+    """A preference a hair under 3.84 at one mass (the dip 3.83 below the no-effect chi^2) and five no-effect couplings
+    lifted by 0.02 by noise: they sit 3.85 above the column's minimum, yet are not excluded, since they lie below the
+    best-fit coupling (2026-11-27; si_vector_dirac_tau_fx at 10^6.375 eV). The upper limit above the dip stays."""
+    x = 10.0 ** np.arange(-10, -4)
+    y = 10.0 ** np.arange(-20.0, -9.5, 0.5)
+    ly = np.log10(y)
+    chi = np.where(ly[None, :] >= -12.0, 20.0, 0.0) * np.ones((len(x), 1)) + 1.0
+    chi[2, np.argmin(abs(ly + 14.0))] = 1.0 - 3.83                      # mass 2: the best fit at 1e-14
+    noisy = (ly >= -18.0) & (ly <= -16.0)                                # five couplings, none with an effect
+    chi[2, noisy] = 1.0 + 0.02
+    assert noisy.sum() == 5 and chi[2, noisy][0] - chi[2].min() > 3.84
+    lx, G, F, _, _ = ex.field(write_plane(tmp_path / "p" / "plane_m_Zd_eV_g_D.json", x, y, chi))
+    col = np.asarray(F[:, int(np.argmin(abs(lx + 8)))].filled(-1.0))
+    assert not (col[G < -14.0] > 0).any()                               # nothing below the best fit
+    low = lowest_excluded(lx, G, F, -8)
+    assert -14.0 < low < -12.0                                          # the upper limit, between the dip and the wall
+    assert lowest_excluded(lx, G, F, -9) == pytest.approx(-12.5 + 0.5 * 3.84 / 20.0, abs=2 * ex.STEP)   # a plain column
+
+
 def test_thin_band_taken_out_region_kept():
     """A band 0.4 decade across is taken out of the field and returned as a ribbon; a region 10 decades tall stays."""
     lx = np.arange(-30.0, -9.9, 1.0)

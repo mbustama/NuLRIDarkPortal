@@ -8,8 +8,11 @@ paper_figures.ipynb for the paper's figures, tools/plot_campaign_ml.py for the d
 
 The reading, column by column (one mediator mass):
   - Delta chi^2 from the column's minimum (the refinement included), excluded where >= 3.84;
-  - upper limits only: couplings below the column's lowest allowed one are not excluded (a column whose no-effect
-    couplings are themselves disfavoured, where the data prefer an effect, would otherwise read as excluded there);
+  - upper limits only: where the data prefer an effect at a mass (the column's lowest chi^2 lies below the no-effect
+    one), no coupling below the column's best-fit coupling is excluded (2026-11-27, Mauricio: "Yes, apply it"; until
+    then: none below the lowest allowed coupling). Excluding couplings smaller than the best fit would claim a
+    detection, not a limit: a column whose preference is a hair under 3.84 read its no-effect couplings as excluded
+    wherever numerical noise lifted them by 0.01 (si_vector_dirac_tau_fx at 10^6.375 eV, preference 3.83);
   - isolated specks -- excluded grid regions of at most three points, none above 5 -- not excluded (a hair over 3.84,
     they flip with the sampling);
   - columns whose smallest coupling is not at the no-effect chi^2 left out (none in the campaign); the summaries'
@@ -190,9 +193,10 @@ def field(path):
         dc = c - cmin
         ok = dc < THRESHOLD
         if ok.any():
+            k = int(np.argmin(c)) if prefers else int(np.argmax(ok))
             if prefers:
-                dc[:int(np.argmax(ok))] = 0.0                   # below the lowest allowed coupling: not an exclusion
-            low[i] = g[int(np.argmax(ok))]
+                dc[:k] = 0.0                                    # below the best-fit coupling: not an exclusion
+            low[i] = g[k]
         pts = sorted(list(zip(g, dc)) + [(np.log10(gs), v) for gs, v in specks])
         S[i] = signed(G, curve(G, [p[0] for p in pts], [p[1] for p in pts]) >= THRESHOLD)
         cov[np.log10(x[i])] = np.ones(len(G), bool)
@@ -227,10 +231,10 @@ def field(path):
             excl[win] = curve(G[win], g[run], dc[run]) >= THRESHOLD
             cov[lm] |= win
         if own:
-            # upper limits only, from the column's own samples: below its lowest allowed coupling nothing is excluded
-            # (none of it if the no-effect couplings are allowed)
-            if null - cmin >= THRESHOLD and (dc < THRESHOLD).any():
-                excl &= G >= g[int(np.argmax(dc < THRESHOLD))]
+            # upper limits only, from the column's own samples: where they prefer an effect (their lowest chi^2 lies
+            # below the no-effect one), nothing is excluded below their best-fit coupling
+            if c.min() < null:
+                excl &= G >= g[int(np.argmin(c))]
         elif i in low and i + 1 in low:
             excl &= G >= (1 - t) * low[i] + t * low[i + 1]
         xs[lm] = signed(G, excl)

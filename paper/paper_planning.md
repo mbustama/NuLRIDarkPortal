@@ -983,3 +983,686 @@ Fig. 1 on page 1; no technical caveats or estimates; the main message in bold; a
 - 2026-11-23: seven edits from Maria's and Sudipta's comments (Mauricio approved each in the session "Message to co-authors": "2a-2d: yes", Kolb & Turner "Yes, cite them", antineutrino clause "Yes, use it"; relayed): same flavor composition for neutrinos and antineutrinos (Sec. III Sources); relic motion credited to Kolb:1987qy (massless relics) and Doring:2023vmk + Wang:2025qap (Intro, Sec. III, Sec. V.7, App. D); Table I vector-SI potential "Negligible" (thermal part only; checked: <= 7.6e-4 g^2 of Delta m^2_21/2E at z <= 4, g <= 1, i.e. >= 3 orders); broadening of each resonance, fraction ~3T(1+z)/m_r for a heavy relic; App. D widths for the scalar (M Tr(GG^+)/16pi Majorana, /8pi Dirac; checked against dp_si.mediator_width). Doring:2023vmk added (INSPIRE verbatim + number = year, his JCAP rule). Compiles: 28 pp., 0 undefined, 0 overfull; no new short last lines.
 - 2026-11-23: Gamma_r normalized after Eq. (11) (narrow resonance, relics at rest: 4 pi n_hel (1+z)^3 delta(s - M^2), s = 2E(1+z) m_r, n_hel ~ 56 cm^-3) and App. B points back to it for n_hel (Mauricio, relayed from "Message to co-authors": "Realy it, with App. B pointing back to Eq. (11)"). Checked: int Gamma_r dE = 2 pi n_hel (1+z)^2/m_r (the other session's numerical check, 0.4%); n_hel = 56.0 cm^-3 at T = 1.68e-4 eV; s convention as App. D (E observed, E(1+z) at z). Compiles: 28 pp., 0 undefined, 0 overfull; no new short last lines.
 - 2026-11-23: App. B, from Sudipta's queries 2 and 4 (Mauricio, relayed from "Message to co-authors": "Yes, relay both"): the scalar's secondaries are flat in 1/E' (as Sec. III; dp_si s-channel profile flat); the Milky Way step leaves out the mediators' decays too (App. E: ~1e-5 of their cosmological decays; dp_mediator docstring). Compiles: 28 pp., 0 undefined, 0 overfull; no new short last lines.
+- 2026-11-24: Fig. 9 (fig:lelalpha; called 'Fig. 8' in the conversation, after the notebook's old heading) final (Mauricio): the L_e - L_alpha forecast limits re-exported from the Tycho records of 24 Nov are unchanged in all 35 mass columns of the four planes since the 21 Nov export; the caption's 'preliminary' sentence and the \todo on provisional gains removed. The 13 original forecast tasks keep running (at most 78 edge points, one coupling step each); the 13 extra copies cancelled.
+- 2026-11-24: Fig. 9 (fig:lelalpha) accepted as is (Mauricio, 'Accept Fig. 8 as is', his words for this figure), after the worst-case check: if every pending edge point of the three running blocks that touch it flipped (le_ltau_ul_fx b4, b5; le_lmu_ul_fx b6), the L_e - L_tau projected region between 1e-13 and 1e-7 eV would reach 0.5-0.9 instead of 1.4 orders of magnitude below today's limit, a stray spot at 1e-14 eV (g ~ 1e-21) would go, and L_e - L_mu at 1e-3 eV would reach 0.4 instead of 0.8; not expected (forecast edge parallel to today's; earlier flips only removed stray spots). Caption keeps no 'preliminary'. The 13 original tasks keep running (they also feed the companion repository's grids).
+- 2026-11-24: Sec. V thin-band sentence: 'by our preliminary forecasts' dropped (follows the acceptance of Fig. 9; checked: today's fitted L_e - L_mu columns 1e-13 - 1e-5 eV have the allowed gap, g'/M ~ 1e-2 eV^-1; the forecast's are one interval).
+- 2026-11-24: edge-refinement \todo removed from Sec. IV (Mauricio: 'This whole thing is internal'); the monotone-cubic reading stays in the text. Measured (tools/edge_refine_list.py on the 129 fitted planes of Figs. 9-11): 2,834 columns where the straight-line and cubic edges differ by > 2%, median 0.02 decades in g, max 0.23 (Fig. 10, today's MeV DP). Logged in docs/SIMPLIFICATIONS_AND_ASSUMPTIONS.md.
+- 2026-11-24: three \todo notes removed (Mauricio: 'Remove all three'): correlated segments (Sec. IV; the text states the segments are taken as independent and the shared 51%/37%), the zeta map (App. E; the text gives zeta 0.1-0.5 near the unitarity line), the decay-back outcome (App. E; the limits include it, the text gives the 1e-2 eV example).
+- 2026-11-24: Sec. IV \todo on the ranges of the indices and normalization removed (Mauricio: not needed; Table II states the ranges). Finding logged in docs/SIMPLIFICATIONS_AND_ASSUMPTIONS.md (g): limit-setting fits often at a range bound for today's data (mostly the lower index's floor, measured 2026-11-09 as <= 0.25 in edge Delta chi^2); ceiling and cap not measured.
+- 2026-11-25: Sec. IV mixing \todo replaced by four sentences (Mauricio: 'Quote the first check'; argument approved, plus his point that the forecasts' mixing ranges shrink, as in NuFlavorRatiosSteriles): at most 0.18 in chi^2 at 17 edge points of an earlier version of the fits (docs item 11g, 2026-10-18; 2 present-day points, the rest the old 2050 forecast), ~3% in coupling at the one mass computed; smaller still for the forecasts (Song:2020nfh projected widths). Not re-read: the prior on the mixing used in that check (logs on Tycho). Build 28 pages, 0 undefined, 0 overfull.
+- 2026-11-25: coverage tests: minimal tests approved (Mauricio): write the pseudo-experiment code, pilot to measure the cost, then a few true values on one plane per model; no launch before the pilot's cost is stated.
+- 2026-11-25: Set 2's role DECIDED (Mauricio): "In the main text, we show set-1 limits only. We can show a couple of set-2 example limits in an appendix, and mention the weak points." Basis (fitted MeV planes, limits of 2026-11-21): at the resonance masses (1e5.5-1e6.7 eV) the two sets reach similar couplings (set 2 usually 0.1-0.5 decades lower; set 1 lower at 1e6.0 and 1e6.6 eV by 0.3-1.5); each has gaps where it mildly prefers a dip (chi^2 2-5 below no effect: set 1 at 1e6.4-6.5 eV, set 2 at 1e6.0 eV); below 1e5.4 eV only a thin band near the grid top (g > 1e-2.5), where set 2 reaches 0.2-0.4 decades lower. Weak points: our rebuild; energy-only MESE fails IceCube's flavor result (TS f_e=0: 1.4 vs 8.65); DR2 index 2.62 vs 2.37.
+- 2026-11-25: Figs. 9-11 redrawn without set 2 (notebook: MAIN data sets; SI legend ncol follows the entries); new appendix "Limits from our fit to IceCube's events" (app:events) with fig:events_limits (notebook Sec. 16: L_e - L_tau and dp nu_mu, MeV, fitted) and the two weak points (MESE energy-only: Delta chi^2 1.4 vs 8.65 for no nu_e at Earth, output/analysis/mese_gate.json; DR2 alone 2.62 +- 0.09 vs IceCube 9.5-yr 2.37 +- 0.09, 2 sigma, output/analysis/dr2_index_check.json). Sec. IV set-2 \todo replaced by a pointer. Figs. 8 and 12 keep set 2 (not limit figures). Open: two Sec. V sentences that still quote set-2 limits (dark-portal dips; SI vs Esteban:2021tub) and the Table II set-2 row \todo. Build 29 pages, 0 undefined, 0 overfull.
+- 2026-11-25: set-2 fixes in the main text (his "Fix those three spots"): Sec. V dark-portal sentence on set 2 at the dips removed (forecast gain at the resonances already in the forecast paragraph; checked: forecasts lower than set 1 at every dp MeV mass, both compositions); Esteban:2021tub comparison now for set 1: lower below ~10 MeV, not above (set 1 not lower at 1e7.0-1e7.625 eV by 0.05-0.21 dec, none at 1e7.625; set 2 lower everywhere); SI comparison sentence: 'fit the flavor composition and the spectrum (Fig. si) and, at MeV masses, its events'; Table II MESE events row (11.4 yr; cascades 1 TeV-10 PeV, double cascades 30 TeV-10 PeV, IceCubeRates/starting_events/mese.py, no energy cut in analysis/events.py). Found, not fixed: the Ioka:2014kca sentence 'at most 0.027' holds for Majorana only (set 1: 0.027 Majorana, 0.036 Dirac; scalar has no limit below 1e-10 eV). Build 28 pages, 0 undefined, 0 overfull.
+- 2026-11-25: Ioka:2014kca sentence corrected (his 'Give both numbers'): at most 0.027 for Majorana and 0.036 for Dirac neutrinos below 2 MeV (set 1, both compositions), except the scalar below 1 neV, where no limit is set (columns 1e-30..1e-10 eV).
+- 2026-11-25: coverage tests: tools/coverage.py + tests/test_coverage.py written (pseudo-data as in NuFlavorRatiosSteriles: flavor grid translated, segments drawn with the errors chi^2 applies; lightest mass on a fixed 10-value grid so that every pseudo-experiment reuses the solver runs; checked against the stored exact profile). Pilot job 830523 (Tycho, nulri_set1_ml, 32 cores, cap 2 h): L_e - L_tau fitted, M = 10^6.125 eV, g_t = 10^-3.6, 4 toys, couplings 10^-4.4..10^-2 plus the smallest; it measures the cost per solver point and per toy.
+- 2026-11-25 (PROVISIONAL, being checked): coverage pilot 2 (job 830612; lightest mass on 62 values, 1e-4-0.1 eV log, plus 1e-6) gives, on the REAL data of le_ltau_mev_fx (set 1) at M = 10^6.125 eV, chi^2 up to 10 below the stored profile for g >= 10^-3.8 (agrees within 0.1 at g <= 10^-4.0 and at the smallest coupling). The stored fits use exact_profile with ml_scan of 11 masses (1/3 decade); a narrow minimum in m_lightest may be missed. If confirmed, this column's limit moves from ~10^-3.7 to ~10^-2.7. Check job 830810 (chi^2 vs m at 10^-3.6 and 10^-3.0, and the exact profiler started at the best grid mass). Pilot toy cost: ~510 s per toy for 14 couplings x 62 masses; the solver part 694 s on 32 cores.
+- 2026-11-25: CONFIRMED (job 830810): le_ltau_mev_fx set 1, M = 10^6.125 eV: the campaign's exact profiler started at m_lightest = 0.0158 eV gives chi^2 8.88 at g = 10^-3.6 (stored 12.24) and 9.51 (certified) at 10^-3.0 (stored 14.89); chi^2(m) oscillates by up to ~20 between masses 0.05 decades apart; the stored ml_scan (11 masses) missed the valley at ~0.0155 eV. The column's limit weakens from ~10^-3.7 to ~10^-2.6. Likely all MeV limits with the spectrum, and Fig. 12. Mauricio: 'Look at cause first, but no more of your mediocre decisions' -> diagnostic job 830859 (per-mass segments, flavor and prior terms). My earlier guess (a dip on the 215-464 TeV low point) is unverified: E_res = M^2/(2 m_i) puts the dips at ~10-100 TeV here.
+- 2026-11-25: cause of the m_lightest valley (job 830859, diagnostic figure in the session): at m1 ~ 0.0155 eV the MeV dips move to ~50 TeV, onto the step of IceCube's spectrum between 21-46 and 46-100 TeV, and the coupling fits as well as no interaction (chi^2 9.2 vs 9.6); at 1e-6 eV the absorption removes flux at 0.2-2 PeV (chi^2 13.3); +-15% in m1 moves the dip onto measured points (32.8). Refit scope counted (fitted planes in the figures, currently excluded MeV points): set 1 9,020 (21 planes), forecasts 14,249, set 2 appendix + Fig. 12 only; measured 26 core-s per fit (set 1 L_e-L_tau) -> ~0.5 core-h per point with ~65 fits. Mauricio: 'Run both checks': SI column (job 830913, si_scalar_majorana_tau_fx set 1, M = 10^6.125 eV) and forecast column (job 830914, le_ltau_mev_fx proj_future_planA, same M), 32 cores, 1 h each.
+- 2026-11-25 (17:50): SI check DONE (job 830913, 632 s on 32 workers, 17 couplings x 62 lightest masses): same valley; si_scalar_majorana_tau_fx set 1 at M = 10^6.125 eV, limit 10^-3.12 (stored) -> ~10^-1.75 (62-mass scan); 19 core-s per fit (incl. start-up). Forecast check 830914 FAILED (my bug: obj.spectrum is None for the forecasts; the pool respawned the failing initializer until the 1 h limit, 32 core-h lost); fixed (tools/coverage.py: no spectrum for the forecasts; the main process builds its objective before the pool, so a bad initializer fails at once); resubmitted as 832947. Cost of the set-1 refit (fitted planes, currently excluded MeV points, 62-mass scan): 9,020 x 62 x 19-26 core-s ~ 3,000-4,000 core-h (scaled from one column each); not counted: pion planes, allowed points (reference minimum); forecasts not measured.
+- 2026-11-25 (18:10): MeV refit METHOD decided (Mauricio, question): at each point, fits at 62 lightest masses (1e-6 eV + 61 from 1e-4 to 0.1 eV, 0.05 decades apart), then one fit with the mass free started from the best of them (the campaign's exact profiler); keep the lowest chi^2 of these and the stored one. Estimates given (scaled from today's per-fit times on Tycho, 19-26 core-s per fixed-mass fit, <= ~100 core-s per free-mass fit from job 830810's wall time): set 1 main-text planes 3,200-4,300 core-h (3-4.5 h on ~1,000 cores); not counted: allowed points (reference minimum), set-2 examples + Fig. 12, forecasts (check 832947 running).
+- 2026-11-25 (18:40): COST CORRECTED. The refit must redo whole MeV planes (every point's scan; the reference minimum and allowed points move too), not only the 9,020 excluded points: my 3,200-4,300 core-h was wrong. Basis: stored per-point times (plane_*.jsonl 'seconds', 'scan_seconds'); le_ltau_mev_fx set 1 was computed with fresh solver runs (117.6 core-h, scan 105.9 = 20.6 core-s per scan fit), SI set 1 and dp_e_mev_fx reused cached runs (stored times are lower bounds), SI fresh = 19 core-s per fit (check 830913). Scaled to 62 masses: set 1 L_e-L_alpha + DP 5 fitted planes ~3,100 core-h; SI 16 fitted planes ~13,600 (2,499 points x 62 x 19 s + profile); forecasts 5 fitted planes ~10,300 (if needed); set-2 appendix examples ~1,900; Fig. 12's set-2 values not counted. Tycho idle at 18:30: ~2,400 cores (astro3_short).
+- 2026-11-25 (19:00): Mauricio: 'Pilot, then launch' (launch the set-1 MeV refit on 1,500 cores without asking again if the pilot's chi^2 matches today's checks and memory fits); set 2 NOT refit ('If they are wrong as they are now in the paper, we simply won't show them'); chains split into pieces of at most 8 couplings (exact_profile.chain_length = 8, as in the ultralight forecast configs; ~11 h on 1,500 cores instead of ~20 h). Running: set-2 check 833655 (le_ltau_mev_fx now_mese_dr2, M = 10^6.125 eV); pilots 833670 (le_ltau_mev_fx, 2 columns x 5 couplings) and 833671 (si_scalar_majorana_tau_fx b12, 2 x 8), configs analysis/configs/pilot_ml62/, 4 cores each, memory sampled (output/coverage/rss_<job>.txt). Correction: the 20 h vs 11 h came from the per-column chains (stored slowest column 3.6 h of fits -> ~19 h with 62 masses).
+- 2026-11-25 (18:45): set-2 check DONE (job 833655, le_ltau_mev_fx now_mese_dr2, M = 10^6.125 eV, 62 masses, 863 s on 32 workers): the finer scan lowers chi^2 by at most 0.67 (largest gain at 10^-3.0) and raises nothing that matters (+0.17 at 10^-3.6, the scan's own coarseness); the edge stays at ~10^-3.7. At this column set 2 has no valley (it does not use IceCube's spectrum, whose step causes set 1's). One column only; set-2 values in the paper kept for now.
+- 2026-11-25 (18:50): forecast check DONE (job 832947, le_ltau_mev_fx proj_future_planA, M = 10^6.125 eV, 62 masses, 2864 s on 32 workers = 148 core-s per fit): the finer scan lowers chi^2 only far inside the excluded region (by 6.0 at 10^-4.2, Delta chi^2 44.7 -> 38.7); at the edge (10^-4.8 to 10^-4.6) the values agree to 2e-8, so the limit is unchanged. Asimov data have no spectral step. One column only; forecasts NOT in the refit.
+- 2026-11-25 (20:10): pilots' first points (records so far): chi^2 at or below today's checks at every shared coupling (le_ltau 10^6.125: 8.786/9.008/9.180/9.482 at 10^-3.6..-3.0 vs checks 8.88 (exact) .. 9.51 (exact); SI 10^6.125: 8.254..9.367 vs 8.27..9.37); ~15.5 min (le_ltau) and ~12 min (SI) per point, ~0.56 GB per worker. Launch scripts ready (ml62_array.sh in nulri_set1_ml and nulri_refit_set, 14 cores, 48 GB; packs_ml62.txt 100 blocks, packs_si_ml62.txt 384). Merge: tools/merge_ml62.py (new, tests/test_merge_ml62.py) copies each refit block into the stored plane's directory as b<1000+k>/data with masses and couplings snapped to the stored grid (the blocks' np.logspace grids differ by ulps), so export_limits joins them keeping the lower chi^2 per point -- no change to the limits code.
+- 2026-11-25 (~20:45): pilots ENDED exit 0 (833670: 6280 s; 833671: 7756 s), repair passes ran (pass 1, 3 points each, lower by <= 0.08), summaries written; final chi^2 at or below the checks at every shared coupling; peak 0.64 GB per process. LAUNCHED (his go 'Pilot, then launch'): ml62-ml 835725 (nulri_set1_ml, 100 blocks, %26) and ml62-si 835727 (nulri_refit_set, 384 blocks, %81), 14 cores and 48 GB each, astro3_short 12 h: <= 1,498 cores; expected ~9 h (chains of 8 x 12-15 min per point, ~4-5 waves; not measured at scale), <= ~13,500 core-h allocated (~10,200 core-h of fits at most). Outputs: output/analysis/campaign_ml62/now_icecube/<plane>/b<k> and campaign_si_ml62/now_icecube/<plane>/b<k>; then tools/merge_ml62.py into the stored planes, export, figures. Forecasts and set 2 not refit (their checks: limit unchanged at M = 10^6.125 eV).
+- 2026-11-25 (~21:00): merge end-to-end on the pilot (local copy; tools/merge_ml62.py then export_limits.export): le_ltau_mev_fx set 1, lowest excluded coupling 10^-3.685 -> 10^-2.74 at M = 10^6.125 eV and 10^-3.615 -> 10^-2.92 at 10^6.0 eV, with only the pilot's couplings (10^-3.6..-2.8) refit (preview; the full refit decides).
+- 2026-11-25 (21:10): refit queue: Tycho holds most tasks for priority (our fairshare 9 vs ~40-112 for others) although ~2,600 cores idle; time limit of all ml62 tasks cut to 6 h (scontrol) to help backfill (a block needs ~2.6 h; SI b22, 5 columns, up to ~5 h). 13 ml62-ml running, ml62-si none yet. Each job first runs the global fit with the 62-mass scan, single process: 856 s (overhead ~14 min per job, not avoidable without restarting). No errors.
+- 2026-11-25 (21:30): COVERAGE TEST decided (Mauricio, questions): two true points, L_e-L_tau and SI (scalar, Majorana, nu_tau) set 1, both at M = 1.3 MeV, true coupling at the NEW 95% limit (after the refit); 100 pseudo-experiments each; each fitted at ~9 couplings from 1 decade below to 0.4 above the true one plus the smallest coupling (no effect), the window widened wherever a pseudo-experiment's lowest chi^2 sits on its edge; pseudo-data as in NuFlavorRatiosSteriles (flavor from IceCube's released MESE likelihood moved to the true composition; the 10 spectrum segments around their true values with the chi^2's asymmetric errors). Profile and reading = the limits' own (ExactProfiler.profile_global with the 62-mass scan; analysis.exclusion.field). Cost ~460 core-h (pilot times), not measured.
+- 2026-11-25 (22:00): coverage tool rebuilt as tools/coverage_limits.py (tests/test_coverage_limits.py, 5 tests): the profile is ExactProfiler.profile_global with the configuration's 62-mass scan (the campaign_ml62 block configs), the reading analysis.exclusion.field on each pseudo-experiment's column (chi2_sm = its smallest coupling's chi^2, as export_limits), checked equal to export_limits' lowest excluded coupling; window -1/+0.4 decade widened where a column's lowest chi^2 sits on an edge; step 5 redone on the laptop (--reread) because Tycho's analysis/exclusion.py differs from the repository's (exact_profile, objective, surfaces identical). tools/coverage.py stays for its pseudo-data draws (flavor_draws, segment_draws). Smoke test 836611 (le_ltau_mev_fx b8, M = 10^6.125 eV, g_t = 10^-2.74 (the pilot preview), 2 pseudo-experiments, 10 cores, 2 h cap).
+- 2026-11-25 (22:05): limitations text (his: 'write the text, with placeholders for coverage ... minor limitations'): the Summary's todo replaced by four sentences (mixing barely moves the limits, Sec. IV; relic clustering adds collisions only along the last tens of kpc; an energy-dependent source composition could supply part of the flavor changes; coverage \todo{X}/\todo{Y}); the list sentence reordered to match. Unverified: the clustering overdensities of the cited works (not read; not in biblio/). Build: 29 pages (was 28), 0 undefined, 0 overfull, last line 6 words.
+- 2026-11-25 (22:50): TO UPDATE after the MeV refit (main.tex line numbers today):
+  - 609 method: the scan "at 10^-6 eV and three values per decade from 10^-4 to 0.1 eV" -> twenty per decade for the MeV planes (keep 3/decade where still true: the ultralight dark portal, unless rerun).
+  - 92, 149, 703, 790 and Fig. 11 caption (765): SI scalar nu_tau beats laboratory bounds "from 1 keV to 4 MeV"; 149 also "Esteban:2021tub at every mass it covers, 0.4-45 MeV".
+  - 705-712 MeV preference (Fig. 12, output/analysis/preference_20261122.json): set 1's 2.4-3.2 MeV and Delta chi^2 2.0-6.6 over 21 models; 711 forecasts 0.9-2.6 orders below the preferred couplings; 712 (set 2, unchanged).
+  - 718 forecast gain above 1 keV "a factor of 2 to 4" (today's MeV limits move).
+  - 733 Ioka: 0.027 (Majorana) / 0.036 (Dirac) below 2 MeV; 736 Esteban: "below about 10 MeV, not above".
+  - Appendix app:events: set 1 vs set 2 "differ by less than half an order of magnitude; neither reaches lower at every mass".
+  - Figs. 9-12 redrawn from the merged export; abstract and summary (90-92, 145-149, 789-790) re-read.
+  - 798 coverage placeholders X, Y (coverage run after the refit).
+- 2026-11-25 (22:50): FOUND: the ultralight dark-portal planes (dp_*_ul[_fx], 1e-30-1e4 eV) use the same 11-mass ml_scan and are NOT in the refit; not checked for lightest-mass valleys. To put to Mauricio: a one-column check (like today's).
+- 2026-11-25 (23:05): his go 'Check one column': ultralight dark portal, dp_tau_ul_fx set 1, M = 1e-2 eV, job 837458 (8 cores, 1.5 h cap): tools/coverage_limits.py --toys 0 with a 62-mass copy of the config (analysis/configs/pilot_ml62/dp_tau_ul_fx.json), couplings 1e-8 and 10^-3.0..-2.0, compared with the stored column (rebuilt from plane_m_Zd_eV_g_D_trace.jsonl: 1135 of 1155 points; the stored ul DP plane has no summary, 20 points missing). Stored column: Delta chi^2 plateau 0.26 from 10^-5.5 to 10^-3, edge ~10^-2.2. coverage_limits now applies the lightest-mass cap per point as scans._run_chain does (lightest_cap / set_lightest_cap; a point not allowed at any mass -> NaN).
+- **Handoff 2026-11-25 (~23:59).** *Changed:* limitations text in the Summary (coverage placeholders X, Y); tools/coverage_limits.py (coverage through the limits' own profile and reading; --reread on the laptop), tools/merge_ml62.py (refit blocks into the stored planes as b<1000+k>, grid-snapped; export_limits keeps the lower chi^2), tools/coverage.py (forecast/no-spectrum fix; fail-fast initializer); tests for all three. *Decided (Mauricio):* MeV refit of set 1 with 62 lightest masses + free-mass fit, chains of 8, 1,500 cores; set 2 and forecasts not refit (their checks unchanged); coverage at 2 MeV points x 100 pseudo-experiments, window + no effect, NuFlavorRatiosSteriles pseudo-data; limitations treated as minor. *Running on Tycho:* ml62-ml 835725 (100 blocks, nulri_set1_ml) and ml62-si 835727 (384 blocks, nulri_refit_set) -- SI held by priority at 23:50; cov-smoke 836611; chk-uldp 837458 (ultralight DP nu_tau at 1e-2 eV); fc-lri forecasts (nulri_set1_sm, 1408/1418; do not touch). *After the refit:* tools/merge_ml62.py per plane (ml: campaign_ml62/now_icecube/<p> -> campaign_ml/now_icecube/<p>; si: campaign_si_ml62/... -> campaign_si/...), add nothing to collect_limits' rsync (b<k>/data already included), export, redraw Figs. 9-12, the checklist of 22:50, then the coverage run (true couplings = new limits at M = 10^6.125 eV) and Sec. IV's coverage text. *Open:* ultralight DP check result (decide whether those planes need the finer scan); the ul DP planes dp_tau_ul_fx, dp_mu_ul, dp_tau_ul lack summaries (19-25 points at g = 1 failed with a non-finite flux; above the limits, not serious); Bustamante:2026inprep title; Maria on the author list.
+- 2026-11-26 (00:20): CORRECTED my limitations sentence: '95% expected' -> 'against 97.5% if Wilks's theorem held (Sec. IV)' (Sec. IV line 626: the 3.84 threshold read as an upper limit is 97.5% C.L.; the coverage test compares with 97.5%, not 95%). Sec. IV scan sentence updated to twenty masses per decade (three for the ultralight dark portal, pending its check) with one sentence on why (job 830810: chi^2 changes by up to ~20 between lightest masses 0.05 decade apart; +-15% moves the dip onto measured points, chi^2 9.2 -> 32.8). Build 29 pages, clean.
+- 2026-11-26 (00:20): ultralight DP check DONE (job 837458, dp_tau_ul_fx set 1, M = 1e-2 eV, exact profile with 62 masses, 1720 s on 8 workers): chi^2 equal to the stored values to 1e-3 at 1e-8 and 10^-3.0..-2.5; lower by 0.14 at 10^-2.25 and 0.68 at 10^-2.0; the edge (Delta chi^2 = 3.84 between 10^-2.25 and 10^-2.0) moves by ~0.01 decade. One column: the ultralight DP planes keep the 3-per-decade scan (Sec. IV text as written).
+| 2026-11-26 | Coverage paragraph written (Mauricio: "Yes, write it", argument order agreed): Sec. IV "Computing limits", new paragraph after the Wilks/Cowan sentence, replacing the todo; X, Y and the conclusion are placeholders until the coverage run. Cites Bustamante:2026fxa (arXiv:2611.05170, INSPIRE entry verbatim, added to references.bib) for the translated-likelihood pseudo-data. Summary sentence corrected: "at two MeV masses" -> "for two models with a 1.3~MeV mediator" (both test points are at M = 10^6.125 eV). Overlap check: reworded the 8-gram from the steriles paper ("we fit each pseudo-experiment as we fit the") and the 6-gram from Sec. IV Data. 29 pages, 0 undefined, 0 overfull; last lines full. |
+| 2026-11-26 | Coverage smoke test 836611 (le_ltau_mev_fx, M = 10^6.125 eV, log10 g_t = -2.8, 2 pseudo-experiments, 10 cores) ran end to end: real column + truth 1693 s, 2 pseudo-experiments 4905 s over 6 widening rounds (both minima fell below the window, at 4e-5 and 6e-5, and were followed down), no unresolved window, cache deleted. Readings: one covered, one not (limit at log10 g = -3.35); the local --reread gives the same. Minor: the truth fit at g_t gives chi2 10.08, the column's fit at the same coupling 9.93 (different starting points); harmless for coverage (any parameter set is a valid truth), noted. Cost, from these times: about 800 core-s per pseudo-experiment point, about 12 points each -> roughly 280 core-hours per model for 100 pseudo-experiments (estimate from the smoke test, not a full-run measurement). Full run waits for the refit's new limits. |
+| 2026-11-26 | Refit stalled on astro3 (priority; 40/100 ML blocks, 0/384 SI). Quick check of the tycho1 nodes (AMD EPYC 9755, Zen 5; astro3 = EPYC 9554, Zen 4), on Mauricio's request for "a very quick test": obj.chi2 re-evaluated at 5 stored best fits of le_ltau_mev_fx (ml62) and 5 of si_scalar_majorana_tau_fx, fresh flux cache, on tycho1_devel and astro3_devel. Both reproduce the stored chi2 to <= 2e-14. One transport + chi2: tycho1 8.7 s (ML) and 6.5 s (SI) against astro3 12.1 s and 9.0 s, i.e. about 1.4x faster per core (single process, 2 cores each). Scripts: output/archcheck/ in nulri_set1_ml and nulri_refit_set. |
+| 2026-11-26 09:11 | Refit waiting tasks moved to tycho1_short (Mauricio: "Allow both, cap 1,500"): multi-partition requests are refused for our association, so pending tasks went to tycho1 (835725_[67-99], 835727_[5-383]); running ones finish on astro3. Right after: 76 SI tasks started on tycho1, 5 run on astro3, 26 ML on astro3; caps unchanged (26 + 81 tasks x 14 cores = 1,498). Estimate (measured per-block times, slots assumed filled): ML about 6-8 h, SI about 6.5 h. |
+| 2026-11-26 10:40 | SI refit cost estimate WRONG (mine): the SI pilot ran 2 workers per 14-core task (700 s per point); the campaign runs 14 workers, at about 3,300-3,850 s per point (scan 620 solves at ~5.2 s each instead of ~1.05 s), on astro3 and tycho1 alike. Global fit per block ~1,900 s (astro3), ~1,300 s (tycho1). In the ML blocks about half the points are inherited (0 s), so an SI block should take about 5-8 h (not 1.7 h): SI total about 25-38 h wall at 81 slots, about 27,000-43,000 core-hours (not ~10,000). Risk: the 6-h task limit (can only be lowered by users); finished points are kept. Check at ~11:45, when the chains' second points finish. ML unaffected (measured blocks 2.8-4.9 h). |
+| 2026-11-26 11:00 | Where the 62-mass refit matters (evidence, finished ml62 blocks, all 41 columns of le_ltau_mev_fx and le_lmu_mev_fx): largest drop of Delta chi2 against the stored planes per column: >= 1 only at M = 10^5.625-10^6.25 eV (10.24 at 10^6.125, at a point with stored Delta chi2 17.5, so skipping points by stored Delta chi2 is NOT safe); <= 0.70 at 10^5.125-10^5.5 and 10^6.375-10^6.75; <= 0.10 at and below 10^5.0 eV and zero at and above 10^6.875 eV. SI refit: 160 of its 384 blocks lie in 10^4.875-10^7.125 eV (32 running, ~128 waiting); 224 outside (49 running, ~175 waiting). Proposed to Mauricio: run the in-window SI blocks first, hold the rest until the 49 running out-of-window blocks show whether the refit matters there for SI; and/or more cores. |
+| 2026-11-26 11:40 | Thread test (tycho1_devel, 14-core job, 14 spawn workers, 28 SI chi2 evaluations at stored best fits): NUMBA_NUM_THREADS=14 (as the campaign) wall 187 s, evaluations 11-47 s; NUMBA_NUM_THREADS=1: wall 51 s, evaluations 6-41 s (first evaluation per process includes loading); chi2 identical (max diff 0.0). So the campaign's SI setting slows it 2-3.7x; real gain to be measured on running blocks. Plan proposed to Mauricio (fix on a few tasks, then all; in-window SI first; SI coverage block b12 first; L_e-L_tau coverage now). Slurm controller unreachable from 11:30. |
+| 2026-11-26 12:00 | Plan approved (Mauricio: "Go ahead", cap 1,500). Done without Slurm: nulri_refit_set/slurm/common.sh -> NUMBA_NUM_THREADS=1 (backup common.sh.bak_20261126); le_ltau_mev_fx and le_lmu_mev_fx merged into campaign_ml (20 blocks each, b1000+); new limits at 10^6.125 eV read with the paper's export code: le_ltau log10 g = -2.42, le_lmu -2.515; L_e-L_tau coverage job script output/coverage/cov_array.sh (10 x 10 toys, g_t = -2.42, 14 cores each, NUMBA_NUM_THREADS=1), to start when the dark-portal array ends. Step 4 from saved SI points (si_compare.py): above 13 MeV (55 columns) Delta chi2 drops <= 0.011 -> the 112 blocks above 13 MeV DROPPED (Mauricio); below 75 keV (46 columns) drops up to 1.94 (si_scalar_dirac_e_fx, 1-18 keV) -> the 112 low-mass blocks run after the 160 in-window ones. SI coverage block = task 148 (si_scalar_majorana_tau_fx__b12). |
+| 2026-11-26 12:05 | Queue reordered (output/archcheck/reorder.py in nulri_refit_set): SI throttle 81 -> 80; the 112 blocks above 13 MeV cancelled (27 running, 85 waiting; their saved points stay and merge); the 112 below 75 keV held (22 running paused with requeuehold, 90 waiting held); block 148 (si_scalar_majorana_tau_fx b12, coverage) as its own job 855861 (10 h); A/B: tasks 5-8, 21-23 requeued to restart with NUMBA_NUM_THREADS=1. Slurm outage side effect: 11 ML tasks (835725_68-85) and 7 SI tasks (835727_69-75) had failed at start ("user env retrieval failed") and were held by Slurm; released. L_e-L_tau coverage array 855918 (10 x 10 toys) submitted with afterany:835725. |
+| 2026-11-26 12:30 | Thread fix confirmed on real blocks: global fit 463-573 s (fix) against ~1,300 s (tycho1) and ~1,900 s (astro3) without, i.e. 2.6x. The 25 in-window SI tasks still running without the fix paused (requeuehold; list output/archcheck/requeued_unfixed.txt) and released to restart with it (2-4 moved to tycho1). SI coverage block: packs lines 149/222 swapped (backup packs_si_ml62.txt.bak_20261126), so array task 221 runs si_scalar_majorana_tau_fx b12 (started 12:25) and job 855861 runs si_vector_dirac_mu_fx b13 instead. Estimates given to Mauricio: SI coverage block ~15:30; dark portal ~17-18; in-window SI ~18-19; SI coverage ~21-22 (starting ~15:45 with the SI throttle lowered by 10 to stay in the cap); L_e-L_tau coverage ~20:30-22:30; low-mass SI ~22:00-01:00; paper final by tomorrow morning. |
+| 2026-11-26 12:45 | Sec. IV scan sentence corrected (it claimed 20 per decade for every MeV plane; the second data set, the forecasts, SI above 13 MeV and the ultralight DP keep 3 per decade). Mauricio: "the checks are internal"; "We are writing a paper, not a set of notes" -> no per-data-set bookkeeping: scan at 1e-6 eV and 1e-4-0.1 eV, then local fit; the MeV sensitivity sentence; "Where the measured spectrum makes chi2 this sensitive to the lightest mass, we scan twenty values per decade." Checks behind it (internal): set 2 <= 0.67 at 10^6.125, forecasts unchanged, ul DP edge 0.01 dec, SI > 13 MeV <= 0.011 (55 columns). Clustering-size question not answered (left as is). 29 pages, 0 undefined, 0 overfull. |
+| 2026-11-26 12:50 | Scan text cut to one sentence (Mauricio: 'Isn't this an internal point?'): 'we first scan it from 1e-6 to 0.1 eV and then fit it locally, solving the transport at the mass we report'; the MeV-sensitivity and twenty-per-decade sentences removed (internal). |
+| 2026-11-26 12:45 | SI slots stuck at 57 of 80: tycho1 nodes full on MEMORY, not cores (node656 AllocMem 770/772 GB with 266 CPUs idle; 48 GB per task). Measured use: SI tasks MaxRSS 5.0-7.0 GB, ML 6.6-8.9 GB. Waiting tasks' request lowered to 24 GB (835727, 855861, 835725; scontrol MinMemoryNode=24576; users may lower only). Running tasks unchanged. |
+| 2026-11-26 12:41 | After the memory change 128 SI tasks started (Slurm stopped applying the array's limit of 80 after the requeues; ~2,100 cores, over the cap). Fixed within minutes: every waiting SI task held, the 48 newest (started 12:39) requeue-held; a controller (scratchpad si_release.sh every 3 min -> output/archcheck/ml_release.py + si_release.py in nulri_refit_set) keeps <= 80 SI tasks (in-window first, then below 75 keV) and <= 26 dark-portal tasks running, releasing held tasks (incl. Slurm's own "user env retrieval failed" holds) as slots free. 12:41: SI 81 running (80 + job 855861), ML 23 + 3 released; cores 1,134 + 364 max. |
+| 2026-11-26 16:00 | REFIT WEAKENS THE MeV LIMITS (finding; coverage runs HELD, 855918 held by me). SI coverage block (si_scalar_majorana_tau_fx b12, done 15:12) merged locally (scratchpad si62/): limit at 10^6.125 eV log10 g = -3.235 (stored) -> -1.80; Delta chi2 about 0 from g = 10^-3.25 to 10^-1.9, best fit m_lightest 15.9 meV (sum 0.087 eV; prior penalty 2.0 against 0.9 at the smallest sum), p_index 3.0 and p_index_low 0.5 (both at their bounds). L_e-L_tau fx (all 20 refit blocks): limits at 10^5.75 and 10^5.875 eV GONE (Delta chi2 0.65 and 1.6 up to g = 10^-2; m_lightest 14 and 22 meV, indices NOT at bounds), 10^6.0 +0.68 decades, 10^6.125 +1.27 (-3.685 -> -2.42; p_index 3.0), 10^6.25 +0.48 (p_index 3.0, p_index_low 0.5); L_e-L_mu the same pattern. Figure output/figures/si_ml62_1p3mev_column.png. Priors read from the config: p_index flat 2-3, p_index_low flat 0.5-2.5, break fixed 24.5 TeV, mass sum half-Gaussian 0.12 eV at 95% (sigma 0.0612), norm_gal 0.91 +- 0.18. Open puzzle: the stored scan had 21.5 meV yet missed the fit at 22.4 meV. Mauricio: "Proceed. At every step, you need to question if what you're doing will lead to finding an answer or if it simply busywork." -> check jobs 861575 (SI, 10^6.125, g 10^-2.5) and 861576 (le_ltau, 10^5.875, g 10^-3), output/archcheck/m1check.py in both checkouts: record chi2 recomputed, chi2 on a fine grid of m_lightest (5-40 meV; others fixed / fitted from the record / fitted from the config's starts = the old scan's view), more index nodes (13, 9), fluxes and segments. First result: SI record reproduced exactly (9.536094), 13+9 nodes agree to 1e-7. NO likelihood change decided; his options still open: keep priors, DESI variant, index-edge size. |
+| 2026-11-26 17:00 | Lightest-mass check DONE (jobs 861575, 861576; output/archcheck/m1check_{si,ml}.json in each checkout; figure output/figures/m1check_2026-11-26.png): the refit's fits are NOT numerical glitches. (i) Record chi2 reproduced exactly (SI 9.536094; le_ltau 11.213339); with 13 + 9 index nodes the same to 1e-7 (SI) and 4e-4 (le_ltau). (ii) The dips sit at the resonance energies: SI at 15.8 meV, nu_3 edge at 17 TeV, nu_2 + nu_1 44-60 TeV (flux down to 5%); le_ltau at 22.4 meV, 5.2 TeV and 11-13.3 TeV, i.e. at or below the first spectrum segment's lower half. (iii) Why the old scan missed the SI fit: chi2 against m_lightest (others refitted) has a NARROW valley, 9.54 at 15.85 meV, 12.1 at 15.0, 13.0 at 17.8, 22.7 at 10 meV and 30.8 at 21.5 meV (the old scan's two values); the same from the record's start and from the config's starts, so no fit-start effect. le_ltau: flat low region from 12.6 to 46 meV (Delta chi2 1.6-6), 56 at 1e-6 eV. (iv) Point-to-point scatter of chi2 of 1.5-3 where chi2 is 25-35 (sharp dip edges against the segments), small near the minima. (v) Model feature seen in the SI flux: a step at the break (ratio 0.60 below, 0.88 above), from the two source populations of Eq. (source) having different redshift weights; documented (simplification 7), not a bug. Coverage launch (SI array + release of 855918) BLOCKED by the auto-mode guard: needs his go. SI coverage script written: scratchpad cov_si_array.sh (10 x 10 toys, 14 cores, 32G, true log10 g = -1.80), not yet on Tycho. |
+| 2026-11-26 16:30 | Coverage runs redesigned before launch (Mauricio: "Yes, wide and add truth"; "I have one week to finish this paper, so there is no time for re-runs. Everything needs to be thoroughly checked before big runs."). Reason, from the smoke test of 2026-11-26 00:23 (2 pseudo-experiments, le_ltau, truth -2.74): the columns are read from their own minimum (analysis.exclusion.field), which lay at 10^-4.2 and 10^-4.4, with chi2 lower than at the truth by 4.5 and 3.5; the window (1 decade below the truth) reached it only by widening step by step (6 rounds), and the refit moved the truths up by 1.3-1.4 decades. tools/coverage_limits.py: --lowest-log10g (window from there when lower), --window-hi, the true coupling fitted for every pseudo-experiment (chi2_true, kept out of the column; reread adds dchi2_true), progress lines, results kept after every round ("partial"); tests/test_coverage_limits.py: 7 pass (new: window with lowest; main's bookkeeping with stubbed fits). Copied to nulri_refit_set and nulri_set1_ml (md5 3a4efd6b; old one kept as .bak_20261126 in nulri_set1_ml). Windows: SI 10^-4.625..10^-1.375 (27 couplings, smallest 10^-6), le_ltau 10^-4.6..10^-2.0 (14, smallest 10^-10). CHECK TASKS ONLY: cov-si 862719_0 (true -1.80, output/coverage/cov_si_array.sh) and cov-le 862720_0 (true -2.42, cov_le_array2.sh; old 855918 cancelled while pending); tasks 1-9 of each only after task 0's real-data stage and first pseudo-experiment timings are checked (also: real column's reading must return our limit). SI controller: si_release.py failed from 15:44 to 16:28 (squeue on the finished job 855861 exits non-zero), so no SI releases for 45 min (69 instead of 80 running); fixed (try/except), cap 80 -> 76 to make room for the coverage runs. Lesson saved in memory (careful_shortcuts). |
+| 2026-11-26 16:45 | No Feldman-Cousins construction (Mauricio: "Running FC treatment is unrealistic"). The coverage runs stay: they give X and Y of Sec. IV and, from chi2 at the true coupling, the threshold that would restore coverage at 1.3 MeV, so the limitation is stated with its size. The Sec. IV todo sentence ("...whether a Feldman-Cousins construction is needed") to be rewritten without it when the numbers arrive. |
+| 2026-11-26 17:30 | SET 2 REMOVED FROM THE PAPER (Mauricio: "Remove set 2 from the paper"; "Keep Fig. 5 as an illustration"). Reason recalled: our energy-only fit to the starting events does not reproduce IceCube's flavor result (Delta chi2 1.4 against 8.7 for no nu_e), and the tracks alone prefer index 2.62 against IceCube's 2.37. main.tex: abstract and introduction name only the flavor composition and spectrum; Sec. II xi free "in the forecasts"; Sec. IV: two data sets (measurements; forecast), Table I loses the "Event samples" rows, Table II the 9 rows of IceCube's atmospheric and detector parameters; the MESE and IceTracks-DR2 event computation and their backgrounds stay, as "to illustrate ... we set no limits with them" (for Fig. 5); the Poisson likelihood sentence now speaks of the events expected without a new interaction (forecasts); coverage sentence without "the first data set"; Fig. 5 text and caption without "our fit"; MeV-preference paragraph and Fig. 12 caption with one data set (the "two data sets disagree" argument is gone: "No preference reaches 3 sigma"); Appendix "Limits from our fit to IceCube's events" and its figure deleted; appendix grid sentence points to Fig. 5. Two last-line fixes. Compiles: 28 pages, 0 undefined, 0 overfull, Fig. 1 on page 1. PENDING: Fig. 12 (preference.pdf) still draws the set-2 curves until its redraw with the refit; preference numbers (2.4-3.2 MeV, 2.0-6.6) to be recomputed after the refit; figures/limits_set1_set2_mev.pdf and notebook Sec. 16 now unused. Backup of the previous text: scratchpad main.tex.before_set2_removal. Not committed. |
+| 2026-11-26 17:35 | Coverage check tasks passed; the other 18 launched (cov-si 864643_[1-9], cov-le 864644_[1-9], tycho1_short, 24 GB each). Checked on task 0 of each: (i) the tool's reading of the real-data column returns our limits: SI lowest excluded log10 g = -1.805 (limit -1.80), le_ltau -2.43 (-2.42); chi2 at the truth lies 3.81 and 3.89 above the column's lowest (7.359 at 10^-3.75; 7.255 at 10^-4.2); (ii) real-data stage 2,979 s (SI, 29 fits) and 2,072 s (le_ltau, 16 fits); a pseudo-experiment's fit takes 150-240 s (the scan's solver runs come from the cache), 15-17 s per fit across 14 workers: round 1 about 72 min (SI, 290 fits) and 45 min (le_ltau, 160 fits), so about 2.2 h and 1.5 h per task plus the widening rounds; (iii) MaxRSS 6.6 and 7.1 GB; flux cache 1.4 and 0.75 GB. Truths: SI m_lightest 16.0 meV, p_index 3.0, p_index_low 0.5; le_ltau 15.7 meV, p_index 3.0, p_index_low 1.15. The dark-portal refit array 835725 has ended (none in the queue at 17:30). Not yet seen live: the per-round save (tested with stubs); task 0 of le_ltau reaches it first, about 18:10. Commit a2f195e pushed (set 2 removed, coverage tool); CI green. |
+| 2026-11-26 19:45 | First coverage run (single-start fits) read: L_e-L_tau 78 of 80 covered, SI 74 of 90. NOT USABLE: in 6 of the 16 uncovered SI pseudo-experiments chi2 jumps by 7-25 between neighbouring couplings (stuck fits). Diagnostic job 867700 (output/archcheck/covdiag.py, covdiag.json in nulri_refit_set): stored chi2 reproduced exactly; plain profile from the neighbouring coupling's solution lowers chi2 18.15 -> 11.52 (cov_si_t0 toy 5, g = 10^-3.75) and 21.03 -> 9.31 (cov_si_t7 toy 9, the truth); a twice finer lightest-mass scan does not help (17.79, 21.03). Cause: the fit of the cheap parameters (norms, indices, source compositions) is one L-BFGS-B start (ExactProfiler._centre_value, FitSettings.n_random = 0) and has several local minima on pseudo-data (f_e_S at 0 or 1; p_index_low 0.5 or 1.7); the scan's chi2 then alternates between ~110 and ~155 at neighbouring lightest masses. |
+| 2026-11-26 23:00 | REAL LIMITS AT 1.3 MeV CONFIRMED with multi-start fits (jobs 868318, 868320; output/archcheck/covmulti.py, covmulti_{si,le}.json): the real-data column redone with 16 random starts added to every cheap-parameter fit. SI (29 couplings + truth): chi2 lower by at most 0.20 (at 10^-3.125), 0.02-0.05 near the limit; limit read on Tycho -1.82 for both columns. L_e-L_tau (16): at most 0.10; limit -2.430 -> -2.425. The two stuck pseudo-experiment points are repaired by the extra starts (11.52 and 9.31, as from the neighbour). Cost measured: real stage 2 h 39 min (SI) and 1 h 47 min (le) on 14 cores, against 50 and 35 min; a pseudo-experiment fit 1,236 and 2,128 s against 150-240 s. |
+| 2026-11-26 23:05 | COVERAGE RERUN with multi-start fits (Mauricio: "Rerun overnight (Recommended)"). tools/coverage_limits.py: --n-random (extra starts in every worker), --only LO:HI (a part of a seed's draws), each fit's solution stored, partial results every 50 fits; tests/test_coverage_limits.py extended (7 pass). Same seeds and draws as the first run (20261126 + i, 10 per seed), so pseudo-experiments compare one to one. 20 tasks of 5 per model (output/coverage/cov2_si_array.sh, cov2_le_array.sh; outputs cov2_si_t{seed}_{0,5}.json, cov2_le_ltau_t{seed}_{0,5}.json). Task 0 of each launched 23:10 (873881, 873882); the other 19 + 19 go after task 0's real-data column equals covmulti's (cov2_check.py in external/). Controller si_release.py now counts coverage tasks, waiting or running, against 100 slots of 14 cores. First run's files (cov_si_t*.json, cov_le_ltau_t*.json) kept for the comparison; task 864644_4 of the first run still widening one pseudo-experiment (left running). NOT committed: the tool and test changes, this log. |
+
+### Handoff 2026-11-26 (night): coverage rerun with multi-start fits running; SI refit ending
+
+- **Running on Tycho:** SI 62-mass refit (array 835727, all blocks released, about 90 tasks left, end 01:00-02:00, not measured for the low-mass blocks); coverage rerun task 0 of each model (873881 SI, 873882 L_e-L_tau); forecasts fc-lri (9); first-run coverage task 864644_4 (widening, harmless). Watchers in the session: controller loop (si_release.sh), fc_release.sh, hourly fc_tick.sh (re-arm each time), the task-0 check (cov2_check.py).
+- **Next, coverage:** when task 0's real column matches covmulti (differences ~1e-6 expected: same seed of the random starts), submit `--array=1-19` of both scripts on tycho1_short. Expected 6-9 h per SI task (estimate from the two measured fits), unmeasured for L_e-L_tau. Then copy the 40 JSON files, `--reread` each locally, combine (scratchpad cov_combine.py: coverage, binomial error, quantiles of dchi2_true, figure), compare one to one with the first run, and propose the Sec. IV / Summary text (the \todo X, Y; the \todo sentence without Feldman-Cousins). The wording of the outcome is Mauricio's decision.
+- **Next, refit:** when 835727 ends: merge (tools/merge_ml62.py), export limits, redraw Figs. 9-12 (Fig. 12 without set 2), update every refit-dependent number and statement, add why the limits weaken near 1 MeV.
+- **Known and open:** the production fits use one start for the cheap parameters; on real data this was checked only at 1.3 MeV in two models (no change). Forecasts, SI above 13 MeV and the ultralight dark portal still use the 11-mass scan (his decision pending). DESI-variant and index-edge sensitivity runs not approved. Uncommitted: paper_planning.md, tools/coverage_limits.py, tests/test_coverage_limits.py.
+- **2026-11-27 01:05, SI refit: 61 blocks had stopped at the 6-h limit, unfinished; resumed.** Found at the 00:56 report (the hourly report lists only the forecasts' failures, and the controller only counts running tasks, so the 38 timeouts of 18:00-21:00 went unseen for 4-7 h: my miss). All 61 are scalar Dirac blocks (e, mu, tau, universal; 38 between 75 keV and 13 MeV, 23 below): their points take about 2,800-3,100 s (14 workers), so a chain of 8 alone needs 6.7 h. State read from the files (output/archcheck/si_blocks2.py): of the 60 stopped by 00:57, 38 (e, mu, and tau below 75 keV) have all 98 first-pass points and stopped at the last point or in the repair pass; the other 22 (tau in the window, universal) lack 211 points in total; a 61st stopped just before the resume list was made. No summary written for any of them. A restart reuses the saved points (seen on the requeued tasks: the restart of 835727_4 began at 27.6%). Resume: array 877911 (output/archcheck/si_resume.py -> packs_si_resumeA.txt, in-window blocks first; stale RUNNING.lock files of those blocks removed), ml62_array.sh unchanged, tycho1_short, 12 h, 16 GB, 14 cores, 36 at a time (504 cores; with the 39 running refit tasks, 2 coverage tasks and the forecasts about 1,150). Not measured: the time of a resume (global fit about 30 min, then the missing points and the repair pass). 835727_90-92 (scalar Dirac universal b4-b6, below 75 keV) stopped at the limit at about 01:05: resumed the same way as array 878081 (packs_si_resumeB.txt). In all 64 blocks resumed. 01:08: array 877911 waited on priority in tycho1_short (Slurm's start estimate 2026-11-28 12:41), so it was moved to tycho1_long (scontrol), where 36 tasks started at once; the first log shows the restart at 99.0% after a global fit of a few minutes. Cores at 01:12: 1,086 (refit 75 tasks, coverage 2, forecasts). The 36 vector blocks still running take about 1,100-1,300 s per point and should fit in 6 h (to check).
+- **2026-11-27 01:56, coverage rerun: check tasks passed, the other 38 submitted.** Task 0 of each model (873881, 873882), real-data stage with 16 extra starts against tonight's test columns (external/cov2_check.py): SI 28 couplings, largest difference 0, chi2 at the truth 11.1656 in both; L_e-L_tau 15 couplings, largest difference 3.8e-4, truth 11.0989 in both. Real stage 8,239 s (SI) and 6,256 s (L_e-L_tau). Submitted: cov-si 879151_[1-19] (nulri_refit_set) and cov-le 879152_[1-19] (nulri_set1_ml), tycho1_short, 10 at a time each (280 cores; with the refit's 68 tasks, the forecasts and the dm-gp jobs about 1,490). Throttles to be raised as refit tasks end (scontrol update ArrayTaskThrottle). Not yet seen: a pseudo-experiment's fit time in the rerun tasks.
+- **2026-11-27 02:10.** The 38 coverage tasks wait on priority in tycho1_short (Slurm's test start for one such job: 05:15; not reliable). tycho1_long is full for new jobs (test start 2026-12-02); astro3 is 1.4 times slower (an SI task would pass the 12-h limit); astro2 never validated: not used. Controller for the cap: external/cov_throttle.py (scratchpad cov_throttle.sh, every 10 min) sets the two coverage arrays' limits of tasks at once to what 1,500 cores allow (all my running cores counted, dm-gp jobs included). The old refit controller (si_release.sh) stopped: nothing is held any more. Hourly watcher (fc_tick.sh) now also counts failed and timed-out ml62-si, cov-si and cov-le tasks (baseline 147: the refit's known timeouts and cancelled blocks).
+- **2026-11-27 03:05.** Refit resumes: 3 of 64 finished (exit 0, summaries written; e.g. si_scalar_dirac_mu_fx b8 in 6,800 s: repair pass 1 improved 13 of 98 points, 79 of them checked before the restart; pass 2 none of 37). The others are in their repair passes. Resume array's limit raised from 36 to 61 (cores were at 854 of 1,500): 46 running, 11 waiting on resources in tycho1_long. The original array 835727 has 2 tasks left (vector blocks). Coverage: the 38 tasks still wait on priority; task 0 of each model runs.
+- **2026-11-27 04:45, coverage rerun: my time estimate was too low; SI tasks split before any started.** Measured on the first rerun tasks (their logs): with 14 workers a multi-start profile of a pseudo-experiment takes 2,100-3,900 s (SI) and 1,600-3,400 s (L_e-L_tau), not the 1,236-2,128 s of the two fits that ran alone in the test jobs (the same concurrency effect as in the refit pilot). Throughput: SI one profile per ~190 s (30 of 145 after 7,663 s), L_e-L_tau one per ~240 s (40 of 80 after 9,563 s). So a 5-pseudo-experiment task needs about 2.3 + 8.2 = 10.5 h (SI; limit 12 h) and 1.7 + 5.3 = 7 h (L_e-L_tau). The first run needed widening for 1 of 90 SI pseudo-experiments. Action (my call; no code change): the 19 waiting SI tasks (879151, none had started) cancelled and replaced by 38 tasks of at most 3 pseudo-experiments (881183, output/coverage/cov3_si_array.sh; same seeds, draws, options; outputs cov2_si_t{seed}_{first draw}.json; table checked: 95 seed-draw pairs, each once; 873881 keeps seed 0 draws 0-4), expected 6-7.5 h each. L_e-L_tau unchanged (879152, 19 tasks). COST against what Mauricio approved (about 420 cores for 6-9 h, i.e. 2,500-3,800 core-h): now about 38 x 7 h x 14 + 19 x 7 h x 14 + the two first tasks = 5,900 core-h (estimate from the rates above), about twice. The 38 + 19 tasks still wait on priority (Slurm's test start for one: 07:42).
+
+- 2026-11-27 05:55. Refit: 36 of 64 resumed blocks ended with exit 0, 28 running. Coverage: the 57 waiting tasks
+  (881183, 879152) have not started in 3.5 h (reason Priority in tycho1_short; Slurm's test start 08:50, not reliable;
+  tycho1_long would start on 12-02, so no move). First SI task 873881 runs at 245 s per profile (50 of 145 at 12,445 s):
+  round 1 would end at about 11:46, after its limit of 11:37, and its saved partial would hold draws 0-2 only. Backup
+  submitted: 881722 (`cov4_si_backup.sh`, seed 20261126, draws 3-4, out `cov2_si_t0_3.json`, 14 cores, about 6.2 h from
+  the measured rate); cancel it if 873881 ends with "finished". First L_e-L_tau task: 60 of 80 at 12,612 s, ends about
+  06:20. At this rate a 3-draw SI task needs about 8.3 h and a 5-draw L_e-L_tau task about 6.4 h (limits 12 h).
+
+- 2026-11-27 07:10. Coverage tasks moved to the astro3 nodes, where they started at once (tycho1_short kept them on
+  Priority for 4.5 h; a job cannot list two partitions here). L_e-L_tau: first task 873882 finished (exit 0, 6.2 h);
+  879152_[1-19] moved to astro3_short (`scontrol update Partition`). SI: the 19 two-draw tasks of 881183 and the backup
+  881722 moved to astro3_short; the 19 three-draw tasks would need about 11.6 h there (8.3 h x 1.4, the factor measured
+  on refit blocks, not on this tool), so they were resubmitted as 882298 on astro3_long with an 18-h limit (same
+  script, same indices) and the waiting copies in 881183 cancelled once all 19 ran. 1,114 cores in use. Expected ends,
+  not measured: about 15:30 (L_e-L_tau and two-draw SI), about 19:00 (three-draw SI). The watcher's failure count rises
+  by the cancelled waiting tasks; not failures.
+
+- 2026-11-27 10:00. Refit: 61 of 64 resumed blocks ended with exit 0; the last three (si_scalar_dirac_e_fx b0,
+  si_scalar_dirac_universal_fx b8 and b9) are in their repair passes (limits 14:06-15:02; repair points are
+  checkpointed). TRIAL MERGE on the laptop (scratchpad `si62full/`: stored and refit planes copied as JSON,
+  `tools/merge_ml62.py` per plane, `tools/export_limits.py` on both; figure `output/figures/si_refit_trial_20261127.png`,
+  script `si62full/cmp_fig.py`): in the 16 planes the number of mass columns with a limit is unchanged; the lowest
+  excluded coupling weakens by 1.0-2.2 decades at 10^5.75 eV (e, tau, Majorana universal scalar) or 10^6.125 eV (mu), in
+  2-5 columns per plane by more than 0.1 decade, and is unchanged (within 0.035) elsewhere; the three universal planes
+  other than the scalar Majorana one change by at most 0.03. Preliminary for the scalar Dirac planes (3 blocks running,
+  7 cancelled blocks above 13 MeV partial). First SI coverage task 873881: 100 of 145 profiles at 09:22 (a few profiles
+  took about 2 h: long continuous fits of the lightest mass on pseudo-data, new solver runs; workers at full CPU).
+
+- 2026-11-27 11:05. FORECASTS AND THE LIGHTEST-MASS SCAN. Read on Tycho (nulri_forecast, campaign_si_b/proj_future_planA,
+  si_scalar_majorana_tau_fx): the forecast configs scan 11 lightest masses (exact_profile.ml_scan), median 476 s per
+  point (8 cores, whole blocks). Forecast Delta chi^2 at g = 10^-3.5..10^-2: 2.9-3.6 at 10^5.625 eV, 5.0-5.9 at
+  10^5.75 eV, 10.5-11.8 at 10^5.875 eV (flat in the coupling, fitted lightest mass 0.018-0.041 eV), 21 and more from
+  10^6 eV up. Mauricio: "Don't we know already that we'll need as many masses as in the refit of today's limits?" (yes:
+  the cause does not depend on the data) and "A six-hour pilot is too long". Cost pilot launched: job 886491
+  (fc62-pilot, nulri_forecast/pilot_fc62.sh, config analysis/configs/pilot_fc62/si_scalar_majorana_tau_fx__b11.json:
+  block b11 with the 62-mass scan and chains of 8, 14 workers, NUMBA_NUM_THREADS=1, astro3_short, 1.5-h limit; its point
+  records give the measured seconds per point). Scope and launch of a forecast refit: his decision, after the pilot.
+- 2026-11-27 10:45. His question, the dips of the SI limits: checked in the refit's records (si_scalar_majorana_tau_fx,
+  g = 10^-3): dips at 1.0, 1.8, 4.2 MeV have Delta chi^2 = 2.3-5.3 with the resonances at 9-170 TeV (nu_3) and 20-490
+  TeV (nu_1, nu_2); between them, at 2.4 and 3.2 MeV, Delta chi^2 = -4.5 and -3.8 with the nu_2 resonance at 330-350
+  TeV, inside IceCube's low band (215-464 TeV, Table 10 of IceCube:2025ewu). He: "Ok, draft them when the refit is
+  merged" (two sentences linking the uneven limits to the preference, in the SI results paragraph).
+
+- 2026-11-27 12:45. Forecast pilot 886491 ended at its 1.5-h limit: opening fit 1,247 s; of the 14 chains' first
+  points only the two at g = 10^-6 finished, in 2,890 and 3,018 s (1,248 solver runs each, 2.3 s per run); the 12 at
+  g = 10^-5..1 were still running after 4,150 s (the 11-mass forecast took 546-3,443 s at them). Today's refit of the
+  same block: 1,060-1,300 s per point at every coupling (median 1,063 s); so a forecast point costs 2.5 times today's
+  where there is no effect and more than 3.5 times where there is one (not measured). Today's refit, first-pass point
+  seconds summed over the 16 SI cases: 11,960 worker-hours for all refit blocks, 2,374 for the columns 10^5.5-10^6.25
+  eV. Pilot restarted to measure the points with an effect: job below (same config, reuses the 2 points; 14 cores,
+  3-h limit). Leftover caches of 873881 and 886491 deleted. First SI coverage task 873881: TIMEOUT at 140 of 145
+  profiles; its partial holds draws 0-2 complete (28 couplings and the truth each); backup 881722 runs draws 3-4.
+
+- 2026-11-27 14:00. REFIT MERGED LOCALLY, FIGS. 9-12 REDRAWN (not committed). Session restarted at 13:43 (watchers
+  fc_tick and fc_release restarted). `output/analysis/limits_20261127/` = limits_20261121 with the 21 MeV planes of
+  today's data, fitted composition, replaced by stored + refit (scratchpad `build_limits_20261127.sh`: JSON copies
+  from Tycho, tools/merge_ml62.py, tools/export_limits.py; 16 SI, le_lmu, le_ltau, dp_e/mu/tau). Only the fitted
+  (`_fx`) planes were refit: the pion-composition planes (not in the paper's figures) keep the 11-mass scan -- matters
+  for the public data release (both compositions). Still running: si_scalar_dirac_universal_fx b9 (repair passes;
+  automatic resume 889471 queued after its task; rebuild the folder when it ends). notebooks/paper_figures.ipynb reads
+  limits_20261127 and preference_20261127; paper/figures: limits_le_lmu_le_ltau_fitted, limits_dark_portal_fitted,
+  limits_secret_interactions_fitted, preference redrawn; paper compiles (28 pages).
+  Preference (tools/collect_preference.py ROOT OUT [data sets], output/analysis/preference_20261127.json, today's main
+  data set only; analysis/preference_figure.py: one data set -> families in one legend row; test updated): peaks
+  UNCHANGED by the refit in all 21 planes (1.97-6.58 at 10^6.375 or 10^6.5 eV), so Sec. V's "2.4-3.2 MeV, Delta chi^2
+  2.0 to 6.6" stands. At each plane's preferred point the fitted lightest mass puts the nu_2 resonance at 261-354 TeV
+  (20 planes: 326-354), inside IceCube's low band 215-464 TeV (Table 10 of IceCube:2025ewu: N = 0.09 against 1.81 and
+  0.85 in the adjacent bands).
+- 2026-11-27 14:00. READING RULE CHANGED (Mauricio: "Yes, apply it"): where the data prefer an effect at a mass,
+  nothing is excluded below the column's best-fit coupling (before: below the lowest allowed coupling).
+  analysis/exclusion.py (both the grid columns and the between-mass columns), new test
+  tests/test_exclusion.py::test_nothing_excluded_below_the_best_fit_coupling (fails with the old rule); 82 tests of the
+  6 files that use the reading pass locally. All 279 planes re-read: 10 columns change, one in the paper's figures
+  (si_vector_dirac_tau_fx at 10^6.375 eV: false island 10^-4.645..10^-4.215 gone, limit 10^-1.555; preference there
+  3.83); the others are si_scalar_dirac_tau (pion) at 10^6 eV and 8 columns of set-2 planes. L_e-L_alpha and dark-portal
+  figures pixel-identical under both rules. main.tex Sec. IV: "below the lowest allowed one" -> "below the best-fit
+  one". limits.json of the folder: columns re-read with the new rule, other fields kept. Coverage: with this rule a
+  true coupling excluded from below counts as allowed (cov_combine's "excluded_from_below").
+- 2026-11-27 13:50. Forecast pilot: the 12:29 restart (888989) exited at once (lock in asimov/, I had removed data/);
+  resubmitted as 890411 (3-h limit), confirmed fitting at 13:47.
+- 2026-11-27 14:30. Sec. V, preference subsection (Mauricio: "Add them to the paper"): two sentences after "The
+  families give similar preferences ...": the resonance on nu_2 at the preferred masses falls at about 300 TeV, where
+  IceCube's spectrum has a deficit; for the same reason the limits are weakest there and strongest at the neighboring
+  masses. His verdict on my first, six-sentence draft: unclear, technical detail; only the physical point was kept.
+  Not tested directly (e.g. a refit without the 215-464 TeV band): the text states the coincidence only.
+
+### Handoff 2026-11-27 (14:40)
+
+**Committed and pushed:** cee1778 on dev (CI 46003684781 green, pinned and latest NumPy): limits_20261127 (MeV planes
+of today's data merged with the 62-mass refit), the reading rule (nothing excluded below the best-fit coupling), the
+preference tool/figure, Figs. 9-12 redrawn, Sec. IV and Sec. V text, coverage tool, this log up to 14:30.
+
+**His decisions today:** "Yes, apply it" (reading rule); "Add them to the paper" (two sentences, Sec. V); "Commit and
+push"; "Launch the forecast refit tonight" and "Go ahead" (84 tasks of 14 cores = 1,176 cores, mediator masses
+10^5.5-10^6.375 eV, the 21 fitted-composition forecast planes; cap 1,500 for the account, the other session's dm-pix
+and txs9 jobs included).
+
+**Running on Tycho (14:35, 530 cores):** coverage rerun (cov-si: 881183 on astro3_short, 882298 on astro3_long,
+backup 881722; cov-le 879152 on astro3_short; 14 of 40 SI and 14 of 20 L_e-L_tau tasks finished at 14:21); last refit
+block si_scalar_dirac_universal_fx b9 (877911_37 ends by its limit at 14:51; automatic resume 889471 queued,
+`nulri_refit_set/resume_b9.sh`); forecast pilot 890411 (nulri_forecast, 3-h limit to 16:44); 6 old fc-lri tasks in
+nulri_set1_sm (ultralight L_e-L_alpha forecasts, repair passes; do not touch). Watchers: fc_tick (hourly), fc_release,
+and a waiter on the pilot's points.
+
+**Forecast refit, ready to submit (not submitted yet):** builder `/lustre/astro/mbustama/external/make_fc62_configs.py`
+(scratchpad copy), job script `fc62_array.sh` in nulri_forecast and nulri_set1_ml (astro3_long, 36 h, 14 cores, 64 GB,
+NUMBA_NUM_THREADS=1; the pilot's step used 39 GB). Configs made and checked: nulri_forecast
+`analysis/configs/campaign_si_fc62/proj_future_planA/` (64; packs_fc62_si.txt; outputs
+output/analysis/campaign_si_fc62/proj_future_planA/<plane>/b10..b13) and nulri_set1_ml
+`analysis/configs/campaign_ml_fc62/proj_future_planA/` (20; packs_fc62_ml.txt; blocks b6..b9 of le_lmu, le_ltau,
+dp_e/mu/tau _mev_fx). Line 26 of packs_fc62_si.txt (si_scalar_majorana_tau_fx b11) is the pilot's block: its config
+equals the pilot's apart from the output folder, so continue the pilot in its own folder (pilot_fc62/...) after 16:44
+and leave index 25 out of the array. Submit, from each checkout:
+`sbatch -J fc62-si --array=0-24,26-63%N --export=ALL,PACKS=packs_fc62_si.txt fc62_array.sh` and
+`sbatch -J fc62-ml --array=0-19%N --export=ALL,PACKS=packs_fc62_ml.txt fc62_array.sh`, with N set so the account stays
+under 1,500 cores, raised as the coverage tasks end. Before submitting: the pilot's first points with an effect must
+have ended without error (none had at 14:33; trivial points take 2,890-3,018 s). Wall time per block is about 7 times
+the time per point (98 points, 14 workers) plus the repair passes; not measured.
+Open items touching these planes: (i) fits of the cheap parameters use one start (multi-start checked on real data at
+1.3 MeV only; not on forecast data); (ii) the window: the forecast limits dip from 10^5.75 to 10^7.1 eV, wider than the
+refit's 10^5.5-10^6.375; the b13 blocks (10^6.25, 10^6.375) show whether higher masses change -- tell him before
+extending; (iii) after the refit: merge (tools/merge_ml62.py works on any stored/refit pair), rebuild the limits
+folder, redraw Figs. 9-11, recompute the forecast gains of Sec. V (0.4-1.75 decades, factor 2-4 above 1 keV, 3.4
+decades at the resonances, 0.9-2.6 below the preferred couplings), abstract/introduction/Summary "factors of about 2
+to 60".
+
+**Still to do tonight:** when the coverage tasks end: copy cov2_* files to the scratchpad, `cov_combine.py <dir> <fig>
+cov2` (run from the repo root), salvage the partial of 873881 (draws 0-2; draws 3-4 from backup cov2_si_t0_3.json),
+compare one to one with the first run (`cov_pair.py`), then propose the Sec. IV and Summary text (X, Y, the \todo
+sentence without Feldman-Cousins, "exactly as the real data" no longer true with the extra starts). When b9 ends:
+rebuild limits_20261127 (scratchpad `build_limits_20261127.sh`, then re-read limits.json columns with the new rule as
+at 14:00), redraw, commit on his word. Refit-dependent statements not yet re-verified against the merged limits: the
+comparison with existing bounds for nu_tau ("from about 1 keV to 4 MeV"), the Ioka/Esteban comparisons, captions.
+**Undecided, his:** DESI-variant and index-edge sensitivity runs; refit of the pion-composition planes (public data
+only); Bustamante:2026inprep title; Maria on the author list; his editing pass.
+- 2026-11-27 15:10. Refit-dependent statements re-verified against limits_20261127 (scripts inline, this session):
+  (i) scalar nu_tau against the existing bounds (analysis/existing_bounds.py curves): ours lower from 10^3.125 to
+  10^6.875 eV in both the stored and the merged limits, by more than 0.3 decade up to 10^6.625 eV (4.2 MeV) and by
+  0.04-0.05 at 5.6-7.5 MeV: "from about 1 keV to 4 MeV" stands. (ii) Ioka: weakest nu_tau limit below 2 MeV, Majorana
+  0.0275 (vector, 10^5.875 eV; scalar 0.0272 at 10^5.75 eV; before 0.0266), Dirac 0.0355 (unchanged): text 0.027 ->
+  0.028. (iii) Esteban (wp_hese7p5_tautau, 0.4-45 MeV): ours lower up to 7.5 MeV, higher by 0.05-0.21 decade at 10, 13,
+  18 and 32 MeV, lower by 0.05 at 24 MeV (unchanged by the refit): Sec. V's "below about 10 MeV, but not above" stands;
+  the INTRODUCTION's "at every mass that it covers, from 0.4 to 45 MeV" (line 149) contradicts it -- put to Mauricio.
+  (iv) preference: unchanged (14:00 entry). Not yet re-verified: forecast gains (wait for the forecast refit), captions.
+- 2026-11-27 15:15. Introduction, line 149 (Mauricio: "Yes, fix the Introduction"): "at every mass that it covers, from 0.4 to 45 MeV" -> "below about 10 MeV", as Sec. V.
+- 2026-11-27 15:10. FORECAST REFIT LAUNCHED (Mauricio: "Launch the forecast refit tonight", "Go ahead"): fc62-si
+  892010 (nulri_forecast, 63 blocks: packs_fc62_si.txt lines 1-25 and 27-64) and fc62-ml 892011 (nulri_set1_ml, 20
+  blocks), 14 cores and 64 GB each. astro3_long kept them waiting on Priority (1 task started there, 36-h limit), so
+  both arrays were moved to tycho1_short (idle nodes; 12-h limit): 66 tasks running at 15:07, 1,238 cores; the other 17
+  fc62-ml tasks wait on Resources. Core cap: scratchpad `fc62_throttle.sh` (every 10 min, external/fc62_throttle.py
+  892010 892011). The pilot block (890411, ends 16:44) continues as a production block in its own folder: dependent
+  job `pilot_fc62_continue.sh` (tycho1_short, 12 h, removes asimov/RUNNING.lock). The lock of a forecast run is in
+  <output>/asimov/, not data/.
+  Why the pilot showed no point with an effect after 76 min: in a chain the scans of the held-back points are probed
+  from the top down before any of them is recorded (analysis/scans.py, ml_inherit), 1,240 solver runs per scan; the
+  records of a chain arrive late and together. So: no measured time per point with an effect; expected about 1-1.5 h
+  per point on astro3 (1,240 runs at 2.3-4.3 s, the 11-mass forecast's seconds per run), 7-10 h per block plus the
+  repair passes, less on tycho1. Tasks that hit the 12-h limit resume from their checkpoints (as the refit's did).
+- 2026-11-27 15:25. FORECAST REFIT RELAUNCHED with chains of 2 (Mauricio: "Stop and relaunch now"). The pilot 890411
+  was killed at 86 min for memory (51.6 GB against 48 GB; 38 GB at 37 min, 39 GB at 49 min): a chain keeps the scans of
+  all its points in memory, about 0.8 MB per solver run and 1,240 runs per point; with chains of 8 a task would need
+  about 150 GB. The 84 tasks launched at 15:05 (892010, 892011, 892182; 64 GB) were cancelled after 15 min, their
+  caches and output folders removed. New: builder with exact_profile.chain_length = 2, `fc62_array.sh` with 80 GB,
+  tycho1_short, 12 h; fc62-si 892526 (64 blocks, the pilot's block included; the pilot folder is no longer used) and
+  fc62-ml 892527 (20 blocks); 68 running at 15:22, 16 fc62-ml waiting on Resources. Expected memory with chains of 2:
+  about 70 GB (estimate from the pilot's growth, not measured); a waiter reports the tasks' MaxRSS every 25 min
+  (scratchpad task; `sstat -j <job>.batch -o MaxRSS`). Controller `fc62_throttle.sh` now on 892526 892527.
+  CI of 5b8105f: see the run 46013393138.
+- 2026-11-27 16:40. Forecast refit: tasks sent to node664 fail at start ("user env retrieval failed", requeued held,
+  twice); released with `scontrol update JobId=<task> ExcNodeList=node664` + `scontrol release`: 79 of 84 running,
+  5 waiting (Priority/Resources; nodes hold 9 tasks of 80 GB each). Memory (MaxRSS of the batch steps): median 30.4 GB,
+  largest 34.8 GB at 26 min; median 32.6 GB, largest 46.6 GB at 52 min; no point recorded yet (chains of 2 record after
+  their two scans). fc_tick.sh now also counts fc62-si and fc62-ml.
+- 2026-11-27 16:10. COVERAGE RERUN, PRELIMINARY (188 of 200; scratchpad cov2/: files copied, `cov_salvage.py` for the
+  stopped task 873881 -> cov2_si_t0_0_salvaged.json with draws 0-2; `cov_combine.py cov2 ... cov2`; `cov_pair.py`),
+  read with today's rule. L_e-L_tau (g_t = 10^-2.42): 87 of 90 allowed (96.7 +- 1.9%); first run 96 of 100. SI scalar
+  Majorana nu_tau (g_t = 10^-1.80): 83 of 98 (84.7 +- 3.6%); first run 83 of 100. One to one: SI 2 flips to allowed
+  (seed 3 draw 7: Delta chi^2 at the truth 5.77 -> 0.09; seed 8 draw 1: 15.85 -> 1.35), none the other way; L_e-L_tau no
+  flip, Delta chi^2 at the truth changes by at most 0.40. Threshold that leaves the truth allowed in 95% (97.5%) of the
+  SI pseudo-experiments: 6.76 (7.91); the real limit would move from 10^-1.80 to 10^-1.70 (10^-1.68). L_e-L_tau: 2.52
+  (4.23). Still running (limit 18:45): SI seed 8 draws 8-9 (881183_33), L_e-L_tau seed 4 draws 0-4 (879152_8, round 2)
+  and seed 7 draws 5-9 (879152_15). Figure cov2/coverage_rerun_prelim.png. No Feldman-Cousins (his). The wording of the
+  85% in Sec. IV and the Summary is his decision.
+- 2026-11-27 18:10. Forecast refit, measured on tycho1 (258 points recorded, 14 workers per task; a 14-CPU task there
+  is 7 cores with two threads each): median 3,300-3,500 s per point without an effect (4,764 s at g = 10^-6 in the SI
+  planes) and 7,300-7,800 s per point at g = 10^-5..10^-3. With about 8,200 points this is about 13 h of fitting, so
+  the tasks will reach their 12-h limit (03:20) before their blocks end. Memory creeps: median 43 GB, largest 72.5 GB
+  (a dark-portal block) at 17:58, about 3 GB more per 26 min for the largest. KEEPER: Slurm job fc62-keep
+  (external/fc62_keeper.sh + fc62_keeper.py, 1 core, astro3_long, 48 h; log external/logs/fc62_keeper_<job>.out; state
+  external/fc62_keeper_state.json): every 10 min it resubmits each block whose task ended without a summary (as
+  fc62r-si with 120 GB / fc62r-ml with 160 GB, same index and config, node664 excluded, at most 5 times, within the
+  1,500-core cap) and releases tasks held after a failed start. Recorded points are reused by a resubmitted run.
+  All 84 tasks running since 17:54 (79 on tycho1_short, 5 on astro3_short).
+  Coverage: the three last tasks will be killed at 18:45 (fits running for more than 4 h); their partials hold SI seed
+  8 draw 8, L_e-L_tau seed 4 draws 0-4 and seed 7 draws 5-6.
+- 2026-11-27 19:00. COVERAGE RERUN, FINAL (scratchpad cov2/; figure output/figures/coverage_rerun_20261127.png): the
+  three last tasks hit their 12-h limit with fits running for more than 4 h; their complete pseudo-experiments were
+  salvaged from the partials (cov_salvage.py: SI seed 8 draw 8; L_e-L_tau seed 4 draws 0-4, of which draw 3 widened 7
+  rounds and is excluded, Delta chi^2 at the truth 6.53; seed 7 draws 5-6). L_e-L_tau: 93 of 97 allowed (95.9 +- 2.0%),
+  thresholds for 95% / 97.5%: 2.83 / 4.67. SI: 84 of 99 (84.8 +- 3.6%), thresholds 6.73 / 7.91, real limit 10^-1.80 ->
+  10^-1.70 / 10^-1.68. Excluded cases' Delta chi^2 at the truth: SI 4.0-12.5 (15), L_e-L_tau 4.6-6.5 (4). Against the
+  single-start run, one to one: SI 2 flips to allowed of 99, L_e-L_tau none of 97. Missing (fits unfinished): SI seed
+  8 draw 9; L_e-L_tau seed 7 draws 7-9. Proposed Sec. IV and Summary text put to Mauricio at 19:00 (in the session);
+  not in main.tex until he says so.
+- 2026-11-27 19:30. Forecast refit: 580 of 8,232 points at 19:15 (143 in the last 26 min). Memory keeps rising after
+  the chains end: median 45.5 -> 47.9 -> 52.2 GB at 18:23 / 18:49 / 19:15, largest 75.4 GB of 80: the workers keep
+  about 0.65 GB more per hour each, so most tasks will be killed for memory late tonight, before their time limit.
+  Fix for the tasks started from now on: analysis/scans.py, `_Pool`: NULRI_WORKER_MAXTASKS=n replaces a worker by a
+  fresh process after n tasks (multiprocessing's maxtasksperchild; unset: unchanged). Patched locally (32 tests of
+  tests/test_analysis.py pass; scratchpad pool_check.py: 9 tasks in 9 processes, initializer in each) and in
+  nulri_forecast and nulri_set1_ml (scratchpad/external patch_maxtasks.py; backups scans.py.bak_20261127);
+  fc62_array.sh exports NULRI_WORKER_MAXTASKS=1; the keeper resubmits with 80 GB (SI) and 110 GB (others). Test of the
+  whole path on Tycho: job 898982 (fc62-test: block b11 cut to 12 points and 2 lightest masses, 3 cores). Running
+  tasks are not affected (their pools exist; their environment does not set the variable).
+  Lesson: `pkill -f <pattern>` in a tool call matches the call's own shell (exit 144); a spawn pool cannot be tested
+  from standard input (its workers respawn forever).
+- 2026-11-27 20:05. REFIT OF TODAY'S LIMITS COMPLETE: the last block (si_scalar_dirac_universal_fx b9, resume 889471)
+  ended with exit 0 at 19:46. limits_20261127 rebuilt (build_limits_20261127.sh, then scratchpad reread_columns.py for
+  the current reading rule): no limit changes against the build of 14:00 (0 columns), the three limit figures are
+  pixel-identical and the preference file is unchanged. Figs. 9-12 as committed in cee1778 are final for today's
+  limits. The keeper now also deletes the solver caches of ended forecast tasks (account 1.34 TB at 19:50, flux caches
+  0.93 TB; a bad edit of fc62_keeper.py at 19:52 was fixed at 19:54, before the keeper's next call).
+- 2026-11-27 21:05. FORECAST REFIT, FIRST COMPARISON WITH THE 11-MASS FORECAST (external/fc62_compare.py, scratchpad
+  copy; 944 points recorded, 282 of them with an effect, in the columns 10^5.5, 10^5.75, 10^6.0, 10^6.25 eV, couplings
+  up to 10^-2.25, 10 of the 21 cases): Delta chi^2 changes by a median of 0.00; largest drops -0.37 at 10^5.75 eV
+  (si_vector_dirac_tau_fx, g = 10^-4.5: 3.19 -> 2.82, below the threshold both), -1.31 at 10^6.0 eV (15.98 -> 14.67),
+  -0.09 at 10^6.25 eV, -0.001 at 10^5.5 eV; no point goes from excluded to allowed; near the threshold (old Delta chi^2
+  2-20): 62 points in 8 cases at 10^5.75 eV, 44 in 10 cases at 10^6.0 eV, 11 in 7 cases at 10^6.25 eV. The fitted
+  lightest mass barely moves (e.g. 0.0155 -> 0.017 eV). So far the forecasts do NOT depend on the scan as today's
+  limits did. Not yet compared: the second column of each block (10^5.625, 5.875, 6.125, 6.375 eV), couplings above
+  10^-2.25, the dark-portal and L_e-L_mu cases.
+  Measured cost (20:52): median seconds per point with an effect 10,700-12,800 (SI), 9,000-11,000 (others); without,
+  3,500 (others) and 7,100 (SI at 10^-6). Projection to the end of the first pass about 23,500 worker-hours (about 18 h
+  more on 1,176 workers, without the losses of killed tasks), and the repair passes cost about as much again: the full
+  refit would end on Monday 11-30. Recycling test 898982: 9 of 12 points with fresh workers per chain, no error, when
+  its 1.5-h limit came; the repair pass with recycling is not exercised yet.
+
+### Handoff 2026-11-27 (22:00): THE FINAL RUN
+
+Mauricio, 21:10-21:30: "Let it run overnight. Listen, I don't have more time later for re-runs. If they are to happen,
+they should happen now." and, after I offered two optional re-runs as a question: "I'm getting tired of you giving me
+things in patches. Understand this: I need to do a final run". So: everything that could still need a run was listed,
+checked against the saved records where possible, and the rest launched together tonight. After these, no more runs.
+
+**Census (external/census_bounds.py; point records of every today's-data plane with the composition fitted):** at the
+last allowed coupling below each limit, gamma sits at its upper edge 3 in 19% (L_e-L_alpha ultralight, 64 columns),
+73% (dark portal ultralight, 26), 16% (SI below 1 keV, 314), 74% (L_e-L_alpha and dark portal MeV, 50), 64% (SI from 1
+keV up, 607) of the mass columns; gamma_low at its lower edge 0.5 in 3%, 0%, 0%, 18%, 32%; f_e,S at 0 in 67-82% of
+the ultralight columns (a physical edge). (The census's "norm_astro at its low edge" counts are a bug of mine: a
+linear tolerance on a range of five decades; ignore them.) Consequence: the index ranges cannot be widened
+consistently, since that would need the ultralight planes again (weeks); they stay as the stated assumption of
+Table II, and their effect is measured on two cases (below).
+**Needs no run (checked from saved records):** SI above 13 MeV: 876 refit points saved before those blocks were
+cancelled differ from the stored planes by at most 0.02 in chi^2. Ultralight dark portal: one column on 11-25, edge
+moved 0.01 decade. A tighter (DESI) mass bound would only strengthen the MeV limits. Pion-composition planes: not in
+the paper's figures (public data: his decision later).
+**Running tonight (all on tycho1_short, 12 h, keeper/throttle loops within the 1,500-core cap):**
+1. Forecast refit with 62 lightest masses, 84 blocks (fc62-si 892526, fc62-ml 892527; keeper job 895301). First
+   comparison at 21:05: no change (entry above). To be compared again in the morning on all recorded points.
+2. Index ranges (fin-idx 905938 in nulri_refit_set: si_scalar_majorana_tau_fx b7-b16; 905939 in nulri_set1_ml:
+   le_ltau_mev_fx b3-b12; configs analysis/configs/final_idx/, outputs output/analysis/final_idx/<plane>/b<k>): the
+   refit's blocks with gamma in 2-4 (13 nodes) and gamma_low in 0-2.5 (4 nodes), 10^4.75-10^7.125 eV. Compare the
+   limits with limits_20261127 (merge not needed: read the blocks' summaries alone).
+3. Extra starts at the dips (fin-col 906038 in nulri_refit_set, 906039 in nulri_set1_ml; final_cols.txt;
+   tools/coverage_limits.py --toys 0 --n-random 16, outputs output/final_cols/dip_*.json): 10^6.0, 10^6.25, 10^6.625
+   eV for the same two cases; compare each "real" column with the refit's records at the same couplings.
+4. One ultralight column with a 62-mass scan of the lightest mass, which those planes do not scan (the same fin-col
+   arrays, --n-random 0): si_scalar_majorana_tau_ul_fx at 10^-9 eV (ul_si_m9.json) and le_ltau_ul_fx at 10^-16 eV
+   (906040 in nulri_sep, a copy of nulri_set1_sm's code; its config does not load in nulri_set1_ml); compare with the
+   stored columns.
+The keeper holds forecast resubmissions while any final-check task waits. Scratchpad `fin_throttle.sh` raises the
+fin-idx arrays' limits within the cap. tools/coverage_limits.py: --toys 0 was rejected by the --only check; fixed
+(locally and in the three checkouts; 7 tests pass). analysis/scans.py: NULRI_WORKER_MAXTASKS (19:30 entry).
+**Not committed:** analysis/scans.py, tools/coverage_limits.py, the two limits files of si_scalar_dirac_universal_fx,
+this log. **Waiting for him:** the coverage text for Sec. IV and the Summary (proposed at 19:00).
+**In the morning:** (i) fc62_compare.py on all recorded forecast points -> stop the forecast refit if still null, one
+sentence in Sec. IV/V; (ii) index ranges: limits with wide against present ranges -> a sentence with the size, or, if
+the change is large, put it to him; (iii) dips and ultralight columns: differences in chi^2 -> a sentence each or
+nothing; (iv) rebuild nothing unless (ii) says so.
+- 2026-11-27 22:25. Index-range check, first launch failed and was redone: the opening fit of 905938 returned the
+  objective's wall value (chi^2 = 1e9): the solver rejects a spectral index of 0 ("p_index should be positive"), the
+  lowest node of gamma_low in 0-2.5. The 5 running tasks were cancelled after 10 min (905938, 905939), outputs and
+  caches removed. Now gamma_low in 0.1-2.5 (nodes 0.1, 0.9, 1.7, 2.5), gamma in 2-4 (13 nodes). Checked before the
+  relaunch (external/idx_debug.py in a 2-core interactive job): at the start values and (M, g) = (1 MeV, 10^-6) the
+  spectrum chi^2 is 10.628886234 with the wide ranges and 10.628886179 with the standard configuration, and the
+  flavor fractions agree to 1e-7. Relaunched: fin-idx 906695 (nulri_refit_set) and 906696 (nulri_set1_ml);
+  `fin_throttle.sh` on these ids. fin-col 906038, 906039, 906040: 5 of 8 running at 22:20.
+  Lesson (again): look at the first fit's chi^2 of a new configuration before leaving it; evaluate one point of a new
+  configuration interactively before submitting an array.
+- 2026-11-27 23:20. Housekeeping on the laptop (his request: "clean any local files that are unused in this project;
+  we need to make space"): disk 98% full. Deleted 1.06 GB of this session's scratch in /tmp (lim21: raw copies behind
+  the 11-21 limits, 560 MB; si62full: the trial merge, 422 MB; reexp, limits_20261127_before_b9, figs27_old, si62,
+  ml62_merged, ml62_merged2, ml62_refit_now). Kept: lim27 (build folder of limits_20261127), cov2 and cov100, all
+  scripts. The coverage results existed only in /tmp and on Tycho: copied to output/analysis/coverage_20261127/
+  (rerun/, first_run/, scripts/; 3 MB, not committed). Not touched: output/analysis/campaign_ml (126 MB, October;
+  analysis/mockups.py and tools/plot_campaign_ml.py read it); the three older session worktrees under
+  .claude/worktrees (98 MB each; the app manages them); other projects' session scratch in /tmp/claude-1000
+  (NuFlavorGalacticPlane 4.3 GB, GeoneutrinoDecay 3.0 GB, NuLRIEarth 0.8 GB, NuFlavorSingleSource 0.6 GB) and
+  /tmp/claude-1000/plan_a_digitize_inputs (289 MB, papers downloaded for the Plan A forecasts).
+  The animation: he asked for a nested session on Opus 5.5 Extra; I wrongly started a sub-agent (stopped, nothing
+  written), then offered a task chip, which he started as its own session (worktree compassionate-lumiere-1f52d6).
+  Final run at 23:00: ultralight SI column with the 62-mass scan (ul_si_m9.json, 1,387 s): chi^2 equal to the stored
+  column to 4 decimals at all four couplings, lightest mass at 1e-6 eV: no change. fin-idx arrays moved to
+  astro3_short (tycho1_short kept them on Priority for an hour).
+- 2026-11-27 23:35. Author list (Mauricio: "Add Mariia Petropavlova as second author. Fetch her affiliation from INSPIRE."): added after him, with ORCID 0000-0002-0416-0795 and two affiliations as on her latest papers on INSPIRE (author record 1969289, 'Petropavlova, Maria V.', name variant 'Mariia Petropavlova'; arXiv:2608.06163 and 2606.09986): Institute of Experimental and Applied Physics, Czech Technical University in Prague, Husova 240/5, 110 00 Prague; Faculty of Mathematics and Physics, Charles University, Ovocny trh 5, 116 36 Prague. No e-mail on INSPIRE: none put (the other authors have one). Paper compiles, 28 pages; page 1 checked.
+- 2026-11-27 23:45. Her e-mail added (his message): mariia.petropavlova@cvut.cz, as \email after her \author line.
+- 2026-11-28 00:25. The index-range blocks and two single-column tasks had waited 2 h on Priority (my account's
+  priority is low; the tycho1 nodes' memory was held by my 84 forecast tasks; Slurm's start estimate 03:25, when those
+  reach their 12-h limit). Put to Mauricio in plain words; his "Yes": the 21 forecast tasks at the lowest masses were
+  stopped (892526 indices 0, 4, ..., 60: the SI blocks b10, 10^5.5 and 10^5.625 eV; 892527 indices 0, 4, 8, 12, 16: the
+  blocks b6 of the L_e-L_alpha and dark-portal planes); their recorded points stay and the keeper resubmits them once
+  no final-check task waits. Within two minutes: fin-col 6 of 6 remaining tasks running, fin-idx 14 of 20 running.
+  Forecast re-check, second comparison (00:15, 1,794 points, 708 with an effect, the first column of each block:
+  10^5.5, 5.75, 6.0, 6.25 eV, all families): no point from excluded to allowed; largest drops of Delta chi^2 -0.007,
+  -0.37, -3.87 (a point near 15, by 25%), -0.09; medians 0.00 to -0.08. The second columns (10^5.625, 5.875, 6.125,
+  6.375 eV) have no point with an effect yet. Final run, item 4 (SI ultralight column): no change (23:00 entry).
+- 2026-11-28 00:55. BIBLIOGRAPHY RE-AUDIT (Mauricio: "Let's use the time to regularize references. One by one, check
+  that you are using INSPIRE bibtex entries ... journals, title, authors, arXiv ID, year ... tex in titles ... author
+  names ... capitalize only the first letter of the first word (except for any proper noun)"). Scratchpad bibaudit/
+  (fetch.py: INSPIRE record and BibTeX of each of the 86 entries by texkey; compare.py: field by field).
+  83 entries are on INSPIRE under their key (always INSPIRE's first key); 61 identical to INSPIRE apart from title
+  capitalization and the JHEP/JCAP number field; the others differ only by earlier, deliberate fixes, kept: accents
+  (Esteban, Gonzalez-Garcia, Martinez-Soler, Jaeckel, Carpio, Yuksel, Dziewonski, Kublbeck, Adrian-Martinez), Ioka's
+  first name (INSPIRE: "Kunihto"), initials' periods in Blinov:2019gcj, TeX math in six titles ($U(1)'$, $g-2$, $Z'$),
+  en dashes, the Snowmass paper's subtitle, HEALPix's punctuation, number = year in the 20 JHEP/JCAP entries,
+  journal = "" in three arXiv-only entries (none published since, per INSPIRE).
+  Changed (15): Garg:2026gwx is published (Phys. Rev. D 114, 095042 (2026), doi 10.1103/zx4x-89k6; INSPIRE's fields);
+  the word after a colon or dash lowered in 13 titles (Elbers:2023mdr, Spiering:2026hqf, Machado:2025ltu,
+  Esteban:2024eli, Coloma:2020gfv, Arguelles:2022tki, IceCube:2020wum, Ackermann:2022rqc, Gorski:2004by,
+  Berryman:2022hds, Wang:2025qap, IceCube-Gen2:2020qha, IceCube:IceTracksDR2), as in his NuFlavorGalacticPlane
+  bibliography; collaboration "KM3Net" -> "KM3NeT" in KM3Net:2016zxf.
+  Not on INSPIRE: IceCube:IceTracksDR2 (checked against DataCite 10.7910/DVN/MMIIZA: title, IceCube Collaboration,
+  Harvard Dataverse, version 3.1, 2026), NuFIT61 (as agreed), Bustamante:2026inprep (his title pending).
+  All 70 cited keys exist; 16 entries are not cited. Paper rebuilt with BibTeX: 28 pages, no undefined citations.
+  Left for him: capital kept in "Majorons"/"Majoron-neutrino" (the authors' spelling), after the period in "Planck
+  2018 results. VI. Cosmological parameters" and after the question mark in Barenboim:2026mvn; Abbasi:2021qfz (not
+  cited) has no collaboration field on INSPIRE.
+- 2026-11-28 01:10. arXiv:2611.14642 (Cardenas:2026vop, 'Earth-sized tests of long-range neutrino interactions', Cardenas and Bustamante) was not cited (his message: 'If not, we should'): INSPIRE's BibTeX added to references.bib and the key cited in Sec. V with the existing bounds on L_e-L_alpha, after Garg:2026gwx (both are IceCube DeepCore limits on long-range interactions; neither is drawn in Fig. 9's gray region nor listed in Table tab:bounds). Offered to him: also cite it where the Earth's potential is computed (Sec. III, Appendix app:earth) and draw the DeepCore limits in Fig. 9. Bibliography commit d487a30 pushed before this; this edit is not committed.
+- 2026-11-28 01:20. His word on the previous bounds: "We will add previous bounds later, put it in to-do list": appended to his list (memory bookkeeping_list.md) as "add previous bounds (DeepCore limits) to Fig. 9"; Fig. 9 and Table tab:bounds unchanged for now.
+- 2026-11-28 01:45. Final run, item 3, first two dips with 16 extra starts (scratchpad final_cols/, dips_compare.py
+  on Tycho, dips_limits.py locally: the merged column with the lower chi^2, read by tools/coverage_limits.read):
+  si_scalar_majorana_tau_fx at 10^6.0 eV: chi^2 lower by at most 0.066, limit 10^-3.34 unchanged; le_ltau_mev_fx at
+  10^6.0 eV: the fit at g' = 10^-2.8 was 0.531 too high (7 of 8 couplings lower), limit 10^-2.94 -> 10^-2.65 (a
+  factor 1.95). Item 2: the index-range blocks' opening fits are right (chi^2 = 9.6133, as the standard
+  configuration); 16 of 20 running at 00:35. Item 4: the L_e-L_tau ultralight column failed in nulri_sep (missing
+  tools/coverage.py; copied, imports and config load checked, resubmitted as 909864).
+  Mauricio, on my relaying these one by one and floating a half-day multi-start rerun: "What?", then "I'm getting
+  tired of you constantly redoing the same thing". DECIDED BY ME, told to him: no new reruns; tonight's runs finish
+  and are the last; what they find (shifts of about a factor 2 at single masses) goes into the limitations with its
+  size; ONE message in the morning with the results and the sentences; no partial findings before that. If he then
+  prefers to fix the affected limits, that is a single decision of his.
+- 2026-11-28 00:55. SIX STALLED FORECAST TASKS STOPPED (Mauricio: "You have 48 cores running for days without
+  progress?", then "Do it"). fc-lri in nulri_set1_sm (ultralight L_e-L_alpha forecasts, blocks le_ltau_ul_fx b5,
+  le_lmu_ul b3/b5/b6, le_lmu_ul_fx b6, le_ltau_ul b6): each had all 244 points and was in its repair pass, with no
+  record saved since 20-24 November (checked with external/fclri_progress.py: records per block, repair checks per
+  pass 140-234 of 244, last record's time), restarted after each time limit; about 2,200 core-hours in their last
+  incarnations. My miss: I reported them as running for days without checking their saved records. Cancelled
+  (757402_32, 819338_6, 819337_15, 825022_5, 854745_3, 880689_24); no caches left; the automatic resubmission no
+  longer covers fc-lri (scratchpad fc_oom_remote.sh; backup .bak_20261128). Their points stay; 10-104 repair checks
+  per block were never made. Lesson: a job's log heartbeat is not progress; check the time of the last saved record.
+  Cores at 00:49 by job set: forecast re-check 882 (time limit 03:20), index ranges 224, dip columns 56. He asked
+  when they will be free; told: the forecast re-check restarts itself at 03:20 unless he says to stop it.
+- 2026-11-28 01:00. FORECAST RE-CHECK NOT RESUMED (Mauricio, after asking for "a real recommendation": "Ok, don't
+  resume them, but don't add a sentence to the paper. This is internal."). The keeper job 895301 is cancelled; the 63
+  running tasks (fc62-si 892526, fc62-ml 892527) end at their 12-h limit, 03:20, and nothing restarts them; the 21
+  stopped earlier are not resubmitted. A one-core job (fc62-clean 910385, external/fc62_cleaner.sh: fc62_keeper.py
+  --no-resubmit) removes the ended tasks' solver caches. Outcome kept here only: 1,794 points compared with the
+  11-mass forecast at 10^5.5, 5.75, 6.0, 6.25 eV in all families, no projected limit changed (entries of 21:05 and
+  00:25); 10^5.625, 5.875, 6.125, 6.375 eV not reached. NOT to be mentioned in the paper. The forecasts stay as they
+  are (11-mass scan); Sec. V's forecast numbers need no update from this.
+  Remaining runs: index ranges (fin-idx 906695, 906696) and the single columns (fin-col 906038, 906039, 909864), to
+  about 10:00.
+- 2026-11-28 04:15. FINAL RUN, RESULTS SO FAR (not yet told to him: one message in the morning).
+  State: forecast re-check ended at its limit 03:20 (last dozen tasks by about 05:40), cores 378 at 03:58; fin-idx SI
+  8 of 10 blocks finished (3.3-3.8 h each), L_e-L_tau 0 of 10 (615 of 820 points, repairs begun); all six dips done;
+  the L_e-L_tau ultralight column (909864, nulri_sep) running since about 03:25.
+  Item 3, dips with 16 extra starts (scratchpad dips_limits.py): si_scalar_majorana_tau_fx 10^6.0: -3.340 -> -3.340;
+  10^6.25: -3.300 -> -3.270 (largest chi^2 drop 0.280); 10^6.625: -3.490 -> -3.490. le_ltau_mev_fx 10^6.0: -2.940 ->
+  -2.650 (drop 0.531); 10^6.25: -2.885 -> -2.885; 10^6.625: -3.620 -> -3.615. One of six limits moves by a factor 2,
+  the others by 7% or less.
+  Item 2, index ranges, SI scalar Majorana nu_tau, all 20 columns computed (scratchpad idx/, idx_compare.py: the wide
+  blocks exported alone with tools/export_limits.py against limits_20261127; two blocks still in their repair pass):
+  no-effect chi^2 unchanged (9.6128). From 10^4.75 to 10^5.625 eV the limit weakens from 10^-1.57..-1.67 to
+  10^-0.74..-0.79, by 0.84-0.89 decade (a factor 7 to 8): the fit steepens the spectrum to gamma = 3.6-3.75 at the
+  last allowed coupling (gamma was capped at 3). At 10^5.75: +0.15; 10^6.25 (a dip): -3.300 -> -2.845, +0.455, with
+  gamma_low at its new lower edge 0.1 and gamma at 3.0; 10^6.125: +0.075, 10^6.375: +0.035; unchanged (below 0.02)
+  at 10^5.875, 10^6.0 and from 10^6.5 to 10^7.125 eV. So the limits between 56 keV and 0.4 MeV rest on gamma <= 3.
+  THE ONE DECISION FOR HIM: keep gamma in 2-3 as the stated assumption and report this sensitivity, or change the
+  range (which cannot be done consistently for the ultralight planes before the deadline). L_e-L_tau pending.
+- 2026-11-28 07:10. MORNING SUMMARY GIVEN (one message). Final run complete except the L_e-L_tau ultralight column
+  (909864, limit 08:25). Results: dips with extra starts as logged at 04:15; SI ultralight column unchanged.
+  INDEX RANGES, final (scratchpad idx/, idx_compare.py): SI scalar Majorana nu_tau as logged at 04:15 (factors 6.8-7.7
+  weaker from 10^4.75 to 10^5.625 eV, 2.9 at 10^6.25, 1.4 at 10^5.75, unchanged within 0.02 decade at 10^5.875, 10^6.0
+  and from 10^6.5 up). L_e-L_tau: with the standard ranges it has limits at eight masses in this window (10^4.75,
+  4.875, 5.0, 5.125, 6.0, 6.125, 6.25, 6.625 eV); with gamma in 2-4 and gamma_low in 0.1-2.5 only 10^6.0 (-2.935) and
+  10^6.625 (-3.615) keep one, unchanged; the others have no excluded coupling up to the grid's top, 10^-2 (fitted
+  gamma 3.2-3.4 there; gamma_low at 0.1 at 10^6.25). My first count "five of seven" was wrong: six of eight.
+  HIS DECISION (07:00): "Keep gamma in 2-3 and say so". Text proposed to him in the session (Sec. IV "The flux in the
+  fits": six sentences; Summary: the assumption added to the list sentence and one sentence on the size); not in
+  main.tex until he says so. Also awaiting his word: the coverage text (27 Nov 19:00) and whether the six dip fits
+  with extra starts are folded into the limits (his rule: keep the lowest chi^2; visible change only L_e-L_tau at 1
+  MeV in Fig. 9, 10^-2.94 -> 10^-2.65, and SI at 1.8 MeV, -3.30 -> -3.27).
+  Cores at 06:55: 24 (14 mine). His question "Do we have all results to finalize paper plots?": the ultralight
+  L_e-L_alpha forecast planes in the limits folder were a snapshot with 4 of 9 blocks finished; re-collected from
+  Tycho (8 of 9 finished; le_lmu_ul 6 of 9; the unfinished ones have all 244 points) and exported: no fitted-plane
+  limit differs (one pion column by 0.005), Fig. 9 pixel-identical; the four planes and the index in limits_20261127
+  updated (not committed). So: yes for Figs. 9-12; open by his choice: previous bounds (DeepCore) in Fig. 9, later.
+- 2026-11-28 07:25. Dip fits folded into the limits (Mauricio: "Yes"; his rule: keep the lowest chi^2). Scratchpad
+  fold_dips.py: in limits_20261127 the joined summaries of si_scalar_majorana_tau_fx (35 points lowered, largest drop
+  0.280) and le_ltau_mev_fx (25 points, 0.531) take the multi-start chi^2 where it is lower; the changes are listed
+  in each summary under "multistart_20261128"; limits.json re-read (reread_columns.py). Limits now: L_e-L_tau
+  10^6.0 eV -2.94 -> -2.65, 10^6.625 -3.62 -> -3.615; SI 10^6.25 -3.30 -> -3.27; the other three unchanged.
+  Preference file regenerated (three values change by less than 0.001; peaks unchanged). Figs. 9 and 11 redrawn and
+  installed (Fig. 10 pixel-identical), preference.pdf rewritten, paper compiles (28 pages); 18 tests pass. Text
+  numbers checked: none quotes these three limits. Not committed.
+- 2026-11-28 08:30. LAST CHECK ENDED WITHOUT A RESULT: the L_e-L_tau ultralight column with a 62-mass scan (909864,
+  nulri_sep, M = 10^-16 eV, window around g' = 10^-20.08) hit its 5-h limit (I had lowered the limit from 12 h to get
+  it through the queue); the tool writes its column only at the end, so nothing was saved. Not rerun (no new reruns).
+  Untested therefore: whether a scan of the lightest mass changes the ultralight L_e-L_alpha limits (those planes fit
+  it from its start, without a scan); the corresponding checks for the ultralight dark portal (11-25) and secret
+  interactions (11-27) showed no change. ALL RUNS OF THIS PROJECT HAVE ENDED: no job of ours is queued or running
+  (the idle cleaner job 910385 cancelled; no solver caches left). CI of 8756606 green.
+  Waiting on him: the spectral-index text (Sec. IV and Summary) and the coverage text; his to-do: previous bounds in
+  Fig. 9. Uncommitted: this log entry only.
+- 2026-11-28 09:30. WORKING THROUGH WHAT IS LEFT (his "Let's work through what's left"; all text, no runs).
+  Item 1, coverage. His verdict on my first version: "This has no place in the Summary. Also, it is written in a
+  confounding way, e.g., 'a threshold of 6.7 instead of 3.84 would restore' comes out of the blue." Rewritten from
+  the paragraph's job (what should happen, what happens, by how much); his "Yes". Sec. IV now: fits as the real data
+  with sixteen additional starting points; 2.5% expected; L_e-L_tau excluded in 4 of 97; secret interactions in 15
+  of 99, six times more often than it should; the threshold that Delta chi^2 at the true coupling exceeds in 5% of
+  those pseudo-experiments is 6.7; read there, the limit at this mass would lie at a coupling 25% larger; 3.84 kept
+  for all limits; other masses and models not tested. The Summary's coverage sentence is deleted. No \todo is left.
+  Item 2, spectral index. His verdict on the Summary part: "Again, this has no room in Summary". In: Sec. IV, "The
+  flux in the fits": "We let gamma vary from 2 to 3 and gamma_low from 0.5 to 2.5; that is, we assume source spectra
+  no steeper than E^-3 above the break."; Sec. V, a new last paragraph of the secret-interactions subsection with the
+  measured sensitivity (factor of about 7 from 56 keV to 0.4 MeV and 3 at 1.8 MeV for the nu_tau scalar; unchanged
+  at the 1.0 and 4.2 MeV dips and from 3 MeV up; L_e-L_tau keeps a limit at two of eight masses; lighter mediators
+  not tested). Summary: no mention.
+  Rule learned: limitations and method checks do not go in the Summary; numbers about limits go after the limits are
+  shown (Sec. V), not in Sec. IV.
+  Last lines: removing the Summary sentence left the paper ending on "way."; the closing sentence now reads "...can
+  be tested along the whole trip, from source to detector, in the same way." (my wording, flagged to him). The Sec. IV
+  insertion had pushed its paragraph's end to "certainties [47]."; fixed by the shorter sentence above. Scan of the
+  whole PDF: one earlier short last line remains, page 6, "spectrum 1/E'." (not from today's edits).
+  Paper compiles, 28 pages, no undefined references or overfull boxes. Not committed.
+
+### Handoff 2026-11-28 (09:45): the final run is over; text items 1-2 are in; next is the forecast "gain" numbers
+
+**Read first.** `~/.claude/CLAUDE.md`, the memory index (above all `no_patches_one_final_run.md`, `be_brief.md`,
+`plain_language.md`, `keep_goal_human.md`), then this entry. The entries of 2026-11-27 and 11-28 above hold the
+details and numbers; this is the summary.
+
+**Where the paper stands.** `paper/main.tex` compiles (28 pages, no undefined references, no overfull boxes, no
+`\todo` left; pdflatex + bibtex, no latexmk on this machine). Coauthor comments are due 2026-12-02. Authors: Bustamante,
+Petropavlova (added 11-27, ORCID, e-mail, two Prague affiliations from INSPIRE), Das, Agarwalla.
+
+**No job of this project is queued or running on Tycho.** No solver caches are left. Laptop disk: 98% full; this
+project is small (see the 11-27 23:20 entry). The promotional animation is being made in a SEPARATE session that he
+started from my task chip (worktree `.claude/worktrees/compassionate-lumiere-1f52d6`, folder `resources/animation/`
+there); do not touch it from here.
+
+**Committed and pushed (dev; CI green on each):** cee1778 (limits_20261127 with the 62-lightest-mass refit merged;
+reading rule: nothing excluded below the best-fit coupling; Figs. 9-12 redrawn), 5b8105f (Introduction: Esteban
+comparison "below about 10 MeV"; Ioka number 0.028), 29338cd, e2cda73 (runner: NULRI_WORKER_MAXTASKS; coverage tool
+--toys 0), daf0089 (Petropavlova; coverage result files in output/analysis/coverage_20261127/), d487a30 (bibliography
+re-checked against INSPIRE, 15 corrections), 6034c6d (Cardenas:2026vop cited), 8756606 (six dip fits folded into the
+limits; final ultralight L_e-L_alpha forecast planes; Figs. 9 and 11 redrawn).
+**NOT committed (he has not asked):** paper/main.tex and paper/main.pdf (items 1 and 2 below, the closing sentence),
+this log, and the new folder output/analysis/final_checks_20261128/ (the final run's results and every script used:
+dips/, index_ranges/, scripts/; copied from the session's temporary folder, which a reboot clears).
+
+**His decisions of 11-27/28, in his words where short.**
+- Reading rule: "Yes, apply it" (no coupling below the best-fit one is excluded).
+- Why the MeV limits are uneven: two sentences in the preference subsection ("Add them to the paper").
+- Forecast re-check with 62 lightest masses: launched ("Launch the forecast refit tonight"), then "Ok, don't resume
+  them, but don't add a sentence to the paper. This is internal." Result, internal only: 1,794 points at four of
+  eight masses, no projected limit changed. The forecasts keep the 11-mass scan. Nothing about this in the paper.
+- "I need to do a final run" / no patches: see memory `no_patches_one_final_run.md`. No further re-runs are planned;
+  propose none unless a conclusion of the paper would change.
+- Six stalled ultralight forecast tasks: "Do it" (stopped; their points are saved).
+- Spectral-index range: "Keep gamma in 2-3 and say so". Summary: "Again, this has no room in Summary".
+- Coverage: "This has no place in the Summary"; the Sec. IV text approved after a rewrite ("Yes").
+- Dip fits with extra starts folded into the limits: "Yes".
+- Previous bounds (the DeepCore limits of Garg:2026gwx and Cardenas:2026vop) in Fig. 9: "We will add previous bounds
+  later, put it in to-do list".
+
+**Results of the final run (all in output/analysis/final_checks_20261128/, numbers in the entries above).**
+1. Dips refit from 16 extra starting points (le_ltau_mev_fx and si_scalar_majorana_tau_fx at 10^6.0, 6.25, 6.625
+   eV): one limit moved by a factor 2 (L_e-L_tau at 1 MeV, 10^-2.94 -> 10^-2.65), the others by 7% or less. Folded
+   into limits_20261127 (each summary lists the changed points under "multistart_20261128").
+2. Spectral-index ranges widened to gamma 2-4, gamma_low 0.1-2.5 (the solver rejects an index of 0), for the same two
+   cases, 10^4.75-10^7.125 eV: SI scalar Majorana nu_tau weaker by a factor 6.8-7.7 from 56 keV to 0.42 MeV, 2.9 at
+   1.8 MeV, 1.4 at 0.56 MeV, unchanged at 0.75, 1.0 MeV and from 3 MeV up; L_e-L_tau keeps a limit at two of its eight
+   masses (1.0 and 4.2 MeV). Census of all today's-data planes (scripts/census_bounds.py): gamma sits on 3 at 16-74%
+   of the limits in every family, ultralight included, so the range cannot be changed consistently; it stays 2-3.
+3. Ultralight columns with a 62-mass scan of the lightest mass (those planes fit it without a scan): secret
+   interactions at 10^-9 eV unchanged to four decimals; L_e-L_tau at 10^-16 eV ran out of time (5-h limit), no
+   result, not rerun.
+4. Coverage at 1.3 MeV, rerun with multi-start fits: L_e-L_tau 93 of 97 allowed, secret interactions 84 of 99
+   (output/analysis/coverage_20261127/). No Feldman-Cousins (his, 11-26).
+
+**What is in main.tex from this morning (uncommitted).**
+- Sec. IV, coverage paragraph (about line 624): fits "as the real data ... (starting each fit from sixteen additional
+  points ...)"; 2.5% expected; 4 of 97; 15 of 99, "six times more often than it should"; threshold 6.7 defined as the
+  value that Delta chi^2 at the true coupling exceeds in 5% of those pseudo-experiments; coupling 25% larger; 3.84
+  kept; other masses and models not tested.
+- Sec. IV, "The flux in the fits" (line 538): "We let gamma vary from 2 to 3 and gamma_low from 0.5 to 2.5; that is,
+  we assume source spectra no steeper than E^-3 above the break."
+- Sec. V, new last paragraph of the secret-interactions subsection (line 708): the measured sensitivity to the
+  index range (the numbers of result 2).
+- Summary: the coverage sentence deleted; NO index sentence. Closing sentence now "...can be tested along the whole
+  trip, from source to detector, in the same way." (my addition, to avoid a one-word last line; flagged to him, no
+  answer yet).
+- Known leftover: page 6 has a paragraph ending on the two-word line "spectrum 1/E'." (older; told to him).
+
+**What is left, in order (no runs).**
+3. FORECAST "GAIN" NUMBERS, to recompute against limits_20261127 and bring him only those that change. Sentences
+   (main.tex lines today): 98 (abstract: "factors of about 2 to 60"), 155 (Introduction: "factors of 2 to 60"), 722
+   ("projected limits lie 0.9 to 2.6 orders of magnitude below the preferred couplings"), 726 ("median gain ... 0.4
+   to 1.75 orders of magnitude, a factor of 2 to 60"), 727 ("Below 1 keV ... 0.4 to 1.75"), 728 ("Above 1 keV ... a
+   factor of 2 to 4"), 729 ("At the resonances, the gain reaches 3.4 orders of magnitude"), 808 (Summary: "factors of
+   a few to tens"). They were computed ad hoc on 11-22 (entry at about line 952: medians 0.38 (scalar SI) to 1.75
+   (vector SI) decades; L_e-L_mu 0.84, L_e-L_tau 1.38, dark portal 0.54-0.94), from the fitted-composition planes:
+   gain = today's lowest excluded log10 g minus the projected one, per mediator mass, per case; no script was kept,
+   so write one (put it in output/analysis/final_checks_20261128/scripts/) that reads
+   output/analysis/limits_20261127/<checkout>/<campaign>/{now_icecube,proj_future_planA}/<plane>/limits.json with the
+   notebook's WHERE table (notebooks/paper_figures.ipynb, cell 1), and first reproduce the 11-22 numbers with
+   limits_20261121 to make sure the definition is the same. Expect changes where today's limits moved: MeV masses of
+   the fitted planes (the dips near 0.56-1.3 MeV went, so "3.4 orders at the resonances" and "factor of 2 to 4 above
+   1 keV" are the ones at risk); the preferred couplings and the forecasts did not change.
+4. Previous bounds in Fig. 9 (DeepCore limits): on his to-do list, "later". analysis/existing_bounds.py and
+   Table tab:bounds would both change.
+5. His: the title of Bustamante:2026inprep; his editing pass; the closing sentence; the page-6 last line.
+Not for the paper but open: the pion-composition planes keep the 11-mass scan (they are in no paper figure; the public
+data release would carry both compositions); the companion repository; `tools/collect_limits.sh` and the deletion of
+the Tycho checkouts once he calls the limits final (limits_20261127 was built locally from copies:
+scripts/build_limits_20261127.sh, then reread_columns.py; the checkouts still hold all records).
+
+**How he wants this done (learned again this session).** One consolidated message per topic, plain words first, no
+intermediate findings, no new runs. Paper text: argument first, then a ```tex block naming what it replaces, with a
+short claims list; rewrite from the paragraph's job when he objects, never patch. Limitations and method checks do
+not go in the Summary; numbers about limits go where the limits are shown (Sec. V), not before. Commit and push only
+on his word. A job is alive only if its last SAVED record is recent, not if its log moves.
+
+- 2026-11-28 (11:30). Item 3, FORECAST GAINS: NONE OF THE EIGHT SENTENCES CHANGES. Script
+  output/analysis/final_checks_20261128/scripts/forecast_gains.py (the 11-22 definition, rebuilt from the surviving
+  scratchpad msg/limits_summary_fx.py + compare_fx.py: lowest excluded log10 g per mass of the figures' joined fields,
+  fitted composition; gain = today minus projected at masses where both have a limit; median per model; preference gap
+  from each plane's limits.json at the mass of largest preference). Results in final_checks_20261128/gains/.
+  Reproduces 11-22 exactly on limits_20261121 (L_e-L_mu 0.84, L_e-L_tau 1.38, DP 0.54-0.94, SI 0.38-1.75).
+  On limits_20261127: medians 0.38-1.75 (factor 2.4-56: "2 to 60", "a few to tens" stand); below 1 keV 0.38-1.75;
+  above 1 keV 0.32-0.62 (factor 2.1-4.2); largest above 1 keV 3.38 (vector SI, Majorana, universal, 10^5.875 eV);
+  projected limits 0.885-2.57 below the preferred couplings. Only moved: DP nu_tau median 0.94 -> 0.85, DP nu_e
+  0.85 -> 0.83 (not quoted in the paper).
+- 2026-11-28 (11:30). References, second pass (his message repeated the 00:55 one): every entry still matches
+  INSPIRE (this morning's records; Cardenas:2026vop, Jana:2026pwx, IceCube:2026plr, Barenboim:2026mvn re-fetched: no
+  change, none published). Changed: "standard model" -> "Standard Model" in Arguelles:2022tki (proper noun, as in
+  main.tex); journal = "" removed from the three arXiv-only entries (INSPIRE verbatim; prints identically). Kept (my
+  call): capitals starting a new sentence after "?" (Barenboim:2026mvn) and after "VI." (Planck:2018vyg);
+  "Majorons" (eponym). Bib backup: session scratchpad bib/references_backup_20261128.bib.
+- 2026-11-28 (11:30). His four papers to cite (INSPIRE BibTeX verbatim): Bustamante:2026knw (Galactic flavor
+  composition) cited in Sec. IV after "the Galactic sources" (the nu_e fraction it forecasts is the one we fit);
+  Bustamante:2026fxa already cited (Sec. IV coverage, pseudo-data method), no second place; Bustamante:2026aur and
+  Bustamante:2026zst need one new sentence at "We fix the mixing parameters ..." (proposed to him, NOT in main.tex;
+  measured in a scratch build: 28 pages, paragraph ends on a full line). Until it goes in, that paragraph ends on the
+  one-word line "certainties [48]." (caused by the knw citation). Not committed.
+- 2026-11-28 (11:45). Mixing sentence IN main.tex (his "Yes, add it"): Sec. IV, "We fix the mixing parameters ...,
+  from experiments below 1~TeV, and assume that they do not change up to the energies of our neutrinos. Today's flavor
+  measurements by IceCube cannot yet test this assumption~\cite{Bustamante:2026aur, Bustamante:2026zst}. Letting the
+  mixing parameters vary ...". Rebuilt: 28 pages, no undefined references or overfull boxes (Fig. 1, a full-width
+  float, at the top of page 2, as in the committed PDF; my 'page 1' at the time was wrong); the
+  paragraph ends on "have narrowed these uncertainties [50]." (the one-word last line is gone). Not committed;
+  Overleaf needs main.tex and references.bib.
+- 2026-11-28 (12:10). Figure currency check (his question): Figs. 9, 11, 12 drawn 07:09 today from the final limits
+  and preference_20261127.json; Fig. 10 drawn 11-27 13:57, no dark-portal plane changed since (8756606 touched only
+  L_e-L_alpha and si_scalar_majorana_tau_fx). The 11-22 figures (secondaries, mean free paths, species, three classes,
+  event rates, by-relic mean free paths, provenance) use the solver as it is now (no src change after cb9288e); the
+  three examples are inside the final excluded regions (both compositions); provenance reads limits_20261121 le_lmu_ul,
+  identical in limits_20261127. NOT from the final solver: flux_stops.pdf (method_figures.npz of 11-07, before the
+  Earth's SM potential, 61d823b, and the mediators' decay back, 1d86895) and dirac_relic_helicity.pdf
+  (dirac_polarization.npz of 10-21); whether they change is not checked. Put to him.
+- 2026-11-28 (12:30). The two old appendix figures recomputed with today's solver (his "Yes, recompute both"): Tycho
+  job 931055 (tycho1_short, 32 cores, 4.5 min; export of 8756606 in external/nulri_figs + the two edited scripts).
+  analysis/method_figures.py: the trip's cases now take the mixing block of the final ultralight L_e-L_mu planes
+  (campaign_final_sm: SM potential in the Earth, PREM) and their thermal products; tools/dirac_relic_polarization.py:
+  the final SI configs (campaign_si/now_ic26/si_{scalar,vector}_dirac_e.json: NuFIT 6.1, broken power law) with the
+  Galactic component off (the ratio stays extragalactic; data.spectrum dropped, it needs the Galaxy) instead of the
+  pion_2050 projections. Comparison: final_checks_20261128/scripts/compare_appendix_figures.py.
+  Trip stop by stop (Fig. trip): unchanged (1e-13 at 1e-20 eV, 1e-4 at 1e-26 eV; these sky-averaged fluxes do not
+  cross the Earth); flux_stops.pdf kept, new method_figures.npz installed. Text of App. stops re-checked: holds.
+  Dirac helicity (Fig. helicity): changed, redrawn (paper/figures/dirac_relic_helicity.pdf, notebook cell 12): the
+  4.22 MeV dips on nu_2, nu_3 reach 0.01-0.05 of the flux (were 0.04-0.26); the scalar at 31.6 keV with helicity keeps
+  0.77 at 10 TeV (was 0.86). App. thermal's claims hold: with m_1 = 1e-6 eV the helicity cuts the scalar's absorbed
+  area on nu_1 from 1.78 to 0.19 (31.6 keV) and 1.24 to 0.32 (4.22 MeV) and deepens the vector's (1.81 -> 1.96,
+  0.98 -> 1.08). No number from the figure is quoted in main.tex. Paper rebuilt: 28 pages, no warnings. Old data and
+  figures: session scratchpad figs_old/. Not committed; Overleaf needs figures/dirac_relic_helicity.pdf too.
+- 2026-11-28 (12:45). Fig. 1 label in the "Near the Sun" panel (his wording): "Potentials of Sun, Moon, Earth switch
+  on; flavor evolves coherently" (was "Potentials of the Sun, the Moon and the Earth switch on; ..."):
+  analysis/trip_illustration.py, redrawn through the notebook (cells 1, 21); five lines as before, inside the panel.
+  Paper rebuilt: 28 pages, no warnings, Fig. 1 at the top of page 2 as before. Not committed; Overleaf needs
+  figures/trip_illustration.pdf.
+- 2026-11-28 (12:55). Fig. 1, "Near the Sun" panel, his edits: label now "Potentials of Sun, Moon, Earth; flavor evolves
+  coherently" ("switch on" removed; four lines); callout "Earth and Moon" -> "Earth, Moon". Redrawn (notebook cells
+  1, 21); both inside the panel. Paper rebuilt: 28 pages, no warnings, Fig. 1 at the top of page 2. Not committed.
